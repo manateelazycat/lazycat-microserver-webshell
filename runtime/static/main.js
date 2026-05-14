@@ -1,4 +1,8 @@
-(() => {
+import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
+
+(async () => {
+  await initGhostty();
+
   const terminalHost = document.getElementById("terminal");
   if (!terminalHost) {
     throw new Error("terminal host not found");
@@ -6,19 +10,6 @@
   const params = new URLSearchParams(window.location.search);
   let activeName = (params.get("name") || "").trim();
   const instanceList = document.getElementById("instance-list");
-  const publishStatusText = document.getElementById("publish-status");
-  const publishOutput = document.getElementById("publish-output");
-  const serviceList = document.getElementById("service-list");
-  const publishPackageIDInput = document.getElementById("publish-package-id");
-  const publishUpstreamInput = document.getElementById("publish-upstream");
-  const publishAppURLInput = document.getElementById("publish-app-url");
-  const publishTitleInput = document.getElementById("publish-title");
-  const publishIconInput = document.getElementById("publish-icon");
-  const publishSkipAuthInput = document.getElementById("publish-skip-auth");
-  const publishStatusBtn = document.getElementById("publish-status-btn");
-  const publishAddBtn = document.getElementById("publish-add-btn");
-  const catlinkStatusText = document.getElementById("catlink-status");
-  const catlinkStatusBtn = document.getElementById("catlink-status-btn");
 
   const terminalOptions = {
     cursorBlink: true,
@@ -139,9 +130,12 @@
     terminalHost.appendChild(sessionHost);
 
     const term = new Terminal(terminalOptions);
-    const fitAddon = new FitAddon.FitAddon();
+    const fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
     term.open(sessionHost);
+    if (typeof fitAddon.observeResize === "function") {
+      fitAddon.observeResize();
+    }
 
     const session = {
       name: instanceName,
@@ -264,218 +258,7 @@
     renderInstanceList(currentInstances);
     const session = getSession(activeName);
     showSession(session);
-    activateCatlinkBridge(activeName).catch((error) => {
-      setCatlinkStatus(`[catlink error] ${error.message}`);
-    });
-    loadServices().catch((error) => {
-      setPublishStatus(`Services failed: ${error.message}`);
-    });
     await connectSession(session);
-  };
-
-  const readJSONSafe = async (response) => {
-    const text = await response.text();
-    if (!text) {
-      return null;
-    }
-    try {
-      return JSON.parse(text);
-    } catch (error) {
-      return { message: text };
-    }
-  };
-
-  const setPublishStatus = (message) => {
-    if (publishStatusText) {
-      publishStatusText.textContent = message;
-    }
-  };
-
-  const setPublishOutput = (value) => {
-    if (!publishOutput) {
-      return;
-    }
-    publishOutput.textContent = typeof value === "string" ? value : JSON.stringify(value, null, 2);
-  };
-
-  const setCatlinkStatus = (message) => {
-    if (catlinkStatusText) {
-      catlinkStatusText.textContent = message;
-    }
-  };
-
-  const renderCatlinkStatus = (status) => {
-    const state = String(status?.status || "unknown").trim() || "unknown";
-    const message = String(status?.message || "").trim();
-    const activeVersion = String(status?.active_version || "").trim();
-    const suffix = activeVersion ? ` (${activeVersion})` : "";
-    setCatlinkStatus(message ? `${state}${suffix}: ${message}` : `${state}${suffix}`);
-  };
-
-  const refreshCatlinkStatus = async () => {
-    if (!activeName) {
-      return;
-    }
-    const bridge = window.lightosCatlinkProviderBridge;
-    if (!bridge || typeof bridge.getStatus !== "function") {
-      setCatlinkStatus("Catlink bridge is not loaded");
-      return;
-    }
-    const status = await bridge.getStatus(activeName);
-    renderCatlinkStatus(status);
-  };
-
-  const activateCatlinkBridge = async (instanceName) => {
-    const bridge = window.lightosCatlinkProviderBridge;
-    if (!bridge || typeof bridge.activate !== "function") {
-      setCatlinkStatus("Catlink bridge is not loaded");
-      return;
-    }
-    setCatlinkStatus("Checking...");
-    await bridge.activate(instanceName);
-    await refreshCatlinkStatus();
-  };
-
-  const resolveAdminURL = async (path) => {
-    const bridge = window.lightosCatlinkProviderBridge;
-    if (!bridge || typeof bridge.getAdminInfo !== "function") {
-      throw new Error("LightOS admin info is not available");
-    }
-    const info = await bridge.getAdminInfo();
-    return new URL(path, info.base_url);
-  };
-
-  const requestAdminJSON = async (path, options = {}) => {
-    const url = await resolveAdminURL(path);
-    const response = await fetch(url.toString(), {
-      cache: "no-store",
-      credentials: "include",
-      ...options,
-    });
-    const data = await readJSONSafe(response);
-    if (!response.ok) {
-      const message =
-        (typeof data?.error === "string" && data.error) ||
-        (typeof data?.message === "string" && data.message) ||
-        `Request failed (${response.status})`;
-      throw new Error(message);
-    }
-    return data;
-  };
-
-  const serviceFormData = () => {
-    const packageID = String(publishPackageIDInput?.value || "").trim();
-    const upstream = String(publishUpstreamInput?.value || "").trim();
-    const appURL = String(publishAppURLInput?.value || "").trim();
-    const title = String(publishTitleInput?.value || "").trim();
-    if (!packageID) {
-      throw new Error("Package ID is required");
-    }
-    if (!upstream) {
-      throw new Error("Upstream is required");
-    }
-    if (!appURL) {
-      throw new Error("App URL is required");
-    }
-    if (!title) {
-      throw new Error("Title is required");
-    }
-    const form = new FormData();
-    form.set("instance_name", activeName);
-    form.set("package_id", packageID);
-    form.set("upstream", upstream);
-    form.set("app_url", appURL);
-    form.set("title", title);
-    form.set("skip_auth", publishSkipAuthInput?.checked ? "true" : "false");
-    const icon = publishIconInput?.files?.[0];
-    if (icon) {
-      form.set("icon", icon);
-    }
-    return form;
-  };
-
-  const runPublishAction = async (label, action) => {
-    try {
-      setPublishStatus(`${label}...`);
-      const result = await action();
-      setPublishStatus(`${label} OK`);
-      setPublishOutput(result || { ok: true });
-      return result;
-    } catch (error) {
-      setPublishStatus(`${label} failed`);
-      setPublishOutput(`[publish error] ${error.message}`);
-      throw error;
-    }
-  };
-
-  const renderServices = (services) => {
-    if (!serviceList) {
-      return;
-    }
-    serviceList.textContent = "";
-    const visible = Array.isArray(services)
-      ? services.filter((service) => String(service?.instance_name || "").trim() === activeName)
-      : [];
-    if (visible.length === 0) {
-      const empty = document.createElement("div");
-      empty.className = "service-empty";
-      empty.textContent = "No services for this instance";
-      serviceList.appendChild(empty);
-      return;
-    }
-    for (const service of visible) {
-      const appURL = String(service.app_url || "").trim();
-      const link = document.createElement(appURL ? "a" : "div");
-      link.className = appURL ? "service-item" : "service-item service-item-disabled";
-      if (appURL) {
-        link.href = appURL;
-        link.target = "_blank";
-        link.rel = "noreferrer";
-      }
-      const title = document.createElement("span");
-      title.className = "service-title";
-      title.textContent = String(service.title || service.package_id || "Untitled service");
-      const meta = document.createElement("span");
-      meta.className = "service-meta";
-      meta.textContent = `${service.package_id || ""} ${service.upstream || ""}`.trim();
-      link.append(title, meta);
-      serviceList.appendChild(link);
-    }
-  };
-
-  const loadServices = async () => {
-    const data = await requestAdminJSON("/unsafe_api/publish/services");
-    const services = Array.isArray(data?.services) ? data.services : [];
-    renderServices(services);
-    return services;
-  };
-
-  const bindPublishActions = () => {
-    publishStatusBtn?.addEventListener("click", () => {
-      runPublishAction("Status", async () => {
-        const result = await requestAdminJSON("/unsafe_api/publish/status");
-        await loadServices();
-        return result;
-      }).catch(() => {});
-    });
-    publishAddBtn?.addEventListener("click", () => {
-      runPublishAction("Add service", async () => {
-        const result = await requestAdminJSON("/unsafe_api/publish/services", {
-          method: "POST",
-          body: serviceFormData(),
-        });
-        await loadServices();
-        return result;
-      }).catch(() => {});
-    });
-  };
-
-  const bindCatlinkActions = () => {
-    catlinkStatusBtn?.addEventListener("click", () => {
-      refreshCatlinkStatus().catch((error) => {
-        setCatlinkStatus(`[catlink error] ${error.message}`);
-      });
-    });
   };
 
   const bootstrap = async () => {
@@ -487,9 +270,6 @@
       renderInstanceList(currentInstances);
     }
     await switchInstance(activeName, { updateURL: false });
-    await loadServices().catch((error) => {
-      setPublishStatus(`Services failed: ${error.message}`);
-    });
   };
 
   window.addEventListener("resize", () => {
@@ -531,8 +311,6 @@
       session.socket?.close();
     }
   });
-  bindPublishActions();
-  bindCatlinkActions();
   bootstrap().catch((error) => {
     const fallback = getSession(activeName || "error");
     showSession(fallback);

@@ -4,62 +4,15 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>LightOS Demo WebShell</title>
-    <link rel="stylesheet" href="./static/xterm.min.css" />
     <link rel="stylesheet" href="./static/style.css" />
   </head>
   <body>
     <div class="app-shell">
       <nav class="instance-list" id="instance-list" aria-label="Running instances"></nav>
-      <section class="publish-panel" aria-label="Publish API smoke test">
-        <div class="publish-panel-head">
-          <div class="publish-title">Services</div>
-          <div class="publish-status" id="publish-status">Not checked</div>
-        </div>
-        <div class="publish-form">
-          <label>
-            <span>Package ID</span>
-            <input id="publish-package-id" type="text" value="cloud.lazycat.app.demo-service" autocomplete="off" />
-          </label>
-          <label>
-            <span>Upstream</span>
-            <input id="publish-upstream" type="text" value="http://127.0.0.1:8080" autocomplete="off" />
-          </label>
-          <label>
-            <span>App URL</span>
-            <input id="publish-app-url" type="text" placeholder="https://demo-service.example.com/" autocomplete="off" />
-          </label>
-          <label>
-            <span>Title</span>
-            <input id="publish-title" type="text" value="Demo Web Service" autocomplete="off" />
-          </label>
-          <label>
-            <span>Icon</span>
-            <input id="publish-icon" type="file" accept="image/png" />
-          </label>
-          <label class="publish-checkbox">
-            <input id="publish-skip-auth" type="checkbox" />
-            <span>Skip auth</span>
-          </label>
-        </div>
-        <div class="publish-actions">
-          <button type="button" id="publish-status-btn">Status</button>
-          <button type="button" id="publish-add-btn">Add service</button>
-        </div>
-        <div class="service-list" id="service-list"></div>
-        <pre class="publish-output" id="publish-output"></pre>
-      </section>
-      <section class="catlink-panel" aria-label="Catlink status">
-        <div class="catlink-title">Catlink</div>
-        <div class="catlink-status" id="catlink-status">Not checked</div>
-        <button type="button" id="catlink-status-btn">Refresh</button>
-      </section>
       <main class="terminal-wrap">
         <div id="terminal"></div>
       </main>
     </div>
-    <script src="./static/xterm.min.js"></script>
-    <script src="./static/xterm-addon-fit.min.js"></script>
-    <script src="./static/lightos-catlink-provider.js"></script>
-    <script src="./static/main.js"></script>
+    <script type="module" src="./static/main.js"></script>
   </body>
 </html>
