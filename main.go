@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -38,6 +39,12 @@ type adminInfo struct {
 	DeployID string `json:"deploy_id"`
 	Domain   string `json:"domain"`
 	BaseURL  string `json:"base_url"`
+}
+
+type webSocketClientMessage struct {
+	messageType int
+	payload     []byte
+	err         error
 }
 
 var upgrader = websocket.Upgrader{
@@ -162,6 +169,23 @@ func (s *pluginServer) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
 
+	var writeMu sync.Mutex
+	writeMessage := func(messageType int, payload []byte) bool {
+		writeMu.Lock()
+		defer writeMu.Unlock()
+		return conn.WriteMessage(messageType, payload) == nil
+	}
+	writeTextMessage := func(text string) {
+		_ = writeMessage(websocket.TextMessage, []byte(text))
+	}
+	writeControlMessage := func(payload any) {
+		data, err := json.Marshal(payload)
+		if err != nil {
+			return
+		}
+		_ = writeMessage(websocket.TextMessage, data)
+	}
+
 	cols, rows := parseTerminalSize(r.URL.Query().Get("cols"), r.URL.Query().Get("rows"))
 	if cols <= 0 {
 		cols = 120
@@ -176,26 +200,27 @@ func (s *pluginServer) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	ptyFile, err := pty.Start(command)
 	if err != nil {
-		_ = conn.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("[webshell error] %v", err)))
+		writeTextMessage(fmt.Sprintf("[webshell error] %v", err))
 		return
 	}
 	defer func() {
 		_ = ptyFile.Close()
 	}()
 	if err := pty.Setsize(ptyFile, &pty.Winsize{Cols: uint16(cols), Rows: uint16(rows)}); err != nil {
-		_ = conn.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("[webshell error] %v", err)))
+		writeTextMessage(fmt.Sprintf("[webshell error] %v", err))
 		return
 	}
 
 	done := make(chan struct{})
 	waitErr := make(chan error, 1)
+	clientMessages := make(chan webSocketClientMessage, 16)
 	go func() {
 		defer close(done)
 		buf := make([]byte, 4096)
 		for {
 			n, err := ptyFile.Read(buf)
 			if n > 0 {
-				if writeErr := conn.WriteMessage(websocket.BinaryMessage, append([]byte(nil), buf[:n]...)); writeErr != nil {
+				if ok := writeMessage(websocket.BinaryMessage, append([]byte(nil), buf[:n]...)); !ok {
 					return
 				}
 			}
@@ -207,6 +232,25 @@ func (s *pluginServer) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		waitErr <- command.Wait()
 	}()
+	go func() {
+		defer close(clientMessages)
+		for {
+			messageType, message, err := conn.ReadMessage()
+			next := webSocketClientMessage{
+				messageType: messageType,
+				payload:     message,
+				err:         err,
+			}
+			select {
+			case clientMessages <- next:
+			case <-ctx.Done():
+				return
+			}
+			if err != nil {
+				return
+			}
+		}
+	}()
 
 	for {
 		select {
@@ -217,30 +261,49 @@ func (s *pluginServer) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			return
 		case err := <-waitErr:
 			if err != nil && !errors.Is(err, os.ErrProcessDone) {
-				_ = conn.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("[webshell error] %v", err)))
+				writeTextMessage(fmt.Sprintf("[webshell error] %v", err))
 			}
 			<-done
-			return
-		default:
-		}
-		_, message, err := conn.ReadMessage()
-		if err != nil {
-			_ = killCommand(command)
-			<-done
-			return
-		}
-		switch {
-		case bytes.HasPrefix(message, []byte("resize:")):
-			cols, rows = parseTerminalSizeFromPayload(message)
-			if cols > 0 && rows > 0 {
-				_ = pty.Setsize(ptyFile, &pty.Winsize{Cols: uint16(cols), Rows: uint16(rows)})
+			exitMessage := map[string]any{
+				"type":      "process-exit",
+				"exit_code": processExitCode(err),
 			}
-		case bytes.HasPrefix(message, []byte("input:")):
-			_, _ = io.WriteString(ptyFile, strings.TrimPrefix(string(message), "input:"))
-		default:
-			_, _ = ptyFile.Write(message)
+			if err != nil && !errors.Is(err, os.ErrProcessDone) {
+				exitMessage["message"] = err.Error()
+			}
+			writeControlMessage(exitMessage)
+			return
+		case clientMessage, ok := <-clientMessages:
+			if !ok || clientMessage.err != nil {
+				_ = killCommand(command)
+				<-done
+				<-waitErr
+				return
+			}
+			switch {
+			case bytes.HasPrefix(clientMessage.payload, []byte("resize:")):
+				cols, rows = parseTerminalSizeFromPayload(clientMessage.payload)
+				if cols > 0 && rows > 0 {
+					_ = pty.Setsize(ptyFile, &pty.Winsize{Cols: uint16(cols), Rows: uint16(rows)})
+				}
+			case bytes.HasPrefix(clientMessage.payload, []byte("input:")):
+				_, _ = io.WriteString(ptyFile, strings.TrimPrefix(string(clientMessage.payload), "input:"))
+			default:
+				_, _ = ptyFile.Write(clientMessage.payload)
+			}
 		}
 	}
+}
+
+func processExitCode(err error) int {
+	if err == nil || errors.Is(err, os.ErrProcessDone) {
+		return 0
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		return exitErr.ExitCode()
+	}
+	return -1
 }
 
 func killCommand(command *exec.Cmd) error {

@@ -213,6 +213,125 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
   const instanceDisplayName = (item) => String(item?.name || "").trim() || instanceSelector(item).split("@", 1)[0];
   const getActiveInstance = () => currentInstances.find((item) => instanceSelector(item) === activeName) || null;
   const isRunningInstance = (item) => item?.status === "running";
+  const shortcutDefinitions = {
+    fullscreen: "F11",
+    new_tab: "Ctrl + Shift + t",
+    close_tab: "Ctrl + Shift + w",
+    next_tab: "Ctrl + Tab",
+    previous_tab: "Ctrl + Shift + Tab",
+    last_tab: "Alt + 0",
+    vertical_split: "Ctrl + Shift + j",
+    horizontal_split: "Ctrl + Shift + h",
+    select_up: "Alt + k",
+    select_down: "Alt + j",
+    select_left: "Alt + h",
+    select_right: "Alt + l",
+    close_pane: "Ctrl + Alt + q",
+    theme: "Ctrl + Shift + p",
+    switch_container: "Ctrl + Shift + o",
+  };
+  const shortcutActionMap = new Map();
+
+  for (let index = 1; index <= 9; index += 1) {
+    shortcutDefinitions[`tab_${index}`] = `Alt + ${index}`;
+  }
+
+  const normalizeShortcutKeyToken = (token) => {
+    const raw = String(token || "").trim();
+    if (!raw) {
+      return "";
+    }
+    const lower = raw.toLowerCase();
+    const aliases = {
+      control: "ctrl",
+      meta: "super",
+      command: "super",
+      cmd: "super",
+      pageup: "page_up",
+      pagedown: "page_down",
+      escape: "escape",
+      esc: "escape",
+      return: "enter",
+      " ": "space",
+    };
+    if (aliases[lower]) {
+      return aliases[lower];
+    }
+    if (/^f\d{1,2}$/i.test(raw)) {
+      return lower;
+    }
+    if (raw.length === 1) {
+      return lower;
+    }
+    return lower.replace(/\s+/g, "_");
+  };
+
+  const serializeShortcut = ({ ctrl = false, shift = false, alt = false, superKey = false, key = "" } = {}) => {
+    if (!key) {
+      return "";
+    }
+    const parts = [];
+    if (ctrl) {
+      parts.push("ctrl");
+    }
+    if (shift) {
+      parts.push("shift");
+    }
+    if (alt) {
+      parts.push("alt");
+    }
+    if (superKey) {
+      parts.push("super");
+    }
+    parts.push(key);
+    return parts.join("+");
+  };
+
+  const normalizeShortcutDefinition = (value) => {
+    const state = { ctrl: false, shift: false, alt: false, superKey: false, key: "" };
+    for (const part of String(value || "").split("+")) {
+      const token = normalizeShortcutKeyToken(part);
+      switch (token) {
+        case "ctrl":
+          state.ctrl = true;
+          break;
+        case "shift":
+          state.shift = true;
+          break;
+        case "alt":
+          state.alt = true;
+          break;
+        case "super":
+          state.superKey = true;
+          break;
+        default:
+          state.key = token;
+          break;
+      }
+    }
+    return serializeShortcut(state);
+  };
+
+  const getShortcutKeyFromEvent = (event) => {
+    const key = normalizeShortcutKeyToken(event.key);
+    if (!key || ["ctrl", "shift", "alt", "super"].includes(key)) {
+      return "";
+    }
+    return serializeShortcut({
+      ctrl: event.ctrlKey,
+      shift: event.shiftKey,
+      alt: event.altKey,
+      superKey: event.metaKey,
+      key,
+    });
+  };
+
+  for (const [action, definition] of Object.entries(shortcutDefinitions)) {
+    const shortcut = normalizeShortcutDefinition(definition);
+    if (shortcut) {
+      shortcutActionMap.set(shortcut, action);
+    }
+  }
 
   const showToast = (message) => {
     if (!toast) {
@@ -348,6 +467,30 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
 
   const currentTab = () => tabs.get(activeTabId) || null;
 
+  const getOrderedTabs = () =>
+    Array.from(tabsEl.querySelectorAll(".tab"))
+      .map((button) => tabs.get(button.dataset.tabId))
+      .filter(Boolean);
+
+  const setActiveTabByOffset = (offset) => {
+    const orderedTabs = getOrderedTabs();
+    if (orderedTabs.length === 0) {
+      return;
+    }
+    const currentIndex = orderedTabs.findIndex((tab) => tab.id === activeTabId);
+    const safeIndex = currentIndex >= 0 ? currentIndex : 0;
+    const nextIndex = (safeIndex + offset + orderedTabs.length) % orderedTabs.length;
+    setActiveTab(orderedTabs[nextIndex].id);
+  };
+
+  const setActiveTabByIndex = (index) => {
+    const orderedTabs = getOrderedTabs();
+    const tab = orderedTabs[Math.max(0, Math.min(index, orderedTabs.length - 1))];
+    if (tab) {
+      setActiveTab(tab.id);
+    }
+  };
+
   const updateEmptyState = () => {
     if (!emptyState) {
       return;
@@ -465,6 +608,11 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
               case "history-replay-complete":
               case "pong":
                 return;
+              case "process-exit":
+                session.exitExpected = true;
+                session.socket = null;
+                closePane(session.tabId, session.id);
+                return;
             }
           }
         } catch (error) {
@@ -482,6 +630,9 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
         session.socket = null;
       }
       session.shellEl.dataset.connection = "closed";
+      if (session.exitExpected) {
+        return;
+      }
       scheduleReconnect(session);
     });
 
@@ -524,6 +675,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
       socket: null,
       reconnectTimer: 0,
       reconnectPending: false,
+      exitExpected: false,
       closed: false,
     };
 
@@ -847,6 +999,123 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     setActiveTab(tab.id);
   };
 
+  const paneRectSnapshot = (tab) =>
+    Array.from(tab?.panes?.values() || [])
+      .map((pane) => {
+        const rect = pane.shellEl?.getBoundingClientRect?.();
+        if (!rect || rect.width <= 0 || rect.height <= 0) {
+          return null;
+        }
+        return {
+          id: pane.id,
+          left: rect.left,
+          top: rect.top,
+          right: rect.right,
+          bottom: rect.bottom,
+        };
+      })
+      .filter(Boolean);
+
+  const overlapLength = (startA, endA, startB, endB) => Math.max(0, Math.min(endA, endB) - Math.max(startA, startB));
+
+  const comparePaneMetric = (left, right) => {
+    if (!left) {
+      return 1;
+    }
+    if (!right) {
+      return -1;
+    }
+    if (left.rank !== right.rank) {
+      return left.rank - right.rank;
+    }
+    if (left.primary !== right.primary) {
+      return right.primary - left.primary;
+    }
+    if (left.distance !== right.distance) {
+      return left.distance - right.distance;
+    }
+    if (left.secondary !== right.secondary) {
+      return left.secondary - right.secondary;
+    }
+    return left.index - right.index;
+  };
+
+  const buildHorizontalPaneMetric = (currentRect, candidateRect, left, index) => {
+    const overlap = overlapLength(currentRect.top, currentRect.bottom, candidateRect.top, candidateRect.bottom);
+    if (overlap <= 0) {
+      return null;
+    }
+    const distance = left ? currentRect.left - candidateRect.right : candidateRect.left - currentRect.right;
+    if (distance < -6) {
+      return null;
+    }
+    const sameEdge = Math.abs(candidateRect.top - currentRect.top) <= 6;
+    const containsCurrent = candidateRect.top <= currentRect.top + 6 && candidateRect.bottom >= currentRect.bottom - 6;
+    return {
+      rank: sameEdge ? 0 : containsCurrent ? 1 : 2,
+      primary: overlap,
+      distance: Math.max(0, distance),
+      secondary: Math.abs(candidateRect.top - currentRect.top),
+      index,
+    };
+  };
+
+  const buildVerticalPaneMetric = (currentRect, candidateRect, up, index) => {
+    const overlap = overlapLength(currentRect.left, currentRect.right, candidateRect.left, candidateRect.right);
+    if (overlap <= 0) {
+      return null;
+    }
+    const distance = up ? currentRect.top - candidateRect.bottom : candidateRect.top - currentRect.bottom;
+    if (distance < -6) {
+      return null;
+    }
+    const sameEdge = Math.abs(candidateRect.left - currentRect.left) <= 6;
+    const containsCurrent = candidateRect.left <= currentRect.left + 6 && candidateRect.right >= currentRect.right - 6;
+    return {
+      rank: sameEdge ? 0 : containsCurrent ? 1 : 2,
+      primary: overlap,
+      distance: Math.max(0, distance),
+      secondary: Math.abs(candidateRect.left - currentRect.left),
+      index,
+    };
+  };
+
+  const selectPaneInDirection = (direction) => {
+    const tab = currentTab();
+    const activePane = tab?.panes.get(tab.activePaneId);
+    if (!tab || !activePane) {
+      return;
+    }
+    const currentRect = paneRectSnapshot(tab).find((rect) => rect.id === activePane.id);
+    if (!currentRect) {
+      return;
+    }
+    let bestRect = null;
+    let bestMetric = null;
+    paneRectSnapshot(tab).forEach((candidateRect, index) => {
+      if (candidateRect.id === activePane.id) {
+        return;
+      }
+      let metric = null;
+      if (direction === "left") {
+        metric = buildHorizontalPaneMetric(currentRect, candidateRect, true, index);
+      } else if (direction === "right") {
+        metric = buildHorizontalPaneMetric(currentRect, candidateRect, false, index);
+      } else if (direction === "up") {
+        metric = buildVerticalPaneMetric(currentRect, candidateRect, true, index);
+      } else if (direction === "down") {
+        metric = buildVerticalPaneMetric(currentRect, candidateRect, false, index);
+      }
+      if (metric && comparePaneMetric(metric, bestMetric) < 0) {
+        bestMetric = metric;
+        bestRect = candidateRect;
+      }
+    });
+    if (bestRect?.id) {
+      setActivePane(tab, bestRect.id);
+    }
+  };
+
   const disposePane = (pane) => {
     if (!pane || pane.closed) {
       return;
@@ -1014,6 +1283,132 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     }
   };
 
+  const isInteractiveShortcutTarget = (target) => {
+    if (!(target instanceof Element)) {
+      return false;
+    }
+    if (target.closest(".terminal-host")) {
+      return false;
+    }
+    if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement) {
+      return true;
+    }
+    if (target.isContentEditable && !target.classList.contains("terminal-host")) {
+      return true;
+    }
+    const interactive = target.closest("input, textarea, select, [contenteditable='true']");
+    return Boolean(interactive && !interactive.classList.contains("terminal-host"));
+  };
+
+  const isFullscreenActive = () => Boolean(document.fullscreenElement || document.webkitFullscreenElement || document.msFullscreenElement);
+
+  const toggleFullscreen = async () => {
+    if (isFullscreenActive()) {
+      const exitFullscreen = document.exitFullscreen || document.webkitExitFullscreen || document.msExitFullscreen;
+      if (typeof exitFullscreen === "function") {
+        await exitFullscreen.call(document);
+      }
+      return;
+    }
+    const requestFullscreen =
+      document.documentElement.requestFullscreen ||
+      document.documentElement.webkitRequestFullscreen ||
+      document.documentElement.msRequestFullscreen;
+    if (typeof requestFullscreen === "function") {
+      await requestFullscreen.call(document.documentElement);
+    }
+  };
+
+  const runShortcutAction = async (action) => {
+    const tab = currentTab();
+    switch (action) {
+      case "fullscreen":
+        await toggleFullscreen();
+        return;
+      case "new_tab":
+        createUserTab();
+        return;
+      case "close_tab":
+        if (tab) {
+          closeTab(tab.id);
+        }
+        return;
+      case "next_tab":
+        setActiveTabByOffset(1);
+        return;
+      case "previous_tab":
+        setActiveTabByOffset(-1);
+        return;
+      case "last_tab":
+        setActiveTabByIndex(getOrderedTabs().length - 1);
+        return;
+      case "vertical_split":
+        if (tab?.activePaneId) {
+          splitPane(tab.id, tab.activePaneId, "vertical");
+        }
+        return;
+      case "horizontal_split":
+        if (tab?.activePaneId) {
+          splitPane(tab.id, tab.activePaneId, "horizontal");
+        }
+        return;
+      case "select_up":
+        selectPaneInDirection("up");
+        return;
+      case "select_down":
+        selectPaneInDirection("down");
+        return;
+      case "select_left":
+        selectPaneInDirection("left");
+        return;
+      case "select_right":
+        selectPaneInDirection("right");
+        return;
+      case "close_pane":
+        if (tab?.activePaneId) {
+          closePane(tab.id, tab.activePaneId);
+        }
+        return;
+      case "theme":
+        openThemePicker();
+        return;
+      case "switch_container":
+        await openInstanceSwitcher();
+        return;
+      default: {
+        const match = action.match(/^tab_(\d+)$/);
+        if (match) {
+          setActiveTabByIndex(Number(match[1]) - 1);
+        }
+      }
+    }
+  };
+
+  const handleGlobalShortcutKeydown = (event) => {
+    if (!(event instanceof KeyboardEvent)) {
+      return;
+    }
+    if (event.isComposing || event.key === "Process" || Number(event.keyCode || 0) === 229) {
+      return;
+    }
+    if (!themePickerBackdrop.hidden || !instanceSwitcherPanel.hidden) {
+      return;
+    }
+    if (isInteractiveShortcutTarget(event.target)) {
+      return;
+    }
+    const shortcut = getShortcutKeyFromEvent(event);
+    const action = shortcutActionMap.get(shortcut);
+    if (!action) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    event.stopImmediatePropagation?.();
+    closeContextMenu();
+    runShortcutAction(action).catch((error) => showToast(error.message || "Shortcut failed"));
+  };
+
   const renderInstanceSwitcher = () => {
     if (!instanceSwitcherList) {
       return;
@@ -1129,13 +1524,13 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     createTab({ focus: true });
   };
 
-  const createUserTab = () => {
+  function createUserTab() {
     if (!activeName) {
       showToast("No running container is available.");
       return;
     }
     createTab();
-  };
+  }
 
   newTabButton?.addEventListener("click", createUserTab);
 
@@ -1203,14 +1598,8 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
       closeInstanceSwitcher();
       closeThemePicker();
     }
-    if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === "d") {
-      const tab = currentTab();
-      if (tab?.activePaneId) {
-        event.preventDefault();
-        splitPane(tab.id, tab.activePaneId, "vertical");
-      }
-    }
-  });
+    handleGlobalShortcutKeydown(event);
+  }, true);
 
   window.addEventListener("resize", () => resizeActiveTab());
   window.addEventListener("popstate", () => {
