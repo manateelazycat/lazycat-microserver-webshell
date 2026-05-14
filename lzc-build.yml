@@ -1,0 +1,11 @@
+buildscript: |
+  set -eu
+  CONTENT_DIR="./dist/content"
+  rm -rf "$CONTENT_DIR"
+  mkdir -p "$CONTENT_DIR/runtime"
+  CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -buildvcs=false -o "$CONTENT_DIR/demo-webshell" .
+  cp -R ./runtime/. "$CONTENT_DIR/runtime/"
+contentdir: ./dist/content
+resource_exports:
+  - kind: lightos.webshell
+    source: ./resources/lightos.webshell

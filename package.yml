@@ -1,0 +1,12 @@
+package: cloud.lazycat.webshell.demo
+version: 0.1.0
+name: Demo WebShell
+description: Demo LightOS WebShell provider
+min_os_version: v1.5.2
+permissions:
+  required:
+    - lightos.manage
+locales:
+  zh:
+    name: 演示 WebShell
+    description: LightOS WebShell provider 演示

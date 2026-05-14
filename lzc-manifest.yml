@@ -1,0 +1,4 @@
+application:
+  subdomain: demo-webshell
+  routes:
+    - /=exec://8080,/lzcapp/pkg/content/demo-webshell
