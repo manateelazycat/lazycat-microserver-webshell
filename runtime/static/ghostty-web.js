@@ -1385,7 +1385,8 @@ class $ {
    * Resize canvas to fit terminal dimensions
    */
   resize(A, B) {
-    const g = A * this.metrics.width, E = B * this.metrics.height;
+    var C;
+    const g = Math.max(A * this.metrics.width, ((C = this.canvas.parentElement) == null ? void 0 : C.clientWidth) || 0), E = B * this.metrics.height;
     this.canvas.style.width = `${g}px`, this.canvas.style.height = `${E}px`, this.canvas.width = g * this.devicePixelRatio, this.canvas.height = E * this.devicePixelRatio, this.ctx.scale(this.devicePixelRatio, this.devicePixelRatio), this.ctx.textBaseline = "alphabetic", this.ctx.textAlign = "left", this.ctx.fillStyle = this.theme.background, this.ctx.fillRect(0, 0, g, E);
   }
   // ==========================================================================
@@ -1649,13 +1650,16 @@ class $ {
    * @param opacity Opacity level (0-1) for fade in/out effect
    */
   renderScrollbar(A, B, g, E = 1) {
-    const C = this.ctx, I = this.canvas.height / this.devicePixelRatio, D = this.canvas.width / this.devicePixelRatio, i = 8, w = D - i - 4, s = 4, N = I - s * 2;
-    if (C.fillStyle = this.theme.background, C.fillRect(w - 2, 0, i + 6, I), E <= 0 || B === 0)
+    const C = this.ctx, I = this.canvas.height / this.devicePixelRatio, D = this.canvas.width / this.devicePixelRatio, i = 3, w = D - i - 3, s = 4, N = I - s * 2;
+    if (C.fillStyle = this.theme.background, C.fillRect(w - 2, 0, i + 5, I), E <= 0 || B === 0)
       return;
-    const k = B + g, M = Math.max(20, g / k * N), a = A / B, h = s + (N - M) * (1 - a);
-    C.fillStyle = `rgba(128, 128, 128, ${0.1 * E})`, C.fillRect(w, s, i, N);
+    const k = B + g, M = Math.max(20, g / k * N), a = A / B, h = s + (N - M) * (1 - a), G = (U, t, c, F) => {
+      const S = Math.min(c / 2, F / 2);
+      C.beginPath(), C.moveTo(U, t + S), C.arc(U + S, t + S, S, Math.PI, 0), C.lineTo(U + c, t + F - S), C.arc(U + S, t + F - S, S, 0, Math.PI), C.closePath(), C.fill();
+    };
+    C.fillStyle = `rgba(128, 128, 128, ${0.1 * E})`, G(w, s, i, N);
     const U = A > 0 ? 0.5 : 0.3;
-    C.fillStyle = `rgba(128, 128, 128, ${U * E})`, C.fillRect(w, h, i, M);
+    C.fillStyle = `rgba(128, 128, 128, ${U * E})`, G(w, h, i, M);
   }
   getMetrics() {
     return { ...this.metrics };
@@ -2180,7 +2184,7 @@ class IA {
       const E = this.wasmTerm.getScrollbackLength();
       if (E === 0)
         return;
-      const C = this.canvas.getBoundingClientRect(), I = g.clientX - C.left, D = g.clientY - C.top, i = C.width, w = C.height, s = 8, N = i - s - 4, k = 4;
+      const C = this.canvas.getBoundingClientRect(), I = g.clientX - C.left, D = g.clientY - C.top, i = C.width, w = C.height, s = 3, N = i - s - 3, k = 4;
       if (I >= N && I <= N + s) {
         g.preventDefault(), g.stopPropagation(), g.stopImmediatePropagation();
         const M = w - k * 2, a = this.rows, h = E + a, G = Math.max(20, a / h * M), U = this.viewportY / E, t = k + (M - G) * (1 - U);
@@ -2254,9 +2258,7 @@ class IA {
   handleFontChange() {
     if (!this.renderer || !this.wasmTerm || !this.canvas)
       return;
-    this.selectionManager && this.selectionManager.clearSelection(), this.renderer.resize(this.cols, this.rows);
-    const A = this.renderer.getMetrics();
-    this.canvas.width = A.width * this.cols, this.canvas.height = A.height * this.rows, this.canvas.style.width = `${A.width * this.cols}px`, this.canvas.style.height = `${A.height * this.rows}px`, this.renderer.render(this.wasmTerm, !0, this.viewportY, this);
+    this.selectionManager && this.selectionManager.clearSelection(), this.renderer.resize(this.cols, this.rows), this.renderer.render(this.wasmTerm, !0, this.viewportY, this);
   }
   /**
    * Parse a CSS color string to 0xRRGGBB format.
@@ -2421,10 +2423,8 @@ class IA {
    */
   resize(A, B) {
     if (this.assertOpen(), A === this.cols && B === this.rows)
-      return;
-    this.cols = A, this.rows = B, this.wasmTerm.resize(A, B), this.renderer.resize(A, B);
-    const g = this.renderer.getMetrics();
-    this.canvas.width = g.width * A, this.canvas.height = g.height * B, this.canvas.style.width = `${g.width * A}px`, this.canvas.style.height = `${g.height * B}px`, this.resizeEmitter.fire({ cols: A, rows: B }), this.renderer.render(this.wasmTerm, !0, this.viewportY, this);
+      return this.renderer.resize(A, B), this.renderer.render(this.wasmTerm, !0, this.viewportY, this);
+    this.cols = A, this.rows = B, this.wasmTerm.resize(A, B), this.renderer.resize(A, B), this.resizeEmitter.fire({ cols: A, rows: B }), this.renderer.render(this.wasmTerm, !0, this.viewportY, this);
   }
   /**
    * Clear terminal screen
@@ -2834,7 +2834,7 @@ class IA {
     return this.assertOpen(), this.wasmTerm.hasMouseTracking();
   }
 }
-const QA = 2, BA = 1, gA = 15, EA = 100;
+const QA = 2, BA = 1, gA = 0, EA = 100;
 class DA {
   constructor() {
     this._isResizing = !1;
@@ -2864,15 +2864,17 @@ class DA {
     if (!A || !this._terminal)
       return;
     const B = this._terminal, g = B.cols, E = B.rows;
-    if (!(A.cols === this._lastCols && A.rows === this._lastRows || A.cols === g && A.rows === E)) {
-      this._lastCols = A.cols, this._lastRows = A.rows, this._isResizing = !0;
-      try {
-        B.resize && typeof B.resize == "function" && B.resize(A.cols, A.rows);
-      } finally {
-        setTimeout(() => {
-          this._isResizing = !1;
-        }, 50);
-      }
+    if (A.cols === this._lastCols && A.rows === this._lastRows || A.cols === g && A.rows === E) {
+      this._lastCols = A.cols, this._lastRows = A.rows, B.resize && typeof B.resize == "function" && B.resize(A.cols, A.rows);
+      return;
+    }
+    this._lastCols = A.cols, this._lastRows = A.rows, this._isResizing = !0;
+    try {
+      B.resize && typeof B.resize == "function" && B.resize(A.cols, A.rows);
+    } finally {
+      setTimeout(() => {
+        this._isResizing = !1;
+      }, 50);
     }
   }
   /**
