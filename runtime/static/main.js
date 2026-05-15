@@ -929,6 +929,72 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     };
   };
 
+  const isMobileTabOverviewLayout = () => Boolean(window.matchMedia?.("(max-width: 640px)")?.matches);
+
+  const parseCSSPixel = (value) => {
+    const parsed = Number.parseFloat(String(value || ""));
+    return Number.isFinite(parsed) ? parsed : 0;
+  };
+
+  const tabOverviewTerminalSize = () => {
+    const rect = terminalArea?.getBoundingClientRect?.();
+    const fallbackWidth = window.visualViewport?.width || window.innerWidth || 16;
+    const fallbackHeight = window.visualViewport?.height || window.innerHeight || 10;
+    const width = Math.max(1, Math.round(rect?.width || fallbackWidth));
+    const height = Math.max(1, Math.round(rect?.height || fallbackHeight));
+    return { width, height };
+  };
+
+  const syncDesktopTabOverviewGrid = (terminalSize) => {
+    const rows = terminalSize.height > terminalSize.width ? 4 : 3;
+    const columns = terminalSize.height > terminalSize.width ? 3 : 4;
+    const gridStyles = getComputedStyle(tabOverviewGrid);
+    const gap = parseCSSPixel(gridStyles.rowGap || gridStyles.gap);
+    const paddingY = parseCSSPixel(gridStyles.paddingTop) + parseCSSPixel(gridStyles.paddingBottom);
+    const gridHeight = Math.max(1, tabOverviewGrid.clientHeight - paddingY);
+    const cardHeight = Math.max(1, (gridHeight - gap * (rows - 1)) / rows);
+    tabOverviewGrid.style.setProperty("--tab-overview-columns", String(columns));
+    tabOverviewGrid.style.setProperty("--tab-overview-meta-height", "48px");
+    tabOverviewGrid.style.setProperty("--tab-overview-card-height", `${Math.floor(cardHeight)}px`);
+    tabOverviewGrid.style.removeProperty("--tab-overview-mobile-card-height");
+  };
+
+  const syncTabOverviewPreviewRatio = () => {
+    if (!tabOverviewGrid) {
+      return;
+    }
+    const terminalSize = tabOverviewTerminalSize();
+    const ratio = terminalSize.width / terminalSize.height;
+    tabOverviewGrid.style.setProperty("--tab-overview-preview-ratio", `${terminalSize.width} / ${terminalSize.height}`);
+    if (!isMobileTabOverviewLayout()) {
+      syncDesktopTabOverviewGrid(terminalSize);
+      return;
+    }
+    tabOverviewGrid.style.setProperty("--tab-overview-columns", "2");
+    tabOverviewGrid.style.setProperty("--tab-overview-meta-height", "46px");
+    tabOverviewGrid.style.removeProperty("--tab-overview-card-height");
+    const gridStyles = getComputedStyle(tabOverviewGrid);
+    const gap = parseCSSPixel(gridStyles.rowGap || gridStyles.gap);
+    const columnGap = parseCSSPixel(gridStyles.columnGap || gridStyles.gap);
+    const paddingX = parseCSSPixel(gridStyles.paddingLeft) + parseCSSPixel(gridStyles.paddingRight);
+    const paddingY = parseCSSPixel(gridStyles.paddingTop) + parseCSSPixel(gridStyles.paddingBottom);
+    const gridWidth = Math.max(1, tabOverviewGrid.clientWidth - paddingX);
+    const gridHeight = Math.max(1, tabOverviewGrid.clientHeight - paddingY);
+    const previewWidth = Math.max(1, (gridWidth - columnGap) / 2);
+    const naturalCardHeight = previewWidth / ratio + 46;
+    const twoRowCardHeight = Math.max(1, (gridHeight - gap) / 2);
+    tabOverviewGrid.style.setProperty("--tab-overview-mobile-card-height", `${Math.ceil(Math.max(naturalCardHeight, twoRowCardHeight))}px`);
+  };
+
+  const tabOverviewCanvasSize = (canvas) => {
+    const rect = canvas.parentElement?.getBoundingClientRect?.() || canvas.getBoundingClientRect();
+    const terminalSize = tabOverviewTerminalSize();
+    const fallbackRatio = terminalSize.width / terminalSize.height;
+    const width = Math.max(1, Math.round(rect?.width || 480));
+    const height = Math.max(1, Math.round(rect?.height || width / fallbackRatio));
+    return { width, height };
+  };
+
   const drawTabOverviewFallback = (ctx, x, y, width, height, colors) => {
     ctx.fillStyle = colors.muted;
     ctx.font = "13px sans-serif";
@@ -1014,21 +1080,25 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
   };
 
   const drawTabOverviewPreview = (canvas, tab, colors) => {
-    canvas.width = 480;
-    canvas.height = 300;
+    const size = tabOverviewCanvasSize(canvas);
+    const scale = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
+    canvas.width = Math.round(size.width * scale);
+    canvas.height = Math.round(size.height * scale);
     const ctx = canvas.getContext("2d");
     if (!ctx) {
       return;
     }
+    ctx.setTransform(scale, 0, 0, scale, 0, 0);
     ctx.fillStyle = colors.bg;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    drawLayoutOverviewPreview(ctx, tab, tab.layout, 0, 0, canvas.width, canvas.height, colors);
+    ctx.fillRect(0, 0, size.width, size.height);
+    drawLayoutOverviewPreview(ctx, tab, tab.layout, 0, 0, size.width, size.height, colors);
   };
 
   const renderTabOverview = () => {
     if (!tabOverviewGrid) {
       return;
     }
+    syncTabOverviewPreviewRatio();
     tabOverviewGrid.textContent = "";
     const orderedTabs = getOrderedTabs();
     if (orderedTabs.length === 0) {
@@ -1041,6 +1111,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
 
     const colors = readTabOverviewColors();
     const fragment = document.createDocumentFragment();
+    const previewItems = [];
     for (const tab of orderedTabs) {
       const label = String(tab.label || tab.id || "终端");
       const card = document.createElement("button");
@@ -1073,10 +1144,13 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
       }
 
       card.append(preview, meta);
-      drawTabOverviewPreview(canvas, tab, colors);
+      previewItems.push({ canvas, tab });
       fragment.appendChild(card);
     }
     tabOverviewGrid.appendChild(fragment);
+    for (const item of previewItems) {
+      drawTabOverviewPreview(item.canvas, item.tab, colors);
+    }
   };
 
   const scheduleTabOverviewRender = () => {
@@ -1111,9 +1185,9 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     closeContextMenu();
     closeThemePicker();
     closeInstanceSwitcher();
-    renderTabOverview();
     tabOverview.hidden = false;
     tabOverviewToggle?.setAttribute("aria-expanded", "true");
+    renderTabOverview();
     window.requestAnimationFrame(() => {
       const activeCard = tabOverviewGrid?.querySelector(".tab-overview-card.active");
       const firstCard = tabOverviewGrid?.querySelector(".tab-overview-card");
@@ -4481,6 +4555,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     resizeAllTabsForCurrentDevice();
     scheduleTabOverviewRender();
   });
+  window.visualViewport?.addEventListener("resize", scheduleTabOverviewRender);
   document.fonts?.ready?.then(() => {
     for (const tab of tabs.values()) {
       for (const pane of tab.panes.values()) {
