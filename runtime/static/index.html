@@ -172,6 +172,15 @@
       <div class="mobile-shortcut-row" data-mobile-shortcut-row="top" role="toolbar" aria-label="Terminal shortcuts row 1"></div>
       <div class="mobile-shortcut-row" data-mobile-shortcut-row="bottom" role="toolbar" aria-label="Terminal shortcuts row 2"></div>
     </div>
+    <div class="mobile-action-sheet" id="mobileActionSheet" hidden>
+      <button class="mobile-action-sheet-scrim" id="mobileActionSheetScrim" type="button" aria-label="Close menu"></button>
+      <section class="mobile-action-sheet-panel" role="dialog" aria-modal="true" aria-label="Terminal menu">
+        <button class="mobile-action-sheet-handle" id="mobileActionSheetHandle" type="button" aria-label="Close menu">
+          <span aria-hidden="true"></span>
+        </button>
+        <div class="mobile-action-grid" id="mobileActionGrid" role="menu" aria-label="Terminal menu actions"></div>
+      </section>
+    </div>
     <div class="selection-sheet" id="selectionSheet" hidden>
       <button type="button" data-selection-action="copy">Copy</button>
       <button type="button" data-selection-action="paste">Paste</button>

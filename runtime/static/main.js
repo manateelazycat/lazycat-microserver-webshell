@@ -51,6 +51,10 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
   const dialogOK = document.getElementById("dialogOK");
   const mobileShortcuts = document.getElementById("mobileShortcuts");
   const mobileShortcutRows = Array.from(mobileShortcuts?.querySelectorAll("[data-mobile-shortcut-row]") || []);
+  const mobileActionSheet = document.getElementById("mobileActionSheet");
+  const mobileActionSheetScrim = document.getElementById("mobileActionSheetScrim");
+  const mobileActionSheetHandle = document.getElementById("mobileActionSheetHandle");
+  const mobileActionGrid = document.getElementById("mobileActionGrid");
   const selectionSheet = document.getElementById("selectionSheet");
   const networkBanner = document.getElementById("networkBanner");
   const contextMenu = document.getElementById("contextMenu");
@@ -76,8 +80,13 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
   const touchShortcutMoveThresholdPx = 8;
   const touchShortcutRepeatInitialDelayMs = 320;
   const touchShortcutRepeatIntervalMs = 80;
+  const touchSelectionMoveThresholdPx = 7;
   const terminalSizeReassertIntervalMs = 250;
+  const mobileLayoutQuery = window.matchMedia?.("(max-width: 640px)");
   const repeatableMobileShortcutIds = new Set(["arrow-up", "arrow-down", "arrow-left", "arrow-right"]);
+  const contextPaneActions = new Set(["copy", "paste", "select-all", "search", "split-vertical", "split-horizontal", "move-pane-new-tab", "close-pane"]);
+  const contextTabActions = new Set(["rename-tab", "move-tab-first", "move-tab-left", "move-tab-right", "move-tab-last", "close-other-tabs", "close-tab"]);
+  const contextLinkActions = new Set(["open-link", "copy-link"]);
   const storedFontSize = window.localStorage.getItem(fontSizeVersionStorageKey) === fontSizeStorageVersion
     ? Number(window.localStorage.getItem(fontSizeStorageKey))
     : NaN;
@@ -267,6 +276,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
   let tabOverviewRenderFrame = 0;
   let lightOSHomeURL = "";
   let lightOSHomeURLPromise = null;
+  let mobileActionSheetIgnoreClicksUntil = 0;
   const searchState = { open: false, query: "", matches: [], index: -1, sessionId: "" };
   const mobileSticky = { ctrl: false, alt: false, shift: false };
   let touchShortcutFeedbackEnabled = loadTouchShortcutFeedbackEnabled();
@@ -315,6 +325,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
       { id: "page-down", label: "PageDown", ariaLabel: "Page Down", action: "page_down" },
     ],
     [
+      { id: "mobile-menu", label: "Menu", ariaLabel: "Menu", action: "open_mobile_menu", kind: "menu", icon: "menu" },
       { id: "esc", label: "Esc", ariaLabel: "Escape", data: "\x1b", inputKey: "escape", kind: "primary" },
       { id: "ctrl-e", label: "Ctrl+E", ariaLabel: "Control E", data: "\x05", inputKey: "e", inputModifiers: { ctrl: true } },
       { id: "return", label: "Return", ariaLabel: "Return", data: "\r", inputKey: "enter", kind: "primary" },
@@ -1185,6 +1196,8 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
 
   const currentTab = () => tabs.get(activeTabId) || null;
 
+  const isMobileLayout = () => Boolean(mobileLayoutQuery?.matches);
+
   const getOrderedTabs = () =>
     Array.from(tabsEl.querySelectorAll(".tab"))
       .map((button) => tabs.get(button.dataset.tabId))
@@ -1214,7 +1227,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     };
   };
 
-  const isMobileTabOverviewLayout = () => Boolean(window.matchMedia?.("(max-width: 640px)")?.matches);
+  const isMobileTabOverviewLayout = () => isMobileLayout();
 
   const parseCSSPixel = (value) => {
     const parsed = Number.parseFloat(String(value || ""));
@@ -1538,6 +1551,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     }
     refreshTabAutoLabel(tab);
     syncCursorBlinkState();
+    updateMobileSelectionHandles(tab.panes.get(paneId));
     if (focus) {
       const pane = tab.panes.get(paneId);
       window.requestAnimationFrame(() => {
@@ -1692,6 +1706,34 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     }
     prepareTerminalTextareaForInput(session);
     resetTerminalHostViewport(session, { clean: true });
+  };
+
+  const blurTerminalInput = (session) => {
+    const textarea = session?.term?.textarea;
+    const host = session?.terminalHost;
+    const shell = session?.shellEl;
+    if (textarea) {
+      textarea.blur();
+    }
+    if (host) {
+      host.blur();
+    }
+    if (shell) {
+      shell.blur();
+    }
+    const activeElement = document.activeElement;
+    if (activeElement instanceof HTMLElement && (host?.contains(activeElement) || shell?.contains(activeElement))) {
+      activeElement.blur();
+    }
+  };
+
+  const blurMobileKeyboard = () => {
+    const session = activeSession();
+    blurTerminalInput(session);
+    const activeElement = document.activeElement;
+    if (activeElement instanceof HTMLElement && activeElement !== document.body) {
+      activeElement.blur();
+    }
   };
 
   const setTerminalInputComposing = (session, composing) => {
@@ -2254,6 +2296,115 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     return null;
   };
 
+  const terminalCellFromPoint = (session, clientX, clientY) => {
+    const term = session?.term;
+    const renderer = term?.renderer;
+    const canvas = term?.canvas || term?.element?.querySelector?.("canvas");
+    const metrics = renderer?.getMetrics?.();
+    if (!term || !renderer || !canvas || !metrics?.width || !metrics?.height) {
+      return null;
+    }
+    const rect = canvas.getBoundingClientRect();
+    const x = Math.max(rect.left, Math.min(clientX, rect.right - 1));
+    const y = Math.max(rect.top, Math.min(clientY, rect.bottom - 1));
+    const col = Math.max(0, Math.min(term.cols - 1, Math.floor((x - rect.left) / metrics.width)));
+    const row = Math.max(0, Math.min(term.rows - 1, Math.floor((y - rect.top) / metrics.height)));
+    const scrollback = term.wasmTerm?.getScrollbackLength?.() || 0;
+    const viewportY = Math.floor(term.getViewportY?.() || term.viewportY || 0);
+    return { col, row, absoluteRow: scrollback + row - viewportY };
+  };
+
+  const compareSelectionCells = (left, right) => {
+    if (!left || !right) {
+      return 0;
+    }
+    if (left.absoluteRow !== right.absoluteRow) {
+      return left.absoluteRow - right.absoluteRow;
+    }
+    return left.col - right.col;
+  };
+
+  const normalizeSelectionCells = (start, end) => {
+    if (!start || !end) {
+      return null;
+    }
+    return compareSelectionCells(start, end) <= 0 ? { start, end } : { start: end, end: start };
+  };
+
+  const previousSelectionCell = (session, cell) => {
+    const cols = Math.max(1, session?.term?.cols || 1);
+    if (!cell) {
+      return null;
+    }
+    if (cell.col > 0) {
+      return { col: cell.col - 1, absoluteRow: cell.absoluteRow };
+    }
+    return { col: cols - 1, absoluteRow: Math.max(0, cell.absoluteRow - 1) };
+  };
+
+  const nextSelectionCell = (session, cell) => {
+    const cols = Math.max(1, session?.term?.cols || 1);
+    if (!cell) {
+      return null;
+    }
+    if (cell.col < cols - 1) {
+      return { col: cell.col + 1, absoluteRow: cell.absoluteRow };
+    }
+    return { col: 0, absoluteRow: cell.absoluteRow + 1 };
+  };
+
+  const renderTerminalSelection = (session) => {
+    const term = session?.term;
+    if (!term?.renderer || !term?.wasmTerm) {
+      return;
+    }
+    try {
+      term.renderer.render(term.wasmTerm, true, term.viewportY || 0, term);
+    } catch (error) {
+    }
+  };
+
+  const emitTerminalSelectionChange = (session) => {
+    const manager = session?.term?.selectionManager;
+    if (typeof manager?.selectionChangedEmitter?.fire === "function") {
+      manager.selectionChangedEmitter.fire();
+      return;
+    }
+    updateSelectionSheet();
+  };
+
+  const applyTerminalSelection = (session, start, end) => {
+    const manager = session?.term?.selectionManager;
+    const normalized = normalizeSelectionCells(start, end);
+    if (!manager || !normalized) {
+      return;
+    }
+    blurTerminalInput(session);
+    let nextStart = normalized.start;
+    let nextEnd = normalized.end;
+    if (compareSelectionCells(nextStart, nextEnd) === 0) {
+      nextEnd = nextSelectionCell(session, nextStart);
+    }
+    manager.markCurrentSelectionDirty?.();
+    manager.selectionStart = { col: nextStart.col, absoluteRow: nextStart.absoluteRow };
+    manager.selectionEnd = { col: nextEnd.col, absoluteRow: nextEnd.absoluteRow };
+    manager.isSelecting = false;
+    manager.markCurrentSelectionDirty?.();
+    renderTerminalSelection(session);
+    emitTerminalSelectionChange(session);
+  };
+
+  const findFirstURLInText = (text) => {
+    const value = String(text || "");
+    if (!value) {
+      return "";
+    }
+    urlPattern.lastIndex = 0;
+    const match = urlPattern.exec(value);
+    urlPattern.lastIndex = 0;
+    return match ? match[0].replace(trailingURLPunctuation, "") : "";
+  };
+
   const openURL = (url) => {
     if (!url) {
       return;
@@ -2495,14 +2646,81 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     }
   };
 
+  const hasActiveTerminalSelection = (session = activeSession()) => Boolean(session?.term?.hasSelection?.() || session?.selectAllBufferActive);
+
+  const syncMobileMenuSelectionState = () => {
+    const session = activeSession();
+    const hasSelection = hasActiveTerminalSelection(session);
+    for (const button of mobileShortcuts?.querySelectorAll('[data-mobile-action="open_mobile_menu"]') || []) {
+      button.classList.toggle("has-selection", hasSelection);
+      button.setAttribute("aria-label", hasSelection ? "Menu. Selection active" : "Menu");
+      button.setAttribute("title", hasSelection ? "Menu. Selection active" : "Menu");
+    }
+  };
+
   const updateSelectionSheet = () => {
-    if (!selectionSheet) {
+    if (selectionSheet) {
+      selectionSheet.hidden = true;
+    }
+    syncMobileMenuSelectionState();
+    updateMobileSelectionHandles();
+    if (mobileActionSheet && !mobileActionSheet.hidden) {
+      renderMobileActionSheet();
+    }
+  };
+
+  const currentMobileSelectionSession = () => {
+    const session = activeSession();
+    return session?.term?.hasSelection?.() ? session : null;
+  };
+
+  const setMobileSelectionOverlayVisible = (session, visible) => {
+    const overlay = session?.mobileSelectionOverlay;
+    if (!overlay) {
       return;
     }
-    const session = activeSession();
-    const hasSelection = Boolean(session?.term?.hasSelection?.() || session?.selectAllBufferActive);
-    selectionSheet.hidden = !hasSelection || window.matchMedia("(min-width: 721px)").matches;
+    overlay.hidden = !visible;
   };
+
+  const positionMobileSelectionHandles = (session) => {
+    const overlay = session?.mobileSelectionOverlay;
+    const term = session?.term;
+    const position = term?.getSelectionPosition?.();
+    const canvas = term?.canvas || term?.element?.querySelector?.("canvas");
+    const metrics = term?.renderer?.getMetrics?.();
+    if (!overlay || !term?.hasSelection?.() || !position || !canvas || !metrics?.width || !metrics?.height || !isMobileLayout()) {
+      setMobileSelectionOverlayVisible(session, false);
+      return;
+    }
+    const shellRect = session.shellEl.getBoundingClientRect();
+    const canvasRect = canvas.getBoundingClientRect();
+    const left = canvasRect.left - shellRect.left;
+    const top = canvasRect.top - shellRect.top;
+    const startX = left + position.start.x * metrics.width;
+    const startY = top + position.start.y * metrics.height;
+    const endX = left + (position.end.x + 1) * metrics.width;
+    const endY = top + position.end.y * metrics.height;
+    overlay.startHandle.style.left = `${startX}px`;
+    overlay.startHandle.style.top = `${startY}px`;
+    overlay.startHandle.style.height = `${Math.max(32, metrics.height + 20)}px`;
+    overlay.endHandle.style.left = `${endX}px`;
+    overlay.endHandle.style.top = `${endY}px`;
+    overlay.endHandle.style.height = `${Math.max(32, metrics.height + 20)}px`;
+    setMobileSelectionOverlayVisible(session, true);
+  };
+
+  function updateMobileSelectionHandles(session = currentMobileSelectionSession()) {
+    for (const tab of tabs.values()) {
+      for (const pane of tab.panes.values()) {
+        if (pane !== session) {
+          setMobileSelectionOverlayVisible(pane, false);
+        }
+      }
+    }
+    if (session) {
+      positionMobileSelectionHandles(session);
+    }
+  }
 
   const generatedTerminalResponsePattern =
     /^(?:\x1b)?(?:\[\d{1,4};\d{1,4}R|\[0n|\[\?[\d;]{1,16}c|\[>[\d;]{1,16}c)/;
@@ -2643,6 +2861,79 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
         deployRestartDialogOpen = false;
       }
     }
+  };
+
+  const svgNamespace = "http://www.w3.org/2000/svg";
+  const menuIconPath = "M216.615385 295.384615h586.830769c15.753846 0 31.507692-11.815385 31.507692-31.507692s-15.753846-31.507692-31.507692-31.507692H216.615385c-19.692308 0-31.507692 11.815385-31.507693 31.507692s15.753846 31.507692 31.507693 31.507692zM803.446154 480.492308H216.615385c-19.692308 0-31.507692 11.815385-31.507693 31.507692s15.753846 31.507692 31.507693 31.507692h586.830769c15.753846 0 31.507692-11.815385 31.507692-31.507692s-15.753846-31.507692-31.507692-31.507692zM803.446154 724.676923H216.615385c-19.692308 0-31.507692 11.815385-31.507693 31.507692s15.753846 31.507692 31.507693 31.507693h586.830769c15.753846 0 31.507692-11.815385 31.507692-31.507693s-15.753846-31.507692-31.507692-31.507692z";
+  const mobileActionIconNames = {
+    copy: "copy",
+    paste: "paste",
+    "select-all": "select-all",
+    search: "search",
+    "open-link": "open-link",
+    "copy-link": "copy-link",
+    "rename-tab": "rename",
+    "move-tab-first": "move-first",
+    "move-tab-left": "move-left",
+    "move-tab-right": "move-right",
+    "move-tab-last": "move-last",
+    "close-other-tabs": "close-others",
+    "split-vertical": "split-vertical",
+    "split-horizontal": "split-horizontal",
+    "move-pane-new-tab": "pane-new-tab",
+    theme: "theme",
+    "close-pane": "close-pane",
+    "close-tab": "close-tab",
+  };
+  const mobileIconDefinitions = {
+    menu: { viewBox: "0 0 1024 1024", paths: [{ d: menuIconPath, fill: "currentColor" }] },
+    copy: { paths: [{ d: "M8 8h10v12H8z" }, { d: "M6 16H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" }] },
+    paste: { paths: [{ d: "M9 4h6l1 2h2v15H6V6h2z" }, { d: "M9 4h6" }, { d: "M9 10h6" }, { d: "M9 14h6" }] },
+    "select-all": { paths: [{ d: "M5 5h14v14H5z" }, { d: "M8 8h8v8H8z" }] },
+    search: { paths: [{ d: "M10.5 18a7.5 7.5 0 1 1 0-15 7.5 7.5 0 0 1 0 15z" }, { d: "M16 16l5 5" }] },
+    "open-link": { paths: [{ d: "M14 4h6v6" }, { d: "M20 4l-9 9" }, { d: "M11 6H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-5" }] },
+    "copy-link": { paths: [{ d: "M10 13a5 5 0 0 0 7 0l2-2a5 5 0 0 0-7-7l-1 1" }, { d: "M14 11a5 5 0 0 0-7 0l-2 2a5 5 0 0 0 7 7l1-1" }] },
+    rename: { paths: [{ d: "M4 20h4l11-11-4-4L4 16z" }, { d: "M13 7l4 4" }, { d: "M4 4h7" }] },
+    "move-first": { paths: [{ d: "M5 5v14" }, { d: "M19 12H8" }, { d: "M12 8l-4 4 4 4" }] },
+    "move-left": { paths: [{ d: "M19 12H5" }, { d: "M9 8l-4 4 4 4" }] },
+    "move-right": { paths: [{ d: "M5 12h14" }, { d: "M15 8l4 4-4 4" }] },
+    "move-last": { paths: [{ d: "M19 5v14" }, { d: "M5 12h11" }, { d: "M12 8l4 4-4 4" }] },
+    "close-others": { paths: [{ d: "M4 7h8v8H4z" }, { d: "M12 9h8v8h-8z" }, { d: "M15 12l3 3" }, { d: "M18 12l-3 3" }] },
+    "split-vertical": { paths: [{ d: "M4 5h16v14H4z" }, { d: "M12 5v14" }] },
+    "split-horizontal": { paths: [{ d: "M4 5h16v14H4z" }, { d: "M4 12h16" }] },
+    "pane-new-tab": { paths: [{ d: "M4 6h10v10H4z" }, { d: "M14 9h6v9H9v-2" }, { d: "M13 5h6v6" }, { d: "M19 5l-7 7" }] },
+    theme: { paths: [{ d: "M12 21a9 9 0 1 1 9-9c0 1.7-1.3 3-3 3h-1.5a2 2 0 0 0-1.8 2.8l.2.4A2 2 0 0 1 13.1 21z" }, { d: "M7.5 10.5h.01" }, { d: "M10 7.5h.01" }, { d: "M14 7.5h.01" }, { d: "M16.5 10.5h.01" }] },
+    "close-pane": { paths: [{ d: "M4 5h16v14H4z" }, { d: "M9 9l6 6" }, { d: "M15 9l-6 6" }] },
+    "close-tab": { paths: [{ d: "M5 7h14l1 4v6H4v-6z" }, { d: "M9 10l6 6" }, { d: "M15 10l-6 6" }] },
+    default: { paths: [{ d: "M12 5v14" }, { d: "M5 12h14" }] },
+  };
+
+  const createSVGIcon = (name, className = "") => {
+    const definition = mobileIconDefinitions[name] || mobileIconDefinitions.default;
+    const svg = document.createElementNS(svgNamespace, "svg");
+    svg.setAttribute("viewBox", definition.viewBox || "0 0 24 24");
+    svg.setAttribute("aria-hidden", "true");
+    svg.setAttribute("focusable", "false");
+    if (className) {
+      svg.setAttribute("class", className);
+    }
+    for (const pathAttrs of definition.paths || []) {
+      const path = document.createElementNS(svgNamespace, "path");
+      const hasFill = Object.prototype.hasOwnProperty.call(pathAttrs, "fill");
+      const hasStroke = Object.prototype.hasOwnProperty.call(pathAttrs, "stroke");
+      if (!hasFill && !hasStroke) {
+        path.setAttribute("fill", "none");
+        path.setAttribute("stroke", "currentColor");
+        path.setAttribute("stroke-width", "2");
+        path.setAttribute("stroke-linecap", "round");
+        path.setAttribute("stroke-linejoin", "round");
+      }
+      for (const [key, value] of Object.entries(pathAttrs)) {
+        path.setAttribute(key, value);
+      }
+      svg.appendChild(path);
+    }
+    return svg;
   };
 
   function loadTouchShortcutFeedbackEnabled() {
@@ -2863,6 +3154,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
       button.setAttribute("aria-label", feedbackLabel);
       button.setAttribute("title", feedbackLabel);
     }
+    syncMobileMenuSelectionState();
   };
 
   const clearMobileSticky = () => {
@@ -2953,6 +3245,9 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
         if (touchShortcutFeedbackEnabled) {
           triggerMobileTouchFeedback();
         }
+        return;
+      case "open_mobile_menu":
+        openMobileActionSheet();
         return;
       default:
         return;
@@ -3133,7 +3428,6 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
         button.type = "button";
         button.className = "mobile-shortcut-key";
         button.tabIndex = -1;
-        button.textContent = shortcut.label;
         button.dataset.mobileShortcutId = shortcut.id;
         if (shortcut.action) {
           button.dataset.mobileAction = shortcut.action;
@@ -3141,7 +3435,17 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
         if (shortcut.kind) {
           button.dataset.kind = shortcut.kind;
         }
+        if (shortcut.icon) {
+          button.appendChild(createSVGIcon(shortcut.icon, "mobile-shortcut-icon"));
+        } else {
+          button.textContent = shortcut.label;
+        }
         button.setAttribute("aria-label", shortcut.ariaLabel || shortcut.label);
+        button.setAttribute("title", shortcut.ariaLabel || shortcut.label);
+        if (shortcut.action === "open_mobile_menu") {
+          button.setAttribute("aria-haspopup", "dialog");
+          button.setAttribute("aria-expanded", "false");
+        }
         if (["sticky_ctrl", "sticky_alt", "sticky_shift", "toggle_touch_feedback"].includes(shortcut.action)) {
           button.setAttribute("aria-pressed", "false");
         }
@@ -3150,6 +3454,356 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
       }
     });
     syncMobileShortcutState();
+  };
+
+  const getContextActionDefinitions = () =>
+    Array.from(contextMenu?.querySelectorAll(".context-menu-btn") || [])
+      .map((button) => ({
+        action: String(button.dataset.action || "").trim(),
+        label: String(button.textContent || "").trim(),
+        danger: button.classList.contains("danger"),
+      }))
+      .filter((item) => item.action && item.label);
+
+  const buildMobileContextTarget = () => {
+    const tab = currentTab();
+    const session = activeSession();
+    const selectedText = session?.selectAllBufferActive ? "" : session?.term?.getSelection?.() || "";
+    return {
+      type: "mobile",
+      tabId: tab?.id || "",
+      paneId: session?.id || "",
+      link: findFirstURLInText(selectedText),
+    };
+  };
+
+  const tabOrderIndex = (tabId) => getOrderedTabs().findIndex((tab) => tab.id === tabId);
+
+  const isContextActionEnabled = (action, target) => {
+    if (!target) {
+      return false;
+    }
+    const tab = target.tabId ? tabs.get(target.tabId) : null;
+    const pane = target.paneId ? tab?.panes.get(target.paneId) : null;
+    if (contextPaneActions.has(action) && !pane) {
+      return false;
+    }
+    if (contextTabActions.has(action) && !tab) {
+      return false;
+    }
+    if (contextLinkActions.has(action) && !target.link) {
+      return false;
+    }
+    switch (action) {
+      case "copy":
+        return hasActiveTerminalSelection(pane);
+      case "move-pane-new-tab":
+        return Boolean(tab && pane && tab.panes.size > 1);
+      case "close-other-tabs":
+        return Boolean(tab && tabs.size > 1);
+      case "move-tab-first":
+      case "move-tab-left":
+        return tabOrderIndex(target.tabId) > 0;
+      case "move-tab-right":
+      case "move-tab-last": {
+        const index = tabOrderIndex(target.tabId);
+        return index >= 0 && index < getOrderedTabs().length - 1;
+      }
+      default:
+        return true;
+    }
+  };
+
+  function renderMobileActionSheet(target = buildMobileContextTarget()) {
+    if (!mobileActionGrid) {
+      return;
+    }
+    contextTarget = target;
+    mobileActionGrid.textContent = "";
+    const fragment = document.createDocumentFragment();
+    for (const item of getContextActionDefinitions()) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "mobile-action-item";
+      button.dataset.action = item.action;
+      button.disabled = !isContextActionEnabled(item.action, target);
+      button.setAttribute("role", "menuitem");
+      button.setAttribute("aria-label", item.label);
+      if (item.danger) {
+        button.classList.add("danger");
+      }
+
+      const icon = document.createElement("span");
+      icon.className = "mobile-action-icon";
+      icon.appendChild(createSVGIcon(mobileActionIconNames[item.action] || "default"));
+
+      const label = document.createElement("span");
+      label.className = "mobile-action-label";
+      label.textContent = item.label;
+
+      button.append(icon, label);
+      fragment.appendChild(button);
+    }
+    mobileActionGrid.appendChild(fragment);
+  }
+
+  const closeMobileActionSheet = ({ preserveTarget = false } = {}) => {
+    if (mobileActionSheet) {
+      mobileActionSheet.hidden = true;
+    }
+    document.body.classList.remove("mobile-action-sheet-open");
+    mobileShortcuts?.removeAttribute("aria-hidden");
+    for (const button of mobileShortcuts?.querySelectorAll('[data-mobile-action="open_mobile_menu"]') || []) {
+      button.setAttribute("aria-expanded", "false");
+    }
+    if (!preserveTarget && contextTarget?.type === "mobile") {
+      contextTarget = null;
+    }
+  };
+
+  const openMobileActionSheet = () => {
+    if (!mobileActionSheet || !mobileActionGrid || !isMobileLayout()) {
+      return;
+    }
+    mobileActionSheetIgnoreClicksUntil = performance.now() + 350;
+    blurMobileKeyboard();
+    closeContextMenu();
+    closeInstanceSwitcher();
+    closeThemePicker();
+    renderMobileActionSheet(buildMobileContextTarget());
+    mobileActionSheet.hidden = false;
+    document.body.classList.add("mobile-action-sheet-open");
+    mobileShortcuts?.setAttribute("aria-hidden", "true");
+    for (const button of mobileShortcuts?.querySelectorAll('[data-mobile-action="open_mobile_menu"]') || []) {
+      button.setAttribute("aria-expanded", "true");
+    }
+  };
+
+  const runMobileContextAction = (action) => {
+    const target = contextTarget?.type === "mobile" ? contextTarget : buildMobileContextTarget();
+    if (!isContextActionEnabled(action, target)) {
+      return;
+    }
+    contextTarget = target;
+    closeMobileActionSheet({ preserveTarget: true });
+    runContextAction(action);
+  };
+
+  const stopMobileSelectionEvent = (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    event.stopImmediatePropagation?.();
+  };
+
+  const primaryTouch = (event) => event.touches?.[0] || event.changedTouches?.[0] || null;
+
+  const suppressTerminalTouchScroll = (session) => {
+    const term = session?.term;
+    if (typeof term?.finishTouchScroll === "function") {
+      term.finishTouchScroll();
+    }
+    if (term) {
+      term.touchScrollMoved = false;
+    }
+  };
+
+  const currentSelectionCells = (session) => {
+    const manager = session?.term?.selectionManager;
+    if (!manager?.selectionStart || !manager?.selectionEnd) {
+      return null;
+    }
+    return normalizeSelectionCells(
+      { col: manager.selectionStart.col, absoluteRow: manager.selectionStart.absoluteRow },
+      { col: manager.selectionEnd.col, absoluteRow: manager.selectionEnd.absoluteRow },
+    );
+  };
+
+  const selectionContainsCell = (selection, cell) => {
+    if (!selection || !cell) {
+      return false;
+    }
+    if (cell.absoluteRow < selection.start.absoluteRow || cell.absoluteRow > selection.end.absoluteRow) {
+      return false;
+    }
+    if (selection.start.absoluteRow === selection.end.absoluteRow) {
+      return cell.col >= selection.start.col && cell.col <= selection.end.col;
+    }
+    if (cell.absoluteRow === selection.start.absoluteRow) {
+      return cell.col >= selection.start.col;
+    }
+    if (cell.absoluteRow === selection.end.absoluteRow) {
+      return cell.col <= selection.end.col;
+    }
+    return true;
+  };
+
+  const clearMobileSelectionIfTapOutside = (session, touch) => {
+    if (!session?.term?.hasSelection?.() || !touch) {
+      return false;
+    }
+    const selection = currentSelectionCells(session);
+    const cell = terminalCellFromPoint(session, touch.clientX, touch.clientY);
+    if (!selection || !cell || selectionContainsCell(selection, cell)) {
+      return false;
+    }
+    session.selectAllBufferActive = false;
+    session.term.clearSelection?.();
+    updateSelectionSheet();
+    return true;
+  };
+
+  const createMobileSelectionHandle = (role) => {
+    const handle = document.createElement("button");
+    handle.type = "button";
+    handle.className = `mobile-selection-handle ${role}`;
+    handle.dataset.selectionHandle = role;
+    handle.tabIndex = -1;
+    handle.setAttribute("aria-label", role === "start" ? "Adjust selection start" : "Adjust selection end");
+    const bar = document.createElement("span");
+    bar.className = "mobile-selection-handle-bar";
+    const knob = document.createElement("span");
+    knob.className = "mobile-selection-handle-knob";
+    handle.append(bar, knob);
+    return handle;
+  };
+
+  const updateSelectionFromHandleTouch = (session, role, touch) => {
+    const selection = currentSelectionCells(session);
+    const point = terminalCellFromPoint(session, touch.clientX, touch.clientY);
+    if (!selection || !point) {
+      return;
+    }
+    if (role === "start") {
+      const nextStart = compareSelectionCells(point, selection.end) >= 0
+        ? previousSelectionCell(session, selection.end)
+        : point;
+      applyTerminalSelection(session, nextStart, selection.end);
+      return;
+    }
+    const nextEnd = compareSelectionCells(point, selection.start) <= 0
+      ? nextSelectionCell(session, selection.start)
+      : point;
+    applyTerminalSelection(session, selection.start, nextEnd);
+  };
+
+  const bindMobileSelectionHandle = (session, handle, role) => {
+    let dragging = false;
+    handle.addEventListener("touchstart", (event) => {
+      if (!isMobileLayout() || event.touches.length !== 1) {
+        return;
+      }
+      dragging = true;
+      suppressTerminalTouchScroll(session);
+      stopMobileSelectionEvent(event);
+    }, { passive: false });
+    handle.addEventListener("touchmove", (event) => {
+      if (!dragging) {
+        return;
+      }
+      const touch = primaryTouch(event);
+      if (!touch) {
+        return;
+      }
+      suppressTerminalTouchScroll(session);
+      stopMobileSelectionEvent(event);
+      updateSelectionFromHandleTouch(session, role, touch);
+    }, { passive: false });
+    const finish = (event) => {
+      if (!dragging) {
+        return;
+      }
+      dragging = false;
+      suppressTerminalTouchScroll(session);
+      stopMobileSelectionEvent(event);
+      updateMobileSelectionHandles(session);
+    };
+    handle.addEventListener("touchend", finish, { passive: false });
+    handle.addEventListener("touchcancel", finish, { passive: false });
+  };
+
+  const installMobileTouchSelection = (session) => {
+    const overlay = document.createElement("div");
+    overlay.className = "mobile-selection-overlay";
+    overlay.hidden = true;
+    const startHandle = createMobileSelectionHandle("start");
+    const endHandle = createMobileSelectionHandle("end");
+    overlay.append(startHandle, endHandle);
+    session.shellEl.appendChild(overlay);
+    session.mobileSelectionOverlay = overlay;
+    overlay.startHandle = startHandle;
+    overlay.endHandle = endHandle;
+    bindMobileSelectionHandle(session, startHandle, "start");
+    bindMobileSelectionHandle(session, endHandle, "end");
+
+    let touchState = null;
+    session.shellEl.addEventListener("touchstart", (event) => {
+      if (!isMobileLayout() || event.touches.length !== 1 || (mobileActionSheet && !mobileActionSheet.hidden)) {
+        touchState = null;
+        return;
+      }
+      const target = event.target;
+      if (!(target instanceof Element) || target.closest(".mobile-selection-handle") || !target.closest(".terminal-host")) {
+        touchState = null;
+        return;
+      }
+      const touch = event.touches[0];
+      const startCell = terminalCellFromPoint(session, touch.clientX, touch.clientY);
+      touchState = startCell ? {
+        startCell,
+        startX: touch.clientX,
+        startY: touch.clientY,
+        selecting: false,
+      } : null;
+    }, { capture: true, passive: true });
+
+    session.shellEl.addEventListener("touchmove", (event) => {
+      if (!touchState || event.touches.length !== 1) {
+        return;
+      }
+      const touch = event.touches[0];
+      const dx = touch.clientX - touchState.startX;
+      const dy = touch.clientY - touchState.startY;
+      if (!touchState.selecting && Math.hypot(dx, dy) < touchSelectionMoveThresholdPx) {
+        return;
+      }
+      if (!touchState.selecting) {
+        blurTerminalInput(session);
+      }
+      touchState.selecting = true;
+      suppressTerminalTouchScroll(session);
+      stopMobileSelectionEvent(event);
+      const current = terminalCellFromPoint(session, touch.clientX, touch.clientY);
+      if (!current) {
+        return;
+      }
+      const currentTabForSession = tabs.get(session.tabId);
+      setActivePane(currentTabForSession, session.id, { focus: false });
+      session.selectAllBufferActive = false;
+      applyTerminalSelection(session, touchState.startCell, current);
+    }, { capture: true, passive: false });
+
+    const finishTouchSelection = (event) => {
+      if (!touchState) {
+        return;
+      }
+      const wasSelecting = touchState.selecting;
+      const endTouch = primaryTouch(event);
+      const shouldClearSelection = !wasSelecting && clearMobileSelectionIfTapOutside(session, endTouch);
+      touchState = null;
+      if (!wasSelecting) {
+        if (shouldClearSelection) {
+          stopMobileSelectionEvent(event);
+        }
+        return;
+      }
+      suppressTerminalTouchScroll(session);
+      stopMobileSelectionEvent(event);
+      updateMobileSelectionHandles(session);
+    };
+    session.shellEl.addEventListener("touchend", finishTouchSelection, { capture: true, passive: false });
+    session.shellEl.addEventListener("touchcancel", finishTouchSelection, { capture: true, passive: false });
+
+    session.term.onScroll?.(() => updateMobileSelectionHandles(session));
   };
 
   const clearReconnectTimer = (session) => {
@@ -3490,6 +4144,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     installTerminalKeyOverrides(session);
     installTerminalHostViewportGuard(session);
     installRendererThemeMapper(session);
+    installMobileTouchSelection(session);
 
     term.onData((data) => {
       if (isTerminalInputBlocked()) {
@@ -3511,6 +4166,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     term.onResize(() => {
       resetTerminalHostViewport(session, { clean: true });
       positionTerminalInput(session);
+      updateMobileSelectionHandles(session);
       sendTerminalSize(session);
     });
     term.onTitleChange((title) => {
@@ -3539,9 +4195,23 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
       setActivePane(current, session.id, { focus: false });
     });
     shellEl.addEventListener("contextmenu", (event) => {
+      if (!isMobileLayout()) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      const current = tabs.get(session.tabId);
+      setActivePane(current, session.id, { focus: false });
+      closeContextMenu();
+    }, { capture: true });
+    shellEl.addEventListener("contextmenu", (event) => {
       event.preventDefault();
       const current = tabs.get(session.tabId);
       setActivePane(current, session.id, { focus: false });
+      if (isMobileLayout()) {
+        closeContextMenu();
+        return;
+      }
       const link = findURLAtPosition(session, event.clientX, event.clientY);
       showContextMenu(event.clientX, event.clientY, { type: "pane", tabId: session.tabId, paneId: session.id, link: link?.url || "" });
     });
@@ -3605,6 +4275,10 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     button.addEventListener("contextmenu", (event) => {
       event.preventDefault();
       setActiveTab(tab.id, { focus: false });
+      if (isMobileLayout()) {
+        closeContextMenu();
+        return;
+      }
       showContextMenu(event.clientX, event.clientY, { type: "tab", tabId: tab.id, paneId: tab.activePaneId });
     });
     tab.button = button;
@@ -4279,10 +4953,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     contextMenu.dataset.type = target.type;
     for (const item of contextMenu.querySelectorAll(".context-menu-btn")) {
       const action = item.dataset.action;
-      const paneOnly = ["copy", "paste", "select-all", "search", "split-vertical", "split-horizontal", "move-pane-new-tab", "close-pane"].includes(action);
-      const tabOnly = ["rename-tab", "move-tab-first", "move-tab-left", "move-tab-right", "move-tab-last", "close-other-tabs", "close-tab"].includes(action);
-      const linkOnly = ["open-link", "copy-link"].includes(action);
-      item.hidden = (paneOnly && !target.paneId) || (tabOnly && !target.tabId) || (linkOnly && !target.link);
+      item.hidden = (contextPaneActions.has(action) && !target.paneId) || (contextTabActions.has(action) && !target.tabId) || (contextLinkActions.has(action) && !target.link);
     }
     const rect = contextMenu.getBoundingClientRect();
     const left = Math.min(x, window.innerWidth - rect.width - 8);
@@ -4880,6 +5551,22 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     }
   });
 
+  mobileActionSheetScrim?.addEventListener("click", () => closeMobileActionSheet());
+  mobileActionSheetHandle?.addEventListener("click", () => closeMobileActionSheet());
+  mobileActionGrid?.addEventListener("click", (event) => {
+    if (performance.now() < mobileActionSheetIgnoreClicksUntil) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+    const target = event.target;
+    const item = target instanceof Element ? target.closest(".mobile-action-item") : null;
+    if (!item || item.disabled) {
+      return;
+    }
+    runMobileContextAction(item.dataset.action);
+  });
+
   contextMenu?.addEventListener("click", (event) => {
     const item = event.target.closest(".context-menu-btn");
     if (!item) {
@@ -4909,6 +5596,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
       closeContextMenu();
+      closeMobileActionSheet();
       closeInstanceSwitcher();
       closeThemePicker();
       closeSettings();
@@ -4918,6 +5606,11 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
   }, true);
 
   window.addEventListener("resize", () => {
+    if (!isMobileLayout()) {
+      closeMobileActionSheet();
+    } else if (mobileActionSheet && !mobileActionSheet.hidden) {
+      renderMobileActionSheet();
+    }
     resizeAllTabsForCurrentDevice();
     scheduleTabOverviewRender();
   });
