@@ -786,24 +786,31 @@ body.split-resize-active * {
 }
 
 .theme-picker-header {
+  position: relative;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: center;
   min-height: 54px;
-  padding: 0 18px;
+  padding: 0 64px;
   border-bottom: 1px solid var(--panel-border);
 }
 
 .theme-picker-header h2 {
   margin: 0;
+  overflow: hidden;
   font-size: 18px;
   font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .theme-picker-close {
+  position: absolute;
+  left: 10px;
+  top: 50%;
   display: inline-flex;
-  width: 30px;
-  height: 30px;
+  width: 44px;
+  height: 44px;
   align-items: center;
   justify-content: center;
   border: 0;
@@ -811,10 +818,13 @@ body.split-resize-active * {
   background: transparent;
   color: var(--text);
   cursor: pointer;
-  font-size: 16px;
+  font-size: 22px;
+  line-height: 1;
+  transform: translateY(-50%);
 }
 
-.theme-picker-close:hover {
+.theme-picker-close:hover,
+.theme-picker-close:focus-visible {
   background: var(--panel-hover-bg);
 }
 

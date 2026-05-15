@@ -277,11 +277,16 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
   let lightOSHomeURL = "";
   let lightOSHomeURLPromise = null;
   let mobileActionSheetIgnoreClicksUntil = 0;
+  let themePickerEdgeSwipe = null;
   const searchState = { open: false, query: "", matches: [], index: -1, sessionId: "" };
   const mobileSticky = { ctrl: false, alt: false, shift: false };
   let touchShortcutFeedbackEnabled = loadTouchShortcutFeedbackEnabled();
   const textEncoder = new TextEncoder();
   const serverRevisionClientID = globalThis.crypto?.randomUUID?.() || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  const themePickerSwipeEdgeWidth = 24;
+  const themePickerSwipeAxisThreshold = 12;
+  const themePickerSwipeCloseDistance = 56;
+  const themePickerSwipeMaxVerticalTravel = 40;
   // Mobile IMEs keep Backspace auto-repeat active only while the focused editable has text.
   const terminalInputSentinel = "\u200b";
   const backtabSequence = "\x1b[Z";
@@ -1192,11 +1197,65 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     if (themePickerBackdrop) {
       themePickerBackdrop.hidden = true;
     }
+    themePickerEdgeSwipe = null;
   };
 
   const currentTab = () => tabs.get(activeTabId) || null;
 
   const isMobileLayout = () => Boolean(mobileLayoutQuery?.matches);
+
+  const isThemePickerOpen = () => Boolean(themePickerBackdrop && !themePickerBackdrop.hidden);
+
+  const resetThemePickerEdgeSwipe = () => {
+    themePickerEdgeSwipe = null;
+  };
+
+  const handleThemePickerTouchStart = (event) => {
+    if (!isThemePickerOpen() || !isMobileLayout() || event.touches.length !== 1) {
+      resetThemePickerEdgeSwipe();
+      return;
+    }
+    const touch = event.touches[0];
+    if (touch.clientX > themePickerSwipeEdgeWidth) {
+      resetThemePickerEdgeSwipe();
+      return;
+    }
+    themePickerEdgeSwipe = {
+      startX: touch.clientX,
+      startY: touch.clientY,
+      horizontal: false,
+    };
+  };
+
+  const handleThemePickerTouchMove = (event) => {
+    if (!themePickerEdgeSwipe || event.touches.length !== 1) {
+      return;
+    }
+    const touch = event.touches[0];
+    const deltaX = touch.clientX - themePickerEdgeSwipe.startX;
+    const deltaY = touch.clientY - themePickerEdgeSwipe.startY;
+    const absX = Math.abs(deltaX);
+    const absY = Math.abs(deltaY);
+
+    if (!themePickerEdgeSwipe.horizontal) {
+      if (absY > themePickerSwipeAxisThreshold && absY > absX) {
+        resetThemePickerEdgeSwipe();
+        return;
+      }
+      if (deltaX > themePickerSwipeAxisThreshold && absX > absY * 1.2) {
+        themePickerEdgeSwipe.horizontal = true;
+      }
+    }
+
+    if (!themePickerEdgeSwipe?.horizontal) {
+      return;
+    }
+
+    event.preventDefault();
+    if (deltaX >= themePickerSwipeCloseDistance && absY <= themePickerSwipeMaxVerticalTravel) {
+      closeThemePicker();
+    }
+  };
 
   const getOrderedTabs = () =>
     Array.from(tabsEl.querySelectorAll(".tab"))
@@ -5404,6 +5463,10 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
       focusPaneAtPoint(clientX, clientY);
     }
   });
+  themePickerBackdrop?.addEventListener("touchstart", handleThemePickerTouchStart, { passive: true });
+  themePickerBackdrop?.addEventListener("touchmove", handleThemePickerTouchMove, { passive: false });
+  themePickerBackdrop?.addEventListener("touchend", resetThemePickerEdgeSwipe, { passive: true });
+  themePickerBackdrop?.addEventListener("touchcancel", resetThemePickerEdgeSwipe, { passive: true });
   themePickerList?.addEventListener("click", (event) => {
     const option = event.target.closest(".theme-option");
     if (!option) {
