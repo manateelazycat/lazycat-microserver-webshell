@@ -47,11 +47,15 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
   const storagePrefix = "webshell";
   const themeStorageKey = `${storagePrefix}.theme`;
   const fontSizeStorageKey = `${storagePrefix}.fontSize`;
+  const fontSizeVersionStorageKey = `${storagePrefix}.fontSizeVersion`;
+  const fontSizeStorageVersion = "2";
   const lastTabStorageKey = (name) => `${storagePrefix}.lastTab.${name || "default"}`;
-  const defaultFontSize = 14;
-  const minFontSize = 8;
+  const defaultFontSize = 16;
+  const minFontSize = 10;
   const maxFontSize = 32;
-  const storedFontSize = Number(window.localStorage.getItem(fontSizeStorageKey));
+  const storedFontSize = window.localStorage.getItem(fontSizeVersionStorageKey) === fontSizeStorageVersion
+    ? Number(window.localStorage.getItem(fontSizeStorageKey))
+    : NaN;
   let terminalFontSize = Number.isFinite(storedFontSize) ? Math.max(minFontSize, Math.min(maxFontSize, storedFontSize)) : defaultFontSize;
   const terminalOptionsBase = {
     cursorBlink: true,
@@ -717,6 +721,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
   const setTerminalFontSize = (size) => {
     terminalFontSize = Math.max(minFontSize, Math.min(maxFontSize, Math.round(size)));
     terminalOptionsBase.fontSize = terminalFontSize;
+    window.localStorage.setItem(fontSizeVersionStorageKey, fontSizeStorageVersion);
     window.localStorage.setItem(fontSizeStorageKey, String(terminalFontSize));
     for (const tab of tabs.values()) {
       for (const pane of tab.panes.values()) {
