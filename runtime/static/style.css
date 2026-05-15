@@ -552,7 +552,7 @@ body.split-resize-active * {
   min-width: 0;
   min-height: 0;
   height: 100%;
-  padding: 10px 12px;
+  padding: 0;
   overflow: hidden;
   box-sizing: border-box;
   color: var(--terminal-fg);
