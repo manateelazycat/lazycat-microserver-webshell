@@ -1423,25 +1423,48 @@ body.split-resize-active * {
   min-width: 0;
   min-height: 0;
   padding: 14px;
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: hidden;
   align-content: start;
   overscroll-behavior-y: contain;
-  scrollbar-color: var(--accent) transparent;
-  scrollbar-width: thin;
+  scrollbar-width: none;
   box-sizing: border-box;
 }
 
 .tab-overview-grid::-webkit-scrollbar {
-  width: 8px;
+  width: 0;
+  height: 0;
 }
 
-.tab-overview-grid::-webkit-scrollbar-track {
-  background: transparent;
+.tab-overview-grid.is-scrollable {
+  overflow-y: auto;
+  scrollbar-color: rgba(128, 128, 128, 0.5) rgba(128, 128, 128, 0.1);
+  scrollbar-width: thin;
 }
 
-.tab-overview-grid::-webkit-scrollbar-thumb {
+.tab-overview-grid.is-scrollable::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+
+.tab-overview-grid.is-scrollable::-webkit-scrollbar-track {
+  border-right: 3px solid transparent;
+  border-left: 3px solid transparent;
   border-radius: 999px;
-  background: var(--accent);
+  background: rgba(128, 128, 128, 0.1);
+  background-clip: content-box;
+}
+
+.tab-overview-grid.is-scrollable::-webkit-scrollbar-thumb {
+  border-right: 3px solid transparent;
+  border-left: 3px solid transparent;
+  border-radius: 999px;
+  background: rgba(128, 128, 128, 0.5);
+  background-clip: content-box;
+}
+
+.tab-overview-grid.is-scrollable::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 .tab-overview-card {

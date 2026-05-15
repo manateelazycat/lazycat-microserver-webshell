@@ -1343,6 +1343,16 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     tabOverviewGrid.style.setProperty("--tab-overview-mobile-card-height", `${Math.ceil(Math.max(naturalCardHeight, twoRowCardHeight))}px`);
   };
 
+  const syncTabOverviewScrollable = () => {
+    if (!tabOverviewGrid) {
+      return false;
+    }
+    const isScrollable = tabOverviewGrid.scrollHeight > tabOverviewGrid.clientHeight + 1;
+    const changed = tabOverviewGrid.classList.contains("is-scrollable") !== isScrollable;
+    tabOverviewGrid.classList.toggle("is-scrollable", isScrollable);
+    return changed;
+  };
+
   const tabOverviewCanvasSize = (canvas) => {
     const rect = canvas.parentElement?.getBoundingClientRect?.() || canvas.getBoundingClientRect();
     const terminalSize = tabOverviewTerminalSize();
@@ -1455,6 +1465,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     if (!tabOverviewGrid) {
       return;
     }
+    tabOverviewGrid.classList.remove("is-scrollable");
     syncTabOverviewPreviewRatio();
     tabOverviewGrid.textContent = "";
     const orderedTabs = getOrderedTabs();
@@ -1463,6 +1474,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
       empty.className = "tab-overview-empty";
       empty.textContent = "暂无终端";
       tabOverviewGrid.appendChild(empty);
+      syncTabOverviewScrollable();
       return;
     }
 
@@ -1505,6 +1517,10 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
       fragment.appendChild(card);
     }
     tabOverviewGrid.appendChild(fragment);
+    if (syncTabOverviewScrollable()) {
+      syncTabOverviewPreviewRatio();
+      syncTabOverviewScrollable();
+    }
     for (const item of previewItems) {
       drawTabOverviewPreview(item.canvas, item.tab, colors);
     }
@@ -1532,6 +1548,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     tabOverviewToggle?.setAttribute("aria-expanded", "false");
     if (tabOverviewGrid) {
       tabOverviewGrid.textContent = "";
+      tabOverviewGrid.classList.remove("is-scrollable");
     }
   };
 
