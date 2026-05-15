@@ -21,10 +21,21 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
   const instanceSwitcherFeedback = document.getElementById("instanceSwitcherFeedback");
   const homeMenuButton = document.getElementById("homeMenuButton");
   const themeMenuButton = document.getElementById("themeMenuButton");
+  const settingsMenuButton = document.getElementById("settingsMenuButton");
   const themePickerButton = document.getElementById("themePickerButton");
   const themePickerBackdrop = document.getElementById("themePickerBackdrop");
   const themePickerClose = document.getElementById("themePickerClose");
   const themePickerList = document.getElementById("themePickerList");
+  const settingsBackdrop = document.getElementById("settingsBackdrop");
+  const settingsClose = document.getElementById("settingsClose");
+  const settingsFontSelect = document.getElementById("settingsFontSelect");
+  const settingsFontInput = document.getElementById("settingsFontInput");
+  const settingsFontFilename = document.getElementById("settingsFontFilename");
+  const settingsFontMeta = document.getElementById("settingsFontMeta");
+  const settingsFontList = document.getElementById("settingsFontList");
+  const settingsFeedback = document.getElementById("settingsFeedback");
+  const settingsTabs = Array.from(document.querySelectorAll("[data-settings-tab]"));
+  const settingsTabPanels = Array.from(document.querySelectorAll("[data-settings-panel]"));
   const searchPanel = document.getElementById("searchPanel");
   const searchInput = document.getElementById("searchInput");
   const searchCount = document.getElementById("searchCount");
@@ -61,6 +72,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
   const defaultFontSize = 16;
   const minFontSize = 10;
   const maxFontSize = 32;
+  const defaultTerminalFontFamily = '"DejaVu Sans Mono", "Liberation Mono", monospace';
   const touchShortcutMoveThresholdPx = 8;
   const touchShortcutRepeatInitialDelayMs = 320;
   const touchShortcutRepeatIntervalMs = 80;
@@ -74,7 +86,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     cursorBlink: false,
     convertEol: true,
     scrollback: 5000,
-    fontFamily: '"DejaVu Sans Mono", "Liberation Mono", monospace',
+    fontFamily: defaultTerminalFontFamily,
     fontSize: terminalFontSize,
   };
   let themes = [
@@ -239,6 +251,9 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
   let contextTarget = null;
   let toastTimer = 0;
   let activeTheme = themes.find((theme) => theme.id === window.localStorage.getItem(themeStorageKey)) || themes[0];
+  let uploadedFonts = [];
+  let activeTerminalFontID = "";
+  const registeredFontFaces = new Map();
   let applyingWorkspaceState = false;
   let activityRefreshTimer = 0;
   let activityRefreshDelayTimer = 0;
@@ -346,6 +361,263 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
       }
     } catch (error) {
       console.warn("Failed to load theme catalog", error);
+    }
+  };
+
+  const readResponseText = async (response, fallback) => {
+    const text = await response.text().catch(() => "");
+    return text.trim() || fallback;
+  };
+
+  const normalizeUploadedFont = (font) => {
+    const id = String(font?.id || "").trim();
+    const family = String(font?.family || "").trim();
+    if (!id || !family) {
+      return null;
+    }
+    return {
+      id,
+      family,
+      label: String(font?.label || font?.source_name || font?.filename || family).trim() || family,
+      filename: String(font?.filename || "").trim(),
+      mime: String(font?.mime || "").trim(),
+      size: Number(font?.size || 0),
+      uploadedAt: String(font?.uploaded_at || "").trim(),
+      url: String(font?.url || `/api/settings/fonts/${id}/file`).trim(),
+      sourceName: String(font?.source_name || "").trim(),
+    };
+  };
+
+  const fontFileSource = (font) => new URL(font.url || `/api/settings/fonts/${font.id}/file`, window.location.href).toString();
+
+  const cssString = (value) => `"${String(value || "").replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+
+  const formatBytes = (value) => {
+    const size = Number(value || 0);
+    if (!Number.isFinite(size) || size <= 0) {
+      return "";
+    }
+    if (size < 1024) {
+      return `${size} B`;
+    }
+    if (size < 1024 * 1024) {
+      return `${(size / 1024).toFixed(size < 10 * 1024 ? 1 : 0)} KB`;
+    }
+    return `${(size / 1024 / 1024).toFixed(1)} MB`;
+  };
+
+  const setSettingsFeedback = (message, tone = "info") => {
+    if (!settingsFeedback) {
+      return;
+    }
+    const text = String(message || "").trim();
+    settingsFeedback.hidden = !text;
+    settingsFeedback.textContent = text;
+    settingsFeedback.dataset.tone = tone;
+  };
+
+  const setActiveSettingsTab = (tabID) => {
+    const nextTabID = String(tabID || "font-settings").trim() || "font-settings";
+    for (const tab of settingsTabs) {
+      const selected = tab.dataset.settingsTab === nextTabID;
+      tab.setAttribute("aria-selected", selected ? "true" : "false");
+      tab.tabIndex = selected ? 0 : -1;
+    }
+    for (const panel of settingsTabPanels) {
+      panel.hidden = panel.dataset.settingsPanel !== nextTabID;
+    }
+  };
+
+  const registerUploadedFont = async (font) => {
+    if (!font?.id || !font.family || registeredFontFaces.has(font.id) || typeof FontFace !== "function") {
+      return;
+    }
+    if (!document.fonts) {
+      return;
+    }
+    const face = new FontFace(font.family, `url(${cssString(fontFileSource(font))})`, { display: "swap" });
+    await face.load();
+    document.fonts.add(face);
+    registeredFontFaces.set(font.id, face);
+  };
+
+  const registerUploadedFonts = async (fonts) => {
+    const failures = [];
+    await Promise.all(fonts.map(async (font) => {
+      try {
+        await registerUploadedFont(font);
+      } catch (error) {
+        failures.push(font.label || font.filename || font.id);
+      }
+    }));
+    if (failures.length > 0) {
+      setSettingsFeedback(`部分字体加载失败：${failures.join("、")}`, "error");
+    }
+  };
+
+  const applyTerminalFont = () => {
+    const selected = uploadedFonts.find((font) => font.id === activeTerminalFontID);
+    terminalOptionsBase.fontFamily = selected
+      ? `${cssString(selected.family)}, ${defaultTerminalFontFamily}`
+      : defaultTerminalFontFamily;
+    for (const tab of tabs.values()) {
+      for (const pane of tab.panes.values()) {
+        pane.term.options.fontFamily = terminalOptionsBase.fontFamily;
+        refreshTerminalMetrics(pane);
+      }
+    }
+  };
+
+  const renderSettingsFonts = () => {
+    if (!settingsFontSelect) {
+      return;
+    }
+    const selected = uploadedFonts.find((font) => font.id === activeTerminalFontID);
+    settingsFontSelect.textContent = "";
+    const defaultOption = document.createElement("option");
+    defaultOption.value = "";
+    defaultOption.textContent = "系统默认";
+    settingsFontSelect.appendChild(defaultOption);
+    for (const font of uploadedFonts) {
+      const option = document.createElement("option");
+      option.value = font.id;
+      option.textContent = font.label || font.filename || font.family;
+      settingsFontSelect.appendChild(option);
+    }
+    settingsFontSelect.value = selected ? selected.id : "";
+    if (settingsFontMeta) {
+      const size = selected ? formatBytes(selected.size) : "";
+      settingsFontMeta.textContent = selected
+        ? [selected.filename, size].filter(Boolean).join(" · ")
+        : "当前使用系统默认字体。";
+    }
+    renderSettingsFontList();
+  };
+
+  const renderSettingsFontList = () => {
+    if (!settingsFontList) {
+      return;
+    }
+    settingsFontList.textContent = "";
+    if (uploadedFonts.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "settings-font-empty";
+      empty.textContent = "还没有上传字体。";
+      settingsFontList.appendChild(empty);
+      return;
+    }
+    for (const font of uploadedFonts) {
+      const item = document.createElement("div");
+      item.className = "settings-font-item";
+      const body = document.createElement("div");
+      body.className = "settings-font-item-body";
+      const title = document.createElement("div");
+      title.className = "settings-font-item-name";
+      title.textContent = font.label || font.filename || font.family;
+      const meta = document.createElement("div");
+      meta.className = "settings-font-item-meta";
+      const size = formatBytes(font.size);
+      meta.textContent = [font.filename, size, font.id === activeTerminalFontID ? "当前使用" : ""].filter(Boolean).join(" · ");
+      body.append(title, meta);
+      const action = document.createElement("button");
+      action.className = "settings-secondary danger";
+      action.type = "button";
+      action.dataset.fontDelete = font.id;
+      action.textContent = "删除";
+      item.append(body, action);
+      settingsFontList.appendChild(item);
+    }
+  };
+
+  const applySettingsState = async (state) => {
+    const fonts = Array.isArray(state?.fonts)
+      ? state.fonts.map(normalizeUploadedFont).filter(Boolean)
+      : [];
+    uploadedFonts = fonts;
+    const nextFontID = String(state?.terminal_font_id || "").trim();
+    activeTerminalFontID = uploadedFonts.some((font) => font.id === nextFontID) ? nextFontID : "";
+    await registerUploadedFonts(uploadedFonts);
+    renderSettingsFonts();
+    applyTerminalFont();
+  };
+
+  const loadSettings = async () => {
+    const response = await fetch("./api/settings", { cache: "no-store" });
+    if (!response.ok) {
+      throw new Error(await readResponseText(response, `设置加载失败 (${response.status})`));
+    }
+    await applySettingsState(await response.json());
+  };
+
+  const saveTerminalFontSelection = async (fontID) => {
+    const response = await fetch("./api/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ terminal_font_id: fontID || "" }),
+    });
+    if (!response.ok) {
+      throw new Error(await readResponseText(response, `字体设置保存失败 (${response.status})`));
+    }
+    await applySettingsState(await response.json());
+  };
+
+  const uploadTerminalFont = async (file) => {
+    const form = new FormData();
+    form.append("font", file);
+    const response = await fetch("./api/settings/fonts", {
+      method: "POST",
+      body: form,
+    });
+    if (!response.ok) {
+      throw new Error(await readResponseText(response, `字体上传失败 (${response.status})`));
+    }
+    await loadSettings();
+  };
+
+  const deleteFont = async (fontID) => {
+    const selected = uploadedFonts.find((font) => font.id === fontID);
+    if (!selected) {
+      return;
+    }
+    const suffix = selected.id === activeTerminalFontID ? "\n删除后终端将恢复系统默认字体。" : "";
+    const confirmed = await confirmDialog(`删除字体「${selected.label}」？${suffix}`, {
+      title: "删除字体",
+      okText: "删除",
+      cancelText: "取消",
+      danger: true,
+    });
+    if (!confirmed) {
+      return;
+    }
+    const response = await fetch(`./api/settings/fonts/${encodeURIComponent(selected.id)}`, { method: "DELETE" });
+    if (!response.ok) {
+      throw new Error(await readResponseText(response, `字体删除失败 (${response.status})`));
+    }
+    await loadSettings();
+    setSettingsFeedback("字体已删除。", "success");
+  };
+
+  const openSettings = () => {
+    closeContextMenu();
+    closeThemePicker();
+    closeInstanceSwitcher();
+    setActiveSettingsTab("font-settings");
+    renderSettingsFonts();
+    setSettingsFeedback("");
+    if (settingsBackdrop) {
+      settingsBackdrop.hidden = false;
+      window.setTimeout(() => settingsTabs.find((tab) => tab.getAttribute("aria-selected") === "true")?.focus(), 0);
+    }
+    loadSettings().catch((error) => setSettingsFeedback(error.message || "设置加载失败。", "error"));
+  };
+
+  const closeSettings = () => {
+    const wasOpen = settingsBackdrop && !settingsBackdrop.hidden;
+    if (settingsBackdrop) {
+      settingsBackdrop.hidden = true;
+    }
+    if (wasOpen) {
+      window.setTimeout(() => activeSession()?.term?.focus(), 0);
     }
   };
 
@@ -4133,7 +4405,12 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     if (event.isComposing || event.key === "Process" || Number(event.keyCode || 0) === 229) {
       return;
     }
-    if (!themePickerBackdrop.hidden || !instanceSwitcherPanel.hidden || isTabOverviewOpen()) {
+    if (
+      (themePickerBackdrop && !themePickerBackdrop.hidden) ||
+      (settingsBackdrop && !settingsBackdrop.hidden) ||
+      (instanceSwitcherPanel && !instanceSwitcherPanel.hidden) ||
+      isTabOverviewOpen()
+    ) {
       return;
     }
     if (isInteractiveShortcutTarget(event.target)) {
@@ -4293,6 +4570,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     await loadThemeCatalog();
     applyThemeDocumentState();
     renderThemePicker();
+    await loadSettings().catch((error) => showToast(error.message || "设置加载失败。"));
     await refreshInstances();
     await refreshWorkspace({ focus: true });
     await refreshServerRevision().catch(() => {});
@@ -4344,6 +4622,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     closeInstanceSwitcher();
     openThemePicker();
   });
+  settingsMenuButton?.addEventListener("click", openSettings);
   themePickerButton?.addEventListener("click", openThemePicker);
   themePickerClose?.addEventListener("click", closeThemePicker);
   themePickerBackdrop?.addEventListener("click", (event) => {
@@ -4359,6 +4638,76 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
       return;
     }
     applyTheme(option.dataset.theme);
+  });
+
+  settingsClose?.addEventListener("click", closeSettings);
+  settingsBackdrop?.addEventListener("click", (event) => {
+    if (event.target === settingsBackdrop) {
+      closeSettings();
+    }
+  });
+  for (const tab of settingsTabs) {
+    tab.addEventListener("click", () => setActiveSettingsTab(tab.dataset.settingsTab));
+    tab.addEventListener("keydown", (event) => {
+      if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") {
+        return;
+      }
+      event.preventDefault();
+      const currentIndex = Math.max(0, settingsTabs.indexOf(tab));
+      const offset = event.key === "ArrowRight" ? 1 : -1;
+      const next = settingsTabs[(currentIndex + offset + settingsTabs.length) % settingsTabs.length];
+      if (next) {
+        setActiveSettingsTab(next.dataset.settingsTab);
+        next.focus();
+      }
+    });
+  }
+  settingsFontSelect?.addEventListener("change", () => {
+    const fontID = settingsFontSelect.value || "";
+    settingsFontSelect.disabled = true;
+    saveTerminalFontSelection(fontID)
+      .then(() => setSettingsFeedback(fontID ? "终端字体已更新。" : "已恢复系统默认字体。", "success"))
+      .catch((error) => setSettingsFeedback(error.message || "字体设置保存失败。", "error"))
+      .finally(() => {
+        settingsFontSelect.disabled = false;
+        renderSettingsFonts();
+      });
+  });
+  settingsFontInput?.addEventListener("change", () => {
+    const file = settingsFontInput.files?.[0];
+    if (settingsFontFilename) {
+      settingsFontFilename.textContent = file?.name || "未选择文件";
+    }
+    if (!file) {
+      return;
+    }
+    settingsFontInput.disabled = true;
+    setSettingsFeedback("正在上传字体...", "info");
+    uploadTerminalFont(file)
+      .then(() => {
+        settingsFontInput.value = "";
+        if (settingsFontFilename) {
+          settingsFontFilename.textContent = "未选择文件";
+        }
+        setSettingsFeedback("字体已上传并应用。", "success");
+      })
+      .catch((error) => setSettingsFeedback(error.message || "字体上传失败。", "error"))
+      .finally(() => {
+        settingsFontInput.disabled = false;
+      });
+  });
+  settingsFontList?.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-font-delete]");
+    if (!button) {
+      return;
+    }
+    button.disabled = true;
+    deleteFont(button.dataset.fontDelete)
+      .catch((error) => setSettingsFeedback(error.message || "字体删除失败。", "error"))
+      .finally(() => {
+        button.disabled = false;
+        renderSettingsFonts();
+      });
   });
 
   searchInput?.addEventListener("input", () => setSearchQuery(searchInput.value));
@@ -4472,6 +4821,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
       closeContextMenu();
       closeInstanceSwitcher();
       closeThemePicker();
+      closeSettings();
       closeTabOverview();
     }
     handleGlobalShortcutKeydown(event);

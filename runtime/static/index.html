@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>LightOS Demo WebShell</title>
+    <title>LCMD WebShell</title>
     <link rel="stylesheet" href="./static/style.css" />
   </head>
   <body>
@@ -44,6 +44,12 @@
                     <span class="instance-switcher-item-meta">打开终端主题选择器</span>
                   </span>
                 </button>
+                <button class="instance-switcher-action" id="settingsMenuButton" type="button">
+                  <span class="instance-switcher-item-body">
+                    <span class="instance-switcher-item-name">设置</span>
+                    <span class="instance-switcher-item-meta">打开应用设置</span>
+                  </span>
+                </button>
               </div>
               <div class="instance-switcher-panel-head">
                 <div class="instance-switcher-panel-title">切换容器</div>
@@ -68,24 +74,24 @@
       </main>
     </div>
     <div class="context-menu" id="contextMenu" hidden>
-      <button class="context-menu-btn" type="button" data-action="copy">Copy</button>
-      <button class="context-menu-btn" type="button" data-action="paste">Paste</button>
-      <button class="context-menu-btn" type="button" data-action="select-all">Select all</button>
-      <button class="context-menu-btn" type="button" data-action="search">Search</button>
-      <button class="context-menu-btn" type="button" data-action="open-link">Open link</button>
-      <button class="context-menu-btn" type="button" data-action="copy-link">Copy link</button>
-      <button class="context-menu-btn" type="button" data-action="rename-tab">Rename tab</button>
-      <button class="context-menu-btn" type="button" data-action="move-tab-first">Move tab first</button>
-      <button class="context-menu-btn" type="button" data-action="move-tab-left">Move tab left</button>
-      <button class="context-menu-btn" type="button" data-action="move-tab-right">Move tab right</button>
-      <button class="context-menu-btn" type="button" data-action="move-tab-last">Move tab last</button>
-      <button class="context-menu-btn" type="button" data-action="close-other-tabs">Close other tabs</button>
-      <button class="context-menu-btn" type="button" data-action="split-vertical">Split vertically</button>
-      <button class="context-menu-btn" type="button" data-action="split-horizontal">Split horizontally</button>
-      <button class="context-menu-btn" type="button" data-action="move-pane-new-tab">Move pane to new tab</button>
-      <button class="context-menu-btn" type="button" data-action="theme">Theme</button>
-      <button class="context-menu-btn danger" type="button" data-action="close-pane">Close pane</button>
-      <button class="context-menu-btn danger" type="button" data-action="close-tab">Close tab</button>
+      <button class="context-menu-btn" type="button" data-action="copy">复制</button>
+      <button class="context-menu-btn" type="button" data-action="paste">粘贴</button>
+      <button class="context-menu-btn" type="button" data-action="select-all">全选</button>
+      <button class="context-menu-btn" type="button" data-action="search">搜索</button>
+      <button class="context-menu-btn" type="button" data-action="open-link">打开链接</button>
+      <button class="context-menu-btn" type="button" data-action="copy-link">复制链接</button>
+      <button class="context-menu-btn" type="button" data-action="rename-tab">重命名标签</button>
+      <button class="context-menu-btn" type="button" data-action="move-tab-first">移到最前</button>
+      <button class="context-menu-btn" type="button" data-action="move-tab-left">左移标签</button>
+      <button class="context-menu-btn" type="button" data-action="move-tab-right">右移标签</button>
+      <button class="context-menu-btn" type="button" data-action="move-tab-last">移到最后</button>
+      <button class="context-menu-btn" type="button" data-action="close-other-tabs">关闭其他标签</button>
+      <button class="context-menu-btn" type="button" data-action="split-vertical">左右分屏</button>
+      <button class="context-menu-btn" type="button" data-action="split-horizontal">上下分屏</button>
+      <button class="context-menu-btn" type="button" data-action="move-pane-new-tab">移动窗格到新标签</button>
+      <button class="context-menu-btn" type="button" data-action="theme">切换主题</button>
+      <button class="context-menu-btn danger" type="button" data-action="close-pane">关闭窗格</button>
+      <button class="context-menu-btn danger" type="button" data-action="close-tab">关闭标签</button>
     </div>
     <div class="modal" id="themePickerBackdrop" hidden>
       <div class="theme-picker-panel" id="themePickerPanel" role="dialog" aria-modal="true" aria-label="切换主题">
@@ -93,6 +99,53 @@
           <h2>切换主题</h2>
         </div>
         <div class="theme-picker-list" id="themePickerList" role="listbox" aria-label="终端主题"></div>
+      </div>
+    </div>
+    <div class="modal settings-modal" id="settingsBackdrop" hidden>
+      <div class="settings-panel" id="settingsPanel" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+        <div class="settings-header">
+          <h2 id="settingsTitle">设置</h2>
+          <button class="settings-close" id="settingsClose" type="button" aria-label="关闭设置">&times;</button>
+        </div>
+        <div class="settings-tabs" role="tablist" aria-label="设置分类">
+          <button class="settings-tab" id="settingsTabFontSettings" type="button" role="tab" aria-selected="true" aria-controls="settingsPanelFontSettings" data-settings-tab="font-settings">字体设置</button>
+          <button class="settings-tab" id="settingsTabFontManagement" type="button" role="tab" aria-selected="false" aria-controls="settingsPanelFontManagement" data-settings-tab="font-management">字体管理</button>
+        </div>
+        <div class="settings-body">
+          <div class="settings-tab-panel" id="settingsPanelFontSettings" role="tabpanel" aria-labelledby="settingsTabFontSettings" data-settings-panel="font-settings">
+            <section class="settings-section" aria-labelledby="settingsFontTitle">
+              <div class="settings-section-head">
+                <h3 id="settingsFontTitle">终端字体</h3>
+              </div>
+              <label class="settings-label" for="settingsFontSelect">字体</label>
+              <div class="settings-font-row">
+                <select class="settings-select" id="settingsFontSelect"></select>
+              </div>
+              <div class="settings-font-meta" id="settingsFontMeta"></div>
+            </section>
+          </div>
+          <div class="settings-tab-panel" id="settingsPanelFontManagement" role="tabpanel" aria-labelledby="settingsTabFontManagement" data-settings-panel="font-management" hidden>
+            <section class="settings-section" aria-labelledby="settingsUploadTitle">
+              <div class="settings-section-head">
+                <h3 id="settingsUploadTitle">上传字体</h3>
+              </div>
+              <div class="settings-upload-row">
+                <input class="settings-file" id="settingsFontInput" type="file" accept=".ttf,.otf,.woff,.woff2,font/ttf,font/otf,font/woff,font/woff2" />
+                <label class="settings-upload-control" for="settingsFontInput">
+                  <span class="settings-upload-button">选择字体文件</span>
+                  <span class="settings-upload-name" id="settingsFontFilename">未选择文件</span>
+                </label>
+              </div>
+            </section>
+            <section class="settings-section" aria-labelledby="settingsFontListTitle">
+              <div class="settings-section-head">
+                <h3 id="settingsFontListTitle">已上传字体</h3>
+              </div>
+              <div class="settings-font-list" id="settingsFontList"></div>
+            </section>
+          </div>
+          <div class="settings-feedback" id="settingsFeedback" hidden></div>
+        </div>
       </div>
     </div>
     <div class="tab-overview" id="tabOverview" hidden>

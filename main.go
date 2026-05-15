@@ -23,11 +23,14 @@ import (
 	"syscall"
 	"time"
 
+	"lcmd-webshell/internal/pkg/fonts"
+
 	"github.com/gorilla/websocket"
 )
 
 type pluginServer struct {
 	rootDir        string
+	fontDir        string
 	serverRevision string
 	workspaces     *workspaceManager
 
@@ -70,6 +73,7 @@ func main() {
 	rootDir := resolvePluginRoot()
 	server := &pluginServer{
 		rootDir:        rootDir,
+		fontDir:        fonts.ResolveDir(rootDir),
 		serverRevision: computeServerRevision(rootDir),
 		workspaces:     newWorkspaceManager(rootDir),
 	}
@@ -145,6 +149,9 @@ func (s *pluginServer) run(ctx context.Context) error {
 	mux.HandleFunc("/api/instances", s.handleInstances)
 	mux.HandleFunc("/api/lightos-admin-info", s.handleLightOSAdminInfo)
 	mux.HandleFunc("/api/server-revision", s.handleServerRevision)
+	mux.HandleFunc("/api/settings", s.handleSettings)
+	mux.HandleFunc("/api/settings/fonts", s.handleSettingsFonts)
+	mux.HandleFunc("/api/settings/fonts/", s.handleSettingsFont)
 	mux.HandleFunc("/api/workspace", s.handleWorkspace)
 	mux.HandleFunc("/api/workspace/activity", s.handleWorkspaceActivity)
 	mux.HandleFunc("/ws", s.handleWebSocket)
