@@ -26,6 +26,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
   const settingsClose = document.getElementById("settingsClose");
   const settingsFontSelect = document.getElementById("settingsFontSelect");
   const settingsFontInput = document.getElementById("settingsFontInput");
+  const settingsFontFilename = document.getElementById("settingsFontFilename");
   const settingsFontMeta = document.getElementById("settingsFontMeta");
   const settingsFontList = document.getElementById("settingsFontList");
   const settingsFeedback = document.getElementById("settingsFeedback");
@@ -4450,6 +4451,9 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
   });
   settingsFontInput?.addEventListener("change", () => {
     const file = settingsFontInput.files?.[0];
+    if (settingsFontFilename) {
+      settingsFontFilename.textContent = file?.name || "未选择文件";
+    }
     if (!file) {
       return;
     }
@@ -4458,6 +4462,9 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     uploadTerminalFont(file)
       .then(() => {
         settingsFontInput.value = "";
+        if (settingsFontFilename) {
+          settingsFontFilename.textContent = "未选择文件";
+        }
         setSettingsFeedback("字体已上传并应用。", "success");
       })
       .catch((error) => setSettingsFeedback(error.message || "字体上传失败。", "error"))

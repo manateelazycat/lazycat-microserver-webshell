@@ -956,8 +956,12 @@ body.split-resize-active * {
   gap: 8px;
 }
 
+.settings-upload-row {
+  position: relative;
+}
+
 .settings-select,
-.settings-file {
+.settings-upload-control {
   min-width: 0;
   border: 1px solid var(--panel-border);
   border-radius: 7px;
@@ -974,13 +978,54 @@ body.split-resize-active * {
 }
 
 .settings-file {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.settings-upload-control {
+  display: flex;
+  min-height: 44px;
   width: 100%;
-  padding: 7px;
+  align-items: center;
+  gap: 10px;
+  padding: 6px;
+  cursor: pointer;
+}
+
+.settings-upload-button {
+  display: inline-flex;
+  min-height: 32px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  padding: 0 12px;
+  border-radius: 6px;
+  background: var(--panel-subtle-bg);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.settings-upload-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
   font-size: 13px;
 }
 
+.settings-upload-control:hover {
+  background: var(--panel-hover-bg);
+}
+
 .settings-select:focus-visible,
-.settings-file:focus-visible,
+.settings-file:focus-visible + .settings-upload-control,
 .settings-secondary:focus-visible {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px rgba(44, 167, 248, 0.22);
@@ -1005,6 +1050,11 @@ body.split-resize-active * {
 .settings-secondary:disabled,
 .settings-select:disabled,
 .settings-file:disabled {
+  cursor: not-allowed;
+  opacity: 0.52;
+}
+
+.settings-file:disabled + .settings-upload-control {
   cursor: not-allowed;
   opacity: 0.52;
 }
@@ -1425,6 +1475,19 @@ body.split-resize-active * {
 
   .settings-secondary {
     width: 100%;
+  }
+
+  .settings-upload-control {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .settings-upload-button {
+    width: 100%;
+  }
+
+  .settings-upload-name {
+    white-space: normal;
   }
 
   .settings-font-item {
