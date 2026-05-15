@@ -4944,6 +4944,16 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     contextTarget = null;
   };
 
+  const updateContextMenuGroups = () => {
+    let hasVisibleGroup = false;
+    for (const group of contextMenu?.querySelectorAll(".context-menu-group") || []) {
+      const hasVisibleItem = Array.from(group.querySelectorAll(".context-menu-btn")).some((item) => !item.hidden);
+      group.hidden = !hasVisibleItem;
+      group.classList.toggle("with-divider", hasVisibleGroup && hasVisibleItem);
+      hasVisibleGroup = hasVisibleGroup || hasVisibleItem;
+    }
+  };
+
   const showContextMenu = (x, y, target) => {
     if (!contextMenu) {
       return;
@@ -4955,6 +4965,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
       const action = item.dataset.action;
       item.hidden = (contextPaneActions.has(action) && !target.paneId) || (contextTabActions.has(action) && !target.tabId) || (contextLinkActions.has(action) && !target.link);
     }
+    updateContextMenuGroups();
     const rect = contextMenu.getBoundingClientRect();
     const left = Math.min(x, window.innerWidth - rect.width - 8);
     const top = Math.min(y, window.innerHeight - rect.height - 8);

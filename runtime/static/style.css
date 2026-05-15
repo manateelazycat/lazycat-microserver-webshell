@@ -708,6 +708,33 @@ body.split-resize-active * {
   background-clip: padding-box;
 }
 
+@media (hover: hover) and (pointer: fine) {
+  .context-menu {
+    max-height: none;
+    overflow-y: visible;
+    scrollbar-width: none;
+  }
+
+  .context-menu::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+.context-menu-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.context-menu-group[hidden] {
+  display: none;
+}
+
+.context-menu-group.with-divider {
+  margin-top: 5px;
+  padding-top: 5px;
+  border-top: 1px solid var(--panel-border);
+}
+
 .context-menu-btn {
   display: flex;
   width: 100%;
@@ -721,6 +748,10 @@ body.split-resize-active * {
   cursor: pointer;
   text-align: left;
   font-size: 13px;
+}
+
+.context-menu-btn[hidden] {
+  display: none;
 }
 
 .context-menu-btn:hover {
