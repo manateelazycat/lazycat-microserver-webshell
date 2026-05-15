@@ -1,6 +1,8 @@
 package main
 
 import (
+	"io"
+	"os"
 	"strings"
 	"testing"
 )
@@ -59,6 +61,105 @@ func TestBuildInstanceShellBootstrapScriptUsesInitialCWD(t *testing.T) {
 	userScript := buildInstanceShellBootstrapScript("admin", "/home/demo/project")
 	if !containsAll(userScript, `__webshell_initial_cwd='/home/demo/project'`, `cd "$__webshell_initial_cwd"`, `setpriv --reuid "$uid"`) {
 		t.Fatalf("expected user shell bootstrap to cd before dropping privileges, got:\n%s", userScript)
+	}
+}
+
+func TestTerminalPaneFirstAttachAllowsGeneratedInputDuringReplay(t *testing.T) {
+	pane := &terminalPane{
+		clients: make(map[*paneClient]struct{}),
+		history: []byte("\x1b[c"),
+	}
+
+	history, client, allowGeneratedInput, err := pane.attachClient()
+	if err != nil {
+		t.Fatalf("attachClient returned error: %v", err)
+	}
+	if string(history) != "\x1b[c" {
+		t.Fatalf("unexpected history: %q", string(history))
+	}
+	if !allowGeneratedInput {
+		t.Fatal("expected first attach to allow generated terminal input during replay")
+	}
+	pane.detachClient(client)
+
+	_, client, allowGeneratedInput, err = pane.attachClient()
+	if err != nil {
+		t.Fatalf("second attachClient returned error: %v", err)
+	}
+	if allowGeneratedInput {
+		t.Fatal("expected later attaches to suppress generated terminal input during replay")
+	}
+	pane.detachClient(client)
+}
+
+func TestTerminalPaneRespondsToPrimaryDeviceAttributes(t *testing.T) {
+	pane, reader, cleanup := newTerminalQueryTestPane(t)
+	defer cleanup()
+
+	filtered := pane.filterTerminalQueryOutput([]byte("before\x1b[cafter"))
+	if string(filtered) != "beforeafter" {
+		t.Fatalf("unexpected filtered output: %q", string(filtered))
+	}
+	assertTerminalQueryResponse(t, reader, primaryDeviceAttributesResponse)
+}
+
+func TestTerminalPaneRespondsToSplitPrimaryDeviceAttributes(t *testing.T) {
+	pane, reader, cleanup := newTerminalQueryTestPane(t)
+	defer cleanup()
+
+	filtered := pane.filterTerminalQueryOutput([]byte("before\x1b["))
+	if string(filtered) != "before" {
+		t.Fatalf("unexpected first filtered output: %q", string(filtered))
+	}
+	filtered = pane.filterTerminalQueryOutput([]byte("0cafter"))
+	if string(filtered) != "after" {
+		t.Fatalf("unexpected second filtered output: %q", string(filtered))
+	}
+	assertTerminalQueryResponse(t, reader, primaryDeviceAttributesResponse)
+}
+
+func TestTerminalPaneRespondsToSecondaryDeviceAttributes(t *testing.T) {
+	pane, reader, cleanup := newTerminalQueryTestPane(t)
+	defer cleanup()
+
+	filtered := pane.filterTerminalQueryOutput([]byte("\x1b[>0c"))
+	if len(filtered) != 0 {
+		t.Fatalf("unexpected filtered output: %q", string(filtered))
+	}
+	assertTerminalQueryResponse(t, reader, secondaryDeviceAttributesResponse)
+}
+
+func TestTerminalPaneKeepsNonDeviceAttributeCSI(t *testing.T) {
+	pane := &terminalPane{}
+	input := []byte("before\x1b[31mcolor\x1b[1cafter")
+
+	filtered := pane.filterTerminalQueryOutput(input)
+	if string(filtered) != string(input) {
+		t.Fatalf("unexpected filtered output: %q", string(filtered))
+	}
+}
+
+func newTerminalQueryTestPane(t *testing.T) (*terminalPane, *os.File, func()) {
+	t.Helper()
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe returned error: %v", err)
+	}
+	pane := &terminalPane{ptyFile: writer}
+	return pane, reader, func() {
+		_ = reader.Close()
+		_ = writer.Close()
+	}
+}
+
+func assertTerminalQueryResponse(t *testing.T, reader io.Reader, expected string) {
+	t.Helper()
+	buf := make([]byte, len(expected))
+	if _, err := io.ReadFull(reader, buf); err != nil {
+		t.Fatalf("reading terminal query response returned error: %v", err)
+	}
+	if string(buf) != expected {
+		t.Fatalf("unexpected terminal query response: %q", string(buf))
 	}
 }
 

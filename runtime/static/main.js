@@ -1670,7 +1670,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     if (!session?.term) {
       return;
     }
-    // Replayed history may contain terminal queries; responses to replay must not be sent to the live PTY.
+    // Replayed history may contain terminal queries. Only the first attach replays live startup output.
     const suppressGeneratedInput = !session.replayComplete;
     if (suppressGeneratedInput) {
       session.replayOutputDepth += 1;
@@ -1722,6 +1722,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     const currentSocket = new WebSocket(socketUrl.toString());
     session.socket = currentSocket;
     session.replayComplete = false;
+    session.allowGeneratedInputDuringReplay = false;
     currentSocket.binaryType = "arraybuffer";
 
     currentSocket.addEventListener("open", () => {
@@ -1745,8 +1746,13 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
           const message = JSON.parse(event.data);
           if (message && typeof message.type === "string") {
             switch (message.type) {
+              case "history-replay-start":
+                session.replayComplete = false;
+                session.allowGeneratedInputDuringReplay = message.allow_generated_input === true || message.allowGeneratedInput === true;
+                return;
               case "history-replay-complete":
                 session.replayComplete = true;
+                session.allowGeneratedInputDuringReplay = false;
                 session.shellEl.dataset.connection = "open";
                 flushPendingInput(session);
                 return;
@@ -1832,6 +1838,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
       inputBufferSize: 0,
       inputFlushTimer: 0,
       replayOutputDepth: 0,
+      allowGeneratedInputDuringReplay: false,
       exitExpected: false,
       closed: false,
       baseTheme: activeTheme,
@@ -1848,6 +1855,9 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
 
     term.onData((data) => {
       if (session.replayOutputDepth > 0) {
+        if (session.allowGeneratedInputDuringReplay) {
+          sendSessionInput(session, data, { immediate: true });
+        }
         return;
       }
       sendOrQueueInput(session, data);

@@ -77,24 +77,26 @@ type terminalPane struct {
 	selector  string
 	rootDir   string
 
-	mu                sync.Mutex
-	writeMu           sync.Mutex
-	cmd               *exec.Cmd
-	ptyFile           *os.File
-	clients           map[*paneClient]struct{}
-	history           []byte
-	cols              int
-	rows              int
-	tty               string
-	busy              bool
-	command           string
-	cwd               string
-	activityCheckedAt time.Time
-	controlPending    []byte
-	exited            bool
-	exitCode          int
-	exitText          string
-	done              chan struct{}
+	mu                   sync.Mutex
+	writeMu              sync.Mutex
+	cmd                  *exec.Cmd
+	ptyFile              *os.File
+	clients              map[*paneClient]struct{}
+	history              []byte
+	cols                 int
+	rows                 int
+	tty                  string
+	busy                 bool
+	command              string
+	cwd                  string
+	activityCheckedAt    time.Time
+	controlPending       []byte
+	terminalQueryPending []byte
+	hasAttached          bool
+	exited               bool
+	exitCode             int
+	exitText             string
+	done                 chan struct{}
 }
 
 type paneClient struct {
@@ -315,7 +317,7 @@ func (s *pluginServer) attachPersistentPane(w http.ResponseWriter, r *http.Reque
 	if cols > 0 && rows > 0 {
 		_ = pane.resize(cols, rows)
 	}
-	history, client, err := pane.attachClient()
+	history, client, allowGeneratedInputDuringReplay, err := pane.attachClient()
 	if err != nil {
 		_ = writeWebSocketJSON(conn, map[string]any{
 			"type":    "process-exit",
@@ -331,7 +333,7 @@ func (s *pluginServer) attachPersistentPane(w http.ResponseWriter, r *http.Reque
 	writerDone := make(chan struct{})
 	go func() {
 		defer close(writerDone)
-		if !writeHistoryReplay(conn, history) {
+		if !writeHistoryReplay(conn, history, allowGeneratedInputDuringReplay) {
 			return
 		}
 		for {
@@ -393,7 +395,13 @@ func writeJSON(w http.ResponseWriter, payload any) {
 	}
 }
 
-func writeHistoryReplay(conn *websocket.Conn, history []byte) bool {
+func writeHistoryReplay(conn *websocket.Conn, history []byte, allowGeneratedInput bool) bool {
+	if err := writeWebSocketJSON(conn, map[string]any{
+		"type":                  "history-replay-start",
+		"allow_generated_input": allowGeneratedInput,
+	}); err != nil {
+		return false
+	}
 	for len(history) > 0 {
 		chunkSize := historyReplayChunk
 		if len(history) < chunkSize {
@@ -1200,7 +1208,8 @@ func (p *terminalPane) appendOutput(data []byte) {
 	if len(data) == 0 {
 		return
 	}
-	filtered := p.filterPrivateControlOutput(data)
+	filtered := p.filterTerminalQueryOutput(data)
+	filtered = p.filterPrivateControlOutput(filtered)
 	if len(filtered) == 0 {
 		return
 	}
@@ -1225,6 +1234,102 @@ func (p *terminalPane) appendOutput(data []byte) {
 
 	for _, client := range clients {
 		client.enqueue(paneOutbound{messageType: websocket.BinaryMessage, payload: copied})
+	}
+}
+
+const (
+	maxPendingTerminalQuery           = 64
+	primaryDeviceAttributesResponse   = "\x1b[?1;2c"
+	secondaryDeviceAttributesResponse = "\x1b[>0;0;0c"
+)
+
+func (p *terminalPane) filterTerminalQueryOutput(data []byte) []byte {
+	if len(data) == 0 {
+		return nil
+	}
+
+	p.mu.Lock()
+	buffer := append(p.terminalQueryPending, data...)
+	p.terminalQueryPending = nil
+	p.mu.Unlock()
+
+	var output []byte
+	for len(buffer) > 0 {
+		index := bytes.IndexByte(buffer, '\x1b')
+		if index < 0 {
+			output = append(output, buffer...)
+			return output
+		}
+		if index > 0 {
+			output = append(output, buffer[:index]...)
+			buffer = buffer[index:]
+		}
+		if len(buffer) == 1 {
+			p.setTerminalQueryPending(buffer)
+			return output
+		}
+		switch buffer[1] {
+		case '[':
+			if len(buffer) == 2 {
+				p.setTerminalQueryPending(buffer)
+				return output
+			}
+			final := -1
+			for i := 2; i < len(buffer); i++ {
+				if buffer[i] >= 0x40 && buffer[i] <= 0x7e {
+					final = i
+					break
+				}
+				if i >= maxPendingTerminalQuery {
+					break
+				}
+			}
+			if final < 0 {
+				if len(buffer) <= maxPendingTerminalQuery {
+					p.setTerminalQueryPending(buffer)
+					return output
+				}
+				output = append(output, buffer[0])
+				buffer = buffer[1:]
+				continue
+			}
+			sequence := buffer[:final+1]
+			if response, ok := terminalQueryResponse(sequence); ok {
+				_ = p.writeInput([]byte(response))
+				buffer = buffer[final+1:]
+				continue
+			}
+			output = append(output, sequence...)
+			buffer = buffer[final+1:]
+		case 'Z':
+			_ = p.writeInput([]byte(primaryDeviceAttributesResponse))
+			buffer = buffer[2:]
+		default:
+			output = append(output, buffer[0])
+			buffer = buffer[1:]
+		}
+	}
+	return output
+}
+
+func (p *terminalPane) setTerminalQueryPending(data []byte) {
+	p.mu.Lock()
+	p.terminalQueryPending = append(p.terminalQueryPending[:0], data...)
+	p.mu.Unlock()
+}
+
+func terminalQueryResponse(sequence []byte) (string, bool) {
+	if len(sequence) < 3 || sequence[0] != '\x1b' || sequence[1] != '[' || sequence[len(sequence)-1] != 'c' {
+		return "", false
+	}
+	params := string(sequence[2 : len(sequence)-1])
+	switch params {
+	case "", "0":
+		return primaryDeviceAttributesResponse, true
+	case ">", ">0":
+		return secondaryDeviceAttributesResponse, true
+	default:
+		return "", false
 	}
 }
 
@@ -1338,19 +1443,21 @@ func (p *terminalPane) markExited(err error) {
 	close(p.done)
 }
 
-func (p *terminalPane) attachClient() ([]byte, *paneClient, error) {
+func (p *terminalPane) attachClient() ([]byte, *paneClient, bool, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.exited {
-		return nil, nil, errors.New("pane has exited")
+		return nil, nil, false, errors.New("pane has exited")
 	}
 	history := append([]byte(nil), p.history...)
+	allowGeneratedInputDuringReplay := !p.hasAttached
+	p.hasAttached = true
 	client := &paneClient{
 		send: make(chan paneOutbound, 256),
 		done: make(chan struct{}),
 	}
 	p.clients[client] = struct{}{}
-	return history, client, nil
+	return history, client, allowGeneratedInputDuringReplay, nil
 }
 
 func (p *terminalPane) detachClient(client *paneClient) {
