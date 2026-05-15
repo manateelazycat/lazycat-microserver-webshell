@@ -240,6 +240,14 @@ lzc-cli project release
 ?name=<name>@<owner_deploy_id>
 ```
 
+## 许可
+
+本项目代码使用 GNU General Public License version 3 授权，完整条款见 `LICENSE`。
+
+懒猫微服专用，代码不能商用。
+
+第三方文件保留其原始许可声明，例如 `runtime/static/ghostty-web.LICENSE`。
+
 ## 常见问题
 
 - provider 没出现在列表：检查 `lzc-build.yml` 是否导出 `lightos.webshell`，以及 `webshell-provider.json` 是否位于 `resources/lightos.webshell/default/`。
