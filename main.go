@@ -23,7 +23,7 @@ import (
 	"syscall"
 	"time"
 
-	"demo-webshell/internal/pkg/fonts"
+	"lcmd-webshell/internal/pkg/fonts"
 
 	"github.com/gorilla/websocket"
 )

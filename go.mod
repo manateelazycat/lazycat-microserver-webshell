@@ -1,4 +1,4 @@
-module demo-webshell
+module lcmd-webshell
 
 go 1.24.6
 

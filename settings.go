@@ -7,7 +7,7 @@ import (
 	"os"
 	"strings"
 
-	"demo-webshell/internal/pkg/fonts"
+	"lcmd-webshell/internal/pkg/fonts"
 )
 
 func (s *pluginServer) fontStore() fonts.Store {
