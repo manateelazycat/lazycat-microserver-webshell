@@ -15,6 +15,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
   const instanceSwitcherPanel = document.getElementById("instanceSwitcherPanel");
   const instanceSwitcherList = document.getElementById("instanceSwitcherList");
   const instanceSwitcherFeedback = document.getElementById("instanceSwitcherFeedback");
+  const homeMenuButton = document.getElementById("homeMenuButton");
   const themeMenuButton = document.getElementById("themeMenuButton");
   const themePickerButton = document.getElementById("themePickerButton");
   const themePickerBackdrop = document.getElementById("themePickerBackdrop");
@@ -231,6 +232,10 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
   let activityRefreshTimer = 0;
   let activityRefreshDelayTimer = 0;
   let suppressLocationUpdate = false;
+  let suppressBeforeUnloadOnce = false;
+  let suppressBeforeUnloadResetTimer = 0;
+  let lightOSHomeURL = "";
+  let lightOSHomeURLPromise = null;
   const searchState = { open: false, query: "", matches: [], index: -1, sessionId: "" };
   const mobileSticky = { ctrl: false, alt: false, shift: false };
   const textEncoder = new TextEncoder();
@@ -447,6 +452,62 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     return targetName;
   };
 
+  const buildExplicitHomeURL = (value) => {
+    const targetURL = new URL(String(value || "").trim(), window.location.href);
+    targetURL.searchParams.set("view", "home");
+    return targetURL.toString();
+  };
+
+  const resolveReferrerHomeURL = () => {
+    try {
+      const referrerURL = new URL(document.referrer);
+      if (referrerURL.origin === window.location.origin) {
+        return "";
+      }
+      referrerURL.pathname = "/";
+      referrerURL.search = "";
+      referrerURL.hash = "";
+      return buildExplicitHomeURL(referrerURL.toString());
+    } catch (error) {
+      return "";
+    }
+  };
+
+  const loadLightOSHomeURL = async () => {
+    if (lightOSHomeURL) {
+      return lightOSHomeURL;
+    }
+    if (!lightOSHomeURLPromise) {
+      lightOSHomeURLPromise = fetch("./api/lightos-admin-info", { cache: "no-store" })
+        .then(async (response) => {
+          if (!response.ok) {
+            throw new Error(await response.text() || `无法获取 LightOS 首页地址 (${response.status})`);
+          }
+          const info = await response.json();
+          const baseURL = String(info?.base_url || "").trim();
+          if (!baseURL) {
+            throw new Error("LightOS 首页地址不可用。");
+          }
+          return buildExplicitHomeURL(baseURL);
+        })
+        .catch((error) => {
+          const fallback = resolveReferrerHomeURL();
+          if (fallback) {
+            return fallback;
+          }
+          throw error;
+        })
+        .then((url) => {
+          lightOSHomeURL = url;
+          return url;
+        })
+        .finally(() => {
+          lightOSHomeURLPromise = null;
+        });
+    }
+    return lightOSHomeURLPromise;
+  };
+
   const terminalSizeQuery = () => {
     const tab = currentTab();
     const pane = tab?.panes.get(tab.activePaneId);
@@ -525,6 +586,33 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     window.localStorage.setItem(lastTabStorageKey(activeName), activeTabId);
     if (!suppressLocationUpdate) {
       updateLocationName(activeName, { replace: true, tabId: activeTabId });
+    }
+  };
+
+  const suppressBeforeUnloadForNavigation = () => {
+    suppressBeforeUnloadOnce = true;
+    window.clearTimeout(suppressBeforeUnloadResetTimer);
+    suppressBeforeUnloadResetTimer = window.setTimeout(() => {
+      suppressBeforeUnloadOnce = false;
+      suppressBeforeUnloadResetTimer = 0;
+    }, 1000);
+  };
+
+  const navigateHome = async () => {
+    closeInstanceSwitcher();
+    rememberActiveTab();
+    if (homeMenuButton) {
+      homeMenuButton.disabled = true;
+    }
+    try {
+      const targetURL = await loadLightOSHomeURL();
+      suppressBeforeUnloadForNavigation();
+      window.location.assign(targetURL);
+    } catch (error) {
+      if (homeMenuButton) {
+        homeMenuButton.disabled = false;
+      }
+      showToast(error.message || "无法返回首页");
     }
   };
 
@@ -2916,6 +3004,9 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     switchInstance(item.dataset.name).catch((error) => showToast(error.message));
   });
 
+  homeMenuButton?.addEventListener("click", () => {
+    navigateHome().catch((error) => showToast(error.message || "无法返回首页"));
+  });
   themeMenuButton?.addEventListener("click", () => {
     closeInstanceSwitcher();
     openThemePicker();
@@ -3086,7 +3177,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     refreshActivity({ silent: true }).catch(() => {});
   });
   window.addEventListener("beforeunload", (event) => {
-    if (hasCachedBusyPane()) {
+    if (!suppressBeforeUnloadOnce && hasCachedBusyPane()) {
       event.preventDefault();
       event.returnValue = "";
       return "";

@@ -24,10 +24,26 @@
             </button>
             <div class="instance-switcher-panel" id="instanceSwitcherPanel" hidden>
               <div class="instance-switcher-panel-head">
+                <div class="instance-switcher-panel-title">终端管理</div>
+              </div>
+              <div class="instance-switcher-actions">
+                <button class="instance-switcher-action" id="homeMenuButton" type="button">
+                  <span class="instance-switcher-item-body">
+                    <span class="instance-switcher-item-name">首页</span>
+                    <span class="instance-switcher-item-meta">返回 LightOS 首页</span>
+                  </span>
+                </button>
+                <button class="instance-switcher-action" id="themeMenuButton" type="button">
+                  <span class="instance-switcher-item-body">
+                    <span class="instance-switcher-item-name">切换主题</span>
+                    <span class="instance-switcher-item-meta">打开终端主题选择器</span>
+                  </span>
+                </button>
+              </div>
+              <div class="instance-switcher-panel-head">
                 <div class="instance-switcher-panel-title">切换容器</div>
               </div>
               <div class="instance-switcher-list" id="instanceSwitcherList" role="listbox" aria-label="容器实例"></div>
-              <button class="instance-switcher-action" id="themeMenuButton" type="button">切换主题</button>
               <div class="instance-switcher-feedback" id="instanceSwitcherFeedback" hidden></div>
             </div>
           </div>

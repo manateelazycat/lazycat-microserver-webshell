@@ -351,27 +351,39 @@ button {
   gap: 2px;
 }
 
+.instance-switcher-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0 0 6px;
+  border-bottom: 1px solid var(--panel-border);
+}
+
 .instance-switcher-action {
   display: flex;
   width: 100%;
-  min-height: 38px;
+  min-height: 46px;
   align-items: center;
-  margin-top: 6px;
-  padding: 0 9px;
+  gap: 11px;
+  padding: 7px 9px;
   border: 0;
-  border-top: 1px solid var(--panel-border);
-  border-radius: 0;
+  border-radius: 8px;
   background: transparent;
   color: var(--text);
   cursor: pointer;
   text-align: left;
-  font-size: 13px;
 }
 
 .instance-switcher-action:hover,
 .instance-switcher-action:focus-visible {
   background: var(--panel-hover-bg);
   outline: none;
+}
+
+.instance-switcher-action:disabled {
+  color: var(--muted);
+  cursor: wait;
+  opacity: 0.72;
 }
 
 .instance-switcher-item {

@@ -1,7 +1,7 @@
-package: cloud.lazycat.webshell.andy
+package: cloud.lazycat.webshell.lcmd
 version: 0.1.15
-name: Demo WebShell
-description: Demo LightOS WebShell provider
+name: LCMD WebShell
+description: LCMD WebShell for LightOS
 min_os_version: v1.5.2
 permissions:
   required:
