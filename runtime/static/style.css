@@ -326,10 +326,27 @@ button {
   box-shadow: 0 18px 46px var(--panel-shadow);
   box-sizing: border-box;
   z-index: 30;
+  scrollbar-color: rgba(148, 163, 184, 0.5) transparent;
+  scrollbar-width: thin;
 }
 
 .instance-switcher-panel[hidden] {
   display: none;
+}
+
+.instance-switcher-panel::-webkit-scrollbar {
+  width: 8px;
+}
+
+.instance-switcher-panel::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.instance-switcher-panel::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.52);
+  background-clip: padding-box;
 }
 
 .instance-switcher-panel-head {
@@ -641,10 +658,27 @@ body.split-resize-active * {
   border-radius: 8px;
   background: var(--panel-bg);
   box-shadow: 0 18px 42px var(--panel-shadow);
+  scrollbar-color: rgba(148, 163, 184, 0.56) transparent;
+  scrollbar-width: thin;
 }
 
 .context-menu[hidden] {
   display: none;
+}
+
+.context-menu::-webkit-scrollbar {
+  width: 8px;
+}
+
+.context-menu::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.context-menu::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.58);
+  background-clip: padding-box;
 }
 
 .context-menu-btn {
