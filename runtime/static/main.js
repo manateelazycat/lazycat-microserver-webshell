@@ -93,6 +93,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
   const touchShortcutRepeatInitialDelayMs = 320;
   const touchShortcutRepeatIntervalMs = 80;
   const touchSelectionMoveThresholdPx = 7;
+  const touchSelectionLongPressDelayMs = 450;
   const desktopSelectionCopyMoveThresholdPx = 4;
   const terminalSizeReassertIntervalMs = 250;
   const mobileLayoutQuery = window.matchMedia?.("(max-width: 640px)");
@@ -4393,40 +4394,88 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     bindMobileSelectionHandle(session, endHandle, "end");
 
     let touchState = null;
-    session.shellEl.addEventListener("touchstart", (event) => {
-      if (!isMobileLayout() || event.touches.length !== 1 || (mobileActionSheet && !mobileActionSheet.hidden)) {
+    const clearTouchSelectionTimer = (state = touchState) => {
+      if (state?.longPressTimer) {
+        window.clearTimeout(state.longPressTimer);
+        state.longPressTimer = 0;
+      }
+    };
+    const resetTouchSelectionState = (state = touchState) => {
+      clearTouchSelectionTimer(state);
+      if (!state || touchState === state) {
         touchState = null;
+      }
+    };
+    const beginTouchSelection = (state, touch = null) => {
+      if (!state || touchState !== state || state.selecting || !isMobileLayout() || session.closed) {
+        return false;
+      }
+      const current = touch
+        ? terminalCellFromPoint(session, touch.clientX, touch.clientY)
+        : terminalCellFromPoint(session, state.lastX, state.lastY);
+      if (!current) {
+        resetTouchSelectionState(state);
+        return false;
+      }
+      clearTouchSelectionTimer(state);
+      state.selecting = true;
+      blurTerminalInput(session);
+      suppressTerminalTouchScroll(session);
+      const currentTabForSession = tabs.get(session.tabId);
+      setActivePane(currentTabForSession, session.id, { focus: false });
+      session.selectAllBufferActive = false;
+      applyTerminalSelection(session, state.startCell, current);
+      return true;
+    };
+    session.shellEl.addEventListener("touchstart", (event) => {
+      resetTouchSelectionState();
+      if (!isMobileLayout() || event.touches.length !== 1 || (mobileActionSheet && !mobileActionSheet.hidden)) {
         return;
       }
       const target = event.target;
       if (!(target instanceof Element) || target.closest(".mobile-selection-handle") || !target.closest(".terminal-host")) {
-        touchState = null;
         return;
       }
       const touch = event.touches[0];
       const startCell = terminalCellFromPoint(session, touch.clientX, touch.clientY);
-      touchState = startCell ? {
+      if (!startCell) {
+        return;
+      }
+      touchState = {
         startCell,
         startX: touch.clientX,
         startY: touch.clientY,
+        lastX: touch.clientX,
+        lastY: touch.clientY,
         selecting: false,
-      } : null;
+        longPressTimer: 0,
+      };
+      const state = touchState;
+      state.longPressTimer = window.setTimeout(() => {
+        beginTouchSelection(state);
+      }, touchSelectionLongPressDelayMs);
     }, { capture: true, passive: true });
 
     session.shellEl.addEventListener("touchmove", (event) => {
-      if (!touchState || event.touches.length !== 1) {
+      const state = touchState;
+      if (!state) {
+        return;
+      }
+      if (event.touches.length !== 1) {
+        resetTouchSelectionState(state);
         return;
       }
       const touch = event.touches[0];
-      const dx = touch.clientX - touchState.startX;
-      const dy = touch.clientY - touchState.startY;
-      if (!touchState.selecting && Math.hypot(dx, dy) < touchSelectionMoveThresholdPx) {
+      state.lastX = touch.clientX;
+      state.lastY = touch.clientY;
+      const dx = touch.clientX - state.startX;
+      const dy = touch.clientY - state.startY;
+      if (!state.selecting) {
+        if (Math.hypot(dx, dy) >= touchSelectionMoveThresholdPx) {
+          resetTouchSelectionState(state);
+        }
         return;
       }
-      if (!touchState.selecting) {
-        blurTerminalInput(session);
-      }
-      touchState.selecting = true;
       suppressTerminalTouchScroll(session);
       stopMobileSelectionEvent(event);
       const current = terminalCellFromPoint(session, touch.clientX, touch.clientY);
@@ -4436,17 +4485,18 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
       const currentTabForSession = tabs.get(session.tabId);
       setActivePane(currentTabForSession, session.id, { focus: false });
       session.selectAllBufferActive = false;
-      applyTerminalSelection(session, touchState.startCell, current);
+      applyTerminalSelection(session, state.startCell, current);
     }, { capture: true, passive: false });
 
     const finishTouchSelection = (event) => {
-      if (!touchState) {
+      const state = touchState;
+      if (!state) {
         return;
       }
-      const wasSelecting = touchState.selecting;
+      const wasSelecting = state.selecting;
       const endTouch = primaryTouch(event);
       const shouldClearSelection = !wasSelecting && clearMobileSelectionIfTapOutside(session, endTouch);
-      touchState = null;
+      resetTouchSelectionState(state);
       if (!wasSelecting) {
         if (shouldClearSelection) {
           stopMobileSelectionEvent(event);
@@ -4459,6 +4509,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     };
     session.shellEl.addEventListener("touchend", finishTouchSelection, { capture: true, passive: false });
     session.shellEl.addEventListener("touchcancel", finishTouchSelection, { capture: true, passive: false });
+    addSessionCleanup(session, () => resetTouchSelectionState());
 
     session.term.onScroll?.(() => updateMobileSelectionHandles(session));
   };
