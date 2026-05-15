@@ -8,5 +8,5 @@ permissions:
     - lightos.manage
 locales:
   zh:
-    name: 演示 WebShell
-    description: LightOS WebShell provider 演示
+    name: 懒猫WebShell
+    description: 懒猫WebShell，需要配合LightOS使用
