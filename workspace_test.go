@@ -9,12 +9,17 @@ func TestBuildInstanceShellBootstrapScriptUsesConfiguredUser(t *testing.T) {
 	script := buildInstanceShellBootstrapScript("admin", "")
 	if !containsAll(script,
 		"user='admin'",
+		`__webshell_shell="$shell"`,
+		`export SHELL="$__webshell_shell"`,
 		`setpriv --reuid "$uid" --regid "$gid" --init-groups "$__webshell_shell"`,
 		`exec su -s "$__webshell_shell" "$user"`,
 		`/run/catlink/shell-env.sh`,
 		`XDG_CONFIG_HOME="$xdg_config_home"`,
 	) {
 		t.Fatalf("expected configured user login script, got:\n%s", script)
+	}
+	if strings.Contains(script, `__webshell_user="$(id -un`) {
+		t.Fatalf("configured user login script should not resolve the current root shell, got:\n%s", script)
 	}
 	if containsAll(script, `su -s /bin/sh -c`) {
 		t.Fatalf("configured user login script should not use non-interactive su -c wrapper, got:\n%s", script)
@@ -26,8 +31,16 @@ func TestBuildInstanceShellBootstrapScriptKeepsRootCompatibility(t *testing.T) {
 	if containsAll(script, "exec su -s") {
 		t.Fatalf("root compatibility script should not use su wrapper, got:\n%s", script)
 	}
-	if !containsAll(script, `exec "${SHELL:-/bin/sh}"`) {
-		t.Fatalf("expected original shell bootstrap, got:\n%s", script)
+	if !containsAll(script,
+		`__webshell_user="$(id -un 2>/dev/null || true)"`,
+		`__webshell_shell="$(printf '%s\n' "$__webshell_entry" | cut -d: -f7)"`,
+		`export SHELL="$__webshell_shell"`,
+		`exec "$__webshell_shell"`,
+	) {
+		t.Fatalf("expected configured root shell bootstrap, got:\n%s", script)
+	}
+	if strings.Contains(script, `exec "${SHELL:-/bin/sh}"`) {
+		t.Fatalf("root shell bootstrap should not execute inherited SHELL directly, got:\n%s", script)
 	}
 }
 

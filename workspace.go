@@ -1131,24 +1131,9 @@ fi
 `, shellScriptQuote(username))
 }
 
-func buildLoginShellBootstrapScript(initialCWD string) string {
-	return strings.Join([]string{
-		`__webshell_tty="$(tty 2>/dev/null || true)"`,
-		`case "$__webshell_tty" in /dev/pts/[0-9]*) printf '\033]777;webshell-tty=%s\a' "$__webshell_tty";; esac`,
-		`unset __webshell_tty`,
-		`__webshell_user="$(id -un 2>/dev/null || true)"`,
-		`__webshell_entry="$(getent passwd "$__webshell_user" 2>/dev/null || true)"`,
-		`__webshell_shell="$(printf '%s\n' "$__webshell_entry" | cut -d: -f7)"`,
-		`if [ -z "$__webshell_shell" ]; then __webshell_shell="${SHELL:-/bin/sh}"; fi`,
-		`export SHELL="$__webshell_shell"`,
-		`unset __webshell_user __webshell_entry`,
-		"if [ -f /run/catlink/shell-env.sh ]; then . /run/catlink/shell-env.sh; fi",
-		buildInitialCWDChangeScript(initialCWD),
-	}, "\n")
-}
-
 func buildUserLoginShellBootstrapScript(username, initialCWD string) string {
-	return buildUserShellBootstrapScript(username) + buildLoginShellBootstrapScript(initialCWD) + `
+	return buildUserShellBootstrapScript(username) + `__webshell_shell="$shell"
+` + buildTerminalSessionBootstrapScript(initialCWD) + `
 if [ -z "$__webshell_initial_cwd" ]; then
   cd "$home" 2>/dev/null || cd /
 fi

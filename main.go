@@ -212,12 +212,30 @@ func parsePositiveInt(text string) int {
 
 func buildShellBootstrapScript(initialCWD string) string {
 	return strings.Join([]string{
+		buildCurrentUserShellResolveScript(),
+		buildTerminalSessionBootstrapScript(initialCWD),
+		`exec "$__webshell_shell"`,
+	}, "\n")
+}
+
+func buildCurrentUserShellResolveScript() string {
+	return strings.Join([]string{
+		`__webshell_user="$(id -un 2>/dev/null || true)"`,
+		`__webshell_entry="$(getent passwd "$__webshell_user" 2>/dev/null || true)"`,
+		`__webshell_shell="$(printf '%s\n' "$__webshell_entry" | cut -d: -f7)"`,
+		`if [ -z "$__webshell_shell" ]; then __webshell_shell="${SHELL:-/bin/sh}"; fi`,
+		`unset __webshell_user __webshell_entry`,
+	}, "\n")
+}
+
+func buildTerminalSessionBootstrapScript(initialCWD string) string {
+	return strings.Join([]string{
 		`__webshell_tty="$(tty 2>/dev/null || true)"`,
 		`case "$__webshell_tty" in /dev/pts/[0-9]*) printf '\033]777;webshell-tty=%s\a' "$__webshell_tty";; esac`,
 		`unset __webshell_tty`,
 		"if [ -f /run/catlink/shell-env.sh ]; then . /run/catlink/shell-env.sh; fi",
+		`export SHELL="$__webshell_shell"`,
 		buildInitialCWDChangeScript(initialCWD),
-		`exec "${SHELL:-/bin/sh}"`,
 	}, "\n")
 }
 
