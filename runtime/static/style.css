@@ -330,6 +330,29 @@ button {
   gap: 2px;
 }
 
+.instance-switcher-action {
+  display: flex;
+  width: 100%;
+  min-height: 38px;
+  align-items: center;
+  margin-top: 6px;
+  padding: 0 9px;
+  border: 0;
+  border-top: 1px solid var(--chrome-line);
+  border-radius: 0;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+  font-size: 13px;
+}
+
+.instance-switcher-action:hover,
+.instance-switcher-action:focus-visible {
+  background: rgba(148, 163, 184, 0.12);
+  outline: none;
+}
+
 .instance-switcher-item {
   display: flex;
   align-items: center;

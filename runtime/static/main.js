@@ -15,6 +15,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
   const instanceSwitcherPanel = document.getElementById("instanceSwitcherPanel");
   const instanceSwitcherList = document.getElementById("instanceSwitcherList");
   const instanceSwitcherFeedback = document.getElementById("instanceSwitcherFeedback");
+  const themeMenuButton = document.getElementById("themeMenuButton");
   const themePickerButton = document.getElementById("themePickerButton");
   const themePickerBackdrop = document.getElementById("themePickerBackdrop");
   const themePickerClose = document.getElementById("themePickerClose");
@@ -530,6 +531,71 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     document.body.dataset.theme = activeTheme.id;
   };
 
+  const hexToRGB = (value) => {
+    const normalized = String(value || "").trim().replace(/^#/, "");
+    if (!/^[0-9a-f]{6}$/i.test(normalized)) {
+      return null;
+    }
+    return [
+      parseInt(normalized.slice(0, 2), 16),
+      parseInt(normalized.slice(2, 4), 16),
+      parseInt(normalized.slice(4, 6), 16),
+    ];
+  };
+
+  const colorKey = (rgb) => Array.isArray(rgb) ? rgb.join(",") : "";
+
+  const themeColorValues = (theme) => {
+    const xterm = theme?.xterm || {};
+    return [
+      xterm.foreground,
+      xterm.background,
+      xterm.black,
+      xterm.red,
+      xterm.green,
+      xterm.yellow,
+      xterm.blue,
+      xterm.magenta,
+      xterm.cyan,
+      xterm.white,
+      xterm.brightBlack,
+      xterm.brightRed,
+      xterm.brightGreen,
+      xterm.brightYellow,
+      xterm.brightBlue,
+      xterm.brightMagenta,
+      xterm.brightCyan,
+      xterm.brightWhite,
+    ];
+  };
+
+  const buildThemeColorMap = (fromTheme, toTheme) => {
+    const from = themeColorValues(fromTheme);
+    const to = themeColorValues(toTheme);
+    const map = new Map();
+    for (let index = 0; index < from.length; index += 1) {
+      const fromRGB = hexToRGB(from[index]);
+      const toRGB = hexToRGB(to[index]);
+      if (fromRGB && toRGB) {
+        map.set(colorKey(fromRGB), `rgb(${toRGB[0]}, ${toRGB[1]}, ${toRGB[2]})`);
+      }
+    }
+    return map;
+  };
+
+  const installRendererThemeMapper = (session) => {
+    const renderer = session?.term?.renderer;
+    if (!renderer || renderer.webshellThemeMapperInstalled || typeof renderer.rgbToCSS !== "function") {
+      return;
+    }
+    renderer.webshellThemeMapperInstalled = true;
+    renderer.webshellOriginalRGBToCSS = renderer.rgbToCSS.bind(renderer);
+    renderer.rgbToCSS = (red, green, blue) => {
+      const mapped = renderer.webshellColorMap?.get(`${red},${green},${blue}`);
+      return mapped || renderer.webshellOriginalRGBToCSS(red, green, blue);
+    };
+  };
+
   const renderThemePicker = () => {
     if (!themePickerList) {
       return;
@@ -560,14 +626,21 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
       return;
     }
     const nextTheme = cloneTheme(activeTheme);
+    installRendererThemeMapper(session);
+    if (!session.baseTheme) {
+      session.baseTheme = activeTheme;
+    }
     session.term.options.theme = nextTheme;
-    session.term.write(`\x1b]10;${nextTheme.foreground}\x07\x1b]11;${nextTheme.background}\x07\x1b]12;${nextTheme.cursor}\x07`);
+    if (session.term.renderer) {
+      session.term.renderer.webshellColorMap = buildThemeColorMap(session.baseTheme, activeTheme);
+    }
     if (session.term.renderer && typeof session.term.renderer.setTheme === "function") {
       session.term.renderer.setTheme(nextTheme);
       if (session.term.wasmTerm && typeof session.term.renderer.render === "function") {
         session.term.renderer.render(session.term.wasmTerm, true, session.term.viewportY || 0, session.term);
       }
     }
+    refreshTerminalMetrics(session);
   };
 
   const applyTheme = (themeID) => {
@@ -1550,12 +1623,15 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
       inputFlushTimer: 0,
       exitExpected: false,
       closed: false,
+      baseTheme: activeTheme,
       selectAllBufferActive: false,
       tty: "",
       busy: false,
       command: "",
       activityCheckedAt: 0,
     };
+
+    installRendererThemeMapper(session);
 
     term.onData((data) => {
       sendOrQueueInput(session, data);
@@ -2705,6 +2781,10 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     switchInstance(item.dataset.name).catch((error) => showToast(error.message));
   });
 
+  themeMenuButton?.addEventListener("click", () => {
+    closeInstanceSwitcher();
+    openThemePicker();
+  });
   themePickerButton?.addEventListener("click", openThemePicker);
   themePickerClose?.addEventListener("click", closeThemePicker);
   themePickerBackdrop?.addEventListener("click", (event) => {
@@ -2718,7 +2798,6 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
       return;
     }
     applyTheme(option.dataset.theme);
-    closeThemePicker();
   });
 
   searchInput?.addEventListener("input", () => setSearchQuery(searchInput.value));

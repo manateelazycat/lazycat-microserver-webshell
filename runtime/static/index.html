@@ -15,24 +15,22 @@
         </div>
         <div class="header-actions">
           <div class="instance-switcher" id="instanceSwitcher">
-            <button class="instance-switcher-btn" id="instanceSwitcherButton" type="button" aria-haspopup="listbox" aria-expanded="false" aria-label="Switch container">
+            <button class="instance-switcher-btn" id="instanceSwitcherButton" type="button" aria-haspopup="listbox" aria-expanded="false" aria-label="切换容器">
               <span class="instance-switcher-current">
                 <span class="instance-switcher-status-dot" id="instanceSwitcherStatusDot" data-status="unknown"></span>
-                <span class="instance-switcher-name" id="instanceSwitcherName">Container</span>
+                <span class="instance-switcher-name" id="instanceSwitcherName">容器</span>
               </span>
               <span class="instance-switcher-chevron" aria-hidden="true">v</span>
             </button>
             <div class="instance-switcher-panel" id="instanceSwitcherPanel" hidden>
               <div class="instance-switcher-panel-head">
-                <div class="instance-switcher-panel-title">Switch container</div>
+                <div class="instance-switcher-panel-title">切换容器</div>
               </div>
-              <div class="instance-switcher-list" id="instanceSwitcherList" role="listbox" aria-label="Container instances"></div>
+              <div class="instance-switcher-list" id="instanceSwitcherList" role="listbox" aria-label="容器实例"></div>
+              <button class="instance-switcher-action" id="themeMenuButton" type="button">切换主题</button>
               <div class="instance-switcher-feedback" id="instanceSwitcherFeedback" hidden></div>
             </div>
           </div>
-          <button class="icon-btn" id="themePickerButton" type="button" aria-label="Themes" title="Themes">
-            <span aria-hidden="true">T</span>
-          </button>
         </div>
       </header>
       <main class="terminal-area" id="terminalArea">
@@ -70,12 +68,11 @@
       <button class="context-menu-btn danger" type="button" data-action="close-tab">Close tab</button>
     </div>
     <div class="modal" id="themePickerBackdrop" hidden>
-      <div class="theme-picker-panel" id="themePickerPanel" role="dialog" aria-modal="true" aria-label="Themes">
+      <div class="theme-picker-panel" id="themePickerPanel" role="dialog" aria-modal="true" aria-label="切换主题">
         <div class="theme-picker-header">
-          <h2>Themes</h2>
-          <button class="theme-picker-close" id="themePickerClose" type="button" aria-label="Close">x</button>
+          <h2>切换主题</h2>
         </div>
-        <div class="theme-picker-list" id="themePickerList" role="listbox" aria-label="Terminal themes"></div>
+        <div class="theme-picker-list" id="themePickerList" role="listbox" aria-label="终端主题"></div>
       </div>
     </div>
     <div class="dialog-backdrop" id="dialogBackdrop" hidden>
