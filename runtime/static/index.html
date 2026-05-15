@@ -10,6 +10,11 @@
     <div class="app-shell">
       <header class="tabs-bar">
         <div class="tabs-strip">
+          <button class="tab-overview-toggle" id="tabOverviewToggle" type="button" aria-label="终端总览" aria-expanded="false" title="终端总览">
+            <svg class="tab-overview-toggle-icon" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+              <path d="M390.4 541.44c50.88 0 92.16 41.28 92.16 92.16v172.8a92.16 92.16 0 0 1-92.16 92.16H217.6a92.16 92.16 0 0 1-92.16-92.16V633.6c0-50.88 41.28-92.16 92.16-92.16h172.8z m416 0c50.88 0 92.16 41.28 92.16 92.16v172.8a92.16 92.16 0 0 1-92.16 92.16H633.6a92.16 92.16 0 0 1-92.16-92.16V633.6c0-50.88 41.28-92.16 92.16-92.16h172.8zM217.6 610.56a23.04 23.04 0 0 0-23.04 23.04v172.8c0 12.672 10.368 23.04 23.04 23.04h172.8a23.04 23.04 0 0 0 23.04-23.04V633.6a23.04 23.04 0 0 0-23.04-23.04H217.6z m416 0a23.04 23.04 0 0 0-23.04 23.04v172.8c0 12.672 10.368 23.04 23.04 23.04h172.8a23.04 23.04 0 0 0 23.04-23.04V633.6a23.04 23.04 0 0 0-23.04-23.04H633.6zM390.4 125.44c50.88 0 92.16 41.28 92.16 92.16v172.8A92.16 92.16 0 0 1 390.4 482.56H217.6A92.16 92.16 0 0 1 125.44 390.4V217.6c0-50.88 41.28-92.16 92.16-92.16h172.8z m416 0c50.88 0 92.16 41.28 92.16 92.16v172.8a92.16 92.16 0 0 1-92.16 92.16H633.6A92.16 92.16 0 0 1 541.44 390.4V217.6c0-50.88 41.28-92.16 92.16-92.16h172.8zM217.6 194.56a23.04 23.04 0 0 0-23.04 23.04v172.8c0 12.672 10.368 23.04 23.04 23.04h172.8a23.04 23.04 0 0 0 23.04-23.04V217.6a23.04 23.04 0 0 0-23.04-23.04H217.6z m416 0a23.04 23.04 0 0 0-23.04 23.04v172.8c0 12.672 10.368 23.04 23.04 23.04h172.8a23.04 23.04 0 0 0 23.04-23.04V217.6a23.04 23.04 0 0 0-23.04-23.04H633.6z"></path>
+            </svg>
+          </button>
           <div class="tabs" id="tabs" role="tablist" aria-label="Terminal tabs"></div>
           <button class="tab-add" id="newTab" type="button" aria-label="New tab" title="New tab">+</button>
         </div>
@@ -88,6 +93,15 @@
           <h2>切换主题</h2>
         </div>
         <div class="theme-picker-list" id="themePickerList" role="listbox" aria-label="终端主题"></div>
+      </div>
+    </div>
+    <div class="tab-overview" id="tabOverview" hidden>
+      <div class="tab-overview-panel" role="dialog" aria-modal="true" aria-label="终端总览">
+        <div class="tab-overview-header">
+          <h2>终端总览</h2>
+          <button class="tab-overview-close" id="tabOverviewClose" type="button" aria-label="关闭终端总览">&times;</button>
+        </div>
+        <div class="tab-overview-grid" id="tabOverviewGrid" aria-label="终端标签"></div>
       </div>
     </div>
     <div class="dialog-backdrop" id="dialogBackdrop" hidden>
