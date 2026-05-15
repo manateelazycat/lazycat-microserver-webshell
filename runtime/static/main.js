@@ -557,6 +557,14 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     document.documentElement.style.setProperty("--chrome-text-muted", themeRGBA(activeTheme.foreground, 0.64));
     document.documentElement.style.setProperty("--chrome-text-strong", activeTheme.foreground);
     document.documentElement.style.setProperty("--chrome-hover-bg", themeRGBA(activeTheme.foreground, 0.1));
+    document.documentElement.style.setProperty("--panel-bg", themeRGBA(activeTheme.background, 0.96, "#111827"));
+    document.documentElement.style.setProperty("--panel-border", themeRGBA(activeTheme.foreground, 0.24));
+    document.documentElement.style.setProperty("--panel-hover-bg", themeRGBA(activeTheme.foreground, 0.14));
+    document.documentElement.style.setProperty("--panel-subtle-bg", themeRGBA(activeTheme.foreground, 0.08));
+    document.documentElement.style.setProperty("--panel-input-bg", themeRGBA(activeTheme.foreground, 0.1));
+    document.documentElement.style.setProperty("--modal-backdrop-bg", themeRGBA(activeTheme.background, 0.28, "#000000"));
+    document.documentElement.style.setProperty("--text", activeTheme.foreground);
+    document.documentElement.style.setProperty("--muted", themeRGBA(activeTheme.foreground, 0.68));
     document.body.dataset.theme = activeTheme.id;
   };
 

@@ -11,7 +11,11 @@
   --chrome-hover-bg: rgba(148, 163, 184, 0.12);
   --panel-bg: rgba(17, 24, 39, 0.96);
   --panel-border: rgba(148, 163, 184, 0.22);
+  --panel-hover-bg: rgba(148, 163, 184, 0.12);
+  --panel-subtle-bg: rgba(148, 163, 184, 0.08);
+  --panel-input-bg: rgba(0, 0, 0, 0.28);
   --panel-shadow: rgba(0, 0, 0, 0.34);
+  --modal-backdrop-bg: rgba(0, 0, 0, 0.22);
   --text: #e5e7eb;
   --muted: #9ca3af;
   --danger: #f87171;
@@ -262,8 +266,8 @@ button {
   height: 8px;
   border-radius: 999px;
   flex: 0 0 auto;
-  background: #94a3b8;
-  box-shadow: 0 0 0 4px rgba(148, 163, 184, 0.12);
+  background: var(--muted);
+  box-shadow: 0 0 0 4px var(--panel-subtle-bg);
 }
 
 .instance-switcher-status-dot[data-status="running"],
@@ -342,7 +346,7 @@ button {
   margin-top: 6px;
   padding: 0 9px;
   border: 0;
-  border-top: 1px solid var(--chrome-line);
+  border-top: 1px solid var(--panel-border);
   border-radius: 0;
   background: transparent;
   color: var(--text);
@@ -353,7 +357,7 @@ button {
 
 .instance-switcher-action:hover,
 .instance-switcher-action:focus-visible {
-  background: var(--chrome-hover-bg);
+  background: var(--panel-hover-bg);
   outline: none;
 }
 
@@ -374,12 +378,13 @@ button {
 
 .instance-switcher-item:hover,
 .instance-switcher-item[aria-selected="true"] {
-  background: var(--chrome-hover-bg);
+  background: var(--panel-hover-bg);
 }
 
 .instance-switcher-item:disabled {
-  color: rgba(156, 163, 175, 0.62);
+  color: var(--muted);
   cursor: default;
+  opacity: 0.62;
 }
 
 .instance-switcher-item-body {
@@ -631,7 +636,7 @@ body.split-resize-active * {
 }
 
 .context-menu-btn:hover {
-  background: rgba(148, 163, 184, 0.12);
+  background: var(--panel-hover-bg);
 }
 
 .context-menu-btn.danger {
@@ -644,7 +649,7 @@ body.split-resize-active * {
   z-index: 70;
   display: flex;
   justify-content: flex-end;
-  background: rgba(0, 0, 0, 0.22);
+  background: var(--modal-backdrop-bg);
 }
 
 .modal[hidden] {
@@ -667,7 +672,7 @@ body.split-resize-active * {
   justify-content: space-between;
   min-height: 54px;
   padding: 0 18px;
-  border-bottom: 1px solid var(--chrome-line);
+  border-bottom: 1px solid var(--panel-border);
 }
 
 .theme-picker-header h2 {
@@ -691,7 +696,7 @@ body.split-resize-active * {
 }
 
 .theme-picker-close:hover {
-  background: rgba(148, 163, 184, 0.12);
+  background: var(--panel-hover-bg);
 }
 
 .theme-picker-list {
@@ -726,7 +731,7 @@ body.split-resize-active * {
   padding: 9px;
   border: 1px solid transparent;
   border-radius: 8px;
-  background: rgba(148, 163, 184, 0.08);
+  background: var(--panel-subtle-bg);
   color: var(--text);
   cursor: pointer;
   text-align: left;
@@ -735,7 +740,7 @@ body.split-resize-active * {
 .theme-option:hover,
 .theme-option[aria-selected="true"] {
   border-color: var(--accent);
-  background: rgba(148, 163, 184, 0.14);
+  background: var(--panel-hover-bg);
 }
 
 .theme-swatch {
@@ -743,7 +748,7 @@ body.split-resize-active * {
   width: 48px;
   height: 34px;
   flex: 0 0 auto;
-  border: 1px solid rgba(148, 163, 184, 0.24);
+  border: 1px solid var(--panel-border);
   border-radius: 6px;
   background: var(--swatch-bg);
 }
@@ -819,9 +824,9 @@ body.split-resize-active * {
   min-width: 120px;
   height: 30px;
   padding: 0 9px;
-  border: 1px solid rgba(148, 163, 184, 0.28);
+  border: 1px solid var(--panel-border);
   border-radius: 6px;
-  background: rgba(0, 0, 0, 0.28);
+  background: var(--panel-input-bg);
   color: var(--text);
   outline: none;
 }
@@ -841,7 +846,7 @@ body.split-resize-active * {
   justify-content: center;
   border: 0;
   border-radius: 6px;
-  background: rgba(148, 163, 184, 0.12);
+  background: var(--panel-hover-bg);
   color: var(--text);
   cursor: pointer;
 }
