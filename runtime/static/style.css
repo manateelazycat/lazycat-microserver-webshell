@@ -1021,7 +1021,59 @@ body.split-resize-active * {
   overflow-wrap: anywhere;
 }
 
+.settings-font-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.settings-font-empty {
+  padding: 10px 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.settings-font-item {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px;
+  border: 1px solid var(--panel-border);
+  border-radius: 7px;
+  background: var(--panel-subtle-bg);
+}
+
+.settings-font-item-body {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.settings-font-item-name,
+.settings-font-item-meta {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-font-item-name {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.settings-font-item-meta {
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .settings-feedback {
+  margin: 0 16px 16px;
   padding: 9px 10px;
   border: 1px solid var(--panel-border);
   border-radius: 7px;
@@ -1373,6 +1425,15 @@ body.split-resize-active * {
 
   .settings-secondary {
     width: 100%;
+  }
+
+  .settings-font-item {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .settings-font-item-meta {
+    white-space: normal;
   }
 
   .app-shell {

@@ -103,10 +103,11 @@
           <button class="settings-close" id="settingsClose" type="button" aria-label="关闭设置">&times;</button>
         </div>
         <div class="settings-tabs" role="tablist" aria-label="设置分类">
-          <button class="settings-tab" id="settingsTabFonts" type="button" role="tab" aria-selected="true" aria-controls="settingsPanelFonts" data-settings-tab="fonts">字体管理</button>
+          <button class="settings-tab" id="settingsTabFontSettings" type="button" role="tab" aria-selected="true" aria-controls="settingsPanelFontSettings" data-settings-tab="font-settings">字体设置</button>
+          <button class="settings-tab" id="settingsTabFontManagement" type="button" role="tab" aria-selected="false" aria-controls="settingsPanelFontManagement" data-settings-tab="font-management">字体管理</button>
         </div>
         <div class="settings-body">
-          <div class="settings-tab-panel" id="settingsPanelFonts" role="tabpanel" aria-labelledby="settingsTabFonts" data-settings-panel="fonts">
+          <div class="settings-tab-panel" id="settingsPanelFontSettings" role="tabpanel" aria-labelledby="settingsTabFontSettings" data-settings-panel="font-settings">
             <section class="settings-section" aria-labelledby="settingsFontTitle">
               <div class="settings-section-head">
                 <h3 id="settingsFontTitle">终端字体</h3>
@@ -114,10 +115,11 @@
               <label class="settings-label" for="settingsFontSelect">字体</label>
               <div class="settings-font-row">
                 <select class="settings-select" id="settingsFontSelect"></select>
-                <button class="settings-secondary danger" id="settingsFontDelete" type="button">删除</button>
               </div>
               <div class="settings-font-meta" id="settingsFontMeta"></div>
             </section>
+          </div>
+          <div class="settings-tab-panel" id="settingsPanelFontManagement" role="tabpanel" aria-labelledby="settingsTabFontManagement" data-settings-panel="font-management" hidden>
             <section class="settings-section" aria-labelledby="settingsUploadTitle">
               <div class="settings-section-head">
                 <h3 id="settingsUploadTitle">上传字体</h3>
@@ -126,8 +128,14 @@
                 <input class="settings-file" id="settingsFontInput" type="file" accept=".ttf,.otf,.woff,.woff2,font/ttf,font/otf,font/woff,font/woff2" />
               </div>
             </section>
-            <div class="settings-feedback" id="settingsFeedback" hidden></div>
+            <section class="settings-section" aria-labelledby="settingsFontListTitle">
+              <div class="settings-section-head">
+                <h3 id="settingsFontListTitle">已上传字体</h3>
+              </div>
+              <div class="settings-font-list" id="settingsFontList"></div>
+            </section>
           </div>
+          <div class="settings-feedback" id="settingsFeedback" hidden></div>
         </div>
       </div>
     </div>

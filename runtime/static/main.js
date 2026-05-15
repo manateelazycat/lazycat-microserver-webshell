@@ -25,9 +25,9 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
   const settingsBackdrop = document.getElementById("settingsBackdrop");
   const settingsClose = document.getElementById("settingsClose");
   const settingsFontSelect = document.getElementById("settingsFontSelect");
-  const settingsFontDelete = document.getElementById("settingsFontDelete");
   const settingsFontInput = document.getElementById("settingsFontInput");
   const settingsFontMeta = document.getElementById("settingsFontMeta");
+  const settingsFontList = document.getElementById("settingsFontList");
   const settingsFeedback = document.getElementById("settingsFeedback");
   const settingsTabs = Array.from(document.querySelectorAll("[data-settings-tab]"));
   const settingsTabPanels = Array.from(document.querySelectorAll("[data-settings-panel]"));
@@ -411,7 +411,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
   };
 
   const setActiveSettingsTab = (tabID) => {
-    const nextTabID = String(tabID || "fonts").trim() || "fonts";
+    const nextTabID = String(tabID || "font-settings").trim() || "font-settings";
     for (const tab of settingsTabs) {
       const selected = tab.dataset.settingsTab === nextTabID;
       tab.setAttribute("aria-selected", selected ? "true" : "false");
@@ -479,14 +479,47 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
       settingsFontSelect.appendChild(option);
     }
     settingsFontSelect.value = selected ? selected.id : "";
-    if (settingsFontDelete) {
-      settingsFontDelete.disabled = !selected;
-    }
     if (settingsFontMeta) {
       const size = selected ? formatBytes(selected.size) : "";
       settingsFontMeta.textContent = selected
         ? [selected.filename, size].filter(Boolean).join(" · ")
         : "当前使用系统默认字体。";
+    }
+    renderSettingsFontList();
+  };
+
+  const renderSettingsFontList = () => {
+    if (!settingsFontList) {
+      return;
+    }
+    settingsFontList.textContent = "";
+    if (uploadedFonts.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "settings-font-empty";
+      empty.textContent = "还没有上传字体。";
+      settingsFontList.appendChild(empty);
+      return;
+    }
+    for (const font of uploadedFonts) {
+      const item = document.createElement("div");
+      item.className = "settings-font-item";
+      const body = document.createElement("div");
+      body.className = "settings-font-item-body";
+      const title = document.createElement("div");
+      title.className = "settings-font-item-name";
+      title.textContent = font.label || font.filename || font.family;
+      const meta = document.createElement("div");
+      meta.className = "settings-font-item-meta";
+      const size = formatBytes(font.size);
+      meta.textContent = [font.filename, size, font.id === activeTerminalFontID ? "当前使用" : ""].filter(Boolean).join(" · ");
+      body.append(title, meta);
+      const action = document.createElement("button");
+      action.className = "settings-secondary danger";
+      action.type = "button";
+      action.dataset.fontDelete = font.id;
+      action.textContent = "删除";
+      item.append(body, action);
+      settingsFontList.appendChild(item);
     }
   };
 
@@ -535,12 +568,13 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     await loadSettings();
   };
 
-  const deleteSelectedFont = async () => {
-    const selected = uploadedFonts.find((font) => font.id === activeTerminalFontID);
+  const deleteFont = async (fontID) => {
+    const selected = uploadedFonts.find((font) => font.id === fontID);
     if (!selected) {
       return;
     }
-    const confirmed = await confirmDialog(`删除字体「${selected.label}」？`, {
+    const suffix = selected.id === activeTerminalFontID ? "\n删除后终端将恢复系统默认字体。" : "";
+    const confirmed = await confirmDialog(`删除字体「${selected.label}」？${suffix}`, {
       title: "删除字体",
       okText: "删除",
       cancelText: "取消",
@@ -561,7 +595,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     closeContextMenu();
     closeThemePicker();
     closeInstanceSwitcher();
-    setActiveSettingsTab("fonts");
+    setActiveSettingsTab("font-settings");
     renderSettingsFonts();
     setSettingsFeedback("");
     if (settingsBackdrop) {
@@ -4406,9 +4440,6 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
   settingsFontSelect?.addEventListener("change", () => {
     const fontID = settingsFontSelect.value || "";
     settingsFontSelect.disabled = true;
-    if (settingsFontDelete) {
-      settingsFontDelete.disabled = true;
-    }
     saveTerminalFontSelection(fontID)
       .then(() => setSettingsFeedback(fontID ? "终端字体已更新。" : "已恢复系统默认字体。", "success"))
       .catch((error) => setSettingsFeedback(error.message || "字体设置保存失败。", "error"))
@@ -4434,11 +4465,18 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
         settingsFontInput.disabled = false;
       });
   });
-  settingsFontDelete?.addEventListener("click", () => {
-    settingsFontDelete.disabled = true;
-    deleteSelectedFont()
+  settingsFontList?.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-font-delete]");
+    if (!button) {
+      return;
+    }
+    button.disabled = true;
+    deleteFont(button.dataset.fontDelete)
       .catch((error) => setSettingsFeedback(error.message || "字体删除失败。", "error"))
-      .finally(() => renderSettingsFonts());
+      .finally(() => {
+        button.disabled = false;
+        renderSettingsFonts();
+      });
   });
 
   searchInput?.addEventListener("input", () => setSearchQuery(searchInput.value));
