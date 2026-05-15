@@ -63,9 +63,9 @@ button {
   display: flex;
   align-items: stretch;
   gap: 8px;
-  height: 38px;
-  min-height: 38px;
-  padding: 0 12px;
+  height: calc(38px + var(--lzc-safe-area-inset-top));
+  min-height: calc(38px + var(--lzc-safe-area-inset-top));
+  padding: var(--lzc-safe-area-inset-top) max(12px, var(--lzc-safe-area-inset-right)) 0 max(12px, var(--lzc-safe-area-inset-left));
   background: var(--chrome-bg);
   border-bottom: 1px solid var(--chrome-line);
   box-sizing: border-box;
@@ -823,9 +823,10 @@ body.split-resize-active * {
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 54px;
-  padding: 0 64px;
+  min-height: calc(54px + var(--lzc-safe-area-inset-top));
+  padding: var(--lzc-safe-area-inset-top) max(64px, var(--lzc-safe-area-inset-right)) 0 max(64px, var(--lzc-safe-area-inset-left));
   border-bottom: 1px solid var(--panel-border);
+  box-sizing: border-box;
 }
 
 .theme-picker-header h2 {
@@ -839,8 +840,8 @@ body.split-resize-active * {
 
 .theme-picker-close {
   position: absolute;
-  left: 10px;
-  top: 50%;
+  left: max(10px, var(--lzc-safe-area-inset-left));
+  top: calc(var(--lzc-safe-area-inset-top) + 27px);
   display: inline-flex;
   width: 44px;
   height: 44px;
@@ -1423,9 +1424,9 @@ body.split-resize-active * {
   display: grid;
   grid-template-columns: 44px minmax(0, 1fr) 32px;
   flex: 0 0 auto;
-  min-height: 54px;
+  min-height: calc(54px + var(--lzc-safe-area-inset-top));
   align-items: center;
-  padding: 0 18px;
+  padding: var(--lzc-safe-area-inset-top) max(18px, var(--lzc-safe-area-inset-right)) 0 max(18px, var(--lzc-safe-area-inset-left));
   border-bottom: 1px solid var(--chrome-line);
   color: var(--terminal-fg);
   box-sizing: border-box;
@@ -1911,17 +1912,6 @@ body.split-resize-active * {
 
   .theme-picker-panel {
     width: 100vw;
-  }
-
-  .theme-picker-header {
-    min-height: calc(54px + var(--lzc-safe-area-inset-top));
-    padding: var(--lzc-safe-area-inset-top) max(64px, var(--lzc-safe-area-inset-right)) 0 max(64px, var(--lzc-safe-area-inset-left));
-    box-sizing: border-box;
-  }
-
-  .theme-picker-close {
-    left: max(10px, var(--lzc-safe-area-inset-left));
-    top: calc(var(--lzc-safe-area-inset-top) + 27px);
   }
 
   .theme-picker-list {
