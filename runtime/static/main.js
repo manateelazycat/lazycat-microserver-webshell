@@ -2385,6 +2385,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
       if (event.pointerType !== "touch" && event.pointerType !== "pen") {
         return;
       }
+      stopMobileShortcutEvent(event);
       activePointerId = event.pointerId;
       touchStartX = event.clientX;
       touchStartY = event.clientY;
@@ -2392,7 +2393,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
       repeatTriggered = false;
       shortcutSession = activeSession();
       startRepeat();
-    }, { passive: true });
+    }, { passive: false });
 
     button.addEventListener("pointermove", (event) => {
       if (!(event instanceof PointerEvent) || event.pointerId !== activePointerId) {
