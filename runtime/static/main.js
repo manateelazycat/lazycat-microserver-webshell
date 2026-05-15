@@ -58,7 +58,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     : NaN;
   let terminalFontSize = Number.isFinite(storedFontSize) ? Math.max(minFontSize, Math.min(maxFontSize, storedFontSize)) : defaultFontSize;
   const terminalOptionsBase = {
-    cursorBlink: true,
+    cursorBlink: false,
     convertEol: true,
     scrollback: 5000,
     fontFamily: '"DejaVu Sans Mono", "Liberation Mono", monospace',
@@ -634,6 +634,18 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     emptyState.hidden = tabs.size > 0;
   };
 
+  const syncCursorBlinkState = () => {
+    for (const tab of tabs.values()) {
+      const tabIsActive = tab.id === activeTabId;
+      for (const pane of tab.panes.values()) {
+        const shouldBlink = tabIsActive && pane.id === tab.activePaneId;
+        if (pane.term && pane.term.options.cursorBlink !== shouldBlink) {
+          pane.term.options.cursorBlink = shouldBlink;
+        }
+      }
+    }
+  };
+
   const setActivePane = (tab, paneId, { focus = true } = {}) => {
     if (!tab || !tab.panes.has(paneId)) {
       return;
@@ -643,6 +655,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     for (const pane of tab.panes.values()) {
       pane.shellEl.classList.toggle("active", pane.id === paneId);
     }
+    syncCursorBlinkState();
     if (focus) {
       const pane = tab.panes.get(paneId);
       window.requestAnimationFrame(() => {
@@ -1701,6 +1714,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
       item.button?.setAttribute("tabindex", isActive ? "0" : "-1");
     }
     setActivePane(tab, tab.activePaneId, { focus });
+    syncCursorBlinkState();
     clearTabNotification(tab);
     rememberActiveTab();
     window.requestAnimationFrame(() => resizeTab(tab));
