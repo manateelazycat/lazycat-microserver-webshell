@@ -1470,10 +1470,11 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
               case "pong":
                 return;
               case "process-exit":
+                const shouldFocusAfterExit = session.tabId === activeTabId && currentTab()?.activePaneId === session.id;
                 session.exitExpected = true;
                 session.socket = null;
                 disposePane(session);
-                refreshWorkspace().catch((error) => showToast(error.message));
+                refreshWorkspace({ focus: shouldFocusAfterExit }).catch((error) => showToast(error.message));
                 return;
             }
           }

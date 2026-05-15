@@ -67,6 +67,70 @@ func TestMoveTabLocked(t *testing.T) {
 	assertTabOrder(t, workspace.tabs, "tab-1", "tab-2", "tab-3")
 }
 
+func TestClosePaneSelectsAdjacentSiblingWhenActivePaneExits(t *testing.T) {
+	workspace := &terminalWorkspace{
+		panes: map[string]*terminalPane{
+			"pane-1": {id: "pane-1"},
+			"pane-2": {id: "pane-2"},
+			"pane-3": {id: "pane-3"},
+		},
+	}
+	tab := &terminalTab{
+		ID:           "tab-1",
+		ActivePaneID: "pane-2",
+		PaneIDs:      []string{"pane-1", "pane-2", "pane-3"},
+		Layout: &layoutNode{
+			Type:      "split",
+			Direction: "vertical",
+			Children: []*layoutNode{
+				{Type: "leaf", PaneID: "pane-1"},
+				{
+					Type:      "split",
+					Direction: "horizontal",
+					Children: []*layoutNode{
+						{Type: "leaf", PaneID: "pane-2"},
+						{Type: "leaf", PaneID: "pane-3"},
+					},
+				},
+			},
+		},
+	}
+	if err := workspace.closePaneInTabLocked(tab, "pane-2"); err != nil {
+		t.Fatalf("closePaneInTabLocked returned error: %v", err)
+	}
+	if tab.ActivePaneID != "pane-3" {
+		t.Fatalf("expected adjacent sibling pane-3 to become active, got %q", tab.ActivePaneID)
+	}
+}
+
+func TestClosePaneKeepsExistingActivePaneWhenInactivePaneExits(t *testing.T) {
+	workspace := &terminalWorkspace{
+		panes: map[string]*terminalPane{
+			"pane-1": {id: "pane-1"},
+			"pane-2": {id: "pane-2"},
+		},
+	}
+	tab := &terminalTab{
+		ID:           "tab-1",
+		ActivePaneID: "pane-1",
+		PaneIDs:      []string{"pane-1", "pane-2"},
+		Layout: &layoutNode{
+			Type:      "split",
+			Direction: "vertical",
+			Children: []*layoutNode{
+				{Type: "leaf", PaneID: "pane-1"},
+				{Type: "leaf", PaneID: "pane-2"},
+			},
+		},
+	}
+	if err := workspace.closePaneInTabLocked(tab, "pane-2"); err != nil {
+		t.Fatalf("closePaneInTabLocked returned error: %v", err)
+	}
+	if tab.ActivePaneID != "pane-1" {
+		t.Fatalf("expected active pane to remain pane-1, got %q", tab.ActivePaneID)
+	}
+}
+
 func TestFilterPrivateControlOutputAcrossChunks(t *testing.T) {
 	pane := &terminalPane{}
 	first := pane.filterPrivateControlOutput([]byte("hello \x1b]777;webshell-"))

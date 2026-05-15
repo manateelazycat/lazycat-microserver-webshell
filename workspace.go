@@ -685,6 +685,10 @@ func (w *terminalWorkspace) closePaneInTabLocked(tab *terminalTab, paneID string
 	if !tab.hasPane(paneID) {
 		return errors.New("pane not found")
 	}
+	nextActivePaneID := tab.ActivePaneID
+	if tab.ActivePaneID == paneID {
+		nextActivePaneID, _ = adjacentPaneID(tab.Layout, paneID)
+	}
 	if pane := w.panes[paneID]; pane != nil {
 		delete(w.panes, paneID)
 		pane.close()
@@ -692,7 +696,7 @@ func (w *terminalWorkspace) closePaneInTabLocked(tab *terminalTab, paneID string
 	tab.removePane(paneID)
 	tab.Layout = removePaneFromLayoutNode(tab.Layout, paneID)
 	paneIDs := collectLayoutPaneIDs(tab.Layout, nil)
-	tab.ActivePaneID = firstExistingPaneID(tab.ActivePaneID, paneIDs)
+	tab.ActivePaneID = firstExistingPaneID(nextActivePaneID, paneIDs)
 	if tab.ActivePaneID == "" && len(paneIDs) > 0 {
 		tab.ActivePaneID = paneIDs[0]
 	}
@@ -713,10 +717,14 @@ func (w *terminalWorkspace) movePaneToTabLocked(tabID, paneID string) error {
 	if !source.hasPane(paneID) {
 		return errors.New("pane not found")
 	}
+	nextActivePaneID := source.ActivePaneID
+	if source.ActivePaneID == paneID {
+		nextActivePaneID, _ = adjacentPaneID(source.Layout, paneID)
+	}
 	source.removePane(paneID)
 	source.Layout = removePaneFromLayoutNode(source.Layout, paneID)
 	sourcePaneIDs := collectLayoutPaneIDs(source.Layout, nil)
-	source.ActivePaneID = firstExistingPaneID(source.ActivePaneID, sourcePaneIDs)
+	source.ActivePaneID = firstExistingPaneID(nextActivePaneID, sourcePaneIDs)
 	if source.ActivePaneID == "" && len(sourcePaneIDs) > 0 {
 		source.ActivePaneID = sourcePaneIDs[0]
 	}
@@ -1577,6 +1585,62 @@ func collectLayoutPaneIDs(node *layoutNode, result []string) []string {
 		result = collectLayoutPaneIDs(child, result)
 	}
 	return result
+}
+
+func adjacentPaneID(node *layoutNode, paneID string) (string, bool) {
+	if node == nil {
+		return "", false
+	}
+	if node.Type == "leaf" {
+		return "", node.PaneID == paneID
+	}
+	for index, child := range node.Children {
+		candidate, contains := adjacentPaneID(child, paneID)
+		if !contains {
+			continue
+		}
+		if candidate != "" {
+			return candidate, true
+		}
+		if index+1 < len(node.Children) {
+			return firstLayoutPaneID(node.Children[index+1]), true
+		}
+		if index > 0 {
+			return lastLayoutPaneID(node.Children[index-1]), true
+		}
+		return "", true
+	}
+	return "", false
+}
+
+func firstLayoutPaneID(node *layoutNode) string {
+	if node == nil {
+		return ""
+	}
+	if node.Type == "leaf" {
+		return node.PaneID
+	}
+	for _, child := range node.Children {
+		if paneID := firstLayoutPaneID(child); paneID != "" {
+			return paneID
+		}
+	}
+	return ""
+}
+
+func lastLayoutPaneID(node *layoutNode) string {
+	if node == nil {
+		return ""
+	}
+	if node.Type == "leaf" {
+		return node.PaneID
+	}
+	for index := len(node.Children) - 1; index >= 0; index-- {
+		if paneID := lastLayoutPaneID(node.Children[index]); paneID != "" {
+			return paneID
+		}
+	}
+	return ""
 }
 
 func firstExistingPaneID(current string, paneIDs []string) string {
