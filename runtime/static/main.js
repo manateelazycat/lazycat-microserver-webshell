@@ -906,6 +906,88 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     window.requestAnimationFrame(() => resetTerminalHostViewport(session, options));
   };
 
+  const positionTerminalInput = (session) => {
+    const term = session?.term;
+    const textarea = term?.textarea;
+    const renderer = term?.renderer;
+    const cursor = term?.wasmTerm?.getCursor?.();
+    const metrics = renderer?.getMetrics?.();
+    if (!textarea || !cursor || !metrics) {
+      return;
+    }
+    const width = Math.max(1, Number(metrics.width) || 1);
+    const height = Math.max(1, Number(metrics.height) || Number(terminalFontSize) || 16);
+    const cursorX = Math.max(0, Math.min(Math.max(0, (term.cols || 1) - 1), Number(cursor.x) || 0));
+    const cursorY = Math.max(0, Math.min(Math.max(0, (term.rows || 1) - 1), Number(cursor.y) || 0));
+    textarea.value = session.composingIME ? textarea.value : "";
+    textarea.style.position = "absolute";
+    textarea.style.left = `${cursorX * width}px`;
+    textarea.style.top = `${cursorY * height}px`;
+    textarea.style.width = `${Math.max(width, 2)}px`;
+    textarea.style.height = `${height}px`;
+    textarea.style.lineHeight = `${height}px`;
+    textarea.style.font = `${terminalFontSize}px ${terminalOptionsBase.fontFamily}`;
+    textarea.style.padding = "0";
+    textarea.style.border = "0";
+    textarea.style.margin = "0";
+    textarea.style.opacity = "0";
+    textarea.style.clipPath = "none";
+    textarea.style.overflow = "hidden";
+    textarea.style.whiteSpace = "pre";
+    textarea.style.resize = "none";
+    textarea.style.color = "transparent";
+    textarea.style.background = "transparent";
+    textarea.style.caretColor = "transparent";
+    textarea.style.pointerEvents = "none";
+    textarea.style.zIndex = "1";
+  };
+
+  const focusTerminalInput = (session) => {
+    const textarea = session?.term?.textarea;
+    if (!textarea) {
+      return;
+    }
+    positionTerminalInput(session);
+    try {
+      textarea.focus({ preventScroll: true });
+    } catch (error) {
+      textarea.focus();
+    }
+    resetTerminalHostViewport(session, { clean: true });
+  };
+
+  const installTerminalInputFocus = (session) => {
+    const term = session?.term;
+    const host = session?.terminalHost;
+    const textarea = term?.textarea;
+    if (!term || !host || !textarea) {
+      return;
+    }
+    term.focus = () => focusTerminalInput(session);
+    textarea.addEventListener("compositionstart", () => {
+      positionTerminalInput(session);
+    });
+    textarea.addEventListener("compositionupdate", () => {
+      positionTerminalInput(session);
+    });
+    textarea.addEventListener("compositionend", () => {
+      window.setTimeout(() => {
+        textarea.value = "";
+        positionTerminalInput(session);
+      }, 0);
+    });
+    textarea.addEventListener("input", () => {
+      if (!session.composingIME) {
+        textarea.value = "";
+        positionTerminalInput(session);
+      }
+    });
+    host.addEventListener("pointerdown", () => {
+      window.requestAnimationFrame(() => focusTerminalInput(session));
+    });
+    positionTerminalInput(session);
+  };
+
   const installTerminalHostViewportGuard = (session) => {
     const host = session?.terminalHost;
     if (!host) {
@@ -946,6 +1028,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
       return;
     }
     resetTerminalHostViewport(pane, { clean: true });
+    positionTerminalInput(pane);
     sendTerminalSize(pane);
   };
 
@@ -1735,6 +1818,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
         session.replayOutputDepth = Math.max(0, session.replayOutputDepth - 1);
       }
       resetTerminalHostViewport(session, { clean: true });
+      positionTerminalInput(session);
     }
   };
 
@@ -1906,6 +1990,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
       activityCheckedAt: 0,
     };
 
+    installTerminalInputFocus(session);
     installTerminalHostViewportGuard(session);
     installRendererThemeMapper(session);
 
@@ -1920,6 +2005,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     });
     term.onResize(() => {
       resetTerminalHostViewport(session, { clean: true });
+      positionTerminalInput(session);
       sendTerminalSize(session);
     });
     term.onTitleChange((title) => {
