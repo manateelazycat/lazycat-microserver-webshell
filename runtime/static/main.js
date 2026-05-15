@@ -95,6 +95,8 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
   const touchShortcutRepeatIntervalMs = 80;
   const touchSelectionMoveThresholdPx = 7;
   const touchSelectionLongPressDelayMs = 450;
+  const mobileKeyboardDoubleTapDelayMs = 320;
+  const mobileKeyboardFocusAllowWindowMs = 600;
   const desktopSelectionCopyMoveThresholdPx = 4;
   const terminalSizeReassertIntervalMs = 250;
   const mobileLayoutQuery = window.matchMedia?.("(max-width: 640px)");
@@ -2201,6 +2203,10 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     if (!textarea) {
       return;
     }
+    if (isMobileLayout() && performance.now() > Number(session?.allowMobileKeyboardFocusUntil || 0)) {
+      blurTerminalInput(session);
+      return;
+    }
     positionTerminalInput(session);
     try {
       textarea.focus({ preventScroll: true });
@@ -2351,6 +2357,10 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     textarea.setAttribute("inputmode", "text");
     textarea.setAttribute("enterkeyhint", "enter");
     term.focus = () => focusTerminalInput(session);
+    let lastMobileTapAt = 0;
+    let lastMobileTapX = 0;
+    let lastMobileTapY = 0;
+    let mobileTapTouchState = null;
     host.addEventListener("keydown", () => {
       reassertTerminalSize(session, { force: true });
     }, { capture: true });
@@ -2390,6 +2400,61 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
       }
       window.requestAnimationFrame(() => focusTerminalInput(session));
     });
+    host.addEventListener("touchstart", (event) => {
+      if (!isMobileLayout() || event.touches.length !== 1) {
+        mobileTapTouchState = null;
+        return;
+      }
+      blurTerminalInput(session);
+      const touch = event.touches[0];
+      mobileTapTouchState = {
+        startX: touch.clientX,
+        startY: touch.clientY,
+        moved: false,
+      };
+    }, { passive: true });
+    host.addEventListener("touchmove", (event) => {
+      if (!mobileTapTouchState || event.touches.length !== 1) {
+        return;
+      }
+      const touch = event.touches[0];
+      if (
+        Math.abs(touch.clientX - mobileTapTouchState.startX) >= touchShortcutMoveThresholdPx ||
+        Math.abs(touch.clientY - mobileTapTouchState.startY) >= touchShortcutMoveThresholdPx
+      ) {
+        mobileTapTouchState.moved = true;
+      }
+    }, { passive: true });
+    const finishMobileTap = (event) => {
+      if (!isMobileLayout() || !mobileTapTouchState) {
+        mobileTapTouchState = null;
+        return;
+      }
+      const touch = primaryTouch(event);
+      const state = mobileTapTouchState;
+      mobileTapTouchState = null;
+      if (!touch || state.moved) {
+        return;
+      }
+      const now = performance.now();
+      const dx = touch.clientX - lastMobileTapX;
+      const dy = touch.clientY - lastMobileTapY;
+      const isDoubleTap = now - lastMobileTapAt <= mobileKeyboardDoubleTapDelayMs && Math.hypot(dx, dy) < touchShortcutMoveThresholdPx * 2;
+      lastMobileTapAt = now;
+      lastMobileTapX = touch.clientX;
+      lastMobileTapY = touch.clientY;
+      if (!isDoubleTap) {
+        blurTerminalInput(session);
+        return;
+      }
+      session.allowMobileKeyboardFocusUntil = now + mobileKeyboardFocusAllowWindowMs;
+      event.preventDefault();
+      window.requestAnimationFrame(() => focusTerminalInput(session));
+    };
+    host.addEventListener("touchend", finishMobileTap, { passive: false });
+    host.addEventListener("touchcancel", () => {
+      mobileTapTouchState = null;
+    }, { passive: true });
     positionTerminalInput(session);
   };
 
