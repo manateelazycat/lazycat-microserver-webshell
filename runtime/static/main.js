@@ -878,6 +878,58 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     return true;
   };
 
+  // IME composition can make the contenteditable host scroll and clip the canvas.
+  const resetTerminalHostViewport = (session, { clean = false } = {}) => {
+    const host = session?.terminalHost;
+    if (!host) {
+      return;
+    }
+    if (host.scrollTop !== 0) {
+      host.scrollTop = 0;
+    }
+    if (host.scrollLeft !== 0) {
+      host.scrollLeft = 0;
+    }
+    if (!clean || session.composingIME) {
+      return;
+    }
+    const keep = new Set([session.term?.canvas, session.term?.textarea].filter(Boolean));
+    for (const node of Array.from(host.childNodes)) {
+      if (!keep.has(node) && (node.nodeType === 1 || node.nodeType === 3)) {
+        node.remove();
+      }
+    }
+  };
+
+  const scheduleTerminalHostViewportReset = (session, options = {}) => {
+    resetTerminalHostViewport(session, options);
+    window.requestAnimationFrame(() => resetTerminalHostViewport(session, options));
+  };
+
+  const installTerminalHostViewportGuard = (session) => {
+    const host = session?.terminalHost;
+    if (!host) {
+      return;
+    }
+    host.addEventListener("compositionstart", () => {
+      session.composingIME = true;
+      scheduleTerminalHostViewportReset(session);
+    });
+    host.addEventListener("compositionupdate", () => scheduleTerminalHostViewportReset(session));
+    host.addEventListener("compositionend", () => {
+      session.composingIME = false;
+      scheduleTerminalHostViewportReset(session, { clean: true });
+    });
+    host.addEventListener("beforeinput", () => scheduleTerminalHostViewportReset(session));
+    host.addEventListener("input", () => scheduleTerminalHostViewportReset(session, { clean: true }));
+    host.addEventListener("scroll", () => scheduleTerminalHostViewportReset(session));
+    host.addEventListener("blur", () => {
+      session.composingIME = false;
+      scheduleTerminalHostViewportReset(session, { clean: true });
+    });
+    resetTerminalHostViewport(session, { clean: true });
+  };
+
   const sendTerminalSize = (pane) => {
     if (pane?.socket?.readyState === WebSocket.OPEN) {
       pane.socket.send(JSON.stringify({ type: "resize", cols: pane.term.cols, rows: pane.term.rows }));
@@ -893,6 +945,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     } catch (error) {
       return;
     }
+    resetTerminalHostViewport(pane, { clean: true });
     sendTerminalSize(pane);
   };
 
@@ -1681,6 +1734,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
       if (suppressGeneratedInput) {
         session.replayOutputDepth = Math.max(0, session.replayOutputDepth - 1);
       }
+      resetTerminalHostViewport(session, { clean: true });
     }
   };
 
@@ -1839,6 +1893,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
       inputFlushTimer: 0,
       replayOutputDepth: 0,
       allowGeneratedInputDuringReplay: false,
+      composingIME: false,
       exitExpected: false,
       closed: false,
       baseTheme: activeTheme,
@@ -1851,6 +1906,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
       activityCheckedAt: 0,
     };
 
+    installTerminalHostViewportGuard(session);
     installRendererThemeMapper(session);
 
     term.onData((data) => {
@@ -1862,7 +1918,10 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
       }
       sendOrQueueInput(session, data);
     });
-    term.onResize(() => sendTerminalSize(session));
+    term.onResize(() => {
+      resetTerminalHostViewport(session, { clean: true });
+      sendTerminalSize(session);
+    });
     term.onTitleChange((title) => {
       const current = tabs.get(session.tabId);
       const normalized = String(title || "").trim();

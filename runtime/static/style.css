@@ -588,10 +588,13 @@ body.split-resize-active * {
   height: 100%;
   padding: 0;
   overflow: hidden;
+  overflow: clip;
   box-sizing: border-box;
   color: var(--terminal-fg);
   background: var(--terminal-bg);
   outline: none;
+  caret-color: transparent;
+  line-height: 0;
 }
 
 .terminal-host canvas {
