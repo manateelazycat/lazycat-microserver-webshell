@@ -39,6 +39,12 @@
                     <span class="instance-switcher-item-meta">打开终端主题选择器</span>
                   </span>
                 </button>
+                <button class="instance-switcher-action" id="settingsMenuButton" type="button">
+                  <span class="instance-switcher-item-body">
+                    <span class="instance-switcher-item-name">设置</span>
+                    <span class="instance-switcher-item-meta">管理终端字体</span>
+                  </span>
+                </button>
               </div>
               <div class="instance-switcher-panel-head">
                 <div class="instance-switcher-panel-title">切换容器</div>
@@ -88,6 +94,36 @@
           <h2>切换主题</h2>
         </div>
         <div class="theme-picker-list" id="themePickerList" role="listbox" aria-label="终端主题"></div>
+      </div>
+    </div>
+    <div class="modal" id="settingsBackdrop" hidden>
+      <div class="settings-panel" id="settingsPanel" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+        <div class="theme-picker-header">
+          <h2 id="settingsTitle">设置</h2>
+          <button class="theme-picker-close" id="settingsClose" type="button" aria-label="关闭设置">&times;</button>
+        </div>
+        <div class="settings-body">
+          <section class="settings-section" aria-labelledby="settingsFontTitle">
+            <div class="settings-section-head">
+              <h3 id="settingsFontTitle">终端字体</h3>
+            </div>
+            <label class="settings-label" for="settingsFontSelect">字体</label>
+            <div class="settings-font-row">
+              <select class="settings-select" id="settingsFontSelect"></select>
+              <button class="settings-secondary danger" id="settingsFontDelete" type="button">删除</button>
+            </div>
+            <div class="settings-font-meta" id="settingsFontMeta"></div>
+          </section>
+          <section class="settings-section" aria-labelledby="settingsUploadTitle">
+            <div class="settings-section-head">
+              <h3 id="settingsUploadTitle">上传字体</h3>
+            </div>
+            <div class="settings-upload-row">
+              <input class="settings-file" id="settingsFontInput" type="file" accept=".ttf,.otf,.woff,.woff2,font/ttf,font/otf,font/woff,font/woff2" />
+            </div>
+          </section>
+          <div class="settings-feedback" id="settingsFeedback" hidden></div>
+        </div>
       </div>
     </div>
     <div class="dialog-backdrop" id="dialogBackdrop" hidden>
