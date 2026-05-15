@@ -236,7 +236,11 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
   const urlPattern = /(?:https?:\/\/|mailto:|ftp:\/\/|ssh:\/\/|git:\/\/|tel:|magnet:|gemini:\/\/|gopher:\/\/|news:)[\w\-.~:\/?#@!$&*+,;=%]+/gi;
   const trailingURLPunctuation = /[.,;!?)\]]+$/;
 
-  const cloneTheme = (theme) => ({ ...theme.xterm });
+  const cloneTheme = (theme) => {
+    const nextTheme = { ...theme.xterm };
+    nextTheme.cursor = nextTheme.foreground;
+    return nextTheme;
+  };
   const terminalOptions = () => ({ ...terminalOptionsBase, fontSize: terminalFontSize, theme: cloneTheme(activeTheme) });
 
   const selectStoredTheme = () => {
