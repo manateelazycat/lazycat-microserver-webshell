@@ -70,7 +70,7 @@ button {
 .tabs {
   display: flex;
   align-items: stretch;
-  flex: 0 1 auto;
+  flex: 1 1 auto;
   min-width: 0;
   max-width: 100%;
   overflow-x: auto;
@@ -200,6 +200,7 @@ button {
 }
 
 .tab-add,
+.tab-overview-toggle,
 .icon-btn {
   display: inline-flex;
   align-items: center;
@@ -218,12 +219,30 @@ button {
 }
 
 .tab-add:hover,
+.tab-overview-toggle:hover,
 .icon-btn:hover,
 .tab-add:focus-visible,
+.tab-overview-toggle:focus-visible,
 .icon-btn:focus-visible {
   background: var(--chrome-hover-bg);
   color: var(--chrome-text-strong);
   outline: none;
+}
+
+.tab-overview-toggle {
+  color: var(--terminal-fg);
+}
+
+.tab-overview-toggle:hover,
+.tab-overview-toggle:focus-visible {
+  color: var(--terminal-fg);
+}
+
+.tab-overview-toggle-icon {
+  display: block;
+  width: 19px;
+  height: 19px;
+  fill: currentColor;
 }
 
 .header-actions {
@@ -1281,6 +1300,181 @@ body.split-resize-active * {
   cursor: pointer;
 }
 
+.tab-overview {
+  position: fixed;
+  inset: 0;
+  z-index: 96;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  background: rgba(0, 0, 0, 0.86);
+  color: var(--text);
+}
+
+.tab-overview[hidden] {
+  display: none;
+}
+
+.tab-overview-panel {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  background: var(--terminal-bg);
+}
+
+.tab-overview-header {
+  display: flex;
+  flex: 0 0 auto;
+  min-height: 54px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 18px;
+  border-bottom: 1px solid var(--chrome-line);
+  color: var(--terminal-fg);
+  box-sizing: border-box;
+}
+
+.tab-overview-header h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.tab-overview-close {
+  display: inline-flex;
+  width: 32px;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--terminal-fg);
+  cursor: pointer;
+  font-size: 22px;
+  line-height: 1;
+}
+
+.tab-overview-close:hover,
+.tab-overview-close:focus-visible {
+  background: var(--chrome-hover-bg);
+  outline: none;
+}
+
+.tab-overview-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  min-width: 0;
+  min-height: 0;
+  padding: 14px;
+  overflow: auto;
+  align-content: start;
+  scrollbar-color: var(--accent) transparent;
+  scrollbar-width: thin;
+  box-sizing: border-box;
+}
+
+.tab-overview-grid::-webkit-scrollbar {
+  width: 8px;
+}
+
+.tab-overview-grid::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.tab-overview-grid::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: var(--accent);
+}
+
+.tab-overview-card {
+  display: flex;
+  min-width: 0;
+  padding: 0;
+  overflow: hidden;
+  flex-direction: column;
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  background: rgba(17, 24, 39, 0.72);
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.22);
+}
+
+.tab-overview-card:hover,
+.tab-overview-card:focus-visible {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.tab-overview-card.active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent), 0 14px 36px rgba(0, 0, 0, 0.22);
+}
+
+.tab-overview-preview {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  overflow: hidden;
+  border-bottom: 1px solid var(--chrome-line);
+  background: var(--terminal-bg);
+}
+
+.tab-overview-preview canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.tab-overview-meta {
+  display: flex;
+  min-height: 48px;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 9px;
+  box-sizing: border-box;
+}
+
+.tab-overview-name {
+  display: -webkit-box;
+  min-width: 0;
+  overflow: hidden;
+  flex: 1 1 auto;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.tab-overview-status {
+  display: inline-flex;
+  flex: 0 0 auto;
+  min-height: 20px;
+  align-items: center;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: rgba(44, 167, 248, 0.16);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.tab-overview-empty {
+  grid-column: 1 / -1;
+  padding: 40px 0;
+  color: var(--muted);
+  text-align: center;
+}
+
 .dialog-backdrop {
   position: fixed;
   inset: 0;
@@ -1497,6 +1691,30 @@ body.split-resize-active * {
 
   .settings-font-item-meta {
     white-space: normal;
+  }
+
+  .tab-overview-header {
+    min-height: 46px;
+    padding: 0 12px;
+  }
+
+  .tab-overview-header h2 {
+    font-size: 16px;
+  }
+
+  .tab-overview-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    padding: 8px;
+  }
+
+  .tab-overview-meta {
+    min-height: 46px;
+    padding: 7px 8px;
+  }
+
+  .tab-overview-name {
+    font-size: 12px;
   }
 
   .app-shell {

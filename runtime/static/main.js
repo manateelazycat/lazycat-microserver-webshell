@@ -5,6 +5,10 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
 
   const tabsEl = document.getElementById("tabs");
   const newTabButton = document.getElementById("newTab");
+  const tabOverviewToggle = document.getElementById("tabOverviewToggle");
+  const tabOverview = document.getElementById("tabOverview");
+  const tabOverviewGrid = document.getElementById("tabOverviewGrid");
+  const tabOverviewClose = document.getElementById("tabOverviewClose");
   const terminalArea = document.getElementById("terminalArea");
   const emptyState = document.getElementById("emptyState");
   const emptyStateAction = document.getElementById("emptyStateAction");
@@ -260,6 +264,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
   let suppressLocationUpdate = false;
   let suppressBeforeUnloadOnce = false;
   let suppressBeforeUnloadResetTimer = 0;
+  let tabOverviewRenderFrame = 0;
   let lightOSHomeURL = "";
   let lightOSHomeURLPromise = null;
   const searchState = { open: false, query: "", matches: [], index: -1, sessionId: "" };
@@ -1161,6 +1166,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
       }
     }
     resizeActiveTab();
+    scheduleTabOverviewRender();
   };
 
   const openThemePicker = () => {
@@ -1183,6 +1189,218 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     Array.from(tabsEl.querySelectorAll(".tab"))
       .map((button) => tabs.get(button.dataset.tabId))
       .filter(Boolean);
+
+  const isTabOverviewOpen = () => Boolean(tabOverview && !tabOverview.hidden);
+
+  const readTabOverviewColors = () => {
+    const styles = getComputedStyle(document.documentElement);
+    return {
+      bg: styles.getPropertyValue("--terminal-bg").trim() || "#000000",
+      muted: styles.getPropertyValue("--muted").trim() || "#9ca3af",
+      line: styles.getPropertyValue("--chrome-line").trim() || "rgba(148, 163, 184, 0.18)",
+    };
+  };
+
+  const drawTabOverviewFallback = (ctx, x, y, width, height, colors) => {
+    ctx.fillStyle = colors.muted;
+    ctx.font = "13px sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("无预览", x + width / 2, y + height / 2);
+  };
+
+  const drawPaneOverviewPreview = (ctx, pane, x, y, width, height, colors) => {
+    if (width <= 0 || height <= 0) {
+      return;
+    }
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(x, y, width, height);
+    ctx.clip();
+    ctx.fillStyle = colors.bg;
+    ctx.fillRect(x, y, width, height);
+
+    const source = pane?.term?.canvas || pane?.term?.element?.querySelector?.("canvas");
+    if (source?.width > 0 && source?.height > 0) {
+      try {
+        const scale = Math.min(width / source.width, height / source.height);
+        const drawWidth = source.width * scale;
+        const drawHeight = source.height * scale;
+        const drawX = x + (width - drawWidth) / 2;
+        const drawY = y + (height - drawHeight) / 2;
+        ctx.drawImage(source, drawX, drawY, drawWidth, drawHeight);
+      } catch (error) {
+        drawTabOverviewFallback(ctx, x, y, width, height, colors);
+      }
+    } else {
+      drawTabOverviewFallback(ctx, x, y, width, height, colors);
+    }
+    ctx.restore();
+  };
+
+  const drawLayoutOverviewPreview = (ctx, tab, node, x, y, width, height, colors) => {
+    if (width <= 0 || height <= 0) {
+      return;
+    }
+    const currentNode = node || { type: "leaf", paneId: tab.activePaneId };
+    const children = Array.isArray(currentNode.children) ? currentNode.children.filter(Boolean) : [];
+    if (currentNode.type !== "split" || children.length === 0) {
+      const pane = tab.panes.get(currentNode.paneId || tab.activePaneId);
+      drawPaneOverviewPreview(ctx, pane, x, y, width, height, colors);
+      return;
+    }
+
+    const gap = children.length > 1 ? 3 : 0;
+    const direction = currentNode.direction === "horizontal" ? "horizontal" : "vertical";
+    const sizes = children.map((child) => {
+      const size = Number(child?.size);
+      return Number.isFinite(size) && size > 0 ? size : 1;
+    });
+    const totalSize = sizes.reduce((sum, size) => sum + size, 0) || children.length;
+    const available = Math.max(0, (direction === "vertical" ? width : height) - gap * (children.length - 1));
+    let cursor = direction === "vertical" ? x : y;
+
+    children.forEach((child, index) => {
+      const isLast = index === children.length - 1;
+      const span = isLast
+        ? Math.max(0, (direction === "vertical" ? x + width : y + height) - cursor)
+        : Math.max(0, (available * sizes[index]) / totalSize);
+      if (direction === "vertical") {
+        drawLayoutOverviewPreview(ctx, tab, child, cursor, y, span, height, colors);
+        cursor += span;
+        if (!isLast) {
+          ctx.fillStyle = colors.line;
+          ctx.fillRect(cursor, y, gap, height);
+          cursor += gap;
+        }
+      } else {
+        drawLayoutOverviewPreview(ctx, tab, child, x, cursor, width, span, colors);
+        cursor += span;
+        if (!isLast) {
+          ctx.fillStyle = colors.line;
+          ctx.fillRect(x, cursor, width, gap);
+          cursor += gap;
+        }
+      }
+    });
+  };
+
+  const drawTabOverviewPreview = (canvas, tab, colors) => {
+    canvas.width = 480;
+    canvas.height = 300;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      return;
+    }
+    ctx.fillStyle = colors.bg;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    drawLayoutOverviewPreview(ctx, tab, tab.layout, 0, 0, canvas.width, canvas.height, colors);
+  };
+
+  const renderTabOverview = () => {
+    if (!tabOverviewGrid) {
+      return;
+    }
+    tabOverviewGrid.textContent = "";
+    const orderedTabs = getOrderedTabs();
+    if (orderedTabs.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "tab-overview-empty";
+      empty.textContent = "暂无终端";
+      tabOverviewGrid.appendChild(empty);
+      return;
+    }
+
+    const colors = readTabOverviewColors();
+    const fragment = document.createDocumentFragment();
+    for (const tab of orderedTabs) {
+      const label = String(tab.label || tab.id || "终端");
+      const card = document.createElement("button");
+      card.type = "button";
+      card.className = "tab-overview-card";
+      card.dataset.tabId = tab.id;
+      card.title = label;
+      card.setAttribute("aria-label", `切换到 ${label}`);
+      if (tab.id === activeTabId) {
+        card.classList.add("active");
+        card.setAttribute("aria-current", "true");
+      }
+
+      const preview = document.createElement("div");
+      preview.className = "tab-overview-preview";
+      const canvas = document.createElement("canvas");
+      preview.appendChild(canvas);
+
+      const meta = document.createElement("div");
+      meta.className = "tab-overview-meta";
+      const name = document.createElement("span");
+      name.className = "tab-overview-name";
+      name.textContent = label;
+      meta.appendChild(name);
+      if (tab.id === activeTabId) {
+        const status = document.createElement("span");
+        status.className = "tab-overview-status";
+        status.textContent = "当前";
+        meta.appendChild(status);
+      }
+
+      card.append(preview, meta);
+      drawTabOverviewPreview(canvas, tab, colors);
+      fragment.appendChild(card);
+    }
+    tabOverviewGrid.appendChild(fragment);
+  };
+
+  const scheduleTabOverviewRender = () => {
+    if (!isTabOverviewOpen() || tabOverviewRenderFrame) {
+      return;
+    }
+    tabOverviewRenderFrame = window.requestAnimationFrame(() => {
+      tabOverviewRenderFrame = 0;
+      renderTabOverview();
+    });
+  };
+
+  const closeTabOverview = () => {
+    if (!tabOverview) {
+      return;
+    }
+    if (tabOverviewRenderFrame) {
+      window.cancelAnimationFrame(tabOverviewRenderFrame);
+      tabOverviewRenderFrame = 0;
+    }
+    tabOverview.hidden = true;
+    tabOverviewToggle?.setAttribute("aria-expanded", "false");
+    if (tabOverviewGrid) {
+      tabOverviewGrid.textContent = "";
+    }
+  };
+
+  const openTabOverview = () => {
+    if (!tabOverview) {
+      return;
+    }
+    closeContextMenu();
+    closeThemePicker();
+    closeInstanceSwitcher();
+    renderTabOverview();
+    tabOverview.hidden = false;
+    tabOverviewToggle?.setAttribute("aria-expanded", "true");
+    window.requestAnimationFrame(() => {
+      const activeCard = tabOverviewGrid?.querySelector(".tab-overview-card.active");
+      const firstCard = tabOverviewGrid?.querySelector(".tab-overview-card");
+      (activeCard || firstCard)?.focus?.({ preventScroll: true });
+      activeCard?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+    });
+  };
+
+  const selectTabFromOverview = (tabId) => {
+    if (!tabs.has(tabId)) {
+      return;
+    }
+    closeTabOverview();
+    setActiveTab(tabId);
+  };
 
   const setActiveTabByOffset = (offset) => {
     const orderedTabs = getOrderedTabs();
@@ -3275,6 +3493,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     if (tab.id === activeTabId) {
       updateDocumentTitle();
     }
+    scheduleTabOverviewRender();
   };
 
   const createTabButton = (tab) => {
@@ -3371,6 +3590,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     if (!applyingWorkspaceState && !wasActive) {
       postWorkspaceAction("activate_tab", { tab_id: tab.id }).catch((error) => showToast(error.message));
     }
+    scheduleTabOverviewRender();
   };
 
   const renderLeaf = (tab, node) => {
@@ -3546,6 +3766,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
         activeTabId = null;
       }
       updateEmptyState();
+      scheduleTabOverviewRender();
       window.requestAnimationFrame(() => resizeAllTabsForCurrentDevice());
     } finally {
       applyingWorkspaceState = false;
@@ -3848,6 +4069,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
       }
     }
     updateEmptyState();
+    scheduleTabOverviewRender();
   };
 
   const closeOtherTabs = (tabId) => {
@@ -3948,6 +4170,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
       tabsEl.insertBefore(tab.button, reference || tabsEl.firstChild);
     }
     setActiveTab(tabId, { focus: false });
+    scheduleTabOverviewRender();
   };
 
   const closeContextMenu = () => {
@@ -4185,7 +4408,8 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     if (
       (themePickerBackdrop && !themePickerBackdrop.hidden) ||
       (settingsBackdrop && !settingsBackdrop.hidden) ||
-      (instanceSwitcherPanel && !instanceSwitcherPanel.hidden)
+      (instanceSwitcherPanel && !instanceSwitcherPanel.hidden) ||
+      isTabOverviewOpen()
     ) {
       return;
     }
@@ -4528,6 +4752,24 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     }
   }, { passive: false });
 
+  tabOverviewToggle?.addEventListener("click", (event) => {
+    event.preventDefault();
+    openTabOverview();
+  });
+
+  tabOverviewClose?.addEventListener("click", (event) => {
+    event.preventDefault();
+    closeTabOverview();
+  });
+
+  tabOverview?.addEventListener("click", (event) => {
+    const target = event.target;
+    const card = target instanceof Element ? target.closest(".tab-overview-card") : null;
+    if (card) {
+      selectTabFromOverview(card.dataset.tabId);
+    }
+  });
+
   selectionSheet?.addEventListener("click", (event) => {
     const button = event.target.closest("[data-selection-action]");
     if (!button) {
@@ -4580,11 +4822,15 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
       closeInstanceSwitcher();
       closeThemePicker();
       closeSettings();
+      closeTabOverview();
     }
     handleGlobalShortcutKeydown(event);
   }, true);
 
-  window.addEventListener("resize", () => resizeAllTabsForCurrentDevice());
+  window.addEventListener("resize", () => {
+    resizeAllTabsForCurrentDevice();
+    scheduleTabOverviewRender();
+  });
   document.fonts?.ready?.then(() => {
     for (const tab of tabs.values()) {
       for (const pane of tab.panes.values()) {
