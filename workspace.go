@@ -646,9 +646,33 @@ func (w *terminalWorkspace) createTabLocked(sourceTabID, sourcePaneID string, co
 		Layout:       &layoutNode{Type: "leaf", PaneID: pane.id},
 		PaneIDs:      []string{pane.id},
 	}
-	w.tabs = append(w.tabs, tab)
+	w.insertTabAfterSourceLocked(tab, sourceTabID)
 	w.activeTab = tab.ID
 	return nil
+}
+
+func (w *terminalWorkspace) insertTabAfterSourceLocked(tab *terminalTab, sourceTabID string) {
+	insertAt := len(w.tabs)
+	sourceFound := false
+	sourceTabID = strings.TrimSpace(sourceTabID)
+	if sourceTabID != "" {
+		if index, sourceTab := w.findTabIndexLocked(sourceTabID); sourceTab != nil {
+			insertAt = index + 1
+			sourceFound = true
+		}
+	}
+	if !sourceFound {
+		if index, activeTab := w.findTabIndexLocked(w.activeTab); activeTab != nil {
+			insertAt = index + 1
+		}
+	}
+	if insertAt >= len(w.tabs) {
+		w.tabs = append(w.tabs, tab)
+		return
+	}
+	w.tabs = append(w.tabs, nil)
+	copy(w.tabs[insertAt+1:], w.tabs[insertAt:])
+	w.tabs[insertAt] = tab
 }
 
 func (w *terminalWorkspace) newPaneLocked(cols, rows int, initialCWD string) (*terminalPane, error) {
@@ -840,7 +864,7 @@ func (w *terminalWorkspace) movePaneToTabLocked(tabID, paneID string) error {
 		Layout:       &layoutNode{Type: "leaf", PaneID: paneID},
 		PaneIDs:      []string{paneID},
 	}
-	w.tabs = append(w.tabs, tab)
+	w.insertTabAfterSourceLocked(tab, source.ID)
 	w.activeTab = tab.ID
 	return nil
 }

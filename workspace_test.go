@@ -177,6 +177,58 @@ func TestMoveTabLocked(t *testing.T) {
 	assertTabOrder(t, workspace.tabs, "tab-1", "tab-2", "tab-3")
 }
 
+func TestInsertTabAfterSourceLockedUsesRequestedTab(t *testing.T) {
+	workspace := &terminalWorkspace{
+		tabs: []*terminalTab{
+			{ID: "tab-1"},
+			{ID: "tab-2"},
+			{ID: "tab-3"},
+		},
+		activeTab: "tab-1",
+	}
+	workspace.insertTabAfterSourceLocked(&terminalTab{ID: "tab-new"}, "tab-2")
+	assertTabOrder(t, workspace.tabs, "tab-1", "tab-2", "tab-new", "tab-3")
+}
+
+func TestInsertTabAfterSourceLockedFallsBackToActiveTab(t *testing.T) {
+	workspace := &terminalWorkspace{
+		tabs: []*terminalTab{
+			{ID: "tab-1"},
+			{ID: "tab-2"},
+			{ID: "tab-3"},
+		},
+		activeTab: "tab-2",
+	}
+	workspace.insertTabAfterSourceLocked(&terminalTab{ID: "tab-new"}, "missing-tab")
+	assertTabOrder(t, workspace.tabs, "tab-1", "tab-2", "tab-new", "tab-3")
+}
+
+func TestCloseActiveTabSelectsRightThenLeftNeighbor(t *testing.T) {
+	workspace := &terminalWorkspace{
+		tabs: []*terminalTab{
+			{ID: "tab-1"},
+			{ID: "tab-2"},
+			{ID: "tab-3"},
+		},
+		activeTab: "tab-2",
+	}
+	if err := workspace.closeTabLocked("tab-2"); err != nil {
+		t.Fatalf("close tab-2 returned error: %v", err)
+	}
+	assertTabOrder(t, workspace.tabs, "tab-1", "tab-3")
+	if workspace.activeTab != "tab-3" {
+		t.Fatalf("expected right neighbor tab-3 to become active, got %q", workspace.activeTab)
+	}
+
+	if err := workspace.closeTabLocked("tab-3"); err != nil {
+		t.Fatalf("close tab-3 returned error: %v", err)
+	}
+	assertTabOrder(t, workspace.tabs, "tab-1")
+	if workspace.activeTab != "tab-1" {
+		t.Fatalf("expected left neighbor tab-1 to become active, got %q", workspace.activeTab)
+	}
+}
+
 func TestClosePaneSelectsAdjacentSiblingWhenActivePaneExits(t *testing.T) {
 	workspace := &terminalWorkspace{
 		panes: map[string]*terminalPane{

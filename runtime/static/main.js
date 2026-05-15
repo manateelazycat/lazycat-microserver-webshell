@@ -2359,6 +2359,14 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
       });
       return;
     }
+    let nextActiveTab = null;
+    if (activeTabId === tab.id) {
+      const orderedTabs = getOrderedTabs();
+      const currentIndex = orderedTabs.findIndex((item) => item.id === tab.id);
+      if (currentIndex >= 0) {
+        nextActiveTab = orderedTabs[currentIndex + 1] || orderedTabs[currentIndex - 1] || null;
+      }
+    }
     for (const pane of tab.panes.values()) {
       disposePane(pane);
     }
@@ -2366,10 +2374,9 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     tab.paneEl.remove();
     tabs.delete(tab.id);
     if (activeTabId === tab.id) {
-      const nextTab = tabs.values().next().value || null;
       activeTabId = null;
-      if (nextTab) {
-        setActiveTab(nextTab.id);
+      if (nextActiveTab && tabs.has(nextActiveTab.id)) {
+        setActiveTab(nextActiveTab.id);
       }
     }
     updateEmptyState();
