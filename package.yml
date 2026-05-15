@@ -1,5 +1,5 @@
 package: cloud.lazycat.webshell.lcmd
-version: 0.1.15
+version: 0.1.18
 name: LCMD WebShell
 description: LCMD WebShell for LightOS
 min_os_version: v1.5.2
