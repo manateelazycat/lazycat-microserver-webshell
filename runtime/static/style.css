@@ -119,13 +119,10 @@ button {
   border-radius: 999px;
   background: var(--accent);
   opacity: 0;
-  transform: scaleX(0.5);
-  transition: opacity 0.16s ease, transform 0.16s ease;
 }
 
 .tab.active::before {
   opacity: 1;
-  transform: scaleX(1);
 }
 
 .tab::after {
@@ -822,9 +819,12 @@ body.split-resize-active * {
   font-size: 12px;
 }
 
-.tab.has-notification .tab-label::before {
-  content: "* ";
-  color: var(--accent);
+.tab.has-notification {
+  color: #facc15;
+}
+
+.tab.has-notification:hover {
+  color: #fde047;
 }
 
 .search-panel {
