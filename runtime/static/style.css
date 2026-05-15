@@ -5,6 +5,10 @@
   --selection-bg: rgba(44, 167, 248, 0.28);
   --chrome-bg: #0b0f14;
   --chrome-line: rgba(148, 163, 184, 0.18);
+  --chrome-text: rgba(229, 231, 235, 0.78);
+  --chrome-text-muted: rgba(229, 231, 235, 0.68);
+  --chrome-text-strong: #ffffff;
+  --chrome-hover-bg: rgba(148, 163, 184, 0.12);
   --panel-bg: rgba(17, 24, 39, 0.96);
   --panel-border: rgba(148, 163, 184, 0.22);
   --panel-shadow: rgba(0, 0, 0, 0.34);
@@ -86,19 +90,19 @@ button {
   border: 0;
   border-radius: 8px 8px 0 0;
   background: transparent;
-  color: rgba(229, 231, 235, 0.68);
+  color: var(--chrome-text-muted);
   cursor: pointer;
   white-space: nowrap;
   user-select: none;
 }
 
 .tab:hover {
-  background: rgba(148, 163, 184, 0.08);
-  color: #f9fafb;
+  background: var(--chrome-hover-bg);
+  color: var(--chrome-text-strong);
 }
 
 .tab.active {
-  color: #ffffff;
+  color: var(--chrome-text-strong);
 }
 
 .tab::before {
@@ -127,7 +131,7 @@ button {
   right: 0;
   bottom: 9px;
   width: 1px;
-  background: rgba(148, 163, 184, 0.18);
+  background: var(--chrome-line);
 }
 
 .tab.active::after,
@@ -178,7 +182,7 @@ button {
 }
 
 .tab-close:hover {
-  background: rgba(148, 163, 184, 0.18);
+  background: var(--chrome-hover-bg);
 }
 
 .tab-add,
@@ -193,7 +197,7 @@ button {
   border: 0;
   border-radius: 999px;
   background: transparent;
-  color: rgba(229, 231, 235, 0.78);
+  color: var(--chrome-text);
   cursor: pointer;
   font-size: 18px;
   line-height: 1;
@@ -203,8 +207,8 @@ button {
 .icon-btn:hover,
 .tab-add:focus-visible,
 .icon-btn:focus-visible {
-  background: rgba(148, 163, 184, 0.12);
-  color: #ffffff;
+  background: var(--chrome-hover-bg);
+  color: var(--chrome-text-strong);
   outline: none;
 }
 
@@ -234,14 +238,14 @@ button {
   border: 0;
   border-radius: 999px;
   background: transparent;
-  color: #f9fafb;
+  color: var(--chrome-text-strong);
   cursor: pointer;
 }
 
 .instance-switcher-btn:hover,
 .instance-switcher-btn:focus-visible,
 .instance-switcher.is-open .instance-switcher-btn {
-  background: rgba(148, 163, 184, 0.1);
+  background: var(--chrome-hover-bg);
   outline: none;
 }
 
@@ -285,7 +289,7 @@ button {
 }
 
 .instance-switcher-chevron {
-  color: var(--muted);
+  color: var(--chrome-text-muted);
   font-size: 10px;
   transition: transform 0.16s ease;
 }
@@ -349,7 +353,7 @@ button {
 
 .instance-switcher-action:hover,
 .instance-switcher-action:focus-visible {
-  background: rgba(148, 163, 184, 0.12);
+  background: var(--chrome-hover-bg);
   outline: none;
 }
 
@@ -370,7 +374,7 @@ button {
 
 .instance-switcher-item:hover,
 .instance-switcher-item[aria-selected="true"] {
-  background: rgba(148, 163, 184, 0.12);
+  background: var(--chrome-hover-bg);
 }
 
 .instance-switcher-item:disabled {

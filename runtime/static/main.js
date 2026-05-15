@@ -523,14 +523,6 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     }
   };
 
-  const applyThemeDocumentState = () => {
-    document.documentElement.style.setProperty("--terminal-bg", activeTheme.background);
-    document.documentElement.style.setProperty("--terminal-fg", activeTheme.foreground);
-    document.documentElement.style.setProperty("--accent", activeTheme.accent);
-    document.documentElement.style.setProperty("--selection-bg", activeTheme.xterm.selectionBackground);
-    document.body.dataset.theme = activeTheme.id;
-  };
-
   const hexToRGB = (value) => {
     const normalized = String(value || "").trim().replace(/^#/, "");
     if (!/^[0-9a-f]{6}$/i.test(normalized)) {
@@ -541,6 +533,27 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
       parseInt(normalized.slice(2, 4), 16),
       parseInt(normalized.slice(4, 6), 16),
     ];
+  };
+
+  const rgbaCSS = (rgb, alpha) => `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${alpha})`;
+
+  const themeRGBA = (color, alpha, fallback = "#e5e7eb") => {
+    const rgb = hexToRGB(color) || hexToRGB(fallback);
+    return rgb ? rgbaCSS(rgb, alpha) : fallback;
+  };
+
+  const applyThemeDocumentState = () => {
+    document.documentElement.style.setProperty("--terminal-bg", activeTheme.background);
+    document.documentElement.style.setProperty("--terminal-fg", activeTheme.foreground);
+    document.documentElement.style.setProperty("--accent", activeTheme.accent);
+    document.documentElement.style.setProperty("--selection-bg", activeTheme.xterm.selectionBackground);
+    document.documentElement.style.setProperty("--chrome-bg", activeTheme.background);
+    document.documentElement.style.setProperty("--chrome-line", themeRGBA(activeTheme.foreground, 0.18));
+    document.documentElement.style.setProperty("--chrome-text", themeRGBA(activeTheme.foreground, 0.78));
+    document.documentElement.style.setProperty("--chrome-text-muted", themeRGBA(activeTheme.foreground, 0.64));
+    document.documentElement.style.setProperty("--chrome-text-strong", activeTheme.foreground);
+    document.documentElement.style.setProperty("--chrome-hover-bg", themeRGBA(activeTheme.foreground, 0.1));
+    document.body.dataset.theme = activeTheme.id;
   };
 
   const colorKey = (rgb) => Array.isArray(rgb) ? rgb.join(",") : "";
