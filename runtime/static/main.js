@@ -35,6 +35,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
   const dialogCancel = document.getElementById("dialogCancel");
   const dialogOK = document.getElementById("dialogOK");
   const mobileShortcuts = document.getElementById("mobileShortcuts");
+  const mobileShortcutRows = Array.from(mobileShortcuts?.querySelectorAll("[data-mobile-shortcut-row]") || []);
   const selectionSheet = document.getElementById("selectionSheet");
   const networkBanner = document.getElementById("networkBanner");
   const contextMenu = document.getElementById("contextMenu");
@@ -52,9 +53,14 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
   const fontSizeVersionStorageKey = `${storagePrefix}.fontSizeVersion`;
   const fontSizeStorageVersion = "2";
   const lastTabStorageKey = (name) => `${storagePrefix}.lastTab.${name || "default"}`;
+  const touchShortcutFeedbackStorageKey = `${storagePrefix}.touchShortcutFeedback`;
   const defaultFontSize = 16;
   const minFontSize = 10;
   const maxFontSize = 32;
+  const touchShortcutMoveThresholdPx = 8;
+  const touchShortcutRepeatInitialDelayMs = 320;
+  const touchShortcutRepeatIntervalMs = 80;
+  const repeatableMobileShortcutIds = new Set(["arrow-up", "arrow-down", "arrow-left", "arrow-right"]);
   const storedFontSize = window.localStorage.getItem(fontSizeVersionStorageKey) === fontSizeStorageVersion
     ? Number(window.localStorage.getItem(fontSizeStorageKey))
     : NaN;
@@ -242,11 +248,67 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
   let lightOSHomeURLPromise = null;
   const searchState = { open: false, query: "", matches: [], index: -1, sessionId: "" };
   const mobileSticky = { ctrl: false, alt: false, shift: false };
+  let touchShortcutFeedbackEnabled = loadTouchShortcutFeedbackEnabled();
   const textEncoder = new TextEncoder();
   const serverRevisionClientID = globalThis.crypto?.randomUUID?.() || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
   // Mobile IMEs keep Backspace auto-repeat active only while the focused editable has text.
   const terminalInputSentinel = "\u200b";
   const backtabSequence = "\x1b[Z";
+  const shiftedCharacterMap = new Map([
+    ["`", "~"],
+    ["1", "!"],
+    ["2", "@"],
+    ["3", "#"],
+    ["4", "$"],
+    ["5", "%"],
+    ["6", "^"],
+    ["7", "&"],
+    ["8", "*"],
+    ["9", "("],
+    ["0", ")"],
+    ["-", "_"],
+    ["=", "+"],
+    ["[", "{"],
+    ["]", "}"],
+    ["\\", "|"],
+    [";", ":"],
+    ["'", "\""],
+    [",", "<"],
+    [".", ">"],
+    ["/", "?"],
+  ]);
+  const mobileShortcutRowsConfig = [
+    [
+      { id: "sticky-ctrl", label: "Ctrl+", ariaLabel: "Sticky Control", action: "sticky_ctrl", kind: "modifier" },
+      { id: "sticky-alt", label: "Alt+", ariaLabel: "Sticky Alt", action: "sticky_alt", kind: "modifier" },
+      { id: "sticky-shift", label: "Shift+", ariaLabel: "Sticky Shift", action: "sticky_shift", kind: "modifier" },
+      { id: "ctrl-c", label: "Ctrl+C", ariaLabel: "Control C", data: "\x03", inputKey: "c", inputModifiers: { ctrl: true }, kind: "primary" },
+      { id: "tab", label: "Tab", ariaLabel: "Tab", data: "\t", inputKey: "tab" },
+      { id: "arrow-up", label: "\u2191", ariaLabel: "Up Arrow", data: "\x1b[A", inputKey: "arrow_up", kind: "nav" },
+      { id: "arrow-down", label: "\u2193", ariaLabel: "Down Arrow", data: "\x1b[B", inputKey: "arrow_down", kind: "nav" },
+      { id: "arrow-left", label: "\u2190", ariaLabel: "Left Arrow", data: "\x1b[D", inputKey: "arrow_left", kind: "nav" },
+      { id: "arrow-right", label: "\u2192", ariaLabel: "Right Arrow", data: "\x1b[C", inputKey: "arrow_right", kind: "nav" },
+      { id: "copy", label: "Copy", ariaLabel: "Copy", action: "copy" },
+      { id: "paste", label: "Paste", ariaLabel: "Paste", action: "paste" },
+      { id: "page-up", label: "PageUp", ariaLabel: "Page Up", action: "page_up" },
+      { id: "page-down", label: "PageDown", ariaLabel: "Page Down", action: "page_down" },
+    ],
+    [
+      { id: "esc", label: "Esc", ariaLabel: "Escape", data: "\x1b", inputKey: "escape", kind: "primary" },
+      { id: "ctrl-e", label: "Ctrl+E", ariaLabel: "Control E", data: "\x05", inputKey: "e", inputModifiers: { ctrl: true } },
+      { id: "return", label: "Return", ariaLabel: "Return", data: "\r", inputKey: "enter", kind: "primary" },
+      { id: "shift-tab", label: "Shift+Tab", ariaLabel: "Shift Tab", data: backtabSequence, inputKey: "tab", inputModifiers: { shift: true } },
+      { id: "tilde", label: "~", ariaLabel: "Tilde", data: "~", inputKey: "~", kind: "symbol" },
+      { id: "slash", label: "/", ariaLabel: "Slash", data: "/", inputKey: "/", kind: "symbol" },
+      { id: "dash", label: "-", ariaLabel: "Dash", data: "-", inputKey: "-", kind: "symbol" },
+      { id: "dollar", label: "$", ariaLabel: "Dollar Sign", data: "$", inputKey: "$", kind: "symbol" },
+      { id: "zoom-in", label: "Zoom+", ariaLabel: "Zoom In", action: "zoom_in", kind: "modifier" },
+      { id: "zoom-out", label: "Zoom-", ariaLabel: "Zoom Out", action: "zoom_out", kind: "modifier" },
+      { id: "home", label: "Home", ariaLabel: "Home", data: "\x1b[H", inputKey: "home" },
+      { id: "end", label: "End", ariaLabel: "End", data: "\x1b[F", inputKey: "end" },
+      { id: "touch-feedback", label: "Shock On", ariaLabel: "Shock On", action: "toggle_touch_feedback", kind: "feedback" },
+    ],
+  ];
   const urlPattern = /(?:https?:\/\/|mailto:|ftp:\/\/|ssh:\/\/|git:\/\/|tel:|magnet:|gemini:\/\/|gopher:\/\/|news:)[\w\-.~:\/?#@!$&*+,;=%]+/gi;
   const trailingURLPunctuation = /[.,;!?)\]]+$/;
 
@@ -1893,63 +1955,286 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     }
   };
 
-  const encodedArrow = (direction) => {
-    const base = { up: "A", down: "B", right: "C", left: "D" }[direction];
-    if (!base) {
+  function loadTouchShortcutFeedbackEnabled() {
+    try {
+      const persisted = String(window.localStorage.getItem(touchShortcutFeedbackStorageKey) || "").trim().toLowerCase();
+      if (!persisted) {
+        return true;
+      }
+      return persisted !== "false" && persisted !== "0" && persisted !== "off";
+    } catch (error) {
+      return true;
+    }
+  }
+
+  const persistTouchShortcutFeedbackEnabled = (enabled) => {
+    try {
+      if (enabled !== false) {
+        window.localStorage.removeItem(touchShortcutFeedbackStorageKey);
+        return;
+      }
+      window.localStorage.setItem(touchShortcutFeedbackStorageKey, "false");
+    } catch (error) {
+    }
+  };
+
+  const normalizeShortcutInputModifiers = (modifiers = {}) => ({
+    ctrl: modifiers?.ctrl === true,
+    shift: modifiers?.shift === true,
+    alt: modifiers?.alt === true,
+  });
+
+  const mergeShortcutInputModifiers = (...states) => {
+    const merged = { ctrl: false, shift: false, alt: false };
+    states.forEach((state) => {
+      const normalized = normalizeShortcutInputModifiers(state);
+      merged.ctrl = merged.ctrl || normalized.ctrl;
+      merged.shift = merged.shift || normalized.shift;
+      merged.alt = merged.alt || normalized.alt;
+    });
+    return merged;
+  };
+
+  const hasShortcutInputModifiers = (modifiers = {}) => {
+    const normalized = normalizeShortcutInputModifiers(modifiers);
+    return normalized.ctrl || normalized.shift || normalized.alt;
+  };
+
+  const canApplyStickyModifierInput = (value) => {
+    const points = Array.from(String(value || ""));
+    if (points.length !== 1) {
+      return false;
+    }
+    const codePoint = points[0].codePointAt(0);
+    return Number.isFinite(codePoint) && codePoint >= 0x20 && codePoint !== 0x7f;
+  };
+
+  const encodeStickyCtrlChar = (value) => {
+    const firstChar = Array.from(String(value || ""))[0] || "";
+    if (!canApplyStickyModifierInput(firstChar)) {
       return "";
     }
-    let modifier = 1;
-    if (mobileSticky.shift) {
-      modifier += 1;
+    const lower = firstChar.toLowerCase();
+    if (lower >= "a" && lower <= "z") {
+      return String.fromCharCode(lower.charCodeAt(0) - 96);
     }
-    if (mobileSticky.alt) {
-      modifier += 2;
+    switch (firstChar) {
+      case " ":
+      case "@":
+        return "\x00";
+      case "[":
+        return "\x1b";
+      case "\\":
+        return "\x1c";
+      case "]":
+        return "\x1d";
+      case "^":
+        return "\x1e";
+      case "_":
+        return "\x1f";
+      case "?":
+        return "\x7f";
+      default:
+        return `\x1b[${firstChar.codePointAt(0)};5u`;
     }
-    if (mobileSticky.ctrl) {
-      modifier += 4;
+  };
+
+  const applyStickyCtrlInput = (value) => {
+    const points = Array.from(String(value || ""));
+    if (points.length !== 1) {
+      return "";
     }
-    return modifier === 1 ? `\x1b[${base}` : `\x1b[1;${modifier}${base}`;
+    return encodeStickyCtrlChar(points[0]);
+  };
+
+  const applyStickyAltInput = (value) => {
+    const raw = String(value || "");
+    return raw ? `\x1b${raw}` : "";
+  };
+
+  const applyStickyShiftInput = (value) => {
+    const firstChar = Array.from(String(value || ""))[0] || "";
+    if (!canApplyStickyModifierInput(firstChar)) {
+      return "";
+    }
+    const shiftedCharacter = shiftedCharacterMap.get(firstChar);
+    if (shiftedCharacter) {
+      return shiftedCharacter;
+    }
+    const upper = firstChar.toUpperCase();
+    return Array.from(upper).length === 1 ? upper : firstChar;
+  };
+
+  const applyStickyModifierInput = (value, { ctrl = false, shift = false, alt = false } = {}) => {
+    const raw = String(value || "");
+    if (!ctrl && !shift && !alt) {
+      return raw;
+    }
+    if (!canApplyStickyModifierInput(raw)) {
+      return "";
+    }
+    let encoded = raw;
+    if (shift) {
+      encoded = applyStickyShiftInput(encoded);
+      if (!encoded) {
+        return "";
+      }
+    }
+    if (ctrl) {
+      encoded = applyStickyCtrlInput(encoded);
+      if (!encoded) {
+        return "";
+      }
+    }
+    if (alt) {
+      encoded = applyStickyAltInput(encoded);
+    }
+    return encoded;
+  };
+
+  const resolveTerminalModifierParameter = (modifiers = {}) => {
+    const normalized = normalizeShortcutInputModifiers(modifiers);
+    return 1 + Number(normalized.shift) + Number(normalized.alt) * 2 + Number(normalized.ctrl) * 4;
+  };
+
+  const buildModifiedCsiFinalSequence = (finalChar, modifiers = {}) => {
+    const normalized = normalizeShortcutInputModifiers(modifiers);
+    if (!hasShortcutInputModifiers(normalized)) {
+      return `\x1b[${finalChar}`;
+    }
+    return `\x1b[1;${resolveTerminalModifierParameter(normalized)}${finalChar}`;
+  };
+
+  const encodeMobileShortcutKeyInput = (inputKey, modifiers = {}) => {
+    const normalizedKey = String(inputKey || "").trim();
+    const normalizedModifiers = normalizeShortcutInputModifiers(modifiers);
+    switch (normalizedKey) {
+      case "arrow_up":
+        return buildModifiedCsiFinalSequence("A", normalizedModifiers);
+      case "arrow_down":
+        return buildModifiedCsiFinalSequence("B", normalizedModifiers);
+      case "arrow_right":
+        return buildModifiedCsiFinalSequence("C", normalizedModifiers);
+      case "arrow_left":
+        return buildModifiedCsiFinalSequence("D", normalizedModifiers);
+      case "home":
+        return buildModifiedCsiFinalSequence("H", normalizedModifiers);
+      case "end":
+        return buildModifiedCsiFinalSequence("F", normalizedModifiers);
+      case "tab":
+        if (normalizedModifiers.shift) {
+          if (!normalizedModifiers.ctrl && !normalizedModifiers.alt) {
+            return backtabSequence;
+          }
+          return `\x1b[1;${resolveTerminalModifierParameter(normalizedModifiers)}Z`;
+        }
+        return normalizedModifiers.alt ? applyStickyAltInput("\t") : "\t";
+      case "enter":
+        return normalizedModifiers.alt ? applyStickyAltInput("\r") : "\r";
+      case "escape":
+        return normalizedModifiers.alt ? applyStickyAltInput("\x1b") : "\x1b";
+      default:
+        if (normalizedKey.length !== 1) {
+          return "";
+        }
+        return applyStickyModifierInput(normalizedKey, normalizedModifiers);
+    }
+  };
+
+  const resolveMobileShortcutInputData = (shortcut, stickyModifiers = {}) => {
+    const rawData = typeof shortcut?.data === "string" ? shortcut.data : "";
+    const inputKey = String(shortcut?.inputKey || "").trim();
+    const shortcutModifiers = normalizeShortcutInputModifiers(shortcut?.inputModifiers);
+    const modifiers = mergeShortcutInputModifiers(shortcutModifiers, stickyModifiers);
+    if (!inputKey) {
+      if (!hasShortcutInputModifiers(modifiers)) {
+        return rawData;
+      }
+      return canApplyStickyModifierInput(rawData) ? applyStickyModifierInput(rawData, modifiers) : rawData;
+    }
+    const encoded = encodeMobileShortcutKeyInput(inputKey, modifiers);
+    return encoded || rawData;
+  };
+
+  const hasMobileStickyModifiers = () => mobileSticky.ctrl || mobileSticky.alt || mobileSticky.shift;
+
+  const syncMobileShortcutState = () => {
+    for (const [action, key] of [["sticky_ctrl", "ctrl"], ["sticky_alt", "alt"], ["sticky_shift", "shift"]]) {
+      for (const button of mobileShortcuts?.querySelectorAll(`[data-mobile-action="${action}"]`) || []) {
+        button.classList.toggle("active", mobileSticky[key]);
+        button.setAttribute("aria-pressed", mobileSticky[key] ? "true" : "false");
+      }
+    }
+    const feedbackLabel = touchShortcutFeedbackEnabled ? "Shock On" : "Shock Off";
+    for (const button of mobileShortcuts?.querySelectorAll('[data-mobile-action="toggle_touch_feedback"]') || []) {
+      button.textContent = feedbackLabel;
+      button.classList.toggle("active", touchShortcutFeedbackEnabled);
+      button.setAttribute("aria-pressed", touchShortcutFeedbackEnabled ? "true" : "false");
+      button.setAttribute("aria-label", feedbackLabel);
+      button.setAttribute("title", feedbackLabel);
+    }
   };
 
   const clearMobileSticky = () => {
     mobileSticky.ctrl = false;
     mobileSticky.alt = false;
     mobileSticky.shift = false;
-    for (const button of mobileShortcuts?.querySelectorAll("[data-mobile-action]") || []) {
-      const action = button.dataset.mobileAction;
-      if (["ctrl", "alt", "shift"].includes(action)) {
-        button.classList.remove("active");
-      }
+    syncMobileShortcutState();
+  };
+
+  const toggleMobileSticky = (key) => {
+    if (!Object.prototype.hasOwnProperty.call(mobileSticky, key)) {
+      return;
+    }
+    mobileSticky[key] = !mobileSticky[key];
+    syncMobileShortcutState();
+  };
+
+  const resolveMobileShortcutData = (shortcut) => {
+    const hadStickyModifiers = hasMobileStickyModifiers();
+    const encoded = resolveMobileShortcutInputData(shortcut, {
+      ctrl: mobileSticky.ctrl,
+      shift: mobileSticky.shift,
+      alt: mobileSticky.alt,
+    });
+    if (hadStickyModifiers) {
+      clearMobileSticky();
+    }
+    return encoded || (typeof shortcut?.data === "string" ? shortcut.data : "");
+  };
+
+  const setTouchShortcutFeedbackEnabled = (enabled) => {
+    touchShortcutFeedbackEnabled = enabled !== false;
+    persistTouchShortcutFeedbackEnabled(touchShortcutFeedbackEnabled);
+    syncMobileShortcutState();
+  };
+
+  const triggerMobileTouchFeedback = () => {
+    const bridge = globalThis.lzc_vibrate;
+    if (!bridge || typeof bridge.Vibrate !== "function") {
+      return false;
+    }
+    try {
+      bridge.Vibrate(0);
+      return true;
+    } catch (error) {
+      return false;
     }
   };
 
-  const toggleMobileSticky = (action, button) => {
-    mobileSticky[action] = !mobileSticky[action];
-    button?.classList.toggle("active", mobileSticky[action]);
-  };
-
-  const runMobileAction = (action, button) => {
-    const session = activeSession();
+  const runMobileAction = (action, session = activeSession()) => {
     switch (action) {
+      case "sticky_ctrl":
       case "ctrl":
+        toggleMobileSticky("ctrl");
+        return;
+      case "sticky_alt":
       case "alt":
+        toggleMobileSticky("alt");
+        return;
+      case "sticky_shift":
       case "shift":
-        toggleMobileSticky(action, button);
-        return;
-      case "esc":
-        session?.term?.paste(mobileSticky.alt ? "\x1b\x1b" : "\x1b");
-        clearMobileSticky();
-        return;
-      case "tab":
-        session?.term?.paste(mobileSticky.shift ? backtabSequence : "\t");
-        clearMobileSticky();
-        return;
-      case "up":
-      case "down":
-      case "left":
-      case "right":
-        session?.term?.paste(encodedArrow(action));
-        clearMobileSticky();
+        toggleMobileSticky("shift");
         return;
       case "copy":
         copyFromSession(session).catch((error) => showToast(error.message));
@@ -1957,19 +2242,223 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
       case "paste":
         pasteIntoSession(session).catch((error) => showToast(error.message));
         return;
+      case "page_up":
       case "page-up":
         session?.term?.scrollPages?.(-1);
         return;
+      case "page_down":
       case "page-down":
         session?.term?.scrollPages?.(1);
         return;
-      case "zoom-out":
-        adjustTerminalFontSize(-1);
-        return;
+      case "zoom_in":
       case "zoom-in":
         adjustTerminalFontSize(1);
         return;
+      case "zoom_out":
+      case "zoom-out":
+        adjustTerminalFontSize(-1);
+        return;
+      case "toggle_touch_feedback":
+        setTouchShortcutFeedbackEnabled(!touchShortcutFeedbackEnabled);
+        if (touchShortcutFeedbackEnabled) {
+          triggerMobileTouchFeedback();
+        }
+        return;
+      default:
+        return;
     }
+  };
+
+  const triggerMobileShortcut = (shortcut, session = activeSession(), options = {}) => {
+    if (!shortcut) {
+      return;
+    }
+    if (options.feedback !== false && shortcut.action !== "toggle_touch_feedback" && touchShortcutFeedbackEnabled) {
+      triggerMobileTouchFeedback();
+    }
+    if (shortcut.action) {
+      runMobileAction(shortcut.action, session);
+      return;
+    }
+    const data = resolveMobileShortcutData(shortcut);
+    if (!data) {
+      return;
+    }
+    const targetSession = session || activeSession();
+    if (!targetSession) {
+      return;
+    }
+    sendOrQueueInput(targetSession, data);
+  };
+
+  const stopMobileShortcutEvent = (event) => {
+    event?.preventDefault?.();
+    event?.stopPropagation?.();
+    if (typeof event?.stopImmediatePropagation === "function") {
+      event.stopImmediatePropagation();
+    }
+  };
+
+  const isRepeatableMobileShortcut = (shortcut) => repeatableMobileShortcutIds.has(String(shortcut?.id || ""));
+
+  const bindMobileShortcutButton = (button, shortcut) => {
+    let activePointerId = -1;
+    let touchStartX = 0;
+    let touchStartY = 0;
+    let touchMoved = false;
+    let shortcutSession = null;
+    let suppressNextClick = false;
+    let repeatDelayTimer = 0;
+    let repeatTimer = 0;
+    let repeatTriggered = false;
+
+    const stopRepeat = () => {
+      if (repeatDelayTimer) {
+        window.clearTimeout(repeatDelayTimer);
+        repeatDelayTimer = 0;
+      }
+      if (repeatTimer) {
+        window.clearInterval(repeatTimer);
+        repeatTimer = 0;
+      }
+      repeatTriggered = false;
+      if (!["sticky_ctrl", "sticky_alt", "sticky_shift", "toggle_touch_feedback"].includes(shortcut.action)) {
+        button.classList.remove("active");
+      }
+    };
+
+    const resetPointerTracking = () => {
+      activePointerId = -1;
+      touchStartX = 0;
+      touchStartY = 0;
+      touchMoved = false;
+    };
+
+    const updateTouchMoved = (clientX, clientY) => {
+      if (touchMoved || !Number.isFinite(clientX) || !Number.isFinite(clientY)) {
+        return;
+      }
+      if (
+        Math.abs(clientX - touchStartX) >= touchShortcutMoveThresholdPx ||
+        Math.abs(clientY - touchStartY) >= touchShortcutMoveThresholdPx
+      ) {
+        touchMoved = true;
+        stopRepeat();
+      }
+    };
+
+    const startRepeat = () => {
+      if (!isRepeatableMobileShortcut(shortcut)) {
+        return;
+      }
+      stopRepeat();
+      repeatDelayTimer = window.setTimeout(() => {
+        repeatDelayTimer = 0;
+        if (activePointerId < 0 || touchMoved) {
+          return;
+        }
+        repeatTriggered = true;
+        suppressNextClick = true;
+        button.classList.add("active");
+        triggerMobileShortcut(shortcut, shortcutSession || activeSession());
+        repeatTimer = window.setInterval(() => {
+          if (activePointerId < 0 || touchMoved) {
+            stopRepeat();
+            return;
+          }
+          triggerMobileShortcut(shortcut, shortcutSession || activeSession(), { feedback: false });
+        }, touchShortcutRepeatIntervalMs);
+      }, touchShortcutRepeatInitialDelayMs);
+    };
+
+    button.addEventListener("pointerdown", (event) => {
+      if (!(event instanceof PointerEvent) || !event.isPrimary) {
+        return;
+      }
+      if (event.pointerType !== "touch" && event.pointerType !== "pen") {
+        return;
+      }
+      activePointerId = event.pointerId;
+      touchStartX = event.clientX;
+      touchStartY = event.clientY;
+      touchMoved = false;
+      repeatTriggered = false;
+      shortcutSession = activeSession();
+      startRepeat();
+    }, { passive: true });
+
+    button.addEventListener("pointermove", (event) => {
+      if (!(event instanceof PointerEvent) || event.pointerId !== activePointerId) {
+        return;
+      }
+      updateTouchMoved(event.clientX, event.clientY);
+    }, { passive: true });
+
+    button.addEventListener("pointerup", (event) => {
+      if (!(event instanceof PointerEvent) || event.pointerId !== activePointerId) {
+        return;
+      }
+      updateTouchMoved(event.clientX, event.clientY);
+      const shouldTrigger = !touchMoved && !repeatTriggered;
+      stopRepeat();
+      resetPointerTracking();
+      suppressNextClick = true;
+      stopMobileShortcutEvent(event);
+      if (shouldTrigger) {
+        triggerMobileShortcut(shortcut, shortcutSession || activeSession());
+      }
+      shortcutSession = null;
+    }, { passive: false });
+
+    button.addEventListener("pointercancel", (event) => {
+      if (!(event instanceof PointerEvent) || event.pointerId !== activePointerId) {
+        return;
+      }
+      stopRepeat();
+      resetPointerTracking();
+      shortcutSession = null;
+    });
+
+    button.addEventListener("click", (event) => {
+      stopMobileShortcutEvent(event);
+      if (suppressNextClick) {
+        suppressNextClick = false;
+        shortcutSession = null;
+        return;
+      }
+      triggerMobileShortcut(shortcut, shortcutSession || activeSession());
+      shortcutSession = null;
+    });
+  };
+
+  const renderMobileShortcuts = () => {
+    if (!mobileShortcuts || mobileShortcutRows.length === 0) {
+      return;
+    }
+    mobileShortcutRows.forEach((row, rowIndex) => {
+      row.textContent = "";
+      for (const shortcut of mobileShortcutRowsConfig[rowIndex] || []) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "mobile-shortcut-key";
+        button.tabIndex = -1;
+        button.textContent = shortcut.label;
+        button.dataset.mobileShortcutId = shortcut.id;
+        if (shortcut.action) {
+          button.dataset.mobileAction = shortcut.action;
+        }
+        if (shortcut.kind) {
+          button.dataset.kind = shortcut.kind;
+        }
+        button.setAttribute("aria-label", shortcut.ariaLabel || shortcut.label);
+        if (["sticky_ctrl", "sticky_alt", "sticky_shift", "toggle_touch_feedback"].includes(shortcut.action)) {
+          button.setAttribute("aria-pressed", "false");
+        }
+        bindMobileShortcutButton(button, shortcut);
+        row.appendChild(button);
+      }
+    });
+    syncMobileShortcutState();
   };
 
   const clearReconnectTimer = (session) => {
@@ -3432,6 +3921,8 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     await postWorkspaceAction("create_tab", { tab_id: tab?.id || "", pane_id: tab?.activePaneId || "" });
   }
 
+  renderMobileShortcuts();
+
   newTabButton?.addEventListener("click", () => {
     createUserTab().catch((error) => showToast(error.message));
   });
@@ -3522,14 +4013,6 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
       event.preventDefault();
     }
   }, { passive: false });
-
-  mobileShortcuts?.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-mobile-action]");
-    if (!button) {
-      return;
-    }
-    runMobileAction(button.dataset.mobileAction, button);
-  });
 
   selectionSheet?.addEventListener("click", (event) => {
     const button = event.target.closest("[data-selection-action]");
