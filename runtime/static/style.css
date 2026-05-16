@@ -39,6 +39,8 @@
   --lzc-safe-area-inset-top: var(--lzc-safe-area-top, env(safe-area-inset-top, 0px));
   --lzc-safe-area-inset-left: var(--lzc-safe-area-left, env(safe-area-inset-left, 0px));
   --lzc-safe-area-inset-right: var(--lzc-safe-area-right, env(safe-area-inset-right, 0px));
+  --mobile-visual-viewport-height: 100vh;
+  --mobile-keyboard-inset-bottom: 0px;
 }
 
 html,
@@ -2706,11 +2708,11 @@ body.is-mobile-shortcut-dragging {
   }
 
   .app-shell {
-    inset: 0 0 calc(76px + var(--lzc-safe-area-inset-bottom)) 0;
+    inset: 0 0 calc(76px + var(--lzc-safe-area-inset-bottom) + var(--mobile-keyboard-inset-bottom)) 0;
   }
 
   body.mobile-shortcuts-empty .app-shell {
-    inset: 0;
+    inset: 0 0 var(--mobile-keyboard-inset-bottom) 0;
   }
 
   .search-panel {
@@ -2727,7 +2729,7 @@ body.is-mobile-shortcut-dragging {
   .mobile-shortcuts {
     position: fixed;
     right: 0;
-    bottom: 0;
+    bottom: var(--mobile-keyboard-inset-bottom);
     left: 0;
     z-index: 80;
     display: flex;
@@ -3142,10 +3144,10 @@ body.is-mobile-shortcut-dragging {
 
   .selection-sheet,
   .network-banner {
-    bottom: calc(88px + var(--lzc-safe-area-inset-bottom));
+    bottom: calc(88px + var(--lzc-safe-area-inset-bottom) + var(--mobile-keyboard-inset-bottom));
   }
 
   .toast {
-    bottom: calc(88px + var(--lzc-safe-area-inset-bottom));
+    bottom: calc(88px + var(--lzc-safe-area-inset-bottom) + var(--mobile-keyboard-inset-bottom));
   }
 }

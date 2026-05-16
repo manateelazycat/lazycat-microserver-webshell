@@ -125,6 +125,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
   const mobileKeyboardDoubleTapDelayMs = 320;
   const mobileKeyboardFocusAllowWindowMs = 600;
   const mobileKeyboardFocusPrompt = "双击屏幕开启键盘输入";
+  const mobileKeyboardInsetThresholdPx = 80;
   const desktopSelectionCopyMoveThresholdPx = 4;
   const terminalSizeReassertIntervalMs = 250;
   const mobileLayoutQuery = window.matchMedia?.("(max-width: 640px)");
@@ -335,6 +336,9 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
   let lightOSHomeURLPromise = null;
   let mobileActionSheetIgnoreClicksUntil = 0;
   let mobileCloseConfirmResolve = null;
+  let mobileViewportResizeFrame = 0;
+  let mobileViewportHeight = Math.max(0, Math.round(window.visualViewport?.height || window.innerHeight || 0));
+  let mobileKeyboardInsetBottom = 0;
   let themePickerEdgeSwipe = null;
   let resolvedThemeCardWidth = themeCardWidth;
   let themePickerScrollbarSyncScheduled = false;
@@ -3378,6 +3382,44 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     }
     for (const tab of tabs.values()) {
       tab.paneEl.classList.toggle("active", tab.id === visibleTabId);
+    }
+  };
+
+  const handleMobileViewportResize = () => {
+    mobileViewportResizeFrame = 0;
+    resizeAllTabsForCurrentDevice();
+    const session = activeSession();
+    positionTerminalInput(session);
+    updateMobileSelectionHandles(session);
+    updateSelectionSheet();
+    if (mobileActionSheet && !mobileActionSheet.hidden) {
+      renderMobileActionSheet();
+    }
+    scheduleTabOverviewRender();
+  };
+
+  const scheduleMobileViewportResize = () => {
+    if (mobileViewportResizeFrame) {
+      return;
+    }
+    mobileViewportResizeFrame = window.requestAnimationFrame(handleMobileViewportResize);
+  };
+
+  const syncMobileVisualViewport = () => {
+    const visualViewport = window.visualViewport;
+    const nextHeight = Math.max(0, Math.round(visualViewport?.height || window.innerHeight || 0));
+    const nextInset = visualViewport
+      ? Math.max(0, Math.round((window.innerHeight || 0) - visualViewport.height - visualViewport.offsetTop))
+      : 0;
+    const heightChanged = nextHeight !== mobileViewportHeight;
+    const insetChanged = nextInset !== mobileKeyboardInsetBottom;
+    mobileViewportHeight = nextHeight;
+    mobileKeyboardInsetBottom = nextInset;
+    document.documentElement.style.setProperty("--mobile-visual-viewport-height", `${nextHeight}px`);
+    document.documentElement.style.setProperty("--mobile-keyboard-inset-bottom", `${nextInset}px`);
+    document.body.classList.toggle("mobile-keyboard-visible", nextInset > mobileKeyboardInsetThresholdPx);
+    if (heightChanged || insetChanged) {
+      scheduleMobileViewportResize();
     }
   };
 
@@ -7563,6 +7605,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
   window.addEventListener("pointerup", handleThemePickerScrollbarPointerUp);
   window.addEventListener("pointercancel", handleThemePickerScrollbarPointerUp);
   window.addEventListener("resize", () => {
+    syncMobileVisualViewport();
     if (!isMobileLayout()) {
       closeMobileActionSheet();
       closeMobileCloseConfirm(false);
@@ -7575,7 +7618,10 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     updateMobileActiveTabTitle();
     scheduleTabOverviewRender();
   });
-  window.visualViewport?.addEventListener("resize", scheduleTabOverviewRender);
+  window.visualViewport?.addEventListener("resize", syncMobileVisualViewport);
+  window.visualViewport?.addEventListener("scroll", syncMobileVisualViewport);
+  window.addEventListener("orientationchange", syncMobileVisualViewport);
+  syncMobileVisualViewport();
   document.fonts?.ready?.then(() => {
     for (const tab of tabs.values()) {
       for (const pane of tab.panes.values()) {
