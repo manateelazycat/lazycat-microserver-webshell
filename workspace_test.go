@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -83,6 +84,95 @@ func TestHandleSettingsFontsUploadsMultipleFonts(t *testing.T) {
 	}
 	if state.TerminalFontID == "" || state.TerminalFontID != uploadedFonts[1].ID {
 		t.Fatalf("TerminalFontID = %q, want last uploaded font %q", state.TerminalFontID, uploadedFonts[1].ID)
+	}
+}
+
+func TestHandleSettingsPatchScrollbackPreservesFont(t *testing.T) {
+	server := &pluginServer{fontDir: t.TempDir()}
+	store := server.fontStore()
+	font, err := store.StoreUpload("Mono.woff2", "font/woff2", strings.NewReader("font-data"))
+	if err != nil {
+		t.Fatalf("StoreUpload() error = %v", err)
+	}
+	if err := store.SaveSelection(font.ID); err != nil {
+		t.Fatalf("SaveSelection() error = %v", err)
+	}
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPut, "/api/settings", strings.NewReader(`{"terminal_scrollback":22000}`))
+	request.Header.Set("Content-Type", "application/json")
+	server.handleSettings(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("handleSettings() status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	var state fonts.State
+	if err := json.NewDecoder(recorder.Body).Decode(&state); err != nil {
+		t.Fatalf("decode response error = %v", err)
+	}
+	if state.TerminalFontID != font.ID || state.TerminalScrollback != 22000 {
+		t.Fatalf("State = %+v, want selected font and scrollback 22000", state)
+	}
+}
+
+func TestHandleSettingsPatchFontPreservesScrollback(t *testing.T) {
+	server := &pluginServer{fontDir: t.TempDir()}
+	store := server.fontStore()
+	font, err := store.StoreUpload("Mono.woff2", "font/woff2", strings.NewReader("font-data"))
+	if err != nil {
+		t.Fatalf("StoreUpload() error = %v", err)
+	}
+	if err := store.SaveScrollback(33000); err != nil {
+		t.Fatalf("SaveScrollback() error = %v", err)
+	}
+
+	recorder := httptest.NewRecorder()
+	body := `{"terminal_font_id":` + strconv.Quote(font.ID) + `}`
+	request := httptest.NewRequest(http.MethodPut, "/api/settings", strings.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	server.handleSettings(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("handleSettings() status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	var state fonts.State
+	if err := json.NewDecoder(recorder.Body).Decode(&state); err != nil {
+		t.Fatalf("decode response error = %v", err)
+	}
+	if state.TerminalFontID != font.ID || state.TerminalScrollback != 33000 {
+		t.Fatalf("State = %+v, want selected font and preserved scrollback", state)
+	}
+}
+
+func TestHandleSettingsRejectsInvalidScrollbackWithoutWriting(t *testing.T) {
+	for _, body := range []string{
+		`{"terminal_scrollback":99}`,
+		`{"terminal_scrollback":100001}`,
+		`{"terminal_scrollback":"5000"}`,
+	} {
+		t.Run(body, func(t *testing.T) {
+			server := &pluginServer{fontDir: t.TempDir()}
+			store := server.fontStore()
+			if err := store.SaveScrollback(44000); err != nil {
+				t.Fatalf("SaveScrollback() error = %v", err)
+			}
+
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(http.MethodPut, "/api/settings", strings.NewReader(body))
+			request.Header.Set("Content-Type", "application/json")
+			server.handleSettings(recorder, request)
+
+			if recorder.Code != http.StatusBadRequest {
+				t.Fatalf("handleSettings() status = %d, body = %s", recorder.Code, recorder.Body.String())
+			}
+			state, err := store.State()
+			if err != nil {
+				t.Fatalf("State() error = %v", err)
+			}
+			if state.TerminalScrollback != 44000 {
+				t.Fatalf("TerminalScrollback = %d, want preserved 44000", state.TerminalScrollback)
+			}
+		})
 	}
 }
 

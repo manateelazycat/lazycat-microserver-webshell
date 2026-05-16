@@ -20,6 +20,10 @@ const (
 	DefaultDir = "/lzcapp/var/fonts"
 	DirEnv     = "WEBSHELL_FONT_DIR"
 	MaxBytes   = 10 << 20
+
+	DefaultTerminalScrollback = 5000
+	MinTerminalScrollback     = 100
+	MaxTerminalScrollback     = 100000
 )
 
 var (
@@ -33,12 +37,14 @@ type Store struct {
 }
 
 type State struct {
-	TerminalFontID string       `json:"terminal_font_id"`
-	Fonts          []Descriptor `json:"fonts"`
+	TerminalFontID     string       `json:"terminal_font_id"`
+	TerminalScrollback int          `json:"terminal_scrollback"`
+	Fonts              []Descriptor `json:"fonts"`
 }
 
 type Settings struct {
 	TerminalFontID        string   `json:"terminal_font_id"`
+	TerminalScrollback    int      `json:"terminal_scrollback"`
 	DeletedBuiltinFontIDs []string `json:"deleted_builtin_font_ids,omitempty"`
 }
 
@@ -141,13 +147,13 @@ func (s Store) State() (State, error) {
 	if selected != "" && !fontExists(fonts, selected) {
 		selected = ""
 	}
-	return State{TerminalFontID: selected, Fonts: fonts}, nil
+	return State{TerminalFontID: selected, TerminalScrollback: settings.TerminalScrollback, Fonts: fonts}, nil
 }
 
 func (s Store) ReadSettings() (Settings, error) {
 	data, err := os.ReadFile(s.settingsPath())
 	if errors.Is(err, os.ErrNotExist) {
-		return Settings{}, nil
+		return Settings{TerminalScrollback: DefaultTerminalScrollback}, nil
 	}
 	if err != nil {
 		return Settings{}, err
@@ -157,6 +163,7 @@ func (s Store) ReadSettings() (Settings, error) {
 		return Settings{}, err
 	}
 	settings.TerminalFontID = strings.TrimSpace(settings.TerminalFontID)
+	settings.TerminalScrollback = normalizeTerminalScrollback(settings.TerminalScrollback)
 	settings.DeletedBuiltinFontIDs = normalizeDeletedBuiltinFontIDs(settings.DeletedBuiltinFontIDs)
 	return settings, nil
 }
@@ -167,26 +174,17 @@ func (s Store) SaveSelection(id string) error {
 	if err != nil {
 		return err
 	}
-	if id != "" {
-		if !ValidID(id) {
-			return fmt.Errorf("%w: invalid font id", ErrBadRequest)
-		}
-		if _, ok := bundledFontByID(id); ok {
-			if deletedBuiltinFontSet(settings)[id] {
-				return fmt.Errorf("%w: font not found", ErrBadRequest)
-			}
-			if err := s.ensureBundledFontAvailable(id); err != nil {
-				return err
-			}
-		} else if _, err := s.ReadMetadata(id); err != nil {
-			if errors.Is(err, os.ErrNotExist) {
-				return fmt.Errorf("%w: font not found", ErrBadRequest)
-			}
-			return err
-		}
-	}
 	settings.TerminalFontID = id
-	return s.WriteSettings(settings)
+	return s.SaveSettings(settings)
+}
+
+func (s Store) SaveScrollback(scrollback int) error {
+	settings, err := s.ReadSettings()
+	if err != nil {
+		return err
+	}
+	settings.TerminalScrollback = scrollback
+	return s.SaveSettings(settings)
 }
 
 func (s Store) StoreUpload(filename, contentType string, reader io.Reader) (Descriptor, error) {
@@ -370,6 +368,7 @@ func (s Store) WriteMetadata(metadata Metadata) error {
 
 func (s Store) WriteSettings(settings Settings) error {
 	settings.TerminalFontID = strings.TrimSpace(settings.TerminalFontID)
+	settings.TerminalScrollback = normalizeTerminalScrollback(settings.TerminalScrollback)
 	settings.DeletedBuiltinFontIDs = normalizeDeletedBuiltinFontIDs(settings.DeletedBuiltinFontIDs)
 	if err := s.ensureDir(); err != nil {
 		return err
@@ -378,7 +377,83 @@ func (s Store) WriteSettings(settings Settings) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(s.settingsPath(), append(data, '\n'), 0o644)
+	path := s.settingsPath()
+	tmp, err := os.CreateTemp(s.Dir, ".settings-*.tmp")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	defer func() {
+		_ = os.Remove(tmpPath)
+	}()
+	if _, err := tmp.Write(append(data, '\n')); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Chmod(0o644); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmpPath, path)
+}
+
+func (s Store) SaveSettings(settings Settings) error {
+	settings.TerminalFontID = strings.TrimSpace(settings.TerminalFontID)
+	settings.DeletedBuiltinFontIDs = normalizeDeletedBuiltinFontIDs(settings.DeletedBuiltinFontIDs)
+	if err := ValidateTerminalScrollback(settings.TerminalScrollback); err != nil {
+		return err
+	}
+	if err := s.validateSelection(settings.TerminalFontID, settings); err != nil {
+		return err
+	}
+	return s.WriteSettings(settings)
+}
+
+func (s Store) MergeSettings(settings Settings, pruneMissingSelection bool) (Settings, error) {
+	settings.TerminalFontID = strings.TrimSpace(settings.TerminalFontID)
+	settings.DeletedBuiltinFontIDs = normalizeDeletedBuiltinFontIDs(settings.DeletedBuiltinFontIDs)
+	if pruneMissingSelection {
+		fonts, err := s.List()
+		if err != nil {
+			return Settings{}, err
+		}
+		if settings.TerminalFontID != "" && !fontExists(fonts, settings.TerminalFontID) {
+			settings.TerminalFontID = ""
+		}
+	}
+	if err := s.SaveSettings(settings); err != nil {
+		return Settings{}, err
+	}
+	return settings, nil
+}
+
+func (s Store) validateSelection(id string, settings Settings) error {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return nil
+	}
+	if !ValidID(id) {
+		return fmt.Errorf("%w: invalid font id", ErrBadRequest)
+	}
+	if _, ok := bundledFontByID(id); ok {
+		if deletedBuiltinFontSet(settings)[id] {
+			return fmt.Errorf("%w: font not found", ErrBadRequest)
+		}
+		if err := s.ensureBundledFontAvailable(id); err != nil {
+			return err
+		}
+		return nil
+	}
+	if _, err := s.ReadMetadata(id); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("%w: font not found", ErrBadRequest)
+		}
+		return err
+	}
+	return nil
 }
 
 func (m Metadata) Descriptor() Descriptor {
@@ -466,6 +541,20 @@ func normalizeDeletedBuiltinFontIDs(ids []string) []string {
 		normalized = append(normalized, id)
 	}
 	return normalized
+}
+
+func normalizeTerminalScrollback(value int) int {
+	if value < MinTerminalScrollback || value > MaxTerminalScrollback {
+		return DefaultTerminalScrollback
+	}
+	return value
+}
+
+func ValidateTerminalScrollback(value int) error {
+	if value < MinTerminalScrollback || value > MaxTerminalScrollback {
+		return fmt.Errorf("%w: terminal scrollback must be between %d and %d", ErrBadRequest, MinTerminalScrollback, MaxTerminalScrollback)
+	}
+	return nil
 }
 
 func deletedBuiltinFontSet(settings Settings) map[string]bool {

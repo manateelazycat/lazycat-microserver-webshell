@@ -37,6 +37,8 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
   const settingsFontDeleteSelectedButton = document.getElementById("settingsFontDeleteSelectedButton");
   const settingsFontCards = document.getElementById("settingsFontCards");
   const settingsFontInput = document.getElementById("settingsFontInput");
+  const settingsScrollbackInput = document.getElementById("settingsScrollbackInput");
+  const settingsScrollbackResetButton = document.getElementById("settingsScrollbackResetButton");
   const settingsThemeList = document.getElementById("settingsThemeList");
   const settingsFeedback = document.getElementById("settingsFeedback");
   const settingsTabs = Array.from(document.querySelectorAll("[data-settings-tab]"));
@@ -89,6 +91,9 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
   const defaultFontSize = 16;
   const minFontSize = 10;
   const maxFontSize = 32;
+  const defaultTerminalScrollback = 5000;
+  const minTerminalScrollback = 100;
+  const maxTerminalScrollback = 100000;
   const defaultTerminalFontFamily = '"DejaVu Sans Mono", "Liberation Mono", monospace';
   const touchShortcutMoveThresholdPx = 8;
   const touchShortcutRepeatInitialDelayMs = 320;
@@ -121,7 +126,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
   const terminalOptionsBase = {
     cursorBlink: false,
     convertEol: true,
-    scrollback: 5000,
+    scrollback: defaultTerminalScrollback,
     fontFamily: defaultTerminalFontFamily,
     fontSize: terminalFontSize,
   };
@@ -314,6 +319,8 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
   let themePickerScrollbarDragging = false;
   let themePickerScrollbarPointerId = null;
   let themePickerScrollbarThumbPointerOffset = 0;
+  let settingsScrollbackSaveTimer = 0;
+  let settingsScrollbackSaveRequestSeq = 0;
   const searchState = { open: false, query: "", matches: [], index: -1, sessionId: "" };
   const mobileSticky = { ctrl: false, alt: false, shift: false };
   let touchShortcutFeedbackEnabled = loadTouchShortcutFeedbackEnabled();
@@ -457,6 +464,38 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
       return `${(size / 1024).toFixed(size < 10 * 1024 ? 1 : 0)} KB`;
     }
     return `${(size / 1024 / 1024).toFixed(1)} MB`;
+  };
+
+  const normalizeTerminalScrollback = (value) => {
+    const next = Math.round(Number(value));
+    if (!Number.isFinite(next) || next < minTerminalScrollback || next > maxTerminalScrollback) {
+      return defaultTerminalScrollback;
+    }
+    return next;
+  };
+
+  const readSettingsScrollbackInput = () => {
+    const raw = String(settingsScrollbackInput?.value || "").trim();
+    if (!/^\d+$/.test(raw)) {
+      throw new Error(`滚动历史行数必须是 ${minTerminalScrollback}-${maxTerminalScrollback} 之间的整数。`);
+    }
+    const value = Number(raw);
+    if (!Number.isSafeInteger(value) || value < minTerminalScrollback || value > maxTerminalScrollback) {
+      throw new Error(`滚动历史行数必须是 ${minTerminalScrollback}-${maxTerminalScrollback} 之间的整数。`);
+    }
+    return value;
+  };
+
+  const syncSettingsScrollbackInput = () => {
+    if (settingsScrollbackInput) {
+      settingsScrollbackInput.value = String(terminalOptionsBase.scrollback || defaultTerminalScrollback);
+    }
+  };
+
+  const setSettingsScrollbackSaving = (saving) => {
+    if (settingsScrollbackResetButton) {
+      settingsScrollbackResetButton.disabled = saving;
+    }
   };
 
   const setSettingsFeedback = (message, tone = "info") => {
@@ -603,13 +642,17 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     syncFontEditControls();
   };
 
-  const applySettingsState = async (state) => {
+  const applySettingsState = async (state, { syncScrollbackInput = true } = {}) => {
     const fonts = Array.isArray(state?.fonts)
       ? state.fonts.map(normalizeUploadedFont).filter(Boolean)
       : [];
     uploadedFonts = fonts;
     const nextFontID = String(state?.terminal_font_id || "").trim();
     activeTerminalFontID = uploadedFonts.some((font) => font.id === nextFontID) ? nextFontID : "";
+    terminalOptionsBase.scrollback = normalizeTerminalScrollback(state?.terminal_scrollback);
+    if (syncScrollbackInput) {
+      syncSettingsScrollbackInput();
+    }
     await registerUploadedFonts(uploadedFonts);
     renderSettingsFonts();
     applyTerminalFont();
@@ -633,6 +676,49 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
       throw new Error(await readResponseText(response, `字体设置保存失败 (${response.status})`));
     }
     await applySettingsState(await response.json());
+  };
+
+  const saveTerminalScrollback = async (scrollback, { syncScrollbackInput = false } = {}) => {
+    const response = await fetch("./api/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ terminal_scrollback: scrollback }),
+    });
+    if (!response.ok) {
+      throw new Error(await readResponseText(response, `滚动历史设置保存失败 (${response.status})`));
+    }
+    await applySettingsState(await response.json(), { syncScrollbackInput });
+  };
+
+  const saveTerminalScrollbackFromInput = () => {
+    let scrollback = defaultTerminalScrollback;
+    try {
+      scrollback = readSettingsScrollbackInput();
+    } catch (error) {
+      return;
+    }
+    if (scrollback === terminalOptionsBase.scrollback) {
+      return;
+    }
+    const requestSeq = ++settingsScrollbackSaveRequestSeq;
+    setSettingsScrollbackSaving(true);
+    saveTerminalScrollback(scrollback)
+      .catch(() => {})
+      .finally(() => {
+        if (requestSeq === settingsScrollbackSaveRequestSeq) {
+          setSettingsScrollbackSaving(false);
+        }
+      });
+  };
+
+  const scheduleTerminalScrollbackSave = () => {
+    window.clearTimeout(settingsScrollbackSaveTimer);
+    try {
+      readSettingsScrollbackInput();
+    } catch (error) {
+      return;
+    }
+    settingsScrollbackSaveTimer = window.setTimeout(saveTerminalScrollbackFromInput, 360);
   };
 
   const uploadTerminalFonts = async (files) => {
@@ -714,6 +800,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     setActiveSettingsTab(tabID);
     renderSettingsFonts();
     renderSettingsThemeList();
+    syncSettingsScrollbackInput();
     setSettingsFeedback("");
     if (settingsBackdrop) {
       settingsBackdrop.hidden = false;
@@ -6532,6 +6619,31 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
         settingsFontInput.disabled = false;
         if (settingsFontUploadButton) {
           settingsFontUploadButton.disabled = false;
+        }
+      });
+  });
+  settingsScrollbackInput?.addEventListener("input", scheduleTerminalScrollbackSave);
+  settingsScrollbackInput?.addEventListener("change", () => {
+    window.clearTimeout(settingsScrollbackSaveTimer);
+    try {
+      readSettingsScrollbackInput();
+    } catch (error) {
+      return;
+    }
+    saveTerminalScrollbackFromInput();
+  });
+  settingsScrollbackResetButton?.addEventListener("click", () => {
+    window.clearTimeout(settingsScrollbackSaveTimer);
+    if (settingsScrollbackInput) {
+      settingsScrollbackInput.value = String(defaultTerminalScrollback);
+    }
+    const requestSeq = ++settingsScrollbackSaveRequestSeq;
+    setSettingsScrollbackSaving(true);
+    saveTerminalScrollback(defaultTerminalScrollback, { syncScrollbackInput: true })
+      .catch(() => {})
+      .finally(() => {
+        if (requestSeq === settingsScrollbackSaveRequestSeq) {
+          setSettingsScrollbackSaving(false);
         }
       });
   });

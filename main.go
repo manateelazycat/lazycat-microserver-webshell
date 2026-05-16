@@ -34,6 +34,7 @@ type pluginServer struct {
 	serverRevision string
 	workspaces     *workspaceManager
 
+	settingsMu   sync.Mutex
 	inputLocksMu sync.Mutex
 	inputLocks   map[string]map[string]struct{}
 }

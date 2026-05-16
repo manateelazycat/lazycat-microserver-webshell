@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -10,6 +12,47 @@ import (
 
 	"lcmd-webshell/internal/pkg/fonts"
 )
+
+type settingsPatch struct {
+	TerminalFontID     optionalString `json:"terminal_font_id"`
+	TerminalScrollback optionalInt    `json:"terminal_scrollback"`
+}
+
+type optionalString struct {
+	Value string
+	Set   bool
+	Null  bool
+}
+
+type optionalInt struct {
+	Value int
+	Set   bool
+	Null  bool
+}
+
+func (o *optionalString) UnmarshalJSON(data []byte) error {
+	o.Set = true
+	o.Value = ""
+	o.Null = bytes.Equal(bytes.TrimSpace(data), []byte("null"))
+	if o.Null {
+		return nil
+	}
+	return json.Unmarshal(data, &o.Value)
+}
+
+func (o *optionalInt) UnmarshalJSON(data []byte) error {
+	o.Set = true
+	o.Null = bytes.Equal(bytes.TrimSpace(data), []byte("null"))
+	if o.Null {
+		return nil
+	}
+	var value int
+	if err := json.Unmarshal(data, &value); err != nil {
+		return err
+	}
+	o.Value = value
+	return nil
+}
 
 func (s *pluginServer) fontStore() fonts.Store {
 	return fonts.Store{
@@ -22,25 +65,51 @@ func (s *pluginServer) handleSettings(w http.ResponseWriter, r *http.Request) {
 	store := s.fontStore()
 	switch r.Method {
 	case http.MethodGet:
+		s.settingsMu.Lock()
 		state, err := store.State()
+		s.settingsMu.Unlock()
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 		writeJSON(w, state)
 	case http.MethodPut:
-		var payload fonts.Settings
-		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&payload); err != nil {
+		var payload settingsPatch
+		decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&payload); err != nil {
 			http.Error(w, "invalid settings payload", http.StatusBadRequest)
 			return
 		}
-		if err := store.SaveSelection(strings.TrimSpace(payload.TerminalFontID)); err != nil {
-			writeSettingsError(w, err)
+		if err := decoder.Decode(&struct{}{}); err != io.EOF {
+			http.Error(w, "invalid settings payload", http.StatusBadRequest)
 			return
 		}
-		state, err := store.State()
+		if payload.TerminalScrollback.Set && !payload.TerminalScrollback.Null {
+			if err := fonts.ValidateTerminalScrollback(payload.TerminalScrollback.Value); err != nil {
+				writeSettingsError(w, err)
+				return
+			}
+		}
+		s.settingsMu.Lock()
+		settings, err := store.ReadSettings()
+		updateFont := payload.TerminalFontID.Set && !payload.TerminalFontID.Null
+		if err == nil {
+			if updateFont {
+				settings.TerminalFontID = strings.TrimSpace(payload.TerminalFontID.Value)
+			}
+			if payload.TerminalScrollback.Set && !payload.TerminalScrollback.Null {
+				settings.TerminalScrollback = payload.TerminalScrollback.Value
+			}
+			_, err = store.MergeSettings(settings, !updateFont)
+		}
+		var state fonts.State
+		if err == nil {
+			state, err = store.State()
+		}
+		s.settingsMu.Unlock()
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			writeSettingsError(w, err)
 			return
 		}
 		writeJSON(w, state)
@@ -89,13 +158,15 @@ func (s *pluginServer) handleSettingsFonts(w http.ResponseWriter, r *http.Reques
 		}
 		selectedFontID = font.ID
 	}
-	if err := store.SaveSelection(selectedFontID); err != nil {
-		writeSettingsError(w, err)
-		return
+	s.settingsMu.Lock()
+	err := store.SaveSelection(selectedFontID)
+	var state fonts.State
+	if err == nil {
+		state, err = store.State()
 	}
-	state, err := store.State()
+	s.settingsMu.Unlock()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		writeSettingsError(w, err)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -134,7 +205,10 @@ func (s *pluginServer) handleSettingsFont(w http.ResponseWriter, r *http.Request
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
-	if err := store.Delete(id); err != nil {
+	s.settingsMu.Lock()
+	err := store.Delete(id)
+	s.settingsMu.Unlock()
+	if err != nil {
 		writeSettingsError(w, err)
 		return
 	}

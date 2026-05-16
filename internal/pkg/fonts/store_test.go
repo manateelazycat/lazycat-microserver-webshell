@@ -1,6 +1,7 @@
 package fonts
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -32,6 +33,9 @@ func TestStorePersistsUploadedFontSelectionAndDelete(t *testing.T) {
 	if state.TerminalFontID != font.ID || len(state.Fonts) != 1 {
 		t.Fatalf("State() = %+v, want selected font and one descriptor", state)
 	}
+	if state.TerminalScrollback != DefaultTerminalScrollback {
+		t.Fatalf("TerminalScrollback = %d, want %d", state.TerminalScrollback, DefaultTerminalScrollback)
+	}
 
 	if err := store.Delete(font.ID); err != nil {
 		t.Fatalf("Delete() error = %v", err)
@@ -57,6 +61,115 @@ func TestStoreUsesFilenameForWebFontLabel(t *testing.T) {
 	}
 	if font.Filename != "霞鹜文楷.woff2" {
 		t.Fatalf("StoreUpload() filename = %q, want %q", font.Filename, "霞鹜文楷.woff2")
+	}
+}
+
+func TestStoreDefaultsInvalidAndPersistsScrollback(t *testing.T) {
+	store := Store{Dir: t.TempDir()}
+
+	state, err := store.State()
+	if err != nil {
+		t.Fatalf("State() error = %v", err)
+	}
+	if state.TerminalScrollback != DefaultTerminalScrollback {
+		t.Fatalf("default TerminalScrollback = %d, want %d", state.TerminalScrollback, DefaultTerminalScrollback)
+	}
+
+	writeSettingsJSON(t, store, map[string]any{
+		"terminal_font_id":    "",
+		"terminal_scrollback": 0,
+	})
+	state, err = store.State()
+	if err != nil {
+		t.Fatalf("State() with invalid scrollback error = %v", err)
+	}
+	if state.TerminalScrollback != DefaultTerminalScrollback {
+		t.Fatalf("invalid TerminalScrollback = %d, want default %d", state.TerminalScrollback, DefaultTerminalScrollback)
+	}
+
+	if err := store.SaveScrollback(12000); err != nil {
+		t.Fatalf("SaveScrollback() error = %v", err)
+	}
+	state, err = store.State()
+	if err != nil {
+		t.Fatalf("State() after SaveScrollback error = %v", err)
+	}
+	if state.TerminalScrollback != 12000 {
+		t.Fatalf("TerminalScrollback = %d, want 12000", state.TerminalScrollback)
+	}
+}
+
+func TestStoreSettingsUpdatesPreserveOtherFields(t *testing.T) {
+	store := Store{Dir: t.TempDir()}
+	font, err := store.StoreUpload("Mono.woff2", "font/woff2", strings.NewReader("font-data"))
+	if err != nil {
+		t.Fatalf("StoreUpload() error = %v", err)
+	}
+
+	if err := store.SaveScrollback(22000); err != nil {
+		t.Fatalf("SaveScrollback() error = %v", err)
+	}
+	if err := store.SaveSelection(font.ID); err != nil {
+		t.Fatalf("SaveSelection() error = %v", err)
+	}
+	state, err := store.State()
+	if err != nil {
+		t.Fatalf("State() error = %v", err)
+	}
+	if state.TerminalFontID != font.ID || state.TerminalScrollback != 22000 {
+		t.Fatalf("State() = %+v, want selected font and scrollback 22000", state)
+	}
+
+	if err := store.SaveScrollback(33000); err != nil {
+		t.Fatalf("SaveScrollback(second) error = %v", err)
+	}
+	state, err = store.State()
+	if err != nil {
+		t.Fatalf("State() after second SaveScrollback error = %v", err)
+	}
+	if state.TerminalFontID != font.ID || state.TerminalScrollback != 33000 {
+		t.Fatalf("State() = %+v, want selected font preserved and scrollback 33000", state)
+	}
+
+	if err := store.Delete(font.ID); err != nil {
+		t.Fatalf("Delete() error = %v", err)
+	}
+	state, err = store.State()
+	if err != nil {
+		t.Fatalf("State() after Delete error = %v", err)
+	}
+	if state.TerminalFontID != "" || state.TerminalScrollback != 33000 {
+		t.Fatalf("State() after Delete = %+v, want default font and preserved scrollback", state)
+	}
+}
+
+func TestStoreMergeSettingsDropsMissingSelectedFont(t *testing.T) {
+	store := Store{Dir: t.TempDir()}
+	missingID := strings.Repeat("a", 64)
+
+	settings, err := store.MergeSettings(Settings{
+		TerminalFontID:     missingID,
+		TerminalScrollback: 24000,
+	}, true)
+	if err != nil {
+		t.Fatalf("MergeSettings() error = %v", err)
+	}
+	if settings.TerminalFontID != "" || settings.TerminalScrollback != 24000 {
+		t.Fatalf("MergeSettings() = %+v, want missing font cleared and scrollback preserved", settings)
+	}
+	state, err := store.State()
+	if err != nil {
+		t.Fatalf("State() error = %v", err)
+	}
+	if state.TerminalFontID != "" || state.TerminalScrollback != 24000 {
+		t.Fatalf("State() = %+v, want missing font cleared and scrollback preserved", state)
+	}
+
+	if _, err := store.MergeSettings(Settings{
+		TerminalFontID:     missingID,
+		TerminalScrollback: 26000,
+	}, false); !errors.Is(err, ErrBadRequest) {
+		t.Fatalf("MergeSettings(prune=false) error = %v, want ErrBadRequest", err)
 	}
 }
 
@@ -134,5 +247,19 @@ func writeBundledFont(t *testing.T, dir, name, data string) {
 	t.Helper()
 	if err := os.WriteFile(filepath.Join(dir, name), []byte(data), 0o644); err != nil {
 		t.Fatalf("write bundled font %q error = %v", name, err)
+	}
+}
+
+func writeSettingsJSON(t *testing.T, store Store, value any) {
+	t.Helper()
+	if err := store.ensureDir(); err != nil {
+		t.Fatalf("ensureDir() error = %v", err)
+	}
+	data, err := json.MarshalIndent(value, "", "  ")
+	if err != nil {
+		t.Fatalf("MarshalIndent() error = %v", err)
+	}
+	if err := os.WriteFile(store.settingsPath(), append(data, '\n'), 0o644); err != nil {
+		t.Fatalf("write settings error = %v", err)
 	}
 }
