@@ -462,7 +462,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
       { id: "page-down", label: "PageDown", ariaLabel: "Page Down", action: "page_down" },
     ],
     [
-      { id: "mobile-menu", label: "Menu", ariaLabel: "Menu", action: "open_mobile_menu", kind: "menu", icon: "menu" },
+      { id: "mobile-menu", label: "Menu", ariaLabel: "Menu", action: "open_mobile_menu", kind: "menu" },
       { id: "esc", label: "Esc", ariaLabel: "Escape", data: "\x1b", inputKey: "escape", kind: "primary" },
       { id: "ctrl-e", label: "Ctrl+E", ariaLabel: "Control E", data: "\x05", inputKey: "e", inputModifiers: { ctrl: true } },
       { id: "ctrl-c", label: "Ctrl+C", ariaLabel: "Control C", data: "\x03", inputKey: "c", inputModifiers: { ctrl: true }, kind: "primary" },
@@ -2594,6 +2594,14 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     }
     return /\bMacintosh\b|\bMac OS X\b/i.test(String(navigator.userAgent || ""));
   };
+  const isIOSPlatform = () => {
+    const platform = String(navigator.userAgentData?.platform || navigator.platform || "");
+    const userAgent = String(navigator.userAgent || "");
+    if (/\b(iPhone|iPad|iPod)\b/i.test(platform) || /\b(iPhone|iPad|iPod)\b/i.test(userAgent)) {
+      return true;
+    }
+    return /\bMac/i.test(platform) && Number(navigator.maxTouchPoints || 0) > 1;
+  };
   const macShortcut = (mac, fallback) => isMacPlatform() ? mac : fallback;
   const shortcutDefinitions = {
     fullscreen: "F11",
@@ -4645,6 +4653,18 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
   };
 
   const syncMobileVisualViewport = () => {
+    const useKeyboardInset = isIOSPlatform();
+    if (!useKeyboardInset) {
+      const insetChanged = mobileKeyboardInsetBottom !== 0;
+      mobileKeyboardInsetBottom = 0;
+      document.documentElement.style.removeProperty("--mobile-visual-viewport-height");
+      document.documentElement.style.setProperty("--mobile-keyboard-inset-bottom", "0px");
+      document.body.classList.remove("mobile-keyboard-visible");
+      if (insetChanged) {
+        scheduleMobileViewportResize();
+      }
+      return;
+    }
     const visualViewport = window.visualViewport;
     const nextHeight = Math.max(0, Math.round(visualViewport?.height || window.innerHeight || 0));
     const nextInset = visualViewport
@@ -6469,7 +6489,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
         if (shortcut.kind) {
           button.dataset.kind = shortcut.kind;
         }
-        if (shortcut.icon) {
+        if (shortcut.icon && shortcut.action !== "open_mobile_menu") {
           button.appendChild(createSVGIcon(shortcut.icon, "mobile-shortcut-icon"));
         } else {
           button.textContent = shortcut.label;
@@ -9151,9 +9171,11 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     updateMobileActiveTabTitle();
     scheduleTabOverviewRender();
   });
-  window.visualViewport?.addEventListener("resize", syncMobileVisualViewport);
-  window.visualViewport?.addEventListener("scroll", syncMobileVisualViewport);
-  window.addEventListener("orientationchange", syncMobileVisualViewport);
+  if (isIOSPlatform()) {
+    window.visualViewport?.addEventListener("resize", syncMobileVisualViewport);
+    window.visualViewport?.addEventListener("scroll", syncMobileVisualViewport);
+    window.addEventListener("orientationchange", syncMobileVisualViewport);
+  }
   syncMobileVisualViewport();
   document.fonts?.ready?.then(() => {
     for (const tab of tabs.values()) {

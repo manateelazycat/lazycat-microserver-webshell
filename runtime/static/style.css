@@ -39,7 +39,7 @@
   --lzc-safe-area-inset-top: var(--lzc-safe-area-top, env(safe-area-inset-top, 0px));
   --lzc-safe-area-inset-left: var(--lzc-safe-area-left, env(safe-area-inset-left, 0px));
   --lzc-safe-area-inset-right: var(--lzc-safe-area-right, env(safe-area-inset-right, 0px));
-  --mobile-visual-viewport-height: 100vh;
+  --mobile-visual-viewport-height: 100dvh;
   --mobile-keyboard-inset-bottom: 0px;
 }
 
@@ -3316,7 +3316,7 @@ body.is-mobile-shortcut-dragging {
     display: flex;
     flex-direction: column;
     gap: 4px;
-    padding: 8px max(10px, var(--lzc-safe-area-inset-right)) calc(8px + var(--lzc-safe-area-inset-bottom)) max(10px, var(--lzc-safe-area-inset-left));
+    padding: 8px max(5px, var(--lzc-safe-area-inset-right)) calc(8px + var(--lzc-safe-area-inset-bottom)) max(5px, var(--lzc-safe-area-inset-left));
     overflow: hidden;
     border-top: 1px solid var(--chrome-line);
     background: var(--terminal-bg);
@@ -3349,10 +3349,14 @@ body.is-mobile-shortcut-dragging {
   }
 
   .mobile-shortcuts button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     flex: 0 0 auto;
     min-width: 28px;
     height: 28px;
     padding: 0 6px;
+    border: 0;
     background: transparent;
     color: var(--terminal-fg);
     font: inherit;
@@ -3370,7 +3374,6 @@ body.is-mobile-shortcut-dragging {
     position: relative;
     width: 40px;
     min-width: 40px;
-    margin-left: 8px;
     padding: 0;
   }
 
