@@ -1560,6 +1560,17 @@ body.split-resize-active * {
   background-clip: padding-box;
 }
 
+[data-settings-panel="service-forwards"] {
+  align-self: stretch;
+  width: 100%;
+}
+
+[data-settings-panel="service-forwards"] > .settings-section {
+  width: 80%;
+  align-self: center;
+  box-sizing: border-box;
+}
+
 .settings-mobile-shortcuts-section {
   min-height: 0;
   flex: 0 0 auto;
@@ -1703,6 +1714,340 @@ body.split-resize-active * {
   border-color: var(--panel-border);
   background: var(--panel-hover-bg);
   outline: none;
+}
+
+.settings-icon-button.settings-service-forward-add-button .settings-service-forward-add-icon {
+  fill: none;
+  stroke: currentColor;
+}
+
+.settings-service-forward-section {
+  min-height: 0;
+  flex: 0 0 auto;
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.settings-service-forward-actions,
+.settings-service-forward-item-actions,
+.settings-service-forward-form-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.settings-service-forward-status {
+  min-height: 30px;
+  padding: 7px 10px;
+  border: 1px solid var(--panel-border);
+  border-radius: 7px;
+  background: var(--panel-subtle-bg);
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+  box-sizing: border-box;
+}
+
+.settings-service-forward-status[data-tone="error"] {
+  color: var(--danger);
+}
+
+.settings-service-forward-status[data-tone="warning"] {
+  color: #fbbf24;
+}
+
+.settings-service-forward-status[hidden] {
+  display: none;
+}
+
+.settings-service-forward-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 46px;
+  padding: 8px;
+  border: 1px dashed var(--panel-border);
+  border-radius: 8px;
+  background: var(--panel-subtle-bg);
+  box-sizing: border-box;
+}
+
+.settings-service-forward-empty {
+  min-height: 30px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 30px;
+  text-align: center;
+}
+
+.settings-service-forward-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  min-height: 64px;
+  padding: 10px;
+  border: 1px solid var(--panel-border);
+  border-radius: 7px;
+  background: var(--panel-bg);
+  color: var(--text);
+  box-sizing: border-box;
+}
+
+.settings-service-forward-main {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.settings-service-forward-title,
+.settings-service-forward-meta,
+.settings-service-forward-state {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-service-forward-title {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.settings-service-forward-meta,
+.settings-service-forward-state {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.settings-service-forward-state {
+  color: var(--accent);
+  font-weight: 650;
+}
+
+.settings-service-forward-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  background: var(--panel-subtle-bg);
+  box-sizing: border-box;
+}
+
+.settings-service-forward-form[hidden] {
+  display: none;
+}
+
+.service-forward-editor {
+  position: fixed;
+  inset: 0;
+  z-index: 131;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+  box-sizing: border-box;
+}
+
+.service-forward-editor[hidden] {
+  display: none;
+}
+
+.service-forward-editor-scrim {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: var(--modal-backdrop-bg);
+  cursor: default;
+}
+
+.service-forward-editor-panel {
+  position: relative;
+  z-index: 1;
+  width: min(760px, calc(100vw - 36px));
+  max-height: min(78dvh, calc(100dvh - 36px));
+  overflow: auto;
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  background: var(--panel-bg);
+  box-shadow: 0 24px 72px var(--panel-shadow);
+}
+
+.settings-service-forward-form h4 {
+  margin: 0;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.settings-service-forward-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.settings-service-forward-field {
+  display: grid;
+  min-width: 0;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.settings-service-forward-field-full,
+.settings-service-forward-switch {
+  grid-column: 1 / -1;
+}
+
+.settings-service-forward-field input,
+.settings-service-forward-field select {
+  width: 100%;
+  min-width: 0;
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--panel-border);
+  border-radius: 7px;
+  background: var(--panel-input-bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  box-sizing: border-box;
+}
+
+.settings-service-forward-field input[type="file"] {
+  background: transparent;
+}
+
+.settings-service-forward-field input[type="file"] {
+  height: auto;
+  min-height: 34px;
+  padding: 6px 10px;
+}
+
+.settings-service-forward-field input[type="file"]::file-selector-button {
+  margin-inline-end: 10px;
+  padding: 6px 10px;
+  border: 1px solid var(--panel-border);
+  border-radius: 6px;
+  background: transparent;
+  background-color: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.settings-service-forward-field input[type="file"]::-webkit-file-upload-button {
+  margin-inline-end: 10px;
+  padding: 6px 10px;
+  border: 1px solid var(--panel-border);
+  border-radius: 6px;
+  background: transparent;
+  background-color: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.settings-service-forward-port-stepper {
+  position: relative;
+  display: block;
+  min-width: 0;
+}
+
+.settings-service-forward-port-stepper input {
+  padding-right: 34px;
+  appearance: textfield;
+}
+
+.settings-service-forward-field input[type="number"]::-webkit-outer-spin-button,
+.settings-service-forward-field input[type="number"]::-webkit-inner-spin-button {
+  appearance: none;
+  margin: 0;
+  background: transparent;
+  background-color: transparent;
+  opacity: 0;
+}
+
+.settings-service-forward-port-stepper-actions {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  bottom: 1px;
+  display: grid;
+  width: 28px;
+  grid-template-rows: 1fr 1fr;
+  border-left: 1px solid var(--panel-border);
+  background: transparent;
+  background-color: transparent;
+  pointer-events: auto;
+}
+
+.settings-service-forward-port-stepper-button {
+  position: relative;
+  display: inline-flex;
+  min-width: 0;
+  width: 100%;
+  height: 100%;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  background-color: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.settings-service-forward-port-stepper-button:hover:not(:disabled),
+.settings-service-forward-port-stepper-button:focus-visible {
+  background: transparent;
+  background-color: transparent;
+  color: var(--text);
+  outline: none;
+}
+
+.settings-service-forward-port-stepper-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.52;
+}
+
+.settings-service-forward-port-stepper-button::before {
+  content: "";
+  width: 0;
+  height: 0;
+  border-right: 4px solid transparent;
+  border-left: 4px solid transparent;
+}
+
+.settings-service-forward-port-stepper-button.is-up::before {
+  border-bottom: 5px solid currentColor;
+}
+
+.settings-service-forward-port-stepper-button.is-down::before {
+  border-top: 5px solid currentColor;
+}
+
+.settings-service-forward-field input:focus,
+.settings-service-forward-field select:focus {
+  border-color: var(--input-focus-border);
+  outline: none;
+}
+
+.settings-service-forward-upstream {
+  display: grid;
+  grid-template-columns: 112px minmax(0, 1fr) 112px;
+  gap: 8px;
+}
+
+.settings-service-forward-switch {
+  min-height: 42px;
+  padding: 8px 0 0;
+}
+
+.settings-service-forward-form-spacer {
+  flex: 1 1 auto;
 }
 
 .mobile-shortcut-editor {
@@ -2634,6 +2979,10 @@ body.is-mobile-shortcut-dragging {
     width: 100%;
   }
 
+  [data-settings-panel="service-forwards"] > .settings-section {
+    width: 100%;
+  }
+
   .settings-number-row {
     align-items: stretch;
     flex-direction: column;
@@ -2646,6 +2995,35 @@ body.is-mobile-shortcut-dragging {
 
   .settings-mobile-shortcut-item {
     grid-template-columns: 32px minmax(0, 1fr) auto;
+  }
+
+  .settings-service-forward-actions,
+  .settings-service-forward-item-actions,
+  .settings-service-forward-form-actions {
+    justify-content: flex-start;
+  }
+
+  .settings-service-forward-item {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: stretch;
+  }
+
+  .settings-service-forward-form-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .settings-service-forward-upstream {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .service-forward-editor {
+    align-items: flex-end;
+    padding: 10px;
+  }
+
+  .service-forward-editor-panel {
+    width: 100%;
+    max-height: calc(100dvh - 20px);
   }
 
   .mobile-shortcut-editor {

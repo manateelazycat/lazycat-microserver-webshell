@@ -41,6 +41,26 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
   const settingsMobileShortcutAddButton = document.getElementById("settingsMobileShortcutAddButton");
   const settingsMobileShortcutResetButton = document.getElementById("settingsMobileShortcutResetButton");
   const settingsMobileShortcutList = document.getElementById("settingsMobileShortcutList");
+  const serviceForwardAddButton = document.getElementById("serviceForwardAddButton");
+  const serviceForwardStatus = document.getElementById("serviceForwardStatus");
+  const serviceForwardList = document.getElementById("serviceForwardList");
+  const serviceForwardEditor = document.getElementById("serviceForwardEditor");
+  const serviceForwardEditorScrim = document.getElementById("serviceForwardEditorScrim");
+  const serviceForwardForm = document.getElementById("serviceForwardForm");
+  const serviceForwardFormTitle = document.getElementById("serviceForwardFormTitle");
+  const serviceForwardProtocolInput = document.getElementById("serviceForwardProtocolInput");
+  const serviceForwardHostInput = document.getElementById("serviceForwardHostInput");
+  const serviceForwardPortInput = document.getElementById("serviceForwardPortInput");
+  const serviceForwardPortStepUp = document.getElementById("serviceForwardPortStepUp");
+  const serviceForwardPortStepDown = document.getElementById("serviceForwardPortStepDown");
+  const serviceForwardPathInput = document.getElementById("serviceForwardPathInput");
+  const serviceForwardTitleInput = document.getElementById("serviceForwardTitleInput");
+  const serviceForwardSubdomainInput = document.getElementById("serviceForwardSubdomainInput");
+  const serviceForwardIconInput = document.getElementById("serviceForwardIconInput");
+  const serviceForwardSkipAuthInput = document.getElementById("serviceForwardSkipAuthInput");
+  const serviceForwardDeleteButton = document.getElementById("serviceForwardDeleteButton");
+  const serviceForwardCancelButton = document.getElementById("serviceForwardCancelButton");
+  const serviceForwardSubmitButton = document.getElementById("serviceForwardSubmitButton");
   const mobileShortcutEditor = document.getElementById("mobileShortcutEditor");
   const mobileShortcutEditorScrim = document.getElementById("mobileShortcutEditorScrim");
   const mobileShortcutEditorPanel = document.getElementById("mobileShortcutEditorPanel");
@@ -332,6 +352,9 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
   let suppressBeforeUnloadOnce = false;
   let suppressBeforeUnloadResetTimer = 0;
   let tabOverviewRenderFrame = 0;
+  let lightOSAdminInfo = null;
+  let lightOSAdminInfoPromise = null;
+  let lightOSAdminBaseURL = "";
   let lightOSHomeURL = "";
   let lightOSHomeURLPromise = null;
   let mobileActionSheetIgnoreClicksUntil = 0;
@@ -355,6 +378,10 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
   let mobileShortcutsPersistChain = Promise.resolve();
   let mobileShortcutEditorState = null;
   let mobileShortcutDragState = null;
+  let serviceForwardEntries = [];
+  let serviceForwardRequestSeq = 0;
+  let serviceForwardEditingID = "";
+  let serviceForwardBusy = false;
   const searchState = { open: false, query: "", matches: [], index: -1, sessionId: "" };
   const mobileSticky = { ctrl: false, alt: false, shift: false };
   let touchShortcutFeedbackEnabled = loadTouchShortcutFeedbackEnabled();
@@ -714,6 +741,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     const nextTabID = settingsTabs.some((tab) => tab.dataset.settingsTab === requestedTabID)
       ? requestedTabID
       : "terminal";
+    const wasServiceForwardsActive = isServiceForwardsSettingsActive();
     for (const tab of settingsTabs) {
       const selected = tab.dataset.settingsTab === nextTabID;
       tab.setAttribute("aria-selected", selected ? "true" : "false");
@@ -731,6 +759,12 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
       renderSettingsMobileShortcuts();
     } else {
       hideSettingsMobileShortcutsScrollbar();
+    }
+    if (nextTabID === "service-forwards") {
+      renderServiceForwardSettings();
+      if (!wasServiceForwardsActive) {
+        refreshServiceForwards().catch((error) => setSettingsFeedback(error.message || "服务转发列表加载失败。", "error"));
+      }
     }
   };
 
@@ -930,6 +964,603 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
       empty.textContent = "暂无快捷键";
       settingsMobileShortcutList.appendChild(empty);
     }
+  };
+
+  const setServiceForwardStatus = (message, tone = "info") => {
+    if (!serviceForwardStatus) {
+      return;
+    }
+    const text = String(message || "").trim();
+    serviceForwardStatus.hidden = !text;
+    serviceForwardStatus.textContent = text;
+    serviceForwardStatus.dataset.tone = tone;
+  };
+
+  const isServiceForwardsSettingsActive = () =>
+    settingsBackdrop && !settingsBackdrop.hidden &&
+    settingsTabs.some((tab) => tab.dataset.settingsTab === "service-forwards" && tab.getAttribute("aria-selected") === "true");
+
+  const lightOSPublishURL = async (path) => {
+    const baseURL = await loadLightOSAdminBaseURL();
+    return new URL(path, baseURL).toString();
+  };
+
+  const readJSONSafe = async (response) => {
+    const text = await response.text().catch(() => "");
+    const trimmed = text.trim();
+    if (!trimmed) {
+      return null;
+    }
+    try {
+      return JSON.parse(trimmed);
+    } catch {
+      return { message: trimmed };
+    }
+  };
+
+  const responseErrorMessage = (data, fallback) =>
+    String(data?.error || data?.message || fallback || "请求失败").trim();
+
+  const requestPublishListApi = async () => {
+    const response = await fetch(await lightOSPublishURL("/api/publish/list"), {
+      cache: "no-store",
+      credentials: "include",
+    });
+    const data = await readJSONSafe(response);
+    if (!response.ok) {
+      throw new Error(responseErrorMessage(data, `服务转发列表加载失败 (${response.status})`));
+    }
+    return Array.isArray(data) ? data : [];
+  };
+
+  const requestPublishStatusApi = async () => {
+    const response = await fetch(await lightOSPublishURL("/api/publish/status"), {
+      cache: "no-store",
+      credentials: "include",
+    });
+    const data = await readJSONSafe(response);
+    if (!response.ok) {
+      throw new Error(responseErrorMessage(data, `服务转发状态加载失败 (${response.status})`));
+    }
+    return data || {};
+  };
+
+  const requestPublishCreateApi = async (payload) => {
+    const response = await fetch(await lightOSPublishURL("/api/publish/http/create"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify(payload),
+    });
+    const data = await readJSONSafe(response);
+    if (!response.ok) {
+      throw new Error(responseErrorMessage(data, `服务转发创建失败 (${response.status})`));
+    }
+    return data || {};
+  };
+
+  const requestPublishUpdateApi = async (payload) => {
+    const response = await fetch(await lightOSPublishURL("/api/publish/http/update"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify(payload),
+    });
+    const data = await readJSONSafe(response);
+    if (!response.ok) {
+      throw new Error(responseErrorMessage(data, `服务转发更新失败 (${response.status})`));
+    }
+    return data || {};
+  };
+
+  const requestPublishDeleteApi = async (payload) => {
+    const response = await fetch(await lightOSPublishURL("/api/publish/http/delete"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify(payload),
+    });
+    const data = await readJSONSafe(response);
+    if (!response.ok) {
+      throw new Error(responseErrorMessage(data, `服务转发删除失败 (${response.status})`));
+    }
+    return data || {};
+  };
+
+  const requestPublishInstallShellLPKApi = async (payload) => {
+    const formData = new FormData();
+    formData.set("id", String(payload?.id || "").trim());
+    formData.set("subdomain", String(payload?.subdomain || "").trim());
+    formData.set("title", String(payload?.title || "").trim());
+    formData.set("skip_auth", String(Boolean(payload?.skip_auth)));
+    if (payload?.iconFile instanceof File) {
+      formData.set("icon", payload.iconFile, payload.iconFile.name || "icon.png");
+    }
+    const response = await fetch(await lightOSPublishURL("/api/publish/http/install-shell-lpk"), {
+      method: "POST",
+      credentials: "include",
+      body: formData,
+    });
+    const data = await readJSONSafe(response);
+    if (!response.ok) {
+      throw new Error(responseErrorMessage(data, `服务转发部署失败 (${response.status})`));
+    }
+    return data || {};
+  };
+
+  const normalizePublishedEntry = (item) => ({
+    id: String(item?.id || "").trim(),
+    token: String(item?.token || "").trim(),
+    instance_name: String(item?.instance_name || "").trim(),
+    upstream: String(item?.upstream || "").trim(),
+    package_id: String(item?.package_id || "").trim(),
+    app_domain: String(item?.app_domain || "").trim(),
+    app_url: String(item?.app_url || "").trim(),
+    subdomain: String(item?.subdomain || "").trim(),
+    title: String(item?.title || "").trim(),
+    skip_auth: Boolean(item?.skip_auth),
+    installed_at: String(item?.installed_at || "").trim(),
+    created_at: String(item?.created_at || "").trim(),
+    upstream_url: String(item?.upstream_url || "").trim(),
+  });
+
+  const serviceForwardEntryMatchesActive = (entry) => {
+    const entryName = String(entry?.instance_name || "").trim();
+    const currentName = String(activeName || "").trim();
+    if (!entryName || !currentName) {
+      return false;
+    }
+    if (entryName === currentName) {
+      return true;
+    }
+    const activeBareName = currentName.split("@", 1)[0];
+    return !entryName.includes("@") && entryName === activeBareName;
+  };
+
+  const normalizePublishStatus = (value) => ({
+    ready: value?.ready === true,
+    port: Number(value?.port || 0),
+    warning_code: String(value?.warning_code || "").trim(),
+  });
+
+  const buildPublishServiceWarningMessage = (status) => {
+    if (!status || status.ready) {
+      return "";
+    }
+    if (status.warning_code === "port_in_use" && status.port > 0) {
+      return `主机端口 ${status.port} 已被占用，服务转发暂时不可用。`;
+    }
+    return "";
+  };
+
+  const parsePublishedEntryUpstream = (rawValue) => {
+    const raw = String(rawValue || "").trim();
+    if (!raw) {
+      return { protocol: "http", host: "127.0.0.1", port: 0, path: "" };
+    }
+    try {
+      const parsed = new URL(raw);
+      const protocol = String(parsed.protocol || "http:").replace(/:$/, "").toLowerCase() || "http";
+      const defaultPort = protocol === "https" ? 443 : 80;
+      const path = parsed.search
+        ? `${parsed.pathname || "/"}${parsed.search}`
+        : parsed.pathname && parsed.pathname !== "/"
+          ? parsed.pathname
+          : "";
+      return {
+        protocol,
+        host: String(parsed.hostname || "127.0.0.1").trim() || "127.0.0.1",
+        port: Number(parsed.port || defaultPort),
+        path,
+      };
+    } catch {
+      return { protocol: "http", host: "127.0.0.1", port: 0, path: "" };
+    }
+  };
+
+  const normalizeServiceForwardSubdomain = (value) =>
+    String(value || "")
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9-]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 63);
+
+  const defaultServiceForwardTitle = () => {
+    const active = getActiveInstance?.();
+    return instanceDisplayName?.(active) || String(activeName || "").split("@", 1)[0] || "Service";
+  };
+
+  const buildUpstreamURL = ({ protocol, host, port, path } = {}) => {
+    const scheme = String(protocol || "").trim().toLowerCase();
+    if (scheme !== "http" && scheme !== "https") {
+      throw new Error("请选择有效协议。");
+    }
+    const upstreamHost = String(host || "").trim();
+    if (!upstreamHost) {
+      throw new Error("请输入上游主机。");
+    }
+    const upstreamPort = Number(port || 0);
+    if (!Number.isInteger(upstreamPort) || upstreamPort <= 0 || upstreamPort > 65535) {
+      throw new Error("请输入 1-65535 之间的端口。");
+    }
+    let hostPart = upstreamHost;
+    if (hostPart.includes(":") && !hostPart.startsWith("[") && !hostPart.endsWith("]")) {
+      hostPart = `[${hostPart}]`;
+    }
+    let suffix = String(path || "").trim();
+    if (suffix.includes("#")) {
+      throw new Error("路径或查询参数不能包含 #。");
+    }
+    if (suffix && !suffix.startsWith("/") && !suffix.startsWith("?")) {
+      suffix = `/${suffix}`;
+    } else if (suffix.startsWith("?")) {
+      suffix = `/${suffix}`;
+    }
+    const upstream = `${scheme}://${hostPart}:${upstreamPort}${suffix}`;
+    try {
+      const parsed = new URL(upstream);
+      if (parsed.protocol !== `${scheme}:` || !parsed.hostname) {
+        throw new Error();
+      }
+      return upstream;
+    } catch {
+      throw new Error("上游地址不是有效的 HTTP/HTTPS URL。");
+    }
+  };
+
+  const renderServiceForwardSettings = () => {
+    if (!serviceForwardList) {
+      return;
+    }
+    serviceForwardList.textContent = "";
+    if (!activeName) {
+      const empty = document.createElement("div");
+      empty.className = "settings-service-forward-empty";
+      empty.textContent = "当前没有可用容器。";
+      serviceForwardList.appendChild(empty);
+      return;
+    }
+    if (serviceForwardEntries.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "settings-service-forward-empty";
+      empty.textContent = "暂无服务转发。";
+      serviceForwardList.appendChild(empty);
+      return;
+    }
+    for (const entry of serviceForwardEntries) {
+      const item = document.createElement("div");
+      item.className = "settings-service-forward-item";
+      item.dataset.forwardId = entry.id;
+
+      const main = document.createElement("div");
+      main.className = "settings-service-forward-main";
+
+      const title = document.createElement("div");
+      title.className = "settings-service-forward-title";
+      title.textContent = entry.title || entry.subdomain || entry.package_id || entry.upstream || "未命名服务";
+
+      const meta = document.createElement("div");
+      meta.className = "settings-service-forward-meta";
+      meta.textContent = entry.upstream || "未设置上游地址";
+
+      const state = document.createElement("div");
+      state.className = "settings-service-forward-state";
+      const stateParts = [];
+      if (entry.installed_at && entry.subdomain) {
+        stateParts.push(`已部署：${entry.subdomain}`);
+      } else {
+        stateParts.push("未安装应用入口");
+      }
+      if (entry.skip_auth) {
+        stateParts.push("不使用账号保护");
+      }
+      state.textContent = stateParts.join(" · ");
+
+      main.append(title, meta, state);
+
+      const actions = document.createElement("div");
+      actions.className = "settings-service-forward-item-actions";
+
+      const openButton = document.createElement("button");
+      openButton.type = "button";
+      openButton.className = "settings-text-button";
+      openButton.dataset.action = "open";
+      openButton.textContent = "打开";
+      openButton.disabled = serviceForwardBusy || !entry.app_url;
+
+      const editButton = document.createElement("button");
+      editButton.type = "button";
+      editButton.className = "settings-text-button";
+      editButton.dataset.action = "edit";
+      editButton.textContent = "编辑";
+      editButton.disabled = serviceForwardBusy;
+
+      const deleteButton = document.createElement("button");
+      deleteButton.type = "button";
+      deleteButton.className = "settings-text-button danger";
+      deleteButton.dataset.action = "delete";
+      deleteButton.textContent = "删除";
+      deleteButton.disabled = serviceForwardBusy;
+
+      actions.append(openButton, editButton, deleteButton);
+      item.append(main, actions);
+      serviceForwardList.appendChild(item);
+    }
+  };
+
+  const setServiceForwardBusy = (busy) => {
+    serviceForwardBusy = Boolean(busy);
+    for (const control of [
+      serviceForwardAddButton,
+      serviceForwardProtocolInput,
+      serviceForwardHostInput,
+      serviceForwardPortInput,
+      serviceForwardPortStepUp,
+      serviceForwardPortStepDown,
+      serviceForwardPathInput,
+      serviceForwardTitleInput,
+      serviceForwardSubdomainInput,
+      serviceForwardIconInput,
+      serviceForwardSkipAuthInput,
+      serviceForwardDeleteButton,
+      serviceForwardCancelButton,
+      serviceForwardSubmitButton,
+      ...Array.from(serviceForwardList?.querySelectorAll("button") || []),
+    ]) {
+      if (control) {
+        control.disabled = serviceForwardBusy;
+      }
+    }
+  };
+
+  const findServiceForwardEntry = (id) => {
+    const forwardID = String(id || "").trim();
+    return serviceForwardEntries.find((entry) => entry.id === forwardID) || null;
+  };
+
+  const refreshServiceForwards = async ({ showFeedback = false } = {}) => {
+    if (!serviceForwardList) {
+      return [];
+    }
+    const requestSeq = ++serviceForwardRequestSeq;
+    setServiceForwardStatus("正在加载服务转发...", "info");
+    if (showFeedback) {
+      setSettingsFeedback("");
+    }
+    try {
+      const items = await requestPublishListApi();
+      if (requestSeq !== serviceForwardRequestSeq) {
+        return serviceForwardEntries;
+      }
+      serviceForwardEntries = items
+        .map(normalizePublishedEntry)
+        .filter((entry) => entry.id && serviceForwardEntryMatchesActive(entry));
+      renderServiceForwardSettings();
+      let warning = "";
+      try {
+        warning = buildPublishServiceWarningMessage(normalizePublishStatus(await requestPublishStatusApi()));
+      } catch (error) {
+        warning = error.message || "服务转发状态加载失败。";
+      }
+      if (requestSeq === serviceForwardRequestSeq) {
+        setServiceForwardStatus(warning, warning ? "warning" : "info");
+      }
+      if (showFeedback) {
+        setSettingsFeedback("服务转发列表已刷新。", "success");
+      }
+      return serviceForwardEntries;
+    } catch (error) {
+      if (requestSeq === serviceForwardRequestSeq) {
+        serviceForwardEntries = [];
+        renderServiceForwardSettings();
+        setServiceForwardStatus(error.message || "服务转发列表加载失败。", "error");
+      }
+      if (showFeedback) {
+        setSettingsFeedback(error.message || "服务转发列表加载失败。", "error");
+      }
+      throw error;
+    }
+  };
+
+  const resetServiceForwardForm = () => {
+    serviceForwardEditingID = "";
+    if (serviceForwardEditor) {
+      serviceForwardEditor.hidden = true;
+    }
+    if (serviceForwardForm) {
+      serviceForwardForm.hidden = true;
+    }
+    if (serviceForwardFormTitle) {
+      serviceForwardFormTitle.textContent = "添加服务";
+    }
+    if (serviceForwardProtocolInput) {
+      serviceForwardProtocolInput.value = "http";
+    }
+    if (serviceForwardHostInput) {
+      serviceForwardHostInput.value = "127.0.0.1";
+    }
+    if (serviceForwardPortInput) {
+      serviceForwardPortInput.value = "";
+    }
+    if (serviceForwardPathInput) {
+      serviceForwardPathInput.value = "";
+    }
+    if (serviceForwardTitleInput) {
+      serviceForwardTitleInput.value = "";
+    }
+    if (serviceForwardSubdomainInput) {
+      serviceForwardSubdomainInput.value = "";
+    }
+    if (serviceForwardIconInput) {
+      serviceForwardIconInput.value = "";
+    }
+    if (serviceForwardSkipAuthInput) {
+      serviceForwardSkipAuthInput.checked = false;
+    }
+    if (serviceForwardDeleteButton) {
+      serviceForwardDeleteButton.hidden = true;
+    }
+  };
+
+  const openServiceForwardForm = (entry = null) => {
+    const normalized = entry ? normalizePublishedEntry(entry) : null;
+    const upstream = parsePublishedEntryUpstream(normalized?.upstream || "");
+    serviceForwardEditingID = normalized?.id || "";
+    if (serviceForwardEditor) {
+      serviceForwardEditor.hidden = false;
+    }
+    if (serviceForwardForm) {
+      serviceForwardForm.hidden = false;
+    }
+    if (serviceForwardFormTitle) {
+      serviceForwardFormTitle.textContent = serviceForwardEditingID ? "编辑服务" : "添加服务";
+    }
+    if (serviceForwardProtocolInput) {
+      serviceForwardProtocolInput.value = upstream.protocol === "https" ? "https" : "http";
+    }
+    if (serviceForwardHostInput) {
+      serviceForwardHostInput.value = upstream.host || "127.0.0.1";
+    }
+    if (serviceForwardPortInput) {
+      serviceForwardPortInput.value = upstream.port > 0 ? String(upstream.port) : "";
+    }
+    if (serviceForwardPathInput) {
+      serviceForwardPathInput.value = upstream.path || "";
+    }
+    const title = normalized?.title || defaultServiceForwardTitle();
+    if (serviceForwardTitleInput) {
+      serviceForwardTitleInput.value = normalized?.title || "";
+      if (!normalized) {
+        serviceForwardTitleInput.value = title;
+      }
+    }
+    if (serviceForwardSubdomainInput) {
+      serviceForwardSubdomainInput.value = normalized?.subdomain || normalizeServiceForwardSubdomain(title);
+    }
+    if (serviceForwardIconInput) {
+      serviceForwardIconInput.value = "";
+    }
+    if (serviceForwardSkipAuthInput) {
+      serviceForwardSkipAuthInput.checked = normalized?.skip_auth === true;
+    }
+    if (serviceForwardDeleteButton) {
+      serviceForwardDeleteButton.hidden = !serviceForwardEditingID;
+    }
+    window.setTimeout(() => serviceForwardPortInput?.focus(), 0);
+  };
+
+  const collectServiceForwardPayload = () => {
+    const title = String(serviceForwardTitleInput?.value || "").trim();
+    if (!title) {
+      throw new Error("请输入显示名称。");
+    }
+    const subdomain = String(serviceForwardSubdomainInput?.value || "").trim().toLowerCase();
+    if (!/^[a-z0-9][a-z0-9-]{0,62}$/.test(subdomain)) {
+      throw new Error("子域名只能包含小写字母、数字和连字符，且必须以字母或数字开头。");
+    }
+    const iconFile = serviceForwardIconInput?.files?.[0] || null;
+    if (iconFile && iconFile.type && iconFile.type !== "image/png") {
+      throw new Error("图标必须是 PNG 图片。");
+    }
+    return {
+      id: serviceForwardEditingID,
+      upstream: buildUpstreamURL({
+        protocol: serviceForwardProtocolInput?.value,
+        host: serviceForwardHostInput?.value,
+        port: Number(serviceForwardPortInput?.value || 0),
+        path: serviceForwardPathInput?.value,
+      }),
+      title,
+      subdomain,
+      iconFile,
+      skip_auth: serviceForwardSkipAuthInput?.checked === true,
+    };
+  };
+
+  const stepServiceForwardPort = (delta) => {
+    if (!serviceForwardPortInput) {
+      return;
+    }
+    const current = Number(serviceForwardPortInput.value || 0);
+    const fallback = serviceForwardProtocolInput?.value === "https" ? 443 : 80;
+    const next = Math.max(1, Math.min(65535, Math.round(Number.isFinite(current) && current > 0 ? current : fallback) + delta));
+    serviceForwardPortInput.value = String(next);
+    serviceForwardPortInput.dispatchEvent(new Event("input", { bubbles: true }));
+  };
+
+  const deployServiceForward = async () => {
+    if (!activeName) {
+      throw new Error("当前没有可用容器。");
+    }
+    const payload = collectServiceForwardPayload();
+    const status = normalizePublishStatus(await requestPublishStatusApi());
+    const warning = buildPublishServiceWarningMessage(status);
+    if (warning) {
+      throw new Error(warning);
+    }
+    const existingEntry = payload.id ? findServiceForwardEntry(payload.id) : null;
+    if (payload.id && (!existingEntry || !serviceForwardEntryMatchesActive(existingEntry))) {
+      throw new Error("无法编辑不属于当前容器的服务。");
+    }
+    const publishResult = payload.id
+      ? await requestPublishUpdateApi({ id: payload.id, upstream: payload.upstream })
+      : await requestPublishCreateApi({ instance_name: activeName, upstream: payload.upstream });
+    const effectivePublishID = String(publishResult?.record?.id || payload.id || "").trim();
+    if (!effectivePublishID) {
+      throw new Error("服务转发创建失败。");
+    }
+    let installResult = null;
+    try {
+      installResult = await requestPublishInstallShellLPKApi({
+        id: effectivePublishID,
+        subdomain: payload.subdomain,
+        title: payload.title,
+        iconFile: payload.iconFile,
+        skip_auth: payload.skip_auth,
+      });
+    } catch (error) {
+      if (!payload.id) {
+        await requestPublishDeleteApi({ id: effectivePublishID }).catch(() => {});
+      }
+      throw error;
+    }
+    resetServiceForwardForm();
+    try {
+      await refreshServiceForwards();
+      setSettingsFeedback(installResult?.apk_build_warning ? "服务已部署，但 APK 生成失败。" : "服务已部署。", "success");
+    } catch (error) {
+      console.warn(error);
+      setSettingsFeedback("服务已部署，但列表刷新失败。", "success");
+      setServiceForwardStatus(error.message || "服务转发列表刷新失败。", "error");
+    }
+  };
+
+  const deleteServiceForward = async (id = serviceForwardEditingID) => {
+    const publishID = String(id || "").trim();
+    if (!publishID) {
+      return false;
+    }
+    const entry = findServiceForwardEntry(publishID);
+    if (!entry || !serviceForwardEntryMatchesActive(entry)) {
+      throw new Error("无法删除不属于当前容器的服务。");
+    }
+    const confirmed = await confirmDialog(`删除服务「${entry.title || entry.subdomain || entry.upstream}」？`, {
+      title: "删除服务",
+      okText: "删除",
+      cancelText: "取消",
+      danger: true,
+    });
+    if (!confirmed) {
+      return false;
+    }
+    await requestPublishDeleteApi({ id: publishID });
+    if (serviceForwardEditingID === publishID) {
+      resetServiceForwardForm();
+    }
+    await refreshServiceForwards();
+    setSettingsFeedback("服务已删除。", "success");
+    return true;
   };
 
   const applySettingsState = async (state, { syncScrollbackInput = true } = {}) => {
@@ -1450,8 +2081,8 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     renderSettingsFonts();
     renderSettingsThemeList();
     renderSettingsMobileShortcuts();
+    renderServiceForwardSettings();
     syncSettingsScrollbackInput();
-    syncSettingsDesktopMouseClipboardToggle();
     syncSettingsDesktopMouseClipboardToggle();
     setSettingsFeedback("");
     if (settingsBackdrop) {
@@ -1475,6 +2106,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     if (settingsBackdrop) {
       settingsBackdrop.hidden = true;
     }
+    resetServiceForwardForm();
     if (wasOpen) {
       window.setTimeout(() => activeSession()?.term?.focus(), 0);
     }
@@ -1702,23 +2334,56 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     }
   };
 
+  const loadLightOSAdminInfo = async () => {
+    if (lightOSAdminInfo?.base_url) {
+      return lightOSAdminInfo;
+    }
+    if (!lightOSAdminInfoPromise) {
+      lightOSAdminInfoPromise = fetch("./api/lightos-admin-info", { cache: "no-store" })
+        .then(async (response) => {
+          if (!response.ok) {
+            throw new Error(await response.text() || `无法获取 LightOS 管理地址 (${response.status})`);
+          }
+          const info = await response.json();
+          const baseURL = String(info?.base_url || "").trim();
+          if (!baseURL) {
+            throw new Error("LightOS 管理地址不可用。");
+          }
+          lightOSAdminInfo = {
+            ...info,
+            deploy_id: String(info?.deploy_id || "").trim(),
+            domain: String(info?.domain || "").trim(),
+            base_url: baseURL,
+          };
+          return lightOSAdminInfo;
+        })
+        .finally(() => {
+          lightOSAdminInfoPromise = null;
+        });
+    }
+    return lightOSAdminInfoPromise;
+  };
+
+  const loadLightOSAdminBaseURL = async () => {
+    if (lightOSAdminBaseURL) {
+      return lightOSAdminBaseURL;
+    }
+    const info = await loadLightOSAdminInfo();
+    const parsed = new URL(String(info?.base_url || "").trim(), window.location.href);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      throw new Error("LightOS 管理地址协议无效。");
+    }
+    lightOSAdminBaseURL = parsed.toString();
+    return lightOSAdminBaseURL;
+  };
+
   const loadLightOSHomeURL = async () => {
     if (lightOSHomeURL) {
       return lightOSHomeURL;
     }
     if (!lightOSHomeURLPromise) {
-      lightOSHomeURLPromise = fetch("./api/lightos-admin-info", { cache: "no-store" })
-        .then(async (response) => {
-          if (!response.ok) {
-            throw new Error(await response.text() || `无法获取 LightOS 首页地址 (${response.status})`);
-          }
-          const info = await response.json();
-          const baseURL = String(info?.base_url || "").trim();
-          if (!baseURL) {
-            throw new Error("LightOS 首页地址不可用。");
-          }
-          return buildExplicitHomeURL(baseURL);
-        })
+      lightOSHomeURLPromise = loadLightOSAdminInfo()
+        .then((info) => buildExplicitHomeURL(info.base_url))
         .catch((error) => {
           const fallback = resolveReferrerHomeURL();
           if (fallback) {
@@ -7113,6 +7778,12 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
       updateLocationName(activeName, { replace: replaceURL, tabId: "" });
     }
     renderInstanceSwitcher();
+    if (isServiceForwardsSettingsActive()) {
+      serviceForwardEntries = [];
+      resetServiceForwardForm();
+      renderServiceForwardSettings();
+      refreshServiceForwards().catch((error) => setSettingsFeedback(error.message || "服务转发列表加载失败。", "error"));
+    }
     resetTabsForInstance();
     await refreshWorkspace({ focus: true, instanceName: activeName, generation });
   };
@@ -7411,6 +8082,66 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
       startMobileShortcutDrag(event, item);
     }
   });
+  serviceForwardAddButton?.addEventListener("click", () => openServiceForwardForm());
+  serviceForwardTitleInput?.addEventListener("input", () => {
+    if (!serviceForwardEditingID && serviceForwardSubdomainInput && !serviceForwardSubdomainInput.value.trim()) {
+      serviceForwardSubdomainInput.value = normalizeServiceForwardSubdomain(serviceForwardTitleInput.value);
+    }
+  });
+  serviceForwardPortStepUp?.addEventListener("click", () => stepServiceForwardPort(1));
+  serviceForwardPortStepDown?.addEventListener("click", () => stepServiceForwardPort(-1));
+  serviceForwardForm?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    setServiceForwardBusy(true);
+    deployServiceForward()
+      .catch((error) => {
+        setSettingsFeedback(error.message || "服务部署失败。", "error");
+        setServiceForwardStatus(error.message || "服务部署失败。", "error");
+      })
+      .finally(() => {
+        setServiceForwardBusy(false);
+        renderServiceForwardSettings();
+      });
+  });
+  serviceForwardCancelButton?.addEventListener("click", resetServiceForwardForm);
+  serviceForwardEditorScrim?.addEventListener("click", resetServiceForwardForm);
+  serviceForwardDeleteButton?.addEventListener("click", () => {
+    setServiceForwardBusy(true);
+    deleteServiceForward()
+      .catch((error) => setSettingsFeedback(error.message || "服务删除失败。", "error"))
+      .finally(() => {
+        setServiceForwardBusy(false);
+        renderServiceForwardSettings();
+      });
+  });
+  serviceForwardList?.addEventListener("click", (event) => {
+    const button = event.target instanceof Element ? event.target.closest("button[data-action]") : null;
+    if (!button || button.disabled) {
+      return;
+    }
+    const entry = findServiceForwardEntry(button.closest(".settings-service-forward-item")?.dataset.forwardId || "");
+    if (!entry) {
+      return;
+    }
+    const action = button.dataset.action;
+    if (action === "open") {
+      openURL(entry.app_url);
+      return;
+    }
+    if (action === "edit") {
+      openServiceForwardForm(entry);
+      return;
+    }
+    if (action === "delete") {
+      setServiceForwardBusy(true);
+      deleteServiceForward(entry.id)
+        .catch((error) => setSettingsFeedback(error.message || "服务删除失败。", "error"))
+        .finally(() => {
+          setServiceForwardBusy(false);
+          renderServiceForwardSettings();
+        });
+    }
+  });
   mobileShortcutEditorPanel?.addEventListener("submit", (event) => {
     event.preventDefault();
     submitMobileShortcutEditor();
@@ -7464,6 +8195,11 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     }
   });
   document.addEventListener("keydown", (event) => {
+    if (serviceForwardEditor && !serviceForwardEditor.hidden && event.key === "Escape") {
+      event.preventDefault();
+      resetServiceForwardForm();
+      return;
+    }
     if (mobileShortcutEditor && !mobileShortcutEditor.hidden && event.key === "Escape") {
       event.preventDefault();
       closeMobileShortcutEditor();

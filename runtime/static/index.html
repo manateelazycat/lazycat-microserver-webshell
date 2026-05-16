@@ -137,6 +137,7 @@
             <button class="settings-tab" id="settingsTabTerminal" type="button" role="tab" aria-selected="true" aria-controls="settingsPanelTerminal" data-settings-tab="terminal">终端设置</button>
             <button class="settings-tab" id="settingsTabTheme" type="button" role="tab" aria-selected="false" aria-controls="settingsPanelTheme" data-settings-tab="theme">主题设置</button>
             <button class="settings-tab" id="settingsTabMobileShortcuts" type="button" role="tab" aria-selected="false" aria-controls="settingsPanelMobileShortcuts" data-settings-tab="mobile-shortcuts">手机快捷键设置</button>
+            <button class="settings-tab" id="settingsTabServiceForwards" type="button" role="tab" aria-selected="false" aria-controls="settingsPanelServiceForwards" data-settings-tab="service-forwards">服务转发设置</button>
           </div>
           <div class="settings-body">
             <div class="settings-tab-panel" id="settingsPanelTerminal" role="tabpanel" aria-labelledby="settingsTabTerminal" data-settings-panel="terminal">
@@ -213,9 +214,78 @@
                 <div class="settings-mobile-shortcut-list" id="settingsMobileShortcutList" aria-label="手机快捷键列表"></div>
               </section>
             </div>
+            <div class="settings-tab-panel" id="settingsPanelServiceForwards" role="tabpanel" aria-labelledby="settingsTabServiceForwards" data-settings-panel="service-forwards" hidden>
+              <section class="settings-section settings-service-forward-section" aria-labelledby="settingsServiceForwardsTitle">
+                <div class="settings-section-head">
+                  <h3 id="settingsServiceForwardsTitle">服务转发</h3>
+                  <div class="settings-service-forward-actions">
+                    <button class="settings-icon-button settings-service-forward-add-button" id="serviceForwardAddButton" type="button" aria-label="添加服务" title="添加服务">
+                      <svg class="icon settings-service-forward-add-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="2.4"></path></svg>
+                    </button>
+                  </div>
+                </div>
+                <div class="settings-service-forward-status" id="serviceForwardStatus" hidden></div>
+                <div class="settings-service-forward-list" id="serviceForwardList" aria-label="服务转发列表"></div>
+              </section>
+            </div>
           </div>
         </div>
       </div>
+    </div>
+    <div class="service-forward-editor" id="serviceForwardEditor" hidden>
+      <button class="service-forward-editor-scrim" id="serviceForwardEditorScrim" type="button" aria-label="关闭"></button>
+      <form class="settings-service-forward-form service-forward-editor-panel" id="serviceForwardForm" role="dialog" aria-modal="true" aria-labelledby="serviceForwardFormTitle">
+        <h4 id="serviceForwardFormTitle">添加服务</h4>
+        <div class="settings-service-forward-form-grid">
+          <label class="settings-service-forward-field settings-service-forward-field-full">
+            <span>上游地址</span>
+            <span class="settings-service-forward-upstream">
+              <select id="serviceForwardProtocolInput" aria-label="协议">
+                <option value="http">HTTP</option>
+                <option value="https">HTTPS</option>
+              </select>
+              <input id="serviceForwardHostInput" type="text" autocomplete="off" placeholder="127.0.0.1" />
+              <span class="settings-service-forward-port-stepper">
+                <input id="serviceForwardPortInput" type="number" min="1" max="65535" inputmode="numeric" placeholder="8000" aria-label="端口" />
+                <span class="settings-service-forward-port-stepper-actions">
+                  <button class="settings-service-forward-port-stepper-button is-up" id="serviceForwardPortStepUp" type="button" aria-label="增加端口"></button>
+                  <button class="settings-service-forward-port-stepper-button is-down" id="serviceForwardPortStepDown" type="button" aria-label="减少端口"></button>
+                </span>
+              </span>
+            </span>
+          </label>
+          <label class="settings-service-forward-field settings-service-forward-field-full">
+            <span>路径或查询参数</span>
+            <input id="serviceForwardPathInput" type="text" autocomplete="off" placeholder="/ 或 /base?x=1" />
+          </label>
+          <label class="settings-service-forward-field">
+            <span>显示名称</span>
+            <input id="serviceForwardTitleInput" type="text" autocomplete="off" placeholder="服务名称" />
+          </label>
+          <label class="settings-service-forward-field">
+            <span>子域名</span>
+            <input id="serviceForwardSubdomainInput" type="text" autocomplete="off" placeholder="app" />
+          </label>
+          <label class="settings-service-forward-field settings-service-forward-field-full">
+            <span>图标</span>
+            <input id="serviceForwardIconInput" type="file" accept="image/png" />
+          </label>
+          <label class="settings-switch-row settings-service-forward-switch" for="serviceForwardSkipAuthInput">
+            <span class="settings-switch-label">
+              <span>不使用账号保护</span>
+              <span>允许未登录 Lazycat Microserver 账号时访问该服务</span>
+            </span>
+            <input class="settings-switch-input" id="serviceForwardSkipAuthInput" type="checkbox" />
+            <span class="settings-switch" aria-hidden="true"></span>
+          </label>
+        </div>
+        <div class="settings-service-forward-form-actions">
+          <button class="settings-text-button danger" id="serviceForwardDeleteButton" type="button" hidden>删除</button>
+          <span class="settings-service-forward-form-spacer" aria-hidden="true"></span>
+          <button class="settings-text-button" id="serviceForwardCancelButton" type="button">取消</button>
+          <button class="settings-text-button" id="serviceForwardSubmitButton" type="submit">部署服务</button>
+        </div>
+      </form>
     </div>
     <div class="mobile-shortcut-editor" id="mobileShortcutEditor" hidden>
       <button class="mobile-shortcut-editor-scrim" id="mobileShortcutEditorScrim" type="button" aria-label="关闭"></button>
