@@ -16,8 +16,6 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
   const emptyStateAction = document.getElementById("emptyStateAction");
   const instanceSwitcher = document.getElementById("instanceSwitcher");
   const instanceSwitcherButton = document.getElementById("instanceSwitcherButton");
-  const instanceSwitcherName = document.getElementById("instanceSwitcherName");
-  const instanceSwitcherStatusDot = document.getElementById("instanceSwitcherStatusDot");
   const instanceSwitcherPanel = document.getElementById("instanceSwitcherPanel");
   const instanceSwitcherList = document.getElementById("instanceSwitcherList");
   const instanceSwitcherFeedback = document.getElementById("instanceSwitcherFeedback");
@@ -6350,13 +6348,6 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
   const renderInstanceSwitcher = () => {
     if (!instanceSwitcherList) {
       return;
-    }
-    const active = getActiveInstance();
-    if (instanceSwitcherName) {
-      instanceSwitcherName.textContent = active ? instanceDisplayName(active) : activeName || "Container";
-    }
-    if (instanceSwitcherStatusDot) {
-      instanceSwitcherStatusDot.dataset.status = active?.status || "unknown";
     }
     instanceSwitcherList.textContent = "";
     for (const item of currentInstances) {

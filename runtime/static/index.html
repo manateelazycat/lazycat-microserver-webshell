@@ -13,24 +13,27 @@
       <header class="tabs-bar">
         <div class="tabs-strip">
           <button class="tab-overview-toggle" id="tabOverviewToggle" type="button" aria-label="终端总览" aria-expanded="false" title="终端总览">
-            <svg class="tab-overview-toggle-icon" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-              <path d="M390.4 541.44c50.88 0 92.16 41.28 92.16 92.16v172.8a92.16 92.16 0 0 1-92.16 92.16H217.6a92.16 92.16 0 0 1-92.16-92.16V633.6c0-50.88 41.28-92.16 92.16-92.16h172.8z m416 0c50.88 0 92.16 41.28 92.16 92.16v172.8a92.16 92.16 0 0 1-92.16 92.16H633.6a92.16 92.16 0 0 1-92.16-92.16V633.6c0-50.88 41.28-92.16 92.16-92.16h172.8zM217.6 610.56a23.04 23.04 0 0 0-23.04 23.04v172.8c0 12.672 10.368 23.04 23.04 23.04h172.8a23.04 23.04 0 0 0 23.04-23.04V633.6a23.04 23.04 0 0 0-23.04-23.04H217.6z m416 0a23.04 23.04 0 0 0-23.04 23.04v172.8c0 12.672 10.368 23.04 23.04 23.04h172.8a23.04 23.04 0 0 0 23.04-23.04V633.6a23.04 23.04 0 0 0-23.04-23.04H633.6zM390.4 125.44c50.88 0 92.16 41.28 92.16 92.16v172.8A92.16 92.16 0 0 1 390.4 482.56H217.6A92.16 92.16 0 0 1 125.44 390.4V217.6c0-50.88 41.28-92.16 92.16-92.16h172.8z m416 0c50.88 0 92.16 41.28 92.16 92.16v172.8a92.16 92.16 0 0 1-92.16 92.16H633.6A92.16 92.16 0 0 1 541.44 390.4V217.6c0-50.88 41.28-92.16 92.16-92.16h172.8zM217.6 194.56a23.04 23.04 0 0 0-23.04 23.04v172.8c0 12.672 10.368 23.04 23.04 23.04h172.8a23.04 23.04 0 0 0 23.04-23.04V217.6a23.04 23.04 0 0 0-23.04-23.04H217.6z m416 0a23.04 23.04 0 0 0-23.04 23.04v172.8c0 12.672 10.368 23.04 23.04 23.04h172.8a23.04 23.04 0 0 0 23.04-23.04V217.6a23.04 23.04 0 0 0-23.04-23.04H633.6z"></path>
+            <svg class="topbar-icon tab-overview-toggle-icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
+              <rect x="4" y="4" width="6" height="6" rx="1.5"></rect>
+              <rect x="14" y="4" width="6" height="6" rx="1.5"></rect>
+              <rect x="4" y="14" width="6" height="6" rx="1.5"></rect>
+              <rect x="14" y="14" width="6" height="6" rx="1.5"></rect>
             </svg>
           </button>
           <div class="mobile-active-tab-title" id="mobileActiveTabTitle" aria-live="polite">终端</div>
           <div class="tabs" id="tabs" role="tablist" aria-label="Terminal tabs"></div>
-          <button class="tab-add" id="newTab" type="button" aria-label="New tab" title="New tab">+</button>
+          <button class="tab-add" id="newTab" type="button" aria-label="New tab" title="New tab">
+            <svg class="topbar-icon tab-add-icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
+              <path d="M12 5v14M5 12h14"></path>
+            </svg>
+          </button>
         </div>
         <div class="header-actions">
           <div class="instance-switcher" id="instanceSwitcher">
             <button class="instance-switcher-btn" id="instanceSwitcherButton" type="button" aria-haspopup="listbox" aria-expanded="false" aria-label="切换容器">
-              <span class="instance-switcher-current">
-                <span class="instance-switcher-status-dot" id="instanceSwitcherStatusDot" data-status="unknown"></span>
-                <span class="instance-switcher-name" id="instanceSwitcherName">容器</span>
-              </span>
-              <span class="instance-switcher-chevron" aria-hidden="true">
-                <svg t="1778864947191" class="icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" p-id="18353" width="200" height="200"><path d="M512 625.664L131.584 245.248c-28.16-28.16-73.216-28.16-101.376 0s-28.16 73.216 0 101.376l420.864 420.864c2.56 4.096 5.632 7.68 9.216 11.264 14.336 14.336 32.768 21.504 51.712 20.992 18.432 0 37.376-6.656 51.712-20.992 3.584-3.584 6.656-7.168 9.216-11.264l420.864-420.864c13.824-13.824 20.992-32.256 20.992-50.688 0-18.432-7.168-36.864-20.992-50.688-28.16-28.16-73.216-28.16-101.376 0L512 625.664z" fill="#646464" p-id="18354"></path></svg>
-              </span>
+              <svg class="topbar-icon instance-switcher-menu-icon icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
+                <path d="M4 7h16M4 12h16M4 17h16"></path>
+              </svg>
             </button>
             <div class="instance-switcher-panel" id="instanceSwitcherPanel" hidden>
               <div class="instance-switcher-panel-head">

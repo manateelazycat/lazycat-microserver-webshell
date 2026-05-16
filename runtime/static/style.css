@@ -234,8 +234,6 @@ button {
   background: transparent;
   color: var(--chrome-text);
   cursor: pointer;
-  font-size: 18px;
-  line-height: 1;
 }
 
 .tab-add:hover,
@@ -258,11 +256,16 @@ button {
   color: var(--terminal-fg);
 }
 
-.tab-overview-toggle-icon {
+.topbar-icon {
   display: block;
-  width: 19px;
-  height: 19px;
-  fill: currentColor;
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
+  flex: 0 0 auto;
 }
 
 .mobile-active-tab-title {
@@ -281,21 +284,20 @@ button {
   position: relative;
   flex: 0 1 auto;
   min-width: 0;
-  max-width: min(280px, 42vw);
+  max-width: none;
 }
 
 .instance-switcher-btn {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  width: auto;
-  max-width: 100%;
+  justify-content: center;
+  width: 30px;
   height: 30px;
-  padding: 0 10px;
+  padding: 0;
   border: 0;
   border-radius: 999px;
   background: transparent;
-  color: var(--chrome-text-strong);
+  color: var(--text);
   cursor: pointer;
 }
 
@@ -306,14 +308,10 @@ button {
   outline: none;
 }
 
-.instance-switcher-current {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
+.instance-switcher-menu-icon {
+  display: block;
 }
 
-.instance-switcher-status-dot,
 .instance-switcher-item-status-dot {
   width: 8px;
   height: 8px;
@@ -323,51 +321,14 @@ button {
   box-shadow: 0 0 0 4px var(--panel-subtle-bg);
 }
 
-.instance-switcher-status-dot[data-status="running"],
 .instance-switcher-item-status-dot[data-status="running"] {
   background: #22c55e;
   box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.14);
 }
 
-.instance-switcher-status-dot[data-status="stopped"],
 .instance-switcher-item-status-dot[data-status="stopped"] {
   background: #ef4444;
   box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.14);
-}
-
-.instance-switcher-name {
-  min-width: 0;
-  max-width: 210px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 12px;
-  font-weight: 650;
-}
-
-.instance-switcher-chevron {
-  display: inline-flex;
-  width: 14px;
-  height: 14px;
-  align-items: center;
-  justify-content: center;
-  flex: 0 0 auto;
-  color: var(--chrome-text-muted);
-  transition: transform 0.16s ease;
-}
-
-.instance-switcher-chevron .icon {
-  display: block;
-  width: 14px;
-  height: 14px;
-}
-
-.instance-switcher-chevron .icon path {
-  fill: currentColor;
-}
-
-.instance-switcher.is-open .instance-switcher-chevron {
-  transform: rotate(180deg);
 }
 
 .instance-switcher-panel {
@@ -2113,7 +2074,6 @@ body.split-resize-active * {
 
   .tab-add {
     color: var(--terminal-fg);
-    font-size: 22px;
   }
 
   .header-actions {
@@ -2129,25 +2089,6 @@ body.split-resize-active * {
     height: 34px;
     justify-content: center;
     padding: 0;
-  }
-
-  .instance-switcher-current {
-    gap: 0;
-  }
-
-  .instance-switcher-name {
-    display: none;
-  }
-
-  .instance-switcher-status-dot {
-    width: 9px;
-    height: 9px;
-  }
-
-  .instance-switcher-chevron {
-    margin-left: 6px;
-    width: 14px;
-    height: 14px;
   }
 
   .instance-switcher-panel {
