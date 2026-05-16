@@ -36,6 +36,9 @@ func TestStorePersistsUploadedFontSelectionAndDelete(t *testing.T) {
 	if state.TerminalScrollback != DefaultTerminalScrollback {
 		t.Fatalf("TerminalScrollback = %d, want %d", state.TerminalScrollback, DefaultTerminalScrollback)
 	}
+	if !state.DesktopMouseClipboardEnabled {
+		t.Fatalf("DesktopMouseClipboardEnabled = false, want true")
+	}
 
 	if err := store.Delete(font.ID); err != nil {
 		t.Fatalf("Delete() error = %v", err)
@@ -74,6 +77,9 @@ func TestStoreDefaultsInvalidAndPersistsScrollback(t *testing.T) {
 	if state.TerminalScrollback != DefaultTerminalScrollback {
 		t.Fatalf("default TerminalScrollback = %d, want %d", state.TerminalScrollback, DefaultTerminalScrollback)
 	}
+	if !state.DesktopMouseClipboardEnabled {
+		t.Fatalf("default DesktopMouseClipboardEnabled = false, want true")
+	}
 
 	writeSettingsJSON(t, store, map[string]any{
 		"terminal_font_id":    "",
@@ -85,6 +91,9 @@ func TestStoreDefaultsInvalidAndPersistsScrollback(t *testing.T) {
 	}
 	if state.TerminalScrollback != DefaultTerminalScrollback {
 		t.Fatalf("invalid TerminalScrollback = %d, want default %d", state.TerminalScrollback, DefaultTerminalScrollback)
+	}
+	if !state.DesktopMouseClipboardEnabled {
+		t.Fatalf("missing DesktopMouseClipboardEnabled = false, want true")
 	}
 
 	if err := store.SaveScrollback(12000); err != nil {
@@ -109,6 +118,15 @@ func TestStoreSettingsUpdatesPreserveOtherFields(t *testing.T) {
 	if err := store.SaveScrollback(22000); err != nil {
 		t.Fatalf("SaveScrollback() error = %v", err)
 	}
+	disabled := false
+	settings, err := store.ReadSettings()
+	if err != nil {
+		t.Fatalf("ReadSettings() error = %v", err)
+	}
+	settings.DesktopMouseClipboardEnabled = &disabled
+	if err := store.SaveSettings(settings); err != nil {
+		t.Fatalf("SaveSettings(mouse disabled) error = %v", err)
+	}
 	if err := store.SaveSelection(font.ID); err != nil {
 		t.Fatalf("SaveSelection() error = %v", err)
 	}
@@ -116,8 +134,8 @@ func TestStoreSettingsUpdatesPreserveOtherFields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("State() error = %v", err)
 	}
-	if state.TerminalFontID != font.ID || state.TerminalScrollback != 22000 {
-		t.Fatalf("State() = %+v, want selected font and scrollback 22000", state)
+	if state.TerminalFontID != font.ID || state.TerminalScrollback != 22000 || state.DesktopMouseClipboardEnabled {
+		t.Fatalf("State() = %+v, want selected font, scrollback 22000, and disabled mouse clipboard", state)
 	}
 
 	if err := store.SaveScrollback(33000); err != nil {
@@ -127,8 +145,8 @@ func TestStoreSettingsUpdatesPreserveOtherFields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("State() after second SaveScrollback error = %v", err)
 	}
-	if state.TerminalFontID != font.ID || state.TerminalScrollback != 33000 {
-		t.Fatalf("State() = %+v, want selected font preserved and scrollback 33000", state)
+	if state.TerminalFontID != font.ID || state.TerminalScrollback != 33000 || state.DesktopMouseClipboardEnabled {
+		t.Fatalf("State() = %+v, want selected font preserved, scrollback 33000, and disabled mouse clipboard", state)
 	}
 
 	if err := store.Delete(font.ID); err != nil {
@@ -138,8 +156,8 @@ func TestStoreSettingsUpdatesPreserveOtherFields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("State() after Delete error = %v", err)
 	}
-	if state.TerminalFontID != "" || state.TerminalScrollback != 33000 {
-		t.Fatalf("State() after Delete = %+v, want default font and preserved scrollback", state)
+	if state.TerminalFontID != "" || state.TerminalScrollback != 33000 || state.DesktopMouseClipboardEnabled {
+		t.Fatalf("State() after Delete = %+v, want default font, preserved scrollback, and disabled mouse clipboard", state)
 	}
 }
 
@@ -148,26 +166,28 @@ func TestStoreMergeSettingsDropsMissingSelectedFont(t *testing.T) {
 	missingID := strings.Repeat("a", 64)
 
 	settings, err := store.MergeSettings(Settings{
-		TerminalFontID:     missingID,
-		TerminalScrollback: 24000,
+		TerminalFontID:               missingID,
+		TerminalScrollback:           24000,
+		DesktopMouseClipboardEnabled: boolPtr(false),
 	}, true)
 	if err != nil {
 		t.Fatalf("MergeSettings() error = %v", err)
 	}
-	if settings.TerminalFontID != "" || settings.TerminalScrollback != 24000 {
-		t.Fatalf("MergeSettings() = %+v, want missing font cleared and scrollback preserved", settings)
+	if settings.TerminalFontID != "" || settings.TerminalScrollback != 24000 || desktopMouseClipboardEnabled(settings) {
+		t.Fatalf("MergeSettings() = %+v, want missing font cleared, scrollback preserved, and mouse clipboard disabled", settings)
 	}
 	state, err := store.State()
 	if err != nil {
 		t.Fatalf("State() error = %v", err)
 	}
-	if state.TerminalFontID != "" || state.TerminalScrollback != 24000 {
-		t.Fatalf("State() = %+v, want missing font cleared and scrollback preserved", state)
+	if state.TerminalFontID != "" || state.TerminalScrollback != 24000 || state.DesktopMouseClipboardEnabled {
+		t.Fatalf("State() = %+v, want missing font cleared, scrollback preserved, and mouse clipboard disabled", state)
 	}
 
 	if _, err := store.MergeSettings(Settings{
-		TerminalFontID:     missingID,
-		TerminalScrollback: 26000,
+		TerminalFontID:               missingID,
+		TerminalScrollback:           26000,
+		DesktopMouseClipboardEnabled: boolPtr(true),
 	}, false); !errors.Is(err, ErrBadRequest) {
 		t.Fatalf("MergeSettings(prune=false) error = %v, want ErrBadRequest", err)
 	}

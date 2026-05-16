@@ -1173,6 +1173,84 @@ body.split-resize-active * {
   outline: none;
 }
 
+.settings-switch-row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  cursor: pointer;
+}
+
+.settings-switch-label {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.settings-switch-label span:last-child {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.35;
+}
+
+.settings-switch-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.settings-switch {
+  position: relative;
+  display: inline-flex;
+  width: 42px;
+  height: 24px;
+  flex: 0 0 auto;
+  border: 1px solid var(--panel-border);
+  border-radius: 999px;
+  background: var(--panel-subtle-bg);
+  transition: background 0.18s ease, border-color 0.18s ease, opacity 0.18s ease;
+}
+
+.settings-switch::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  background: var(--text);
+  transition: transform 0.18s ease;
+}
+
+.settings-switch-input:checked + .settings-switch {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.settings-switch-input:checked + .settings-switch::after {
+  transform: translateX(18px);
+  background: #ffffff;
+}
+
+.settings-switch-input:focus-visible + .settings-switch {
+  outline: 2px solid var(--input-focus-border);
+  outline-offset: 3px;
+}
+
+.settings-switch-input:disabled + .settings-switch {
+  opacity: 0.56;
+}
+
 .settings-font-card {
   position: relative;
   display: flex;

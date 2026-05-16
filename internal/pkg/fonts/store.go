@@ -37,15 +37,17 @@ type Store struct {
 }
 
 type State struct {
-	TerminalFontID     string       `json:"terminal_font_id"`
-	TerminalScrollback int          `json:"terminal_scrollback"`
-	Fonts              []Descriptor `json:"fonts"`
+	TerminalFontID               string       `json:"terminal_font_id"`
+	TerminalScrollback           int          `json:"terminal_scrollback"`
+	DesktopMouseClipboardEnabled bool         `json:"desktop_mouse_clipboard_enabled"`
+	Fonts                        []Descriptor `json:"fonts"`
 }
 
 type Settings struct {
-	TerminalFontID        string   `json:"terminal_font_id"`
-	TerminalScrollback    int      `json:"terminal_scrollback"`
-	DeletedBuiltinFontIDs []string `json:"deleted_builtin_font_ids,omitempty"`
+	TerminalFontID               string   `json:"terminal_font_id"`
+	TerminalScrollback           int      `json:"terminal_scrollback"`
+	DesktopMouseClipboardEnabled *bool    `json:"desktop_mouse_clipboard_enabled,omitempty"`
+	DeletedBuiltinFontIDs        []string `json:"deleted_builtin_font_ids,omitempty"`
 }
 
 type Metadata struct {
@@ -147,13 +149,21 @@ func (s Store) State() (State, error) {
 	if selected != "" && !fontExists(fonts, selected) {
 		selected = ""
 	}
-	return State{TerminalFontID: selected, TerminalScrollback: settings.TerminalScrollback, Fonts: fonts}, nil
+	return State{
+		TerminalFontID:               selected,
+		TerminalScrollback:           settings.TerminalScrollback,
+		DesktopMouseClipboardEnabled: desktopMouseClipboardEnabled(settings),
+		Fonts:                        fonts,
+	}, nil
 }
 
 func (s Store) ReadSettings() (Settings, error) {
 	data, err := os.ReadFile(s.settingsPath())
 	if errors.Is(err, os.ErrNotExist) {
-		return Settings{TerminalScrollback: DefaultTerminalScrollback}, nil
+		return Settings{
+			TerminalScrollback:           DefaultTerminalScrollback,
+			DesktopMouseClipboardEnabled: boolPtr(true),
+		}, nil
 	}
 	if err != nil {
 		return Settings{}, err
@@ -164,6 +174,7 @@ func (s Store) ReadSettings() (Settings, error) {
 	}
 	settings.TerminalFontID = strings.TrimSpace(settings.TerminalFontID)
 	settings.TerminalScrollback = normalizeTerminalScrollback(settings.TerminalScrollback)
+	settings.DesktopMouseClipboardEnabled = normalizeDesktopMouseClipboardEnabled(settings.DesktopMouseClipboardEnabled)
 	settings.DeletedBuiltinFontIDs = normalizeDeletedBuiltinFontIDs(settings.DeletedBuiltinFontIDs)
 	return settings, nil
 }
@@ -369,6 +380,7 @@ func (s Store) WriteMetadata(metadata Metadata) error {
 func (s Store) WriteSettings(settings Settings) error {
 	settings.TerminalFontID = strings.TrimSpace(settings.TerminalFontID)
 	settings.TerminalScrollback = normalizeTerminalScrollback(settings.TerminalScrollback)
+	settings.DesktopMouseClipboardEnabled = normalizeDesktopMouseClipboardEnabled(settings.DesktopMouseClipboardEnabled)
 	settings.DeletedBuiltinFontIDs = normalizeDeletedBuiltinFontIDs(settings.DeletedBuiltinFontIDs)
 	if err := s.ensureDir(); err != nil {
 		return err
@@ -402,6 +414,7 @@ func (s Store) WriteSettings(settings Settings) error {
 
 func (s Store) SaveSettings(settings Settings) error {
 	settings.TerminalFontID = strings.TrimSpace(settings.TerminalFontID)
+	settings.DesktopMouseClipboardEnabled = normalizeDesktopMouseClipboardEnabled(settings.DesktopMouseClipboardEnabled)
 	settings.DeletedBuiltinFontIDs = normalizeDeletedBuiltinFontIDs(settings.DeletedBuiltinFontIDs)
 	if err := ValidateTerminalScrollback(settings.TerminalScrollback); err != nil {
 		return err
@@ -414,6 +427,7 @@ func (s Store) SaveSettings(settings Settings) error {
 
 func (s Store) MergeSettings(settings Settings, pruneMissingSelection bool) (Settings, error) {
 	settings.TerminalFontID = strings.TrimSpace(settings.TerminalFontID)
+	settings.DesktopMouseClipboardEnabled = normalizeDesktopMouseClipboardEnabled(settings.DesktopMouseClipboardEnabled)
 	settings.DeletedBuiltinFontIDs = normalizeDeletedBuiltinFontIDs(settings.DeletedBuiltinFontIDs)
 	if pruneMissingSelection {
 		fonts, err := s.List()
@@ -548,6 +562,25 @@ func normalizeTerminalScrollback(value int) int {
 		return DefaultTerminalScrollback
 	}
 	return value
+}
+
+func normalizeDesktopMouseClipboardEnabled(value *bool) *bool {
+	if value == nil {
+		return boolPtr(true)
+	}
+	enabled := *value
+	return &enabled
+}
+
+func desktopMouseClipboardEnabled(settings Settings) bool {
+	if settings.DesktopMouseClipboardEnabled == nil {
+		return true
+	}
+	return *settings.DesktopMouseClipboardEnabled
+}
+
+func boolPtr(value bool) *bool {
+	return &value
 }
 
 func ValidateTerminalScrollback(value int) error {

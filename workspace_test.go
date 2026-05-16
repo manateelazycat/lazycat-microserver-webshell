@@ -115,6 +115,55 @@ func TestHandleSettingsPatchScrollbackPreservesFont(t *testing.T) {
 	}
 }
 
+func TestHandleSettingsDefaultsDesktopMouseClipboardEnabled(t *testing.T) {
+	server := &pluginServer{fontDir: t.TempDir()}
+
+	recorder := httptest.NewRecorder()
+	server.handleSettings(recorder, httptest.NewRequest(http.MethodGet, "/api/settings", nil))
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("handleSettings(GET) status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	var state fonts.State
+	if err := json.NewDecoder(recorder.Body).Decode(&state); err != nil {
+		t.Fatalf("decode response error = %v", err)
+	}
+	if !state.DesktopMouseClipboardEnabled {
+		t.Fatalf("DesktopMouseClipboardEnabled = false, want default true")
+	}
+}
+
+func TestHandleSettingsPatchDesktopMouseClipboardPreservesFontAndScrollback(t *testing.T) {
+	server := &pluginServer{fontDir: t.TempDir()}
+	store := server.fontStore()
+	font, err := store.StoreUpload("Mono.woff2", "font/woff2", strings.NewReader("font-data"))
+	if err != nil {
+		t.Fatalf("StoreUpload() error = %v", err)
+	}
+	if err := store.SaveSelection(font.ID); err != nil {
+		t.Fatalf("SaveSelection() error = %v", err)
+	}
+	if err := store.SaveScrollback(44000); err != nil {
+		t.Fatalf("SaveScrollback() error = %v", err)
+	}
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPut, "/api/settings", strings.NewReader(`{"desktop_mouse_clipboard_enabled":false}`))
+	request.Header.Set("Content-Type", "application/json")
+	server.handleSettings(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("handleSettings() status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	var state fonts.State
+	if err := json.NewDecoder(recorder.Body).Decode(&state); err != nil {
+		t.Fatalf("decode response error = %v", err)
+	}
+	if state.TerminalFontID != font.ID || state.TerminalScrollback != 44000 || state.DesktopMouseClipboardEnabled {
+		t.Fatalf("State = %+v, want selected font, scrollback 44000, and disabled mouse clipboard", state)
+	}
+}
+
 func TestHandleSettingsPatchFontPreservesScrollback(t *testing.T) {
 	server := &pluginServer{fontDir: t.TempDir()}
 	store := server.fontStore()
@@ -124,6 +173,15 @@ func TestHandleSettingsPatchFontPreservesScrollback(t *testing.T) {
 	}
 	if err := store.SaveScrollback(33000); err != nil {
 		t.Fatalf("SaveScrollback() error = %v", err)
+	}
+	disabled := false
+	settings, err := store.ReadSettings()
+	if err != nil {
+		t.Fatalf("ReadSettings() error = %v", err)
+	}
+	settings.DesktopMouseClipboardEnabled = &disabled
+	if err := store.SaveSettings(settings); err != nil {
+		t.Fatalf("SaveSettings() error = %v", err)
 	}
 
 	recorder := httptest.NewRecorder()
@@ -139,8 +197,8 @@ func TestHandleSettingsPatchFontPreservesScrollback(t *testing.T) {
 	if err := json.NewDecoder(recorder.Body).Decode(&state); err != nil {
 		t.Fatalf("decode response error = %v", err)
 	}
-	if state.TerminalFontID != font.ID || state.TerminalScrollback != 33000 {
-		t.Fatalf("State = %+v, want selected font and preserved scrollback", state)
+	if state.TerminalFontID != font.ID || state.TerminalScrollback != 33000 || state.DesktopMouseClipboardEnabled {
+		t.Fatalf("State = %+v, want selected font, preserved scrollback, and disabled mouse clipboard", state)
 	}
 }
 

@@ -39,6 +39,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
   const settingsFontInput = document.getElementById("settingsFontInput");
   const settingsScrollbackInput = document.getElementById("settingsScrollbackInput");
   const settingsScrollbackResetButton = document.getElementById("settingsScrollbackResetButton");
+  const settingsDesktopMouseClipboardToggle = document.getElementById("settingsDesktopMouseClipboardToggle");
   const settingsThemeList = document.getElementById("settingsThemeList");
   const settingsFeedback = document.getElementById("settingsFeedback");
   const settingsTabs = Array.from(document.querySelectorAll("[data-settings-tab]"));
@@ -295,6 +296,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
   let activeTheme = themes.find((theme) => theme.id === window.localStorage.getItem(themeStorageKey)) || themes[0];
   let uploadedFonts = [];
   let activeTerminalFontID = "";
+  let desktopMouseClipboardEnabled = true;
   let fontEditMode = false;
   const selectedFontDeleteIDs = new Set();
   const registeredFontFaces = new Map();
@@ -321,6 +323,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
   let themePickerScrollbarThumbPointerOffset = 0;
   let settingsScrollbackSaveTimer = 0;
   let settingsScrollbackSaveRequestSeq = 0;
+  let settingsDesktopMouseClipboardRequestSeq = 0;
   const searchState = { open: false, query: "", matches: [], index: -1, sessionId: "" };
   const mobileSticky = { ctrl: false, alt: false, shift: false };
   let touchShortcutFeedbackEnabled = loadTouchShortcutFeedbackEnabled();
@@ -492,9 +495,21 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     }
   };
 
+  const syncSettingsDesktopMouseClipboardToggle = () => {
+    if (settingsDesktopMouseClipboardToggle) {
+      settingsDesktopMouseClipboardToggle.checked = desktopMouseClipboardEnabled;
+    }
+  };
+
   const setSettingsScrollbackSaving = (saving) => {
     if (settingsScrollbackResetButton) {
       settingsScrollbackResetButton.disabled = saving;
+    }
+  };
+
+  const setSettingsDesktopMouseClipboardSaving = (saving) => {
+    if (settingsDesktopMouseClipboardToggle) {
+      settingsDesktopMouseClipboardToggle.disabled = saving;
     }
   };
 
@@ -650,9 +665,11 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     const nextFontID = String(state?.terminal_font_id || "").trim();
     activeTerminalFontID = uploadedFonts.some((font) => font.id === nextFontID) ? nextFontID : "";
     terminalOptionsBase.scrollback = normalizeTerminalScrollback(state?.terminal_scrollback);
+    desktopMouseClipboardEnabled = state?.desktop_mouse_clipboard_enabled !== false;
     if (syncScrollbackInput) {
       syncSettingsScrollbackInput();
     }
+    syncSettingsDesktopMouseClipboardToggle();
     await registerUploadedFonts(uploadedFonts);
     renderSettingsFonts();
     applyTerminalFont();
@@ -688,6 +705,20 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
       throw new Error(await readResponseText(response, `滚动历史设置保存失败 (${response.status})`));
     }
     await applySettingsState(await response.json(), { syncScrollbackInput });
+  };
+
+  const saveDesktopMouseClipboardEnabled = async (enabled) => {
+    desktopMouseClipboardEnabled = enabled;
+    syncSettingsDesktopMouseClipboardToggle();
+    const response = await fetch("./api/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ desktop_mouse_clipboard_enabled: enabled }),
+    });
+    if (!response.ok) {
+      throw new Error(await readResponseText(response, `鼠标复制粘贴设置保存失败 (${response.status})`));
+    }
+    await applySettingsState(await response.json(), { syncScrollbackInput: false });
   };
 
   const saveTerminalScrollbackFromInput = () => {
@@ -801,6 +832,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     renderSettingsFonts();
     renderSettingsThemeList();
     syncSettingsScrollbackInput();
+    syncSettingsDesktopMouseClipboardToggle();
     setSettingsFeedback("");
     if (settingsBackdrop) {
       settingsBackdrop.hidden = false;
@@ -2978,11 +3010,13 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
 
     const handleMouseDown = (event) => {
       if (event.button === 1 && isTerminalMouseTarget(event.target)) {
-        event.preventDefault();
-        activateSessionPane();
+        if (desktopMouseClipboardEnabled) {
+          event.preventDefault();
+          activateSessionPane();
+        }
         return;
       }
-      if (event.button !== 0 || isMobileLayout() || !isTerminalMouseTarget(event.target)) {
+      if (!desktopMouseClipboardEnabled || event.button !== 0 || isMobileLayout() || !isTerminalMouseTarget(event.target)) {
         selectionDrag = null;
         return;
       }
@@ -3007,7 +3041,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     const handleMouseUp = (event) => {
       const drag = selectionDrag;
       selectionDrag = null;
-      if (!drag || event.button !== 0 || isMobileLayout() || !drag.moved) {
+      if (!desktopMouseClipboardEnabled || !drag || event.button !== 0 || isMobileLayout() || !drag.moved) {
         return;
       }
       if (!session.closed) {
@@ -3016,7 +3050,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     };
 
     const handleDoubleClick = (event) => {
-      if (event.button !== 0 || isMobileLayout() || !isTerminalMouseTarget(event.target)) {
+      if (!desktopMouseClipboardEnabled || event.button !== 0 || isMobileLayout() || !isTerminalMouseTarget(event.target)) {
         return;
       }
       session.selectAllBufferActive = false;
@@ -3026,7 +3060,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     };
 
     const handleAuxClick = async (event) => {
-      if (event.button !== 1 || !isTerminalMouseTarget(event.target)) {
+      if (!desktopMouseClipboardEnabled || event.button !== 1 || !isTerminalMouseTarget(event.target)) {
         return;
       }
       event.preventDefault();
@@ -6644,6 +6678,25 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
       .finally(() => {
         if (requestSeq === settingsScrollbackSaveRequestSeq) {
           setSettingsScrollbackSaving(false);
+        }
+      });
+  });
+  settingsDesktopMouseClipboardToggle?.addEventListener("change", () => {
+    const previous = desktopMouseClipboardEnabled;
+    const enabled = settingsDesktopMouseClipboardToggle.checked;
+    const requestSeq = ++settingsDesktopMouseClipboardRequestSeq;
+    setSettingsDesktopMouseClipboardSaving(true);
+    saveDesktopMouseClipboardEnabled(enabled)
+      .catch((error) => {
+        if (requestSeq === settingsDesktopMouseClipboardRequestSeq) {
+          desktopMouseClipboardEnabled = previous;
+          syncSettingsDesktopMouseClipboardToggle();
+        }
+        setSettingsFeedback(error.message || "鼠标复制粘贴设置保存失败。", "error");
+      })
+      .finally(() => {
+        if (requestSeq === settingsDesktopMouseClipboardRequestSeq) {
+          setSettingsDesktopMouseClipboardSaving(false);
         }
       });
   });

@@ -14,8 +14,9 @@ import (
 )
 
 type settingsPatch struct {
-	TerminalFontID     optionalString `json:"terminal_font_id"`
-	TerminalScrollback optionalInt    `json:"terminal_scrollback"`
+	TerminalFontID               optionalString `json:"terminal_font_id"`
+	TerminalScrollback           optionalInt    `json:"terminal_scrollback"`
+	DesktopMouseClipboardEnabled optionalBool   `json:"desktop_mouse_clipboard_enabled"`
 }
 
 type optionalString struct {
@@ -26,6 +27,12 @@ type optionalString struct {
 
 type optionalInt struct {
 	Value int
+	Set   bool
+	Null  bool
+}
+
+type optionalBool struct {
+	Value bool
 	Set   bool
 	Null  bool
 }
@@ -52,6 +59,16 @@ func (o *optionalInt) UnmarshalJSON(data []byte) error {
 	}
 	o.Value = value
 	return nil
+}
+
+func (o *optionalBool) UnmarshalJSON(data []byte) error {
+	o.Set = true
+	o.Value = false
+	o.Null = bytes.Equal(bytes.TrimSpace(data), []byte("null"))
+	if o.Null {
+		return nil
+	}
+	return json.Unmarshal(data, &o.Value)
 }
 
 func (s *pluginServer) fontStore() fonts.Store {
@@ -100,6 +117,9 @@ func (s *pluginServer) handleSettings(w http.ResponseWriter, r *http.Request) {
 			}
 			if payload.TerminalScrollback.Set && !payload.TerminalScrollback.Null {
 				settings.TerminalScrollback = payload.TerminalScrollback.Value
+			}
+			if payload.DesktopMouseClipboardEnabled.Set && !payload.DesktopMouseClipboardEnabled.Null {
+				settings.DesktopMouseClipboardEnabled = &payload.DesktopMouseClipboardEnabled.Value
 			}
 			_, err = store.MergeSettings(settings, !updateFont)
 		}
