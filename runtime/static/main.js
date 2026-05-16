@@ -337,6 +337,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
   let activeTheme = themes.find((theme) => theme.id === window.localStorage.getItem(themeStorageKey)) || themes[0];
   let uploadedFonts = [];
   let activeTerminalFontID = "";
+  let terminalSymbolFont = null;
   let desktopMouseClipboardEnabled = true;
   let fontEditMode = false;
   const selectedFontDeleteIDs = new Set();
@@ -626,6 +627,17 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     };
   };
 
+  const normalizeTerminalSymbolFont = (font) => {
+    const normalized = normalizeUploadedFont(font);
+    if (!normalized) {
+      return null;
+    }
+    return {
+      ...normalized,
+      sha256: String(font?.sha256 || "").trim(),
+    };
+  };
+
   const fontFileSource = (font) => new URL(font.url || `/api/settings/fonts/${font.id}/file`, window.location.href).toString();
 
   const cssString = (value) => `"${String(value || "").replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
@@ -768,8 +780,11 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     }
   };
 
+  const registeredFontFaceKey = (font) => `${font?.id || ""}:${font?.family || ""}`;
+
   const registerUploadedFont = async (font) => {
-    if (!font?.id || !font.family || registeredFontFaces.has(font.id) || typeof FontFace !== "function") {
+    const key = registeredFontFaceKey(font);
+    if (!font?.id || !font.family || registeredFontFaces.has(key) || typeof FontFace !== "function") {
       return;
     }
     if (!document.fonts) {
@@ -778,7 +793,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     const face = new FontFace(font.family, `url(${cssString(fontFileSource(font))})`, { display: "swap" });
     await face.load();
     document.fonts.add(face);
-    registeredFontFaces.set(font.id, face);
+    registeredFontFaces.set(key, face);
   };
 
   const registerUploadedFonts = async (fonts) => {
@@ -795,11 +810,26 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     }
   };
 
+  const registerTerminalSymbolFont = async (font) => {
+    if (!font) {
+      return;
+    }
+    try {
+      await registerUploadedFont(font);
+    } catch (error) {
+      setSettingsFeedback("Nerd Font 符号字体加载失败，starship prompt 可能显示异常。", "error");
+    }
+  };
+
+  const buildTerminalFontFamily = (selected) => [
+    selected?.family ? cssString(selected.family) : "",
+    terminalSymbolFont?.family ? cssString(terminalSymbolFont.family) : "",
+    defaultTerminalFontFamily,
+  ].filter(Boolean).join(", ");
+
   const applyTerminalFont = () => {
     const selected = uploadedFonts.find((font) => font.id === activeTerminalFontID);
-    terminalOptionsBase.fontFamily = selected
-      ? `${cssString(selected.family)}, ${defaultTerminalFontFamily}`
-      : defaultTerminalFontFamily;
+    terminalOptionsBase.fontFamily = buildTerminalFontFamily(selected);
     for (const tab of tabs.values()) {
       for (const pane of tab.panes.values()) {
         pane.term.options.fontFamily = terminalOptionsBase.fontFamily;
@@ -1568,6 +1598,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
       ? state.fonts.map(normalizeUploadedFont).filter(Boolean)
       : [];
     uploadedFonts = fonts;
+    terminalSymbolFont = normalizeTerminalSymbolFont(state?.terminal_symbol_font);
     const nextFontID = String(state?.terminal_font_id || "").trim();
     activeTerminalFontID = uploadedFonts.some((font) => font.id === nextFontID) ? nextFontID : "";
     terminalOptionsBase.scrollback = normalizeTerminalScrollback(state?.terminal_scrollback);
@@ -1577,6 +1608,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
       syncSettingsScrollbackInput();
     }
     syncSettingsDesktopMouseClipboardToggle();
+    await registerTerminalSymbolFont(terminalSymbolFont);
     await registerUploadedFonts(uploadedFonts);
     renderSettingsFonts();
     applyTerminalFont();

@@ -31,3 +31,14 @@ This directory contains Regular WOFF2 files bundled with the LPK package for off
 - Source path in archive: `web/fonts/hack-regular.woff2`
 - SHA-256: `0b0ef254dfc7afc172528e3166eace813989e1cf77f576ddae5f5e8fb2897c06`
 - License: `LICENSES/Hack-LICENSE.txt`
+
+## Nerd Fonts Symbols Only
+
+- File: `preinstalled/SymbolsNerdFontMono-Regular.ttf`
+- Upstream: https://github.com/ryanoasis/nerd-fonts
+- Release: `v3.4.0`
+- Asset: `NerdFontsSymbolsOnly.zip`
+- Asset SHA-256: `8e617904b980fe3648a4b116808788fe50c99d2d495376cb7c0badbd8a564c47`
+- Source path in archive: `SymbolsNerdFontMono-Regular.ttf`
+- SHA-256: `f0f624d9b474bea1662cf7e862d44aebe1ae1f6c7f9cb7a0ca5d0e5ac9561c60`
+- License: `LICENSES/NerdFontsSymbolsOnly-LICENSE.txt`

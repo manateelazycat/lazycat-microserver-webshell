@@ -263,6 +263,43 @@ func TestStoreListsSelectsServesAndDeletesBundledFonts(t *testing.T) {
 	}
 }
 
+func TestStoreExposesTerminalSymbolFontSeparately(t *testing.T) {
+	bundledDir := t.TempDir()
+	writeBundledFont(t, bundledDir, terminalSymbolFont.File, "symbols")
+	store := Store{Dir: t.TempDir(), BundledDir: bundledDir}
+
+	state, err := store.State()
+	if err != nil {
+		t.Fatalf("State() error = %v", err)
+	}
+	if len(state.Fonts) != 0 {
+		t.Fatalf("Fonts = %+v, want symbol font hidden from selectable fonts", state.Fonts)
+	}
+	if state.TerminalSymbolFont == nil {
+		t.Fatal("TerminalSymbolFont = nil, want descriptor")
+	}
+	if state.TerminalSymbolFont.ID != terminalSymbolFont.ID || state.TerminalSymbolFont.Family != terminalSymbolFont.Family {
+		t.Fatalf("TerminalSymbolFont = %+v, want configured symbol font", state.TerminalSymbolFont)
+	}
+	if !strings.Contains(state.TerminalSymbolFont.URL, "?v=") {
+		t.Fatalf("TerminalSymbolFont.URL = %q, want cache version", state.TerminalSymbolFont.URL)
+	}
+
+	file, err := store.File(terminalSymbolFont.ID)
+	if err != nil {
+		t.Fatalf("File(symbol) error = %v", err)
+	}
+	if file.MIME != "font/ttf" || filepath.Base(file.Path) != terminalSymbolFont.File {
+		t.Fatalf("File(symbol) = %+v, want symbol ttf", file)
+	}
+	if err := store.SaveSelection(terminalSymbolFont.ID); !errors.Is(err, ErrBadRequest) {
+		t.Fatalf("SaveSelection(symbol) error = %v, want ErrBadRequest", err)
+	}
+	if err := store.Delete(terminalSymbolFont.ID); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("Delete(symbol) error = %v, want os.ErrNotExist", err)
+	}
+}
+
 func writeBundledFont(t *testing.T, dir, name, data string) {
 	t.Helper()
 	if err := os.WriteFile(filepath.Join(dir, name), []byte(data), 0o644); err != nil {

@@ -373,6 +373,7 @@ func TestHandleSettingsServesBundledFonts(t *testing.T) {
 		{name: "SourceCodePro-Regular.woff2", data: "source"},
 		{name: "FiraCode-Regular.woff2", data: "fira"},
 		{name: "Hack-Regular.woff2", data: "hack"},
+		{name: "SymbolsNerdFontMono-Regular.ttf", data: "symbols"},
 	} {
 		if err := os.WriteFile(filepath.Join(bundledDir, item.name), []byte(item.data), 0o644); err != nil {
 			t.Fatalf("write bundled font %q error = %v", item.name, err)
@@ -394,6 +395,12 @@ func TestHandleSettingsServesBundledFonts(t *testing.T) {
 	}
 	if state.Fonts[0].Label != "Source Code Pro" || !state.Fonts[0].Builtin {
 		t.Fatalf("first bundled font = %+v, want Source Code Pro builtin", state.Fonts[0])
+	}
+	if state.TerminalSymbolFont == nil {
+		t.Fatal("TerminalSymbolFont = nil, want bundled Nerd Font symbol descriptor")
+	}
+	if state.TerminalSymbolFont.Family != "WebShellNerdSymbols" || state.TerminalSymbolFont.MIME != "font/ttf" {
+		t.Fatalf("TerminalSymbolFont = %+v, want Nerd Font symbols ttf", state.TerminalSymbolFont)
 	}
 
 	selectedID := state.Fonts[0].ID
@@ -420,6 +427,15 @@ func TestHandleSettingsServesBundledFonts(t *testing.T) {
 	}
 	if contentType := recorder.Header().Get("Content-Type"); contentType != "font/woff2" {
 		t.Fatalf("Content-Type = %q, want font/woff2", contentType)
+	}
+
+	recorder = httptest.NewRecorder()
+	server.handleSettingsFont(recorder, httptest.NewRequest(http.MethodGet, "/api/settings/fonts/"+state.TerminalSymbolFont.ID+"/file", nil))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("handleSettingsFont(symbol file) status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	if contentType := recorder.Header().Get("Content-Type"); contentType != "font/ttf" {
+		t.Fatalf("symbol Content-Type = %q, want font/ttf", contentType)
 	}
 
 	recorder = httptest.NewRecorder()

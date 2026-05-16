@@ -40,6 +40,7 @@ type Store struct {
 
 type State struct {
 	TerminalFontID               string             `json:"terminal_font_id"`
+	TerminalSymbolFont           *SymbolDescriptor  `json:"terminal_symbol_font,omitempty"`
 	TerminalScrollback           int                `json:"terminal_scrollback"`
 	DesktopMouseClipboardEnabled bool               `json:"desktop_mouse_clipboard_enabled"`
 	MobileShortcuts              MobileShortcutRows `json:"mobile_shortcuts"`
@@ -98,6 +99,17 @@ type Descriptor struct {
 	Builtin    bool   `json:"builtin,omitempty"`
 }
 
+type SymbolDescriptor struct {
+	ID       string `json:"id"`
+	Label    string `json:"label"`
+	Family   string `json:"family"`
+	Filename string `json:"filename"`
+	MIME     string `json:"mime"`
+	Size     int64  `json:"size"`
+	URL      string `json:"url"`
+	SHA256   string `json:"sha256"`
+}
+
 type File struct {
 	Path string
 	MIME string
@@ -109,6 +121,16 @@ type bundledFont struct {
 	Family   string
 	Filename string
 	File     string
+	SHA256   string
+}
+
+type symbolFont struct {
+	ID       string
+	Label    string
+	Family   string
+	Filename string
+	File     string
+	MIME     string
 	SHA256   string
 }
 
@@ -137,6 +159,16 @@ var bundledFonts = []bundledFont{
 		File:     "Hack-Regular.woff2",
 		SHA256:   "0b0ef254dfc7afc172528e3166eace813989e1cf77f576ddae5f5e8fb2897c06",
 	},
+}
+
+var terminalSymbolFont = symbolFont{
+	ID:       "f0f624d9b474bea1662cf7e862d44aebe1ae1f6c7f9cb7a0ca5d0e5ac9561c60",
+	Label:    "Nerd Font Symbols",
+	Family:   "WebShellNerdSymbols",
+	Filename: "SymbolsNerdFontMono-Regular.ttf",
+	File:     "SymbolsNerdFontMono-Regular.ttf",
+	MIME:     "font/ttf",
+	SHA256:   "f0f624d9b474bea1662cf7e862d44aebe1ae1f6c7f9cb7a0ca5d0e5ac9561c60",
 }
 
 var defaultMobileShortcuts = MobileShortcutRows{
@@ -229,12 +261,14 @@ func (s Store) State() (State, error) {
 	if err != nil {
 		return State{}, err
 	}
+	symbolFont := s.terminalSymbolFontDescriptor()
 	selected := strings.TrimSpace(settings.TerminalFontID)
 	if selected != "" && !fontExists(fonts, selected) {
 		selected = ""
 	}
 	return State{
 		TerminalFontID:               selected,
+		TerminalSymbolFont:           symbolFont,
 		TerminalScrollback:           settings.TerminalScrollback,
 		DesktopMouseClipboardEnabled: desktopMouseClipboardEnabled(settings),
 		MobileShortcuts:              effectiveMobileShortcuts(settings),
@@ -385,6 +419,12 @@ func (s Store) List() ([]Descriptor, error) {
 }
 
 func (s Store) File(id string) (File, error) {
+	if id == terminalSymbolFont.ID {
+		if err := s.ensureTerminalSymbolFontAvailable(); err != nil {
+			return File{}, err
+		}
+		return File{Path: s.terminalSymbolFontPath(), MIME: terminalSymbolFont.MIME}, nil
+	}
 	if font, ok := bundledFontByID(id); ok {
 		settings, err := s.ReadSettings()
 		if err != nil {
@@ -621,6 +661,26 @@ func (s Store) bundledDescriptor(font bundledFont) (Descriptor, bool) {
 	}, true
 }
 
+func (s Store) terminalSymbolFontDescriptor() *SymbolDescriptor {
+	if err := s.ensureTerminalSymbolFontAvailable(); err != nil {
+		return nil
+	}
+	info, err := os.Stat(s.terminalSymbolFontPath())
+	if err != nil || info.IsDir() {
+		return nil
+	}
+	return &SymbolDescriptor{
+		ID:       terminalSymbolFont.ID,
+		Label:    terminalSymbolFont.Label,
+		Family:   terminalSymbolFont.Family,
+		Filename: terminalSymbolFont.Filename,
+		MIME:     terminalSymbolFont.MIME,
+		Size:     info.Size(),
+		URL:      "/api/settings/fonts/" + terminalSymbolFont.ID + "/file?v=" + terminalSymbolFont.SHA256[:12],
+		SHA256:   terminalSymbolFont.SHA256,
+	}
+}
+
 func (s Store) ensureBundledFontAvailable(id string) error {
 	font, ok := bundledFontByID(id)
 	if !ok {
@@ -642,8 +702,29 @@ func (s Store) ensureBundledFontAvailable(id string) error {
 	return nil
 }
 
+func (s Store) ensureTerminalSymbolFontAvailable() error {
+	if strings.TrimSpace(s.BundledDir) == "" {
+		return os.ErrNotExist
+	}
+	info, err := os.Stat(s.terminalSymbolFontPath())
+	if errors.Is(err, os.ErrNotExist) {
+		return os.ErrNotExist
+	}
+	if err != nil {
+		return err
+	}
+	if info.IsDir() {
+		return os.ErrNotExist
+	}
+	return nil
+}
+
 func (s Store) bundledPath(font bundledFont) string {
 	return filepath.Join(s.BundledDir, font.File)
+}
+
+func (s Store) terminalSymbolFontPath() string {
+	return filepath.Join(s.BundledDir, terminalSymbolFont.File)
 }
 
 func bundledFontByID(id string) (bundledFont, bool) {
