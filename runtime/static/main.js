@@ -463,7 +463,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
       { id: "page-down", label: "PageDown", ariaLabel: "Page Down", action: "page_down" },
     ],
     [
-      { id: "mobile-menu", label: "Menu", ariaLabel: "Menu", action: "open_mobile_menu", kind: "menu", icon: "menu" },
+      { id: "mobile-menu", label: "Menu", ariaLabel: "Menu", action: "open_mobile_menu", kind: "menu" },
       { id: "esc", label: "Esc", ariaLabel: "Escape", data: "\x1b", inputKey: "escape", kind: "primary" },
       { id: "ctrl-e", label: "Ctrl+E", ariaLabel: "Control E", data: "\x05", inputKey: "e", inputModifiers: { ctrl: true } },
       { id: "ctrl-c", label: "Ctrl+C", ariaLabel: "Control C", data: "\x03", inputKey: "c", inputModifiers: { ctrl: true }, kind: "primary" },
@@ -6904,7 +6904,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
         if (shortcut.kind) {
           button.dataset.kind = shortcut.kind;
         }
-        if (shortcut.icon) {
+        if (shortcut.icon && shortcut.action !== "open_mobile_menu") {
           button.appendChild(createSVGIcon(shortcut.icon, "mobile-shortcut-icon"));
         } else {
           button.textContent = shortcut.label;

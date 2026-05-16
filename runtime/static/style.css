@@ -3346,10 +3346,14 @@ body.is-mobile-shortcut-dragging {
   }
 
   .mobile-shortcuts button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     flex: 0 0 auto;
     min-width: 28px;
     height: 28px;
     padding: 0 6px;
+    border: 0;
     background: transparent;
     color: var(--terminal-fg);
     font: inherit;
@@ -3367,7 +3371,6 @@ body.is-mobile-shortcut-dragging {
     position: relative;
     width: 40px;
     min-width: 40px;
-    margin-left: 8px;
     padding: 0;
   }
 
