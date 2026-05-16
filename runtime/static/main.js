@@ -4081,14 +4081,17 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     for (const pane of tab.panes.values()) {
       pane.shellEl.classList.toggle("active", pane.id === paneId);
     }
+    const activePane = tab.panes.get(paneId);
+    if (!wasActive) {
+      resetSessionUserInput(activePane);
+    }
     refreshTabAutoLabel(tab);
     syncCursorBlinkState();
-    updateMobileSelectionHandles(tab.panes.get(paneId));
+    updateMobileSelectionHandles(activePane);
     if (focus) {
-      const pane = tab.panes.get(paneId);
       window.requestAnimationFrame(() => {
-        resizePane(pane);
-        pane?.term?.focus();
+        resizePane(activePane);
+        activePane?.term?.focus();
       });
     }
     if (!applyingWorkspaceState && !wasActive) {
@@ -5358,13 +5361,17 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
       if (!pane) {
         continue;
       }
+      const wasBusy = Boolean(pane.busy);
+      const isBusy = Boolean(paneState.busy);
       pane.tty = paneState.tty || pane.tty || "";
-      pane.busy = Boolean(paneState.busy);
+      pane.busy = isBusy;
       pane.command = paneState.command || "";
       pane.processCommandLine = paneState.command_line || "";
       pane.cwd = paneState.cwd || pane.cwd || "";
       pane.activityCheckedAt = Number(paneState.activity_checked_at || 0);
       pane.shellEl.dataset.busy = pane.busy ? "true" : "false";
+      markSessionActivityNotification(pane, wasBusy, isBusy);
+      markSessionIdleNotification(pane, wasBusy, isBusy);
       if (tab.activePaneId === pane.id) {
         refreshTabAutoLabel(tab);
       }
@@ -5471,6 +5478,41 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     tab.hasNotification = false;
     tab.button?.classList.remove("has-notification");
     updateDocumentTitle();
+  };
+
+  const markSessionUserInput = (session) => {
+    if (session) {
+      session.hasUserInputSinceFocus = true;
+    }
+  };
+
+  const markSessionTitleNotification = (session) => {
+    if (!session?.hasUserInputSinceFocus || session.tabId === activeTabId) {
+      return;
+    }
+    markTabNotification(session.tabId);
+  };
+
+  const markSessionActivityNotification = (session, wasBusy, isBusy) => {
+    if (!session?.hasUserInputSinceFocus || session.tabId === activeTabId || wasBusy || !isBusy) {
+      return;
+    }
+    session.notifyWhenIdle = true;
+  };
+
+  const markSessionIdleNotification = (session, wasBusy, isBusy) => {
+    if (!session?.notifyWhenIdle || session.tabId === activeTabId || !wasBusy || isBusy) {
+      return;
+    }
+    session.notifyWhenIdle = false;
+    markTabNotification(session.tabId);
+  };
+
+  const resetSessionUserInput = (session) => {
+    if (session) {
+      session.hasUserInputSinceFocus = false;
+      session.notifyWhenIdle = false;
+    }
   };
 
   const setNetworkBanner = (visible, message = "") => {
@@ -6822,6 +6864,9 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
       discardSessionInputBuffers(session);
       return;
     }
+    if (data) {
+      markSessionUserInput(session);
+    }
     const byteLength = textEncoder.encode(data).length;
     const maxPendingInput = 8 * 1024 * 1024;
     if (session.closed || session.exitExpected) {
@@ -7111,6 +7156,8 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
       baseTheme: activeTheme,
       selectAllBufferActive: false,
       title: "",
+      hasUserInputSinceFocus: false,
+      notifyWhenIdle: false,
       tty: "",
       busy: false,
       command: "",
@@ -7154,12 +7201,15 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     term.onTitleChange((title) => {
       const current = tabs.get(session.tabId);
       const normalized = String(title || "").trim();
+      const changed = normalized !== session.title;
       session.title = normalized;
       if (current && !current.customLabel) {
         refreshTabAutoLabel(current);
       }
+      if (changed) {
+        markSessionTitleNotification(session);
+      }
     });
-    term.onBell(() => markTabNotification(session.tabId));
     term.onSelectionChange(() => {
       if (!term.hasSelection?.()) {
         session.selectAllBufferActive = false;
@@ -7322,6 +7372,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
       item.button?.setAttribute("tabindex", isActive ? "0" : "-1");
     }
     setActivePane(tab, tab.activePaneId, { focus });
+    resetSessionUserInput(tab.panes.get(tab.activePaneId));
     syncCursorBlinkState();
     clearTabNotification(tab);
     if (remember) {
