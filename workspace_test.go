@@ -258,6 +258,47 @@ func TestHandleSettingsPatchMobileShortcutsPreservesExistingSettings(t *testing.
 	}
 }
 
+func TestHandleSettingsPatchDesktopShortcutsPreservesExistingSettings(t *testing.T) {
+	server := &pluginServer{fontDir: t.TempDir()}
+	store := server.fontStore()
+	font, err := store.StoreUpload("Mono.woff2", "font/woff2", strings.NewReader("font-data"))
+	if err != nil {
+		t.Fatalf("StoreUpload() error = %v", err)
+	}
+	disabled := false
+	settings := fonts.Settings{
+		TerminalFontID:               font.ID,
+		TerminalScrollback:           33000,
+		DesktopMouseClipboardEnabled: &disabled,
+	}
+	if err := store.SaveSettings(settings); err != nil {
+		t.Fatalf("SaveSettings() error = %v", err)
+	}
+
+	body := `{"desktop_shortcuts":[{"id":"custom-copy","label":"Copy","action":"copy_terminal","shortcut":"Command + c"}]}`
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPut, "/api/settings", strings.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	server.handleSettings(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("handleSettings() status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	var state fonts.State
+	if err := json.NewDecoder(recorder.Body).Decode(&state); err != nil {
+		t.Fatalf("decode response error = %v", err)
+	}
+	if state.TerminalFontID != font.ID || state.TerminalScrollback != 33000 || state.DesktopMouseClipboardEnabled {
+		t.Fatalf("State = %+v, want preserved existing settings", state)
+	}
+	if state.DesktopShortcuts == nil || len(*state.DesktopShortcuts) != 1 {
+		t.Fatalf("DesktopShortcuts = %+v, want one custom shortcut", state.DesktopShortcuts)
+	}
+	if got := (*state.DesktopShortcuts)[0]; got.ID != "custom-copy" || got.Action != "copy_terminal" || got.Shortcut != "Command + c" {
+		t.Fatalf("DesktopShortcuts[0] = %+v, want custom copy shortcut", got)
+	}
+}
+
 func TestHandleSettingsMobileShortcutsNullRestoresDefaultAndEmptyRowsAreExplicit(t *testing.T) {
 	server := &pluginServer{fontDir: t.TempDir()}
 
@@ -292,6 +333,40 @@ func TestHandleSettingsMobileShortcutsNullRestoresDefaultAndEmptyRowsAreExplicit
 	}
 }
 
+func TestHandleSettingsDesktopShortcutsNullRestoresDefaultAndEmptyListIsExplicit(t *testing.T) {
+	server := &pluginServer{fontDir: t.TempDir()}
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPut, "/api/settings", strings.NewReader(`{"desktop_shortcuts":[]}`))
+	request.Header.Set("Content-Type", "application/json")
+	server.handleSettings(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("handleSettings(empty) status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	var state fonts.State
+	if err := json.NewDecoder(recorder.Body).Decode(&state); err != nil {
+		t.Fatalf("decode empty response error = %v", err)
+	}
+	if state.DesktopShortcuts == nil || len(*state.DesktopShortcuts) != 0 {
+		t.Fatalf("DesktopShortcuts after empty save = %+v, want empty list", state.DesktopShortcuts)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodPut, "/api/settings", strings.NewReader(`{"desktop_shortcuts":null}`))
+	request.Header.Set("Content-Type", "application/json")
+	server.handleSettings(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("handleSettings(reset) status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	state = fonts.State{}
+	if err := json.NewDecoder(recorder.Body).Decode(&state); err != nil {
+		t.Fatalf("decode reset response error = %v", err)
+	}
+	if state.DesktopShortcuts != nil {
+		t.Fatalf("DesktopShortcuts after reset = %+v, want nil/default client config", state.DesktopShortcuts)
+	}
+}
+
 func TestHandleSettingsRejectsInvalidMobileShortcutsWithoutWriting(t *testing.T) {
 	for _, body := range []string{
 		`{"mobile_shortcuts":[[{"id":"dup","label":"A","input_key":"a"}],[{"id":"dup","label":"B","input_key":"b"}]]}`,
@@ -323,6 +398,42 @@ func TestHandleSettingsRejectsInvalidMobileShortcutsWithoutWriting(t *testing.T)
 			}
 			if got := state.MobileShortcuts[0][0]; got.ID != "keep" {
 				t.Fatalf("MobileShortcuts after rejected write = %+v, want preserved keep", state.MobileShortcuts)
+			}
+		})
+	}
+}
+
+func TestHandleSettingsRejectsInvalidDesktopShortcutsWithoutWriting(t *testing.T) {
+	for _, body := range []string{
+		`{"desktop_shortcuts":[{"id":"dup","label":"A","action":"copy_terminal","shortcut":"Ctrl + Shift + c"},{"id":"dup","label":"B","action":"paste_terminal","shortcut":"Ctrl + Shift + v"}]}`,
+		`{"desktop_shortcuts":[{"id":"bad space","label":"A","action":"copy_terminal","shortcut":"Ctrl + Shift + c"}]}`,
+		`{"desktop_shortcuts":[{"id":"bad-action","label":"A","action":"unknown","shortcut":"Ctrl + Shift + c"}]}`,
+		`{"desktop_shortcuts":[{"id":"bad-label","label":"","action":"copy_terminal","shortcut":"Ctrl + Shift + c"}]}`,
+		`{"desktop_shortcuts":[{"id":"bad-shortcut","label":"A","action":"copy_terminal","shortcut":"Ctrl + Shift"}]}`,
+		`{"desktop_shortcuts":[{"id":"dup-a","label":"A","action":"copy_terminal","shortcut":"Ctrl + Shift + c"},{"id":"dup-b","label":"B","action":"paste_terminal","shortcut":"Ctrl + Shift + c"}]}`,
+	} {
+		t.Run(body, func(t *testing.T) {
+			server := &pluginServer{fontDir: t.TempDir()}
+			initial := fonts.DesktopShortcutList{{ID: "keep", Label: "Keep", Action: "copy_terminal", Shortcut: "Ctrl + Shift + c"}}
+			settings := fonts.Settings{TerminalScrollback: fonts.DefaultTerminalScrollback, DesktopShortcuts: &initial}
+			if err := server.fontStore().SaveSettings(settings); err != nil {
+				t.Fatalf("SaveSettings() error = %v", err)
+			}
+
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(http.MethodPut, "/api/settings", strings.NewReader(body))
+			request.Header.Set("Content-Type", "application/json")
+			server.handleSettings(recorder, request)
+
+			if recorder.Code != http.StatusBadRequest {
+				t.Fatalf("handleSettings() status = %d, body = %s", recorder.Code, recorder.Body.String())
+			}
+			state, err := server.fontStore().State()
+			if err != nil {
+				t.Fatalf("State() error = %v", err)
+			}
+			if state.DesktopShortcuts == nil || len(*state.DesktopShortcuts) != 1 || (*state.DesktopShortcuts)[0].ID != "keep" {
+				t.Fatalf("DesktopShortcuts after rejected write = %+v, want preserved keep", state.DesktopShortcuts)
 			}
 		})
 	}

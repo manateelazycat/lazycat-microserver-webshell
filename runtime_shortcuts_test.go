@@ -39,3 +39,36 @@ func TestRuntimeShortcutDefaultsGuardMacAndAltMappings(t *testing.T) {
 		}
 	}
 }
+
+func TestRuntimeShortcutSettingsGuardDesktopShortcutEditor(t *testing.T) {
+	for _, path := range []string{"runtime/static/index.html", "runtime/static/main.js"} {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("ReadFile(%s) error = %v", path, err)
+		}
+		source := string(data)
+		wantSnippets := map[string][]string{
+			"runtime/static/index.html": {
+				`data-settings-tab="desktop-shortcuts">PC快捷键设置`,
+				`id="settingsDesktopShortcutAddButton"`,
+				`id="settingsDesktopShortcutResetButton"`,
+				`id="settingsDesktopShortcutList"`,
+				`id="desktopShortcutEditor"`,
+				`id="desktopShortcutCaptureInput"`,
+			},
+			"runtime/static/main.js": {
+				`const settingsDesktopShortcutAddButton = document.getElementById("settingsDesktopShortcutAddButton");`,
+				`const defaultDesktopShortcutsConfig = [`,
+				`const rebuildShortcutActionMap = () => {`,
+				`body: JSON.stringify({ desktop_shortcuts: reset ? null : serializeDesktopShortcuts(nextShortcuts) }),`,
+				`settingsDesktopShortcutAddButton?.addEventListener("click", () => openDesktopShortcutEditor({ index: -1 }));`,
+				`submitDesktopShortcutEditor();`,
+			},
+		}
+		for _, want := range wantSnippets[path] {
+			if !strings.Contains(source, want) {
+				t.Fatalf("%s desktop shortcut guard missing %q", path, want)
+			}
+		}
+	}
+}

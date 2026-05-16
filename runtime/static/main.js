@@ -42,6 +42,9 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
   const settingsMobileShortcutAddButton = document.getElementById("settingsMobileShortcutAddButton");
   const settingsMobileShortcutResetButton = document.getElementById("settingsMobileShortcutResetButton");
   const settingsMobileShortcutList = document.getElementById("settingsMobileShortcutList");
+  const settingsDesktopShortcutAddButton = document.getElementById("settingsDesktopShortcutAddButton");
+  const settingsDesktopShortcutResetButton = document.getElementById("settingsDesktopShortcutResetButton");
+  const settingsDesktopShortcutList = document.getElementById("settingsDesktopShortcutList");
   const serviceForwardAddButton = document.getElementById("serviceForwardAddButton");
   const serviceForwardStatus = document.getElementById("serviceForwardStatus");
   const serviceForwardList = document.getElementById("serviceForwardList");
@@ -80,8 +83,23 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
   const mobileShortcutActionSelect = document.getElementById("mobileShortcutActionSelect");
   const mobileShortcutEditorCancel = document.getElementById("mobileShortcutEditorCancel");
   const mobileShortcutEditorDelete = document.getElementById("mobileShortcutEditorDelete");
+  const desktopShortcutEditor = document.getElementById("desktopShortcutEditor");
+  const desktopShortcutEditorScrim = document.getElementById("desktopShortcutEditorScrim");
+  const desktopShortcutEditorPanel = document.getElementById("desktopShortcutEditorPanel");
+  const desktopShortcutEditorTitle = document.getElementById("desktopShortcutEditorTitle");
+  const desktopShortcutLabelInput = document.getElementById("desktopShortcutLabelInput");
+  const desktopShortcutActionSelect = document.getElementById("desktopShortcutActionSelect");
+  const desktopShortcutCaptureInput = document.getElementById("desktopShortcutCaptureInput");
+  const desktopShortcutCtrlInput = document.getElementById("desktopShortcutCtrlInput");
+  const desktopShortcutAltInput = document.getElementById("desktopShortcutAltInput");
+  const desktopShortcutShiftInput = document.getElementById("desktopShortcutShiftInput");
+  const desktopShortcutCommandInput = document.getElementById("desktopShortcutCommandInput");
+  const desktopShortcutKeySelect = document.getElementById("desktopShortcutKeySelect");
+  const desktopShortcutEditorCancel = document.getElementById("desktopShortcutEditorCancel");
+  const desktopShortcutEditorDelete = document.getElementById("desktopShortcutEditorDelete");
   const settingsThemePanel = document.getElementById("settingsPanelTheme");
   const settingsMobileShortcutsPanel = document.getElementById("settingsPanelMobileShortcuts");
+  const settingsDesktopShortcutsPanel = document.getElementById("settingsPanelDesktopShortcuts");
   const settingsThemeList = document.getElementById("settingsThemeList");
   const settingsFeedback = document.getElementById("settingsFeedback");
   const settingsTabs = Array.from(document.querySelectorAll("[data-settings-tab]"));
@@ -372,6 +390,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
   let themePickerScrollbarThumbPointerOffset = 0;
   let settingsThemeScrollbarHideTimer = 0;
   let settingsMobileShortcutsScrollbarHideTimer = 0;
+  let settingsDesktopShortcutsScrollbarHideTimer = 0;
   let settingsScrollbackSaveTimer = 0;
   let settingsScrollbackSaveRequestSeq = 0;
   let settingsDesktopMouseClipboardRequestSeq = 0;
@@ -380,6 +399,10 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
   let mobileShortcutsPersistChain = Promise.resolve();
   let mobileShortcutEditorState = null;
   let mobileShortcutDragState = null;
+  let desktopShortcutsSaveRequestSeq = 0;
+  let desktopShortcutsSaveVersion = 0;
+  let desktopShortcutsPersistChain = Promise.resolve();
+  let desktopShortcutEditorState = null;
   let serviceForwardEntries = [];
   let serviceForwardRequestSeq = 0;
   let serviceForwardEditingID = "";
@@ -534,6 +557,15 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
       : []);
   }
 
+  const cloneDesktopShortcuts = (shortcuts) => Array.isArray(shortcuts)
+    ? shortcuts.map((shortcut) => ({
+      id: String(shortcut?.id || "").trim(),
+      label: String(shortcut?.label || "").trim(),
+      action: String(shortcut?.action || "").trim(),
+      shortcut: String(shortcut?.shortcut || "").trim(),
+    }))
+    : [];
+
   const toClientMobileShortcut = (shortcut) => {
     const id = String(shortcut?.id || "").trim();
     const label = String(shortcut?.label || "").trim();
@@ -599,6 +631,47 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     return item;
   }));
 
+  const toClientDesktopShortcut = (shortcut) => {
+    const id = String(shortcut?.id || "").trim();
+    const action = String(shortcut?.action || "").trim();
+    const normalizedShortcut = normalizeShortcutDefinition(shortcut?.shortcut);
+    if (!id || !desktopShortcutActionLabels.has(action) || !normalizedShortcut) {
+      return null;
+    }
+    const label = String(shortcut?.label || "").trim() || desktopShortcutActionLabels.get(action) || action;
+    return {
+      id,
+      label,
+      action,
+      shortcut: String(shortcut?.shortcut || "").trim(),
+    };
+  };
+
+  const normalizeDesktopShortcuts = (shortcuts) => {
+    if (!Array.isArray(shortcuts)) {
+      return cloneDesktopShortcuts(defaultDesktopShortcutsConfig);
+    }
+    const seenShortcuts = new Set();
+    return shortcuts.map(toClientDesktopShortcut).filter((shortcut) => {
+      if (!shortcut) {
+        return false;
+      }
+      const normalized = normalizeShortcutDefinition(shortcut.shortcut);
+      if (!normalized || seenShortcuts.has(normalized)) {
+        return false;
+      }
+      seenShortcuts.add(normalized);
+      return true;
+    });
+  };
+
+  const serializeDesktopShortcuts = (shortcuts) => cloneDesktopShortcuts(shortcuts).map((shortcut) => ({
+    id: shortcut.id,
+    label: shortcut.label,
+    action: shortcut.action,
+    shortcut: shortcut.shortcut,
+  }));
+
   const applyMobileShortcutRows = (rows, { remember = false } = {}) => {
     mobileShortcutRowsConfig = cloneMobileShortcutRows(rows);
     if (remember) {
@@ -606,6 +679,15 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     }
     renderMobileShortcuts();
     renderSettingsMobileShortcuts();
+  };
+
+  const applyDesktopShortcuts = (shortcuts, { remember = false } = {}) => {
+    desktopShortcutsConfig = normalizeDesktopShortcuts(shortcuts);
+    if (remember) {
+      lastSavedDesktopShortcutsConfig = cloneDesktopShortcuts(desktopShortcutsConfig);
+    }
+    rebuildShortcutActionMap();
+    renderSettingsDesktopShortcuts();
   };
 
   const normalizeUploadedFont = (font) => {
@@ -707,6 +789,18 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     }
   };
 
+  const setDesktopShortcutSaving = (saving) => {
+    for (const button of [
+      settingsDesktopShortcutAddButton,
+      settingsDesktopShortcutResetButton,
+      ...Array.from(settingsDesktopShortcutList?.querySelectorAll("button") || []),
+    ]) {
+      if (button) {
+        button.disabled = saving;
+      }
+    }
+  };
+
   const setSettingsDesktopMouseClipboardSaving = (saving) => {
     if (settingsDesktopMouseClipboardToggle) {
       settingsDesktopMouseClipboardToggle.disabled = saving;
@@ -747,6 +841,18 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     window.clearTimeout(settingsMobileShortcutsScrollbarHideTimer);
     settingsMobileShortcutsPanel?.classList.add("is-scrolling");
     settingsMobileShortcutsScrollbarHideTimer = window.setTimeout(hideSettingsMobileShortcutsScrollbar, 800);
+  };
+
+  const hideSettingsDesktopShortcutsScrollbar = () => {
+    window.clearTimeout(settingsDesktopShortcutsScrollbarHideTimer);
+    settingsDesktopShortcutsScrollbarHideTimer = 0;
+    settingsDesktopShortcutsPanel?.classList.remove("is-scrolling");
+  };
+
+  const showSettingsDesktopShortcutsScrollbarDuringScroll = () => {
+    window.clearTimeout(settingsDesktopShortcutsScrollbarHideTimer);
+    settingsDesktopShortcutsPanel?.classList.add("is-scrolling");
+    settingsDesktopShortcutsScrollbarHideTimer = window.setTimeout(hideSettingsDesktopShortcutsScrollbar, 800);
   };
 
   const setActiveSettingsTab = (tabID) => {
@@ -994,6 +1100,46 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
       empty.className = "settings-mobile-shortcut-empty";
       empty.textContent = "暂无快捷键";
       settingsMobileShortcutList.appendChild(empty);
+    }
+  };
+
+  const createSettingsDesktopShortcutItem = (shortcut, index) => {
+    const item = document.createElement("div");
+    item.className = "settings-desktop-shortcut-item";
+    item.dataset.shortcutIndex = String(index);
+    item.dataset.shortcutId = shortcut.id;
+    const main = document.createElement("div");
+    main.className = "settings-desktop-shortcut-main";
+    const name = document.createElement("div");
+    name.className = "settings-desktop-shortcut-name";
+    name.textContent = shortcut.label;
+    const summary = document.createElement("div");
+    summary.className = "settings-desktop-shortcut-summary";
+    summary.textContent = `${desktopShortcutActionLabels.get(shortcut.action) || shortcut.action} · ${displayShortcut(shortcut.shortcut)}`;
+    main.append(name, summary);
+    const edit = document.createElement("button");
+    edit.type = "button";
+    edit.className = "settings-desktop-shortcut-edit";
+    edit.dataset.action = "edit";
+    edit.textContent = "编辑";
+    edit.setAttribute("aria-label", `编辑 ${shortcut.label}`);
+    item.append(main, edit);
+    return item;
+  };
+
+  const renderSettingsDesktopShortcuts = () => {
+    if (!settingsDesktopShortcutList) {
+      return;
+    }
+    settingsDesktopShortcutList.textContent = "";
+    desktopShortcutsConfig.forEach((shortcut, index) => {
+      settingsDesktopShortcutList.appendChild(createSettingsDesktopShortcutItem(shortcut, index));
+    });
+    if (desktopShortcutsConfig.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "settings-desktop-shortcut-empty";
+      empty.textContent = "暂无快捷键";
+      settingsDesktopShortcutList.appendChild(empty);
     }
   };
 
@@ -1605,6 +1751,8 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     terminalOptionsBase.scrollback = normalizeTerminalScrollback(state?.terminal_scrollback);
     desktopMouseClipboardEnabled = state?.desktop_mouse_clipboard_enabled !== false;
     applyMobileShortcutRows(normalizeMobileShortcutRows(state?.mobile_shortcuts), { remember: true });
+    const hasCustomDesktopShortcuts = Array.isArray(state?.desktop_shortcuts);
+    applyDesktopShortcuts(hasCustomDesktopShortcuts ? state.desktop_shortcuts : defaultDesktopShortcutsConfig, { remember: true });
     if (syncScrollbackInput) {
       syncSettingsScrollbackInput();
     }
@@ -1693,6 +1841,40 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
       }
     });
     return mobileShortcutsPersistChain;
+  };
+
+  const saveDesktopShortcuts = (shortcuts, { reset = false } = {}) => {
+    const nextShortcuts = cloneDesktopShortcuts(shortcuts);
+    const saveVersion = ++desktopShortcutsSaveVersion;
+    desktopShortcutsPersistChain = desktopShortcutsPersistChain.catch(() => {}).then(async () => {
+      const previousShortcuts = cloneDesktopShortcuts(lastSavedDesktopShortcutsConfig);
+      const requestSeq = ++desktopShortcutsSaveRequestSeq;
+      setDesktopShortcutSaving(true);
+      try {
+        const response = await fetch("./api/settings", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ desktop_shortcuts: reset ? null : serializeDesktopShortcuts(nextShortcuts) }),
+        });
+        if (!response.ok) {
+          if (saveVersion === desktopShortcutsSaveVersion && requestSeq === desktopShortcutsSaveRequestSeq) {
+            applyDesktopShortcuts(previousShortcuts, { remember: true });
+          }
+          throw new Error(await readResponseText(response, `PC快捷键保存失败 (${response.status})`));
+        }
+        if (saveVersion === desktopShortcutsSaveVersion && requestSeq === desktopShortcutsSaveRequestSeq) {
+          await applySettingsState(await response.json(), { syncScrollbackInput: false });
+        } else {
+          lastSavedDesktopShortcutsConfig = cloneDesktopShortcuts(nextShortcuts);
+          await response.text().catch(() => "");
+        }
+      } finally {
+        if (requestSeq === desktopShortcutsSaveRequestSeq) {
+          setDesktopShortcutSaving(false);
+        }
+      }
+    });
+    return desktopShortcutsPersistChain;
   };
 
   const populateMobileShortcutEditorOptions = () => {
@@ -1879,6 +2061,203 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     updateMobileShortcutRows((rows) => {
       rows[rowIndex].splice(index, 1);
     });
+    return true;
+  };
+
+  const desktopShortcutAt = (index) => desktopShortcutsConfig?.[index] || null;
+
+  const populateDesktopShortcutEditorOptions = () => {
+    if (desktopShortcutActionSelect && desktopShortcutActionSelect.options.length === 0) {
+      for (const item of desktopShortcutActionOptions) {
+        const option = document.createElement("option");
+        option.value = item.value;
+        option.textContent = item.label;
+        desktopShortcutActionSelect.appendChild(option);
+      }
+    }
+    if (desktopShortcutKeySelect && desktopShortcutKeySelect.options.length === 0) {
+      const keys = [
+        ...Array.from({ length: 12 }, (_, index) => [`f${index + 1}`, `F${index + 1}`]),
+        ["tab", "Tab"],
+        ["home", "Home"],
+        ["end", "End"],
+        ["page_up", "PageUp"],
+        ["page_down", "PageDown"],
+        ...Array.from({ length: 10 }, (_, index) => [String(index), String(index)]),
+        ...Array.from({ length: 26 }, (_, index) => {
+          const value = String.fromCharCode(97 + index);
+          return [value, value.toUpperCase()];
+        }),
+      ];
+      for (const [value, label] of keys) {
+        const option = document.createElement("option");
+        option.value = value;
+        option.textContent = label;
+        desktopShortcutKeySelect.appendChild(option);
+      }
+    }
+  };
+
+  const parseShortcutState = (shortcut) => {
+    const state = { ctrl: false, shift: false, alt: false, superKey: false, key: "" };
+    for (const part of String(shortcut || "").split("+")) {
+      const token = normalizeShortcutKeyToken(part);
+      switch (token) {
+        case "ctrl":
+          state.ctrl = true;
+          break;
+        case "shift":
+          state.shift = true;
+          break;
+        case "alt":
+          state.alt = true;
+          break;
+        case "super":
+          state.superKey = true;
+          break;
+        default:
+          state.key = token;
+          break;
+      }
+    }
+    return state;
+  };
+
+  const setDesktopShortcutEditorShortcut = (shortcut) => {
+    const state = parseShortcutState(shortcut);
+    if (desktopShortcutCtrlInput) {
+      desktopShortcutCtrlInput.checked = state.ctrl;
+    }
+    if (desktopShortcutAltInput) {
+      desktopShortcutAltInput.checked = state.alt;
+    }
+    if (desktopShortcutShiftInput) {
+      desktopShortcutShiftInput.checked = state.shift;
+    }
+    if (desktopShortcutCommandInput) {
+      desktopShortcutCommandInput.checked = state.superKey;
+    }
+    if (desktopShortcutKeySelect) {
+      desktopShortcutKeySelect.value = state.key || "tab";
+      if (desktopShortcutKeySelect.value !== (state.key || "tab")) {
+        desktopShortcutKeySelect.value = "tab";
+      }
+    }
+    if (desktopShortcutCaptureInput) {
+      desktopShortcutCaptureInput.value = displayShortcut(serializeShortcut(state));
+    }
+  };
+
+  const readDesktopShortcutEditorShortcut = () => serializeShortcut({
+    ctrl: desktopShortcutCtrlInput?.checked === true,
+    shift: desktopShortcutShiftInput?.checked === true,
+    alt: desktopShortcutAltInput?.checked === true,
+    superKey: desktopShortcutCommandInput?.checked === true,
+    key: String(desktopShortcutKeySelect?.value || "").trim(),
+  });
+
+  const syncDesktopShortcutCaptureInput = () => {
+    if (desktopShortcutCaptureInput) {
+      desktopShortcutCaptureInput.value = displayShortcut(readDesktopShortcutEditorShortcut());
+    }
+  };
+
+  const closeDesktopShortcutEditor = () => {
+    desktopShortcutEditorState = null;
+    if (desktopShortcutEditor) {
+      desktopShortcutEditor.hidden = true;
+    }
+  };
+
+  const openDesktopShortcutEditor = ({ index = -1 } = {}) => {
+    populateDesktopShortcutEditorOptions();
+    const existing = desktopShortcutAt(index);
+    desktopShortcutEditorState = { index };
+    if (desktopShortcutEditorTitle) {
+      desktopShortcutEditorTitle.textContent = existing ? "编辑PC快捷键" : "新增PC快捷键";
+    }
+    if (desktopShortcutEditorDelete) {
+      desktopShortcutEditorDelete.hidden = !existing;
+    }
+    if (desktopShortcutLabelInput) {
+      desktopShortcutLabelInput.value = existing?.label || "";
+    }
+    if (desktopShortcutActionSelect) {
+      desktopShortcutActionSelect.value = existing?.action || "copy_terminal";
+    }
+    setDesktopShortcutEditorShortcut(existing?.shortcut || "Ctrl + Shift + c");
+    syncDesktopShortcutCaptureInput();
+    if (desktopShortcutEditor) {
+      desktopShortcutEditor.hidden = false;
+      window.setTimeout(() => desktopShortcutLabelInput?.focus(), 0);
+    }
+  };
+
+  const readDesktopShortcutEditorValue = () => {
+    const label = String(desktopShortcutLabelInput?.value || "").trim();
+    if (!label || Array.from(label).length > 32) {
+      throw new Error("快捷键名称必须是 1-32 个字符。");
+    }
+    if (desktopShortcutsConfig.length >= 64 && Number(desktopShortcutEditorState?.index ?? -1) < 0) {
+      throw new Error("PC快捷键最多 64 个。");
+    }
+    const action = String(desktopShortcutActionSelect?.value || "").trim();
+    if (!desktopShortcutActionLabels.has(action)) {
+      throw new Error("请选择有效动作。");
+    }
+    const shortcut = readDesktopShortcutEditorShortcut();
+    if (!normalizeShortcutDefinition(shortcut)) {
+      throw new Error("请输入有效快捷键。");
+    }
+    const id = desktopShortcutAt(desktopShortcutEditorState?.index)?.id
+      || `desktop-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    return { id, label, action, shortcut: displayShortcut(shortcut) };
+  };
+
+  const submitDesktopShortcutEditor = () => {
+    let shortcut;
+    try {
+      shortcut = readDesktopShortcutEditorValue();
+      const normalizedShortcut = normalizeShortcutDefinition(shortcut.shortcut);
+      const duplicate = desktopShortcutsConfig.some((item, itemIndex) =>
+        itemIndex !== Number(desktopShortcutEditorState?.index ?? -1) && normalizeShortcutDefinition(item.shortcut) === normalizedShortcut);
+      if (duplicate) {
+        throw new Error("该快捷键已经被其他动作使用。");
+      }
+    } catch (error) {
+      setSettingsFeedback(error.message || "PC快捷键设置无效。", "error");
+      return;
+    }
+    const index = Number(desktopShortcutEditorState?.index ?? -1);
+    const nextShortcuts = cloneDesktopShortcuts(desktopShortcutsConfig);
+    if (index >= 0 && nextShortcuts[index]) {
+      nextShortcuts[index] = shortcut;
+    } else {
+      nextShortcuts.push(shortcut);
+    }
+    applyDesktopShortcuts(nextShortcuts);
+    saveDesktopShortcuts(nextShortcuts).catch((error) => setSettingsFeedback(error.message || "PC快捷键保存失败。", "error"));
+    closeDesktopShortcutEditor();
+  };
+
+  const deleteDesktopShortcut = async (index) => {
+    const shortcut = desktopShortcutAt(index);
+    if (!shortcut) {
+      return false;
+    }
+    const confirmed = await confirmDialog(`删除快捷键「${shortcut.label}」？`, {
+      title: "删除快捷键",
+      okText: "删除",
+      cancelText: "取消",
+      danger: true,
+    });
+    if (!confirmed) {
+      return false;
+    }
+    const nextShortcuts = cloneDesktopShortcuts(desktopShortcutsConfig);
+    nextShortcuts.splice(index, 1);
+    applyDesktopShortcuts(nextShortcuts);
+    saveDesktopShortcuts(nextShortcuts).catch((error) => setSettingsFeedback(error.message || "PC快捷键删除失败。", "error"));
     return true;
   };
 
@@ -2213,6 +2592,70 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
   for (let index = 1; index <= 9; index += 1) {
     shortcutDefinitions[`tab_${index}`] = macShortcut(`Option + ${index}`, `Alt + ${index}`);
   }
+  const desktopShortcutActionLabels = new Map([
+    ["fullscreen", "全屏"],
+    ["new_tab", "新建标签"],
+    ["close_tab", "关闭标签"],
+    ["next_tab", "下一个标签"],
+    ["previous_tab", "上一个标签"],
+    ["last_tab", "最后一个标签"],
+    ["move_tab_to_first", "标签移到最前"],
+    ["move_tab_left", "标签左移"],
+    ["move_tab_right", "标签右移"],
+    ["move_tab_to_last", "标签移到最后"],
+    ["vertical_split", "左右分屏"],
+    ["horizontal_split", "上下分屏"],
+    ["select_up", "选择上方窗格"],
+    ["select_down", "选择下方窗格"],
+    ["select_left", "选择左侧窗格"],
+    ["select_right", "选择右侧窗格"],
+    ["close_pane", "关闭窗格"],
+    ["theme", "主题设置"],
+    ["switch_container", "切换容器"],
+    ["copy_terminal", "复制终端文本"],
+    ["paste_terminal", "粘贴到终端"],
+    ["search_terminal", "搜索终端"],
+    ["select_all_terminal", "全选终端缓冲区"],
+  ]);
+  for (let index = 1; index <= 9; index += 1) {
+    desktopShortcutActionLabels.set(`tab_${index}`, `切换到第 ${index} 个标签`);
+  }
+  const desktopShortcutActionOptions = Array.from(desktopShortcutActionLabels.entries()).map(([value, label]) => ({ value, label }));
+  const defaultDesktopShortcutsConfig = [
+    { id: "fullscreen", label: "全屏", action: "fullscreen", shortcut: shortcutDefinitions.fullscreen },
+    { id: "new-tab", label: "新建标签", action: "new_tab", shortcut: shortcutDefinitions.new_tab },
+    { id: "close-tab", label: "关闭标签", action: "close_tab", shortcut: shortcutDefinitions.close_tab },
+    { id: "next-tab", label: "下一个标签", action: "next_tab", shortcut: shortcutDefinitions.next_tab },
+    { id: "previous-tab", label: "上一个标签", action: "previous_tab", shortcut: shortcutDefinitions.previous_tab },
+    { id: "last-tab", label: "最后一个标签", action: "last_tab", shortcut: shortcutDefinitions.last_tab },
+    { id: "move-tab-first", label: "标签移到最前", action: "move_tab_to_first", shortcut: shortcutDefinitions.move_tab_to_first },
+    { id: "move-tab-left", label: "标签左移", action: "move_tab_left", shortcut: shortcutDefinitions.move_tab_left },
+    { id: "move-tab-right", label: "标签右移", action: "move_tab_right", shortcut: shortcutDefinitions.move_tab_right },
+    { id: "move-tab-last", label: "标签移到最后", action: "move_tab_to_last", shortcut: shortcutDefinitions.move_tab_to_last },
+    { id: "vertical-split", label: "左右分屏", action: "vertical_split", shortcut: shortcutDefinitions.vertical_split },
+    { id: "horizontal-split", label: "上下分屏", action: "horizontal_split", shortcut: shortcutDefinitions.horizontal_split },
+    { id: "select-up", label: "选择上方窗格", action: "select_up", shortcut: shortcutDefinitions.select_up },
+    { id: "select-down", label: "选择下方窗格", action: "select_down", shortcut: shortcutDefinitions.select_down },
+    { id: "select-left", label: "选择左侧窗格", action: "select_left", shortcut: shortcutDefinitions.select_left },
+    { id: "select-right", label: "选择右侧窗格", action: "select_right", shortcut: shortcutDefinitions.select_right },
+    { id: "close-pane", label: "关闭窗格", action: "close_pane", shortcut: shortcutDefinitions.close_pane },
+    { id: "theme", label: "主题设置", action: "theme", shortcut: shortcutDefinitions.theme },
+    { id: "switch-container", label: "切换容器", action: "switch_container", shortcut: shortcutDefinitions.switch_container },
+    { id: "copy-terminal", label: "复制", action: "copy_terminal", shortcut: shortcutDefinitions.copy_terminal },
+    { id: "paste-terminal", label: "粘贴", action: "paste_terminal", shortcut: shortcutDefinitions.paste_terminal },
+    { id: "search-terminal", label: "搜索", action: "search_terminal", shortcut: shortcutDefinitions.search_terminal },
+    { id: "select-all-terminal", label: "全选", action: "select_all_terminal", shortcut: shortcutDefinitions.select_all_terminal },
+  ];
+  for (let index = 1; index <= 9; index += 1) {
+    defaultDesktopShortcutsConfig.push({
+      id: `tab-${index}`,
+      label: `第 ${index} 个标签`,
+      action: `tab_${index}`,
+      shortcut: shortcutDefinitions[`tab_${index}`],
+    });
+  }
+  let desktopShortcutsConfig = [];
+  let lastSavedDesktopShortcutsConfig = [];
 
   const normalizeShortcutKeyToken = (token) => {
     const raw = String(token || "").trim();
@@ -2265,6 +2708,33 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     parts.push(key);
     return parts.join("+");
   };
+
+  const displayShortcut = (shortcut) => String(shortcut || "")
+    .split("+")
+    .map((part) => {
+      const token = normalizeShortcutKeyToken(part);
+      switch (token) {
+        case "ctrl":
+          return "Ctrl";
+        case "shift":
+          return "Shift";
+        case "alt":
+          return isMacPlatform() ? "Option" : "Alt";
+        case "super":
+          return isMacPlatform() ? "Command" : "Super";
+        case "page_up":
+          return "PageUp";
+        case "page_down":
+          return "PageDown";
+        default:
+          if (/^f\d{1,2}$/.test(token)) {
+            return token.toUpperCase();
+          }
+          return token.length === 1 ? token.toUpperCase() : token.replace(/_/g, " ");
+      }
+    })
+    .filter(Boolean)
+    .join(" + ");
 
   const normalizeShortcutDefinition = (value) => {
     const state = { ctrl: false, shift: false, alt: false, superKey: false, key: "" };
@@ -2319,12 +2789,15 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     });
   };
 
-  for (const [action, definition] of Object.entries(shortcutDefinitions)) {
-    const shortcut = normalizeShortcutDefinition(definition);
-    if (shortcut) {
-      shortcutActionMap.set(shortcut, action);
+  const rebuildShortcutActionMap = () => {
+    shortcutActionMap.clear();
+    for (const item of desktopShortcutsConfig) {
+      const shortcut = normalizeShortcutDefinition(item.shortcut);
+      if (shortcut) {
+        shortcutActionMap.set(shortcut, item.action);
+      }
     }
-  }
+  };
 
   const showToast = (message) => {
     if (!toast) {
@@ -4743,7 +5216,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     window.setTimeout(() => activeSession()?.term?.focus(), 0);
   };
 
-  const openDialog = ({ mode = "confirm", title = "Confirm", message = "", value = "", okText = "OK", cancelText = "Cancel", danger = false, initialFocus = "cancel" } = {}) =>
+  const openDialog = ({ mode = "confirm", title = "Confirm", message = "", value = "", okText = "OK", cancelText = "取消", danger = false, initialFocus = "cancel" } = {}) =>
     new Promise((resolve) => {
       if (!dialogBackdrop || !dialogTitle || !dialogMessage || !dialogInput || !dialogOK || !dialogCancel) {
         resolve(mode === "prompt" ? window.prompt(title, value) : window.confirm(message || title));
@@ -4775,7 +5248,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     });
 
   const confirmDialog = async (message, options = {}) => {
-    const result = await openDialog({ mode: "confirm", message, title: options.title || "Confirm", okText: options.okText || "Confirm", cancelText: options.cancelText || "Cancel", danger: Boolean(options.danger) });
+    const result = await openDialog({ mode: "confirm", message, title: options.title || "Confirm", okText: options.okText || "Confirm", cancelText: options.cancelText || "取消", danger: Boolean(options.danger) });
     return result === true;
   };
 
@@ -4830,7 +5303,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
   };
 
   const promptDialog = async (title, value) => {
-    const result = await openDialog({ mode: "prompt", title, value, okText: "Save", cancelText: "Cancel" });
+    const result = await openDialog({ mode: "prompt", title, value, okText: "Save", cancelText: "取消" });
     return result === null ? null : String(result || "").trim();
   };
 
@@ -7947,6 +8420,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
   settingsThemePanel?.addEventListener("scroll", showSettingsThemeScrollbarDuringScroll, { passive: true });
   settingsThemeList?.addEventListener("scroll", showSettingsThemeScrollbarDuringScroll, { passive: true });
   settingsMobileShortcutsPanel?.addEventListener("scroll", showSettingsMobileShortcutsScrollbarDuringScroll, { passive: true });
+  settingsDesktopShortcutsPanel?.addEventListener("scroll", showSettingsDesktopShortcutsScrollbarDuringScroll, { passive: true });
   themePickerList?.addEventListener("scroll", scheduleThemePickerScrollbarSync, { passive: true });
   themePickerScrollbarSensor?.addEventListener("pointerenter", () => {
     setThemePickerScrollbarHovering(true);
@@ -8139,6 +8613,29 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
       startMobileShortcutDrag(event, item);
     }
   });
+  settingsDesktopShortcutAddButton?.addEventListener("click", () => openDesktopShortcutEditor({ index: -1 }));
+  settingsDesktopShortcutResetButton?.addEventListener("click", async () => {
+    const confirmed = await confirmDialog("恢复默认PC快捷键？当前自定义配置会被替换。", {
+      title: "恢复默认",
+      okText: "恢复",
+      cancelText: "取消",
+    });
+    if (!confirmed) {
+      return;
+    }
+    applyDesktopShortcuts(defaultDesktopShortcutsConfig);
+    saveDesktopShortcuts(defaultDesktopShortcutsConfig, { reset: true })
+      .catch((error) => setSettingsFeedback(error.message || "PC快捷键恢复默认失败。", "error"));
+  });
+  settingsDesktopShortcutList?.addEventListener("click", (event) => {
+    const button = event.target instanceof Element ? event.target.closest(".settings-desktop-shortcut-edit") : null;
+    if (!button) {
+      return;
+    }
+    const item = button.closest(".settings-desktop-shortcut-item");
+    const index = Number(item?.dataset.shortcutIndex || 0);
+    openDesktopShortcutEditor({ index });
+  });
   serviceForwardAddButton?.addEventListener("click", () => openServiceForwardForm());
   serviceForwardTitleInput?.addEventListener("input", () => {
     if (!serviceForwardEditingID && serviceForwardSubdomainInput && !serviceForwardSubdomainInput.value.trim()) {
@@ -8222,6 +8719,57 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     input.addEventListener("change", syncMobileShortcutEditorFields);
   }
   mobileShortcutKeySelect?.addEventListener("change", syncMobileShortcutEditorFields);
+  desktopShortcutEditorPanel?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    submitDesktopShortcutEditor();
+  });
+  desktopShortcutEditorCancel?.addEventListener("click", closeDesktopShortcutEditor);
+  desktopShortcutEditorScrim?.addEventListener("click", closeDesktopShortcutEditor);
+  desktopShortcutEditorDelete?.addEventListener("click", () => {
+    if (!desktopShortcutEditorState || Number(desktopShortcutEditorState.index ?? -1) < 0) {
+      return;
+    }
+    deleteDesktopShortcut(Number(desktopShortcutEditorState.index))
+      .then((deleted) => {
+        if (deleted) {
+          closeDesktopShortcutEditor();
+        }
+      })
+      .catch((error) => setSettingsFeedback(error.message || "PC快捷键删除失败。", "error"));
+  });
+  for (const input of [desktopShortcutCtrlInput, desktopShortcutAltInput, desktopShortcutShiftInput, desktopShortcutCommandInput]) {
+    input?.addEventListener("change", syncDesktopShortcutCaptureInput);
+  }
+  desktopShortcutKeySelect?.addEventListener("change", syncDesktopShortcutCaptureInput);
+  desktopShortcutCaptureInput?.addEventListener("keydown", (event) => {
+    if (!(event instanceof KeyboardEvent) || event.key === "Tab") {
+      return;
+    }
+    event.preventDefault();
+    const key = shortcutKeyFromEventCode(event) || normalizeShortcutKeyToken(event.key);
+    if (!key || ["ctrl", "shift", "alt", "super"].includes(key)) {
+      return;
+    }
+    if (desktopShortcutCtrlInput) {
+      desktopShortcutCtrlInput.checked = event.ctrlKey;
+    }
+    if (desktopShortcutAltInput) {
+      desktopShortcutAltInput.checked = event.altKey;
+    }
+    if (desktopShortcutShiftInput) {
+      desktopShortcutShiftInput.checked = event.shiftKey;
+    }
+    if (desktopShortcutCommandInput) {
+      desktopShortcutCommandInput.checked = event.metaKey;
+    }
+    if (desktopShortcutKeySelect) {
+      desktopShortcutKeySelect.value = key;
+      if (desktopShortcutKeySelect.value !== key) {
+        desktopShortcutKeySelect.value = "tab";
+      }
+    }
+    syncDesktopShortcutCaptureInput();
+  });
 
   searchInput?.addEventListener("input", () => setSearchQuery(searchInput.value));
   searchInput?.addEventListener("keydown", (event) => {

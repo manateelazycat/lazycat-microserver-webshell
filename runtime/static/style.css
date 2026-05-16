@@ -1528,38 +1528,45 @@ body.split-resize-active * {
   height: 8px;
 }
 
-[data-settings-panel="mobile-shortcuts"] {
+[data-settings-panel="mobile-shortcuts"],
+[data-settings-panel="desktop-shortcuts"] {
   align-self: stretch;
   width: 100%;
   scrollbar-width: none;
 }
 
-[data-settings-panel="mobile-shortcuts"] > .settings-section {
+[data-settings-panel="mobile-shortcuts"] > .settings-section,
+[data-settings-panel="desktop-shortcuts"] > .settings-section {
   width: 80%;
   align-self: center;
   box-sizing: border-box;
 }
 
-[data-settings-panel="mobile-shortcuts"].is-scrolling {
+[data-settings-panel="mobile-shortcuts"].is-scrolling,
+[data-settings-panel="desktop-shortcuts"].is-scrolling {
   scrollbar-color: rgba(148, 163, 184, 0.5) transparent;
   scrollbar-width: thin;
 }
 
-[data-settings-panel="mobile-shortcuts"]::-webkit-scrollbar {
+[data-settings-panel="mobile-shortcuts"]::-webkit-scrollbar,
+[data-settings-panel="desktop-shortcuts"]::-webkit-scrollbar {
   width: 0;
   height: 0;
 }
 
-[data-settings-panel="mobile-shortcuts"].is-scrolling::-webkit-scrollbar {
+[data-settings-panel="mobile-shortcuts"].is-scrolling::-webkit-scrollbar,
+[data-settings-panel="desktop-shortcuts"].is-scrolling::-webkit-scrollbar {
   width: 10px;
   height: 10px;
 }
 
-[data-settings-panel="mobile-shortcuts"]::-webkit-scrollbar-track {
+[data-settings-panel="mobile-shortcuts"]::-webkit-scrollbar-track,
+[data-settings-panel="desktop-shortcuts"]::-webkit-scrollbar-track {
   background: transparent;
 }
 
-[data-settings-panel="mobile-shortcuts"]::-webkit-scrollbar-thumb {
+[data-settings-panel="mobile-shortcuts"]::-webkit-scrollbar-thumb,
+[data-settings-panel="desktop-shortcuts"]::-webkit-scrollbar-thumb {
   border: 3px solid transparent;
   border-radius: 999px;
   background: rgba(148, 163, 184, 0.52);
@@ -1577,14 +1584,16 @@ body.split-resize-active * {
   box-sizing: border-box;
 }
 
-.settings-mobile-shortcuts-section {
+.settings-mobile-shortcuts-section,
+.settings-desktop-shortcuts-section {
   min-height: 0;
   flex: 0 0 auto;
   padding-bottom: 0;
   border-bottom: 0;
 }
 
-.settings-mobile-shortcut-list {
+.settings-mobile-shortcut-list,
+.settings-desktop-shortcut-list {
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -1596,7 +1605,8 @@ body.split-resize-active * {
   box-sizing: border-box;
 }
 
-.settings-mobile-shortcut-empty {
+.settings-mobile-shortcut-empty,
+.settings-desktop-shortcut-empty {
   min-height: 28px;
   color: var(--muted);
   font-size: 12px;
@@ -1604,7 +1614,8 @@ body.split-resize-active * {
   text-align: center;
 }
 
-.settings-mobile-shortcut-item {
+.settings-mobile-shortcut-item,
+.settings-desktop-shortcut-item {
   display: grid;
   grid-template-columns: 34px minmax(0, 1fr) auto;
   align-items: center;
@@ -1616,6 +1627,10 @@ body.split-resize-active * {
   background: var(--panel-bg);
   color: var(--text);
   box-sizing: border-box;
+}
+
+.settings-desktop-shortcut-item {
+  grid-template-columns: minmax(0, 1fr) auto;
 }
 
 .settings-mobile-shortcut-item.is-dragging {
@@ -1674,31 +1689,37 @@ body.split-resize-active * {
   cursor: grabbing;
 }
 
-.settings-mobile-shortcut-main {
+.settings-mobile-shortcut-main,
+.settings-desktop-shortcut-main {
   display: grid;
   min-width: 0;
   gap: 3px;
 }
 
 .settings-mobile-shortcut-name,
-.settings-mobile-shortcut-summary {
+.settings-mobile-shortcut-summary,
+.settings-desktop-shortcut-name,
+.settings-desktop-shortcut-summary {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.settings-mobile-shortcut-name {
+.settings-mobile-shortcut-name,
+.settings-desktop-shortcut-name {
   font-size: 13px;
   font-weight: 700;
 }
 
-.settings-mobile-shortcut-summary {
+.settings-mobile-shortcut-summary,
+.settings-desktop-shortcut-summary {
   color: var(--muted);
   font-size: 12px;
 }
 
-.settings-mobile-shortcut-edit {
+.settings-mobile-shortcut-edit,
+.settings-desktop-shortcut-edit {
   display: inline-flex;
   min-width: 44px;
   height: 28px;
@@ -1715,6 +1736,8 @@ body.split-resize-active * {
 
 .settings-mobile-shortcut-edit:hover,
 .settings-mobile-shortcut-edit:focus-visible,
+.settings-desktop-shortcut-edit:hover,
+.settings-desktop-shortcut-edit:focus-visible,
 .settings-mobile-shortcut-drag:hover,
 .settings-mobile-shortcut-drag:focus-visible {
   border-color: var(--panel-border);
@@ -2056,7 +2079,8 @@ body.split-resize-active * {
   flex: 1 1 auto;
 }
 
-.mobile-shortcut-editor {
+.mobile-shortcut-editor,
+.desktop-shortcut-editor {
   position: fixed;
   inset: 0;
   z-index: 130;
@@ -2067,11 +2091,13 @@ body.split-resize-active * {
   box-sizing: border-box;
 }
 
-.mobile-shortcut-editor[hidden] {
+.mobile-shortcut-editor[hidden],
+.desktop-shortcut-editor[hidden] {
   display: none;
 }
 
-.mobile-shortcut-editor-scrim {
+.mobile-shortcut-editor-scrim,
+.desktop-shortcut-editor-scrim {
   position: absolute;
   inset: 0;
   border: 0;
@@ -2079,7 +2105,8 @@ body.split-resize-active * {
   cursor: pointer;
 }
 
-.mobile-shortcut-editor-panel {
+.mobile-shortcut-editor-panel,
+.desktop-shortcut-editor-panel {
   position: relative;
   display: grid;
   width: min(420px, calc(100vw - 36px));
@@ -2093,12 +2120,14 @@ body.split-resize-active * {
   box-sizing: border-box;
 }
 
-.mobile-shortcut-editor-panel h2 {
+.mobile-shortcut-editor-panel h2,
+.desktop-shortcut-editor-panel h2 {
   margin: 0;
   font-size: 17px;
 }
 
-.mobile-shortcut-editor-field {
+.mobile-shortcut-editor-field,
+.desktop-shortcut-editor-field {
   display: grid;
   gap: 6px;
   color: var(--text);
@@ -2107,7 +2136,9 @@ body.split-resize-active * {
 }
 
 .mobile-shortcut-editor-field[hidden],
-.mobile-shortcut-editor-modifiers[hidden] {
+.mobile-shortcut-editor-modifiers[hidden],
+.desktop-shortcut-editor-field[hidden],
+.desktop-shortcut-editor-modifiers[hidden] {
   display: none;
 }
 
@@ -2173,7 +2204,9 @@ body.split-resize-active * {
 }
 
 .mobile-shortcut-editor-field input,
-.mobile-shortcut-editor-field select {
+.mobile-shortcut-editor-field select,
+.desktop-shortcut-editor-field input,
+.desktop-shortcut-editor-field select {
   width: 100%;
   height: 34px;
   min-width: 0;
@@ -2188,13 +2221,17 @@ body.split-resize-active * {
 }
 
 .mobile-shortcut-editor-field input:focus,
-.mobile-shortcut-editor-field select:focus {
+.mobile-shortcut-editor-field select:focus,
+.desktop-shortcut-editor-field input:focus,
+.desktop-shortcut-editor-field select:focus {
   border-color: rgba(148, 163, 184, 0.68);
   outline: none;
 }
 
-.mobile-shortcut-editor-modifiers {
+.mobile-shortcut-editor-modifiers,
+.desktop-shortcut-editor-modifiers {
   display: flex;
+  flex-wrap: wrap;
   gap: 12px;
   margin: 0;
   padding: 10px;
@@ -2204,20 +2241,23 @@ body.split-resize-active * {
   font-size: 13px;
 }
 
-.mobile-shortcut-editor-modifiers legend {
+.mobile-shortcut-editor-modifiers legend,
+.desktop-shortcut-editor-modifiers legend {
   padding: 0 4px;
   color: var(--muted);
   font-size: 12px;
   font-weight: 650;
 }
 
-.mobile-shortcut-editor-modifiers label {
+.mobile-shortcut-editor-modifiers label,
+.desktop-shortcut-editor-modifiers label {
   display: inline-flex;
   align-items: center;
   gap: 5px;
 }
 
-.mobile-shortcut-editor-modifiers input[type="checkbox"] {
+.mobile-shortcut-editor-modifiers input[type="checkbox"],
+.desktop-shortcut-editor-modifiers input[type="checkbox"] {
   position: relative;
   width: 15px;
   height: 15px;
@@ -2231,12 +2271,14 @@ body.split-resize-active * {
   box-sizing: border-box;
 }
 
-.mobile-shortcut-editor-modifiers input[type="checkbox"]:checked {
+.mobile-shortcut-editor-modifiers input[type="checkbox"]:checked,
+.desktop-shortcut-editor-modifiers input[type="checkbox"]:checked {
   border-color: var(--accent);
   background: transparent;
 }
 
-.mobile-shortcut-editor-modifiers input[type="checkbox"]:checked::after {
+.mobile-shortcut-editor-modifiers input[type="checkbox"]:checked::after,
+.desktop-shortcut-editor-modifiers input[type="checkbox"]:checked::after {
   content: "";
   position: absolute;
   left: 4px;
@@ -2248,20 +2290,23 @@ body.split-resize-active * {
   transform: rotate(45deg);
 }
 
-.mobile-shortcut-editor-modifiers input[type="checkbox"]:focus-visible {
+.mobile-shortcut-editor-modifiers input[type="checkbox"]:focus-visible,
+.desktop-shortcut-editor-modifiers input[type="checkbox"]:focus-visible {
   border-color: var(--accent);
   outline: 2px solid rgba(96, 165, 250, 0.32);
   outline-offset: 2px;
 }
 
-.mobile-shortcut-editor-actions {
+.mobile-shortcut-editor-actions,
+.desktop-shortcut-editor-actions {
   display: flex;
   align-items: center;
   justify-content: flex-end;
   gap: 8px;
 }
 
-.mobile-shortcut-editor-action-spacer {
+.mobile-shortcut-editor-action-spacer,
+.desktop-shortcut-editor-action-spacer {
   flex: 1 1 auto;
 }
 
@@ -3026,7 +3071,8 @@ body.is-mobile-shortcut-dragging {
     width: 100%;
   }
 
-  [data-settings-panel="mobile-shortcuts"] > .settings-section {
+  [data-settings-panel="mobile-shortcuts"] > .settings-section,
+  [data-settings-panel="desktop-shortcuts"] > .settings-section {
     width: 100%;
   }
 

@@ -14,10 +14,11 @@ import (
 )
 
 type settingsPatch struct {
-	TerminalFontID               optionalString          `json:"terminal_font_id"`
-	TerminalScrollback           optionalInt             `json:"terminal_scrollback"`
-	DesktopMouseClipboardEnabled optionalBool            `json:"desktop_mouse_clipboard_enabled"`
-	MobileShortcuts              optionalMobileShortcuts `json:"mobile_shortcuts"`
+	TerminalFontID               optionalString           `json:"terminal_font_id"`
+	TerminalScrollback           optionalInt              `json:"terminal_scrollback"`
+	DesktopMouseClipboardEnabled optionalBool             `json:"desktop_mouse_clipboard_enabled"`
+	MobileShortcuts              optionalMobileShortcuts  `json:"mobile_shortcuts"`
+	DesktopShortcuts             optionalDesktopShortcuts `json:"desktop_shortcuts"`
 }
 
 type optionalString struct {
@@ -40,6 +41,12 @@ type optionalBool struct {
 
 type optionalMobileShortcuts struct {
 	Value fonts.MobileShortcutRows
+	Set   bool
+	Null  bool
+}
+
+type optionalDesktopShortcuts struct {
+	Value fonts.DesktopShortcutList
 	Set   bool
 	Null  bool
 }
@@ -79,6 +86,16 @@ func (o *optionalBool) UnmarshalJSON(data []byte) error {
 }
 
 func (o *optionalMobileShortcuts) UnmarshalJSON(data []byte) error {
+	o.Set = true
+	o.Value = nil
+	o.Null = bytes.Equal(bytes.TrimSpace(data), []byte("null"))
+	if o.Null {
+		return nil
+	}
+	return json.Unmarshal(data, &o.Value)
+}
+
+func (o *optionalDesktopShortcuts) UnmarshalJSON(data []byte) error {
 	o.Set = true
 	o.Value = nil
 	o.Null = bytes.Equal(bytes.TrimSpace(data), []byte("null"))
@@ -144,6 +161,13 @@ func (s *pluginServer) handleSettings(w http.ResponseWriter, r *http.Request) {
 					settings.MobileShortcuts = nil
 				} else {
 					settings.MobileShortcuts = &payload.MobileShortcuts.Value
+				}
+			}
+			if payload.DesktopShortcuts.Set {
+				if payload.DesktopShortcuts.Null {
+					settings.DesktopShortcuts = nil
+				} else {
+					settings.DesktopShortcuts = &payload.DesktopShortcuts.Value
 				}
 			}
 			_, err = store.MergeSettings(settings, !updateFont)

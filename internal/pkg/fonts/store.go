@@ -29,9 +29,10 @@ const (
 )
 
 var (
-	ErrBadRequest           = errors.New("bad font request")
-	idPattern               = regexp.MustCompile(`^[a-f0-9]{64}$`)
-	mobileShortcutIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
+	ErrBadRequest            = errors.New("bad font request")
+	idPattern                = regexp.MustCompile(`^[a-f0-9]{64}$`)
+	mobileShortcutIDPattern  = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
+	desktopShortcutIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 )
 
 type Store struct {
@@ -40,21 +41,23 @@ type Store struct {
 }
 
 type State struct {
-	TerminalFontID               string             `json:"terminal_font_id"`
-	TerminalSymbolFont           *SymbolDescriptor  `json:"terminal_symbol_font,omitempty"`
-	TerminalScrollback           int                `json:"terminal_scrollback"`
-	DesktopMouseClipboardEnabled bool               `json:"desktop_mouse_clipboard_enabled"`
-	MobileShortcuts              MobileShortcutRows `json:"mobile_shortcuts"`
-	Fonts                        []Descriptor       `json:"fonts"`
+	TerminalFontID               string               `json:"terminal_font_id"`
+	TerminalSymbolFont           *SymbolDescriptor    `json:"terminal_symbol_font,omitempty"`
+	TerminalScrollback           int                  `json:"terminal_scrollback"`
+	DesktopMouseClipboardEnabled bool                 `json:"desktop_mouse_clipboard_enabled"`
+	MobileShortcuts              MobileShortcutRows   `json:"mobile_shortcuts"`
+	DesktopShortcuts             *DesktopShortcutList `json:"desktop_shortcuts,omitempty"`
+	Fonts                        []Descriptor         `json:"fonts"`
 }
 
 type Settings struct {
-	TerminalFontID               string              `json:"terminal_font_id"`
-	TerminalFontSystemDefault    bool                `json:"terminal_font_system_default,omitempty"`
-	TerminalScrollback           int                 `json:"terminal_scrollback"`
-	DesktopMouseClipboardEnabled *bool               `json:"desktop_mouse_clipboard_enabled,omitempty"`
-	MobileShortcuts              *MobileShortcutRows `json:"mobile_shortcuts,omitempty"`
-	DeletedBuiltinFontIDs        []string            `json:"deleted_builtin_font_ids,omitempty"`
+	TerminalFontID               string               `json:"terminal_font_id"`
+	TerminalFontSystemDefault    bool                 `json:"terminal_font_system_default,omitempty"`
+	TerminalScrollback           int                  `json:"terminal_scrollback"`
+	DesktopMouseClipboardEnabled *bool                `json:"desktop_mouse_clipboard_enabled,omitempty"`
+	MobileShortcuts              *MobileShortcutRows  `json:"mobile_shortcuts,omitempty"`
+	DesktopShortcuts             *DesktopShortcutList `json:"desktop_shortcuts"`
+	DeletedBuiltinFontIDs        []string             `json:"deleted_builtin_font_ids,omitempty"`
 }
 
 type MobileShortcutRows [][]MobileShortcut
@@ -74,6 +77,15 @@ type MobileShortcutModifiers struct {
 	Ctrl  bool `json:"ctrl,omitempty"`
 	Alt   bool `json:"alt,omitempty"`
 	Shift bool `json:"shift,omitempty"`
+}
+
+type DesktopShortcutList []DesktopShortcut
+
+type DesktopShortcut struct {
+	ID       string `json:"id"`
+	Label    string `json:"label"`
+	Action   string `json:"action"`
+	Shortcut string `json:"shortcut"`
 }
 
 type Metadata struct {
@@ -234,6 +246,38 @@ var allowedMobileShortcutActions = map[string]bool{
 	"open_mobile_menu":      true,
 }
 
+var allowedDesktopShortcutActions = func() map[string]bool {
+	actions := map[string]bool{
+		"fullscreen":          true,
+		"new_tab":             true,
+		"close_tab":           true,
+		"next_tab":            true,
+		"previous_tab":        true,
+		"last_tab":            true,
+		"move_tab_to_first":   true,
+		"move_tab_left":       true,
+		"move_tab_right":      true,
+		"move_tab_to_last":    true,
+		"vertical_split":      true,
+		"horizontal_split":    true,
+		"select_up":           true,
+		"select_down":         true,
+		"select_left":         true,
+		"select_right":        true,
+		"close_pane":          true,
+		"theme":               true,
+		"switch_container":    true,
+		"copy_terminal":       true,
+		"paste_terminal":      true,
+		"search_terminal":     true,
+		"select_all_terminal": true,
+	}
+	for i := 1; i <= 9; i++ {
+		actions[fmt.Sprintf("tab_%d", i)] = true
+	}
+	return actions
+}()
+
 func ResolveDir(rootDir string) string {
 	if dir := strings.TrimSpace(os.Getenv(DirEnv)); dir != "" {
 		return dir
@@ -277,6 +321,7 @@ func (s Store) State() (State, error) {
 		TerminalScrollback:           settings.TerminalScrollback,
 		DesktopMouseClipboardEnabled: desktopMouseClipboardEnabled(settings),
 		MobileShortcuts:              effectiveMobileShortcuts(settings),
+		DesktopShortcuts:             effectiveDesktopShortcuts(settings),
 		Fonts:                        fonts,
 	}, nil
 }
@@ -288,6 +333,7 @@ func (s Store) ReadSettings() (Settings, error) {
 			TerminalScrollback:           DefaultTerminalScrollback,
 			DesktopMouseClipboardEnabled: boolPtr(true),
 			MobileShortcuts:              nil,
+			DesktopShortcuts:             nil,
 		}, nil
 	}
 	if err != nil {
@@ -306,6 +352,14 @@ func (s Store) ReadSettings() (Settings, error) {
 			settings.MobileShortcuts = nil
 		} else {
 			settings.MobileShortcuts = &normalized
+		}
+	}
+	if settings.DesktopShortcuts != nil {
+		normalized, err := normalizeDesktopShortcuts(*settings.DesktopShortcuts)
+		if err != nil {
+			settings.DesktopShortcuts = nil
+		} else {
+			settings.DesktopShortcuts = &normalized
 		}
 	}
 	settings.DeletedBuiltinFontIDs = normalizeDeletedBuiltinFontIDs(settings.DeletedBuiltinFontIDs)
@@ -529,6 +583,13 @@ func (s Store) WriteSettings(settings Settings) error {
 		}
 		settings.MobileShortcuts = &normalized
 	}
+	if settings.DesktopShortcuts != nil {
+		normalized, err := normalizeDesktopShortcuts(*settings.DesktopShortcuts)
+		if err != nil {
+			return err
+		}
+		settings.DesktopShortcuts = &normalized
+	}
 	settings.DeletedBuiltinFontIDs = normalizeDeletedBuiltinFontIDs(settings.DeletedBuiltinFontIDs)
 	if err := s.ensureDir(); err != nil {
 		return err
@@ -570,6 +631,13 @@ func (s Store) SaveSettings(settings Settings) error {
 		}
 		settings.MobileShortcuts = &normalized
 	}
+	if settings.DesktopShortcuts != nil {
+		normalized, err := normalizeDesktopShortcuts(*settings.DesktopShortcuts)
+		if err != nil {
+			return err
+		}
+		settings.DesktopShortcuts = &normalized
+	}
 	settings.DeletedBuiltinFontIDs = normalizeDeletedBuiltinFontIDs(settings.DeletedBuiltinFontIDs)
 	if err := ValidateTerminalScrollback(settings.TerminalScrollback); err != nil {
 		return err
@@ -589,6 +657,13 @@ func (s Store) MergeSettings(settings Settings, pruneMissingSelection bool) (Set
 			return Settings{}, err
 		}
 		settings.MobileShortcuts = &normalized
+	}
+	if settings.DesktopShortcuts != nil {
+		normalized, err := normalizeDesktopShortcuts(*settings.DesktopShortcuts)
+		if err != nil {
+			return Settings{}, err
+		}
+		settings.DesktopShortcuts = &normalized
 	}
 	settings.DeletedBuiltinFontIDs = normalizeDeletedBuiltinFontIDs(settings.DeletedBuiltinFontIDs)
 	if pruneMissingSelection {
@@ -790,6 +865,18 @@ func effectiveMobileShortcuts(settings Settings) MobileShortcutRows {
 	return normalized
 }
 
+func effectiveDesktopShortcuts(settings Settings) *DesktopShortcutList {
+	if settings.DesktopShortcuts == nil {
+		return nil
+	}
+	normalized, err := normalizeDesktopShortcuts(*settings.DesktopShortcuts)
+	if err != nil {
+		return nil
+	}
+	cloned := cloneDesktopShortcuts(normalized)
+	return &cloned
+}
+
 func cloneMobileShortcuts(rows MobileShortcutRows) MobileShortcutRows {
 	cloned := make(MobileShortcutRows, 2)
 	for rowIndex := 0; rowIndex < 2; rowIndex++ {
@@ -799,6 +886,15 @@ func cloneMobileShortcuts(rows MobileShortcutRows) MobileShortcutRows {
 		}
 		cloned[rowIndex] = append([]MobileShortcut(nil), rows[rowIndex]...)
 	}
+	return cloned
+}
+
+func cloneDesktopShortcuts(list DesktopShortcutList) DesktopShortcutList {
+	if list == nil {
+		return nil
+	}
+	cloned := make(DesktopShortcutList, len(list))
+	copy(cloned, list)
 	return cloned
 }
 
@@ -876,6 +972,146 @@ func validMobileShortcutInputKey(key string) bool {
 	}
 	r, _ := utf8.DecodeRuneInString(key)
 	return r >= 0x20 && r != 0x7f
+}
+
+func normalizeDesktopShortcuts(list DesktopShortcutList) (DesktopShortcutList, error) {
+	if list == nil {
+		return nil, nil
+	}
+	if len(list) > 64 {
+		return nil, fmt.Errorf("%w: too many desktop shortcuts", ErrBadRequest)
+	}
+	normalized := make(DesktopShortcutList, 0, len(list))
+	seenIDs := make(map[string]struct{}, len(list))
+	seenShortcuts := make(map[string]struct{}, len(list))
+	for _, shortcut := range list {
+		next, err := normalizeDesktopShortcut(shortcut)
+		if err != nil {
+			return nil, err
+		}
+		if _, ok := seenIDs[next.ID]; ok {
+			return nil, fmt.Errorf("%w: duplicate desktop shortcut id", ErrBadRequest)
+		}
+		if _, ok := seenShortcuts[next.Shortcut]; ok {
+			return nil, fmt.Errorf("%w: duplicate desktop shortcut", ErrBadRequest)
+		}
+		seenIDs[next.ID] = struct{}{}
+		seenShortcuts[next.Shortcut] = struct{}{}
+		normalized = append(normalized, next)
+	}
+	return normalized, nil
+}
+
+func normalizeDesktopShortcut(shortcut DesktopShortcut) (DesktopShortcut, error) {
+	next := DesktopShortcut{
+		ID:       strings.TrimSpace(shortcut.ID),
+		Label:    strings.TrimSpace(shortcut.Label),
+		Action:   strings.TrimSpace(shortcut.Action),
+		Shortcut: strings.TrimSpace(shortcut.Shortcut),
+	}
+	if !desktopShortcutIDPattern.MatchString(next.ID) {
+		return DesktopShortcut{}, fmt.Errorf("%w: invalid desktop shortcut id", ErrBadRequest)
+	}
+	labelLen := utf8.RuneCountInString(next.Label)
+	if labelLen < 1 || labelLen > 32 {
+		return DesktopShortcut{}, fmt.Errorf("%w: desktop shortcut label must be 1-32 characters", ErrBadRequest)
+	}
+	if !allowedDesktopShortcutActions[next.Action] {
+		return DesktopShortcut{}, fmt.Errorf("%w: invalid desktop shortcut action", ErrBadRequest)
+	}
+	normalizedShortcut, err := normalizeDesktopShortcutDefinition(next.Shortcut)
+	if err != nil {
+		return DesktopShortcut{}, err
+	}
+	next.Shortcut = normalizedShortcut
+	return next, nil
+}
+
+func normalizeDesktopShortcutDefinition(value string) (string, error) {
+	if strings.TrimSpace(value) == "" {
+		return "", fmt.Errorf("%w: invalid desktop shortcut", ErrBadRequest)
+	}
+	state := desktopShortcutState{}
+	for _, part := range strings.Split(value, "+") {
+		token := normalizeDesktopShortcutToken(part)
+		switch token {
+		case "ctrl":
+			state.ctrl = true
+		case "shift":
+			state.shift = true
+		case "alt":
+			state.alt = true
+		case "super":
+			state.super = true
+		default:
+			state.key = token
+		}
+	}
+	return state.serialize()
+}
+
+type desktopShortcutState struct {
+	ctrl  bool
+	shift bool
+	alt   bool
+	super bool
+	key   string
+}
+
+func (s desktopShortcutState) serialize() (string, error) {
+	if s.key == "" {
+		return "", fmt.Errorf("%w: invalid desktop shortcut", ErrBadRequest)
+	}
+	parts := make([]string, 0, 5)
+	if s.ctrl {
+		parts = append(parts, "Ctrl")
+	}
+	if s.shift {
+		parts = append(parts, "Shift")
+	}
+	if s.alt {
+		parts = append(parts, "Alt")
+	}
+	if s.super {
+		parts = append(parts, "Command")
+	}
+	parts = append(parts, s.key)
+	return strings.Join(parts, " + "), nil
+}
+
+func normalizeDesktopShortcutToken(token string) string {
+	raw := strings.TrimSpace(token)
+	if raw == "" {
+		return ""
+	}
+	lower := strings.ToLower(raw)
+	switch lower {
+	case "control", "ctrl":
+		return "ctrl"
+	case "shift":
+		return "shift"
+	case "alt", "option":
+		return "alt"
+	case "meta", "command", "cmd", "super":
+		return "super"
+	case "pageup":
+		return "page_up"
+	case "pagedown":
+		return "page_down"
+	case "return":
+		return "enter"
+	case "esc", "escape":
+		return "escape"
+	case " ":
+		return "space"
+	}
+	if len(raw) == 1 {
+		return lower
+	}
+	if strings.HasPrefix(lower, "f") && len(lower) <= 3 {
+		return lower
+	}
+	return strings.ReplaceAll(lower, " ", "_")
 }
 
 func desktopMouseClipboardEnabled(settings Settings) bool {
