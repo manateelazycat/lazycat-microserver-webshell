@@ -72,3 +72,25 @@ func TestRuntimeShortcutSettingsGuardDesktopShortcutEditor(t *testing.T) {
 		}
 	}
 }
+
+func TestRuntimeWebSocketURLUsesWebSocketProtocols(t *testing.T) {
+	data, err := os.ReadFile("runtime/static/main.js")
+	if err != nil {
+		t.Fatalf("ReadFile(runtime/static/main.js) error = %v", err)
+	}
+	source := string(data)
+
+	wantSnippets := []string{
+		`const webSocketURL = (path) => {`,
+		`url.protocol = "wss:";`,
+		`url.protocol = "ws:";`,
+		`url.protocol !== "ws:" && url.protocol !== "wss:"`,
+		`const socketUrl = webSocketURL("./ws");`,
+		`const currentSocket = new WebSocket(socketUrl.toString());`,
+	}
+	for _, want := range wantSnippets {
+		if !strings.Contains(source, want) {
+			t.Fatalf("runtime websocket URL guard missing %q", want)
+		}
+	}
+}

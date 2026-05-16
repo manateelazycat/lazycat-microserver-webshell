@@ -3008,6 +3008,19 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     return url;
   };
 
+  const webSocketURL = (path) => {
+    const url = new URL(path, window.location.href);
+    if (url.protocol === "https:") {
+      url.protocol = "wss:";
+    } else if (url.protocol === "http:") {
+      url.protocol = "ws:";
+    }
+    if (url.protocol !== "ws:" && url.protocol !== "wss:") {
+      throw new Error(`Unsupported WebSocket protocol: ${url.protocol || "unknown"}`);
+    }
+    return url;
+  };
+
   const observeServerRevision = (state) => {
     const nextRevision = String(state?.server_revision || "").trim();
     if (!nextRevision) {
@@ -7092,7 +7105,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
       return;
     }
     clearReconnectTimer(session);
-    const socketUrl = new URL("./ws", window.location.href);
+    const socketUrl = webSocketURL("./ws");
     socketUrl.searchParams.set("name", session.name);
     socketUrl.searchParams.set("pane", session.id);
     socketUrl.searchParams.set("client_id", serverRevisionClientID);
