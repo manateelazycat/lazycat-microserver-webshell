@@ -639,6 +639,11 @@ body.split-resize-active * {
 }
 
 .terminal-host textarea {
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  border: 0 !important;
+  outline: 0 !important;
+  box-shadow: none !important;
   caret-color: transparent !important;
 }
 

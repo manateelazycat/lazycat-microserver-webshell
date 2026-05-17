@@ -4442,6 +4442,14 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     return value;
   };
 
+  const terminalTextareaCompositionText = (session) => {
+    const textarea = session?.term?.textarea;
+    if (!textarea) {
+      return "";
+    }
+    return stripTerminalInputSentinel(textarea.value);
+  };
+
   const isBackwardDeleteInputType = (type) => (
     type === "deleteContentBackward"
     || type === "deleteWordBackward"
@@ -4467,20 +4475,26 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     textarea.style.position = "absolute";
     textarea.style.left = `${cursorX * width}px`;
     textarea.style.top = `${cursorY * height}px`;
-    textarea.style.width = `${Math.max(width, 2)}px`;
+    const compositionText = session.composingIME ? terminalTextareaCompositionText(session) : "";
+    const compositionColumns = Array.from(compositionText || " ").length;
+    textarea.style.width = `${Math.max(width, compositionColumns * width)}px`;
     textarea.style.height = `${height}px`;
     textarea.style.lineHeight = `${height}px`;
     textarea.style.font = `${terminalFontSize}px ${terminalOptionsBase.fontFamily}`;
     textarea.style.padding = "0";
     textarea.style.border = "0";
+    textarea.style.outline = "0";
+    textarea.style.boxShadow = "none";
+    textarea.style.appearance = "none";
+    textarea.style.webkitAppearance = "none";
     textarea.style.margin = "0";
-    textarea.style.opacity = "0";
+    textarea.style.opacity = session.composingIME && compositionText ? "1" : "0";
     textarea.style.clipPath = "none";
     textarea.style.overflow = "hidden";
     textarea.style.whiteSpace = "pre";
     textarea.style.resize = "none";
-    textarea.style.color = "transparent";
-    textarea.style.background = "transparent";
+    textarea.style.color = session.composingIME && compositionText ? activeTheme.foreground : "transparent";
+    textarea.style.background = session.composingIME && compositionText ? activeTheme.background : "transparent";
     textarea.style.caretColor = "transparent";
     textarea.style.pointerEvents = "none";
     textarea.style.zIndex = "1";
@@ -4694,14 +4708,19 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     textarea.addEventListener("compositionupdate", (event) => {
       event.stopPropagation();
       setTerminalInputComposing(session, true);
+      if (event.data && terminalTextareaCompositionText(session) !== event.data) {
+        textarea.value = event.data;
+        moveTerminalTextareaCaretToEnd(textarea);
+      }
       positionTerminalInput(session);
       scheduleTerminalHostViewportReset(session);
     }, { capture: true });
     textarea.addEventListener("compositionend", (event) => {
       event.stopPropagation();
+      const committedText = event.data || terminalTextareaCompositionText(session);
       setTerminalInputComposing(session, false);
-      if (event.data) {
-        sendTerminalTextInput(session, event.data, { dedupe: true });
+      if (committedText) {
+        sendTerminalTextInput(session, committedText, { dedupe: true });
       }
       window.setTimeout(() => {
         resetTerminalTextareaValue(session);

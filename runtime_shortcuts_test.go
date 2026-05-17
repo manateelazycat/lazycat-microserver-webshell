@@ -142,6 +142,37 @@ func TestRuntimeMobileStickyModifiersApplyToTextInput(t *testing.T) {
 	}
 }
 
+func TestRuntimeMobileIMECompositionPreviewVisible(t *testing.T) {
+	data, err := os.ReadFile("runtime/static/main.js")
+	if err != nil {
+		t.Fatalf("ReadFile(runtime/static/main.js) error = %v", err)
+	}
+	source := string(data)
+
+	wantSnippets := []string{
+		`const terminalTextareaCompositionText = (session) => {`,
+		`const compositionText = session.composingIME ? terminalTextareaCompositionText(session) : "";`,
+		`const compositionColumns = Array.from(compositionText || " ").length;`,
+		"textarea.style.width = `${Math.max(width, compositionColumns * width)}px`;",
+		`textarea.style.outline = "0";`,
+		`textarea.style.boxShadow = "none";`,
+		`textarea.style.webkitAppearance = "none";`,
+		`textarea.style.opacity = session.composingIME && compositionText ? "1" : "0";`,
+		`textarea.style.color = session.composingIME && compositionText ? activeTheme.foreground : "transparent";`,
+		`textarea.style.background = session.composingIME && compositionText ? activeTheme.background : "transparent";`,
+		`if (event.data && terminalTextareaCompositionText(session) !== event.data) {`,
+		`textarea.value = event.data;`,
+		`const committedText = event.data || terminalTextareaCompositionText(session);`,
+		`if (committedText) {`,
+		`sendTerminalTextInput(session, committedText, { dedupe: true });`,
+	}
+	for _, want := range wantSnippets {
+		if !strings.Contains(source, want) {
+			t.Fatalf("runtime mobile IME composition preview guard missing %q", want)
+		}
+	}
+}
+
 func TestRuntimeTouchShortcutLayoutKeepsDesktopPCHidden(t *testing.T) {
 	mainData, err := os.ReadFile("runtime/static/main.js")
 	if err != nil {
