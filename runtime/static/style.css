@@ -647,6 +647,21 @@ body.split-resize-active * {
   caret-color: transparent !important;
 }
 
+.terminal-composition-preview {
+  position: absolute;
+  z-index: 2;
+  display: block;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  white-space: pre;
+  pointer-events: none;
+}
+
+.terminal-composition-preview[hidden] {
+  display: none;
+}
+
 .mobile-selection-overlay {
   display: none;
 }

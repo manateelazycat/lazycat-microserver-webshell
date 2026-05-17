@@ -151,15 +151,21 @@ func TestRuntimeMobileIMECompositionPreviewVisible(t *testing.T) {
 
 	wantSnippets := []string{
 		`const terminalTextareaCompositionText = (session) => {`,
-		`const compositionText = session.composingIME ? terminalTextareaCompositionText(session) : "";`,
-		`const compositionColumns = Array.from(compositionText || " ").length;`,
-		"textarea.style.width = `${Math.max(width, compositionColumns * width)}px`;",
+		`const setTerminalCompositionPreviewVisible = (session, visible) => {`,
+		`const syncTerminalCompositionPreview = (session, { x = 0, y = 0, width = 1, height = 16 } = {}) => {`,
+		`const text = session.composingIME ? terminalTextareaCompositionText(session) : "";`,
+		`preview.textContent = text;`,
+		"preview.style.left = `${x}px`;",
+		`preview.style.color = activeTheme.foreground;`,
+		`preview.style.background = activeTheme.background;`,
+		`textarea.style.opacity = "0";`,
 		`textarea.style.outline = "0";`,
 		`textarea.style.boxShadow = "none";`,
 		`textarea.style.webkitAppearance = "none";`,
-		`textarea.style.opacity = session.composingIME && compositionText ? "1" : "0";`,
-		`textarea.style.color = session.composingIME && compositionText ? activeTheme.foreground : "transparent";`,
-		`textarea.style.background = session.composingIME && compositionText ? activeTheme.background : "transparent";`,
+		`syncTerminalCompositionPreview(session, { x: left, y: top, width, height });`,
+		`const compositionPreview = document.createElement("span");`,
+		`compositionPreview.className = "terminal-composition-preview";`,
+		`terminalHost.appendChild(compositionPreview);`,
 		`if (event.data && terminalTextareaCompositionText(session) !== event.data) {`,
 		`textarea.value = event.data;`,
 		`const committedText = event.data || terminalTextareaCompositionText(session);`,
@@ -169,6 +175,20 @@ func TestRuntimeMobileIMECompositionPreviewVisible(t *testing.T) {
 	for _, want := range wantSnippets {
 		if !strings.Contains(source, want) {
 			t.Fatalf("runtime mobile IME composition preview guard missing %q", want)
+		}
+	}
+	styleData, err := os.ReadFile("runtime/static/style.css")
+	if err != nil {
+		t.Fatalf("ReadFile(runtime/static/style.css) error = %v", err)
+	}
+	styleSource := string(styleData)
+	for _, want := range []string{
+		`.terminal-composition-preview {`,
+		`pointer-events: none;`,
+		`.terminal-composition-preview[hidden]`,
+	} {
+		if !strings.Contains(styleSource, want) {
+			t.Fatalf("runtime mobile IME composition preview CSS guard missing %q", want)
 		}
 	}
 }

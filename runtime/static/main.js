@@ -4451,6 +4451,39 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     return stripTerminalInputSentinel(textarea.value);
   };
 
+  const setTerminalCompositionPreviewVisible = (session, visible) => {
+    const preview = session?.compositionPreview;
+    if (!preview) {
+      return;
+    }
+    preview.hidden = !visible;
+    if (!visible) {
+      preview.textContent = "";
+    }
+  };
+
+  const syncTerminalCompositionPreview = (session, { x = 0, y = 0, width = 1, height = 16 } = {}) => {
+    const preview = session?.compositionPreview;
+    if (!preview) {
+      return;
+    }
+    const text = session.composingIME ? terminalTextareaCompositionText(session) : "";
+    if (!text) {
+      setTerminalCompositionPreviewVisible(session, false);
+      return;
+    }
+    preview.textContent = text;
+    preview.style.left = `${x}px`;
+    preview.style.top = `${y}px`;
+    preview.style.minWidth = `${Math.max(width, 2)}px`;
+    preview.style.height = `${height}px`;
+    preview.style.lineHeight = `${height}px`;
+    preview.style.font = `${terminalFontSize}px ${terminalOptionsBase.fontFamily}`;
+    preview.style.color = activeTheme.foreground;
+    preview.style.background = activeTheme.background;
+    setTerminalCompositionPreviewVisible(session, true);
+  };
+
   const isBackwardDeleteInputType = (type) => (
     type === "deleteContentBackward"
     || type === "deleteWordBackward"
@@ -4473,12 +4506,12 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     const height = Math.max(1, Number(metrics.height) || Number(terminalFontSize) || 16);
     const cursorX = Math.max(0, Math.min(Math.max(0, (term.cols || 1) - 1), Number(cursor.x) || 0));
     const cursorY = Math.max(0, Math.min(Math.max(0, (term.rows || 1) - 1), Number(cursor.y) || 0));
+    const left = cursorX * width;
+    const top = cursorY * height;
     textarea.style.position = "absolute";
-    textarea.style.left = `${cursorX * width}px`;
-    textarea.style.top = `${cursorY * height}px`;
-    const compositionText = session.composingIME ? terminalTextareaCompositionText(session) : "";
-    const compositionColumns = Array.from(compositionText || " ").length;
-    textarea.style.width = `${Math.max(width, compositionColumns * width)}px`;
+    textarea.style.left = `${left}px`;
+    textarea.style.top = `${top}px`;
+    textarea.style.width = `${Math.max(width, 2)}px`;
     textarea.style.height = `${height}px`;
     textarea.style.lineHeight = `${height}px`;
     textarea.style.font = `${terminalFontSize}px ${terminalOptionsBase.fontFamily}`;
@@ -4489,17 +4522,18 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     textarea.style.appearance = "none";
     textarea.style.webkitAppearance = "none";
     textarea.style.margin = "0";
-    textarea.style.opacity = session.composingIME && compositionText ? "1" : "0";
+    textarea.style.opacity = "0";
     textarea.style.clipPath = "none";
     textarea.style.overflow = "hidden";
     textarea.style.whiteSpace = "pre";
     textarea.style.resize = "none";
-    textarea.style.color = session.composingIME && compositionText ? activeTheme.foreground : "transparent";
-    textarea.style.background = session.composingIME && compositionText ? activeTheme.background : "transparent";
+    textarea.style.color = "transparent";
+    textarea.style.background = "transparent";
     textarea.style.caretColor = "transparent";
     textarea.style.pointerEvents = "none";
     textarea.style.zIndex = "1";
     prepareTerminalTextareaForInput(session);
+    syncTerminalCompositionPreview(session, { x: left, y: top, width, height });
   };
 
   const focusTerminalInput = (session) => {
@@ -4566,6 +4600,9 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
 
   const setTerminalInputComposing = (session, composing) => {
     session.composingIME = composing;
+    if (!composing) {
+      setTerminalCompositionPreviewVisible(session, false);
+    }
     if (session.term?.inputHandler) {
       session.term.inputHandler.isComposing = composing;
     }
@@ -7757,6 +7794,10 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
       term.options.mobilePixelScroll = mobilePixelScrollEnabled && isMobileLayout();
     }
     term.open(terminalHost);
+    const compositionPreview = document.createElement("span");
+    compositionPreview.className = "terminal-composition-preview";
+    compositionPreview.hidden = true;
+    terminalHost.appendChild(compositionPreview);
     if (typeof fitAddon.observeResize === "function") {
       fitAddon.observeResize();
     }
@@ -7767,6 +7808,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
       name: instanceName,
       shellEl,
       terminalHost,
+      compositionPreview,
       term,
       fitAddon,
       socket: null,
