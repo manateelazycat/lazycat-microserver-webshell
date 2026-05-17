@@ -265,6 +265,10 @@ func (s *pluginServer) handleWorkspace(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "account id is required", http.StatusUnauthorized)
 		return
 	}
+	if err := s.authorizeInstanceSelector(r.Context(), selector); err != nil {
+		writeAuthorizationError(w, err)
+		return
+	}
 	scope := normalizeAgentScope(selector, accountID)
 	cols, rows := parseTerminalSize(r.URL.Query().Get("cols"), r.URL.Query().Get("rows"))
 
@@ -310,6 +314,10 @@ func (s *pluginServer) handleWorkspaceActivity(w http.ResponseWriter, r *http.Re
 		http.Error(w, "account id is required", http.StatusUnauthorized)
 		return
 	}
+	if err := s.authorizeInstanceSelector(r.Context(), selector); err != nil {
+		writeAuthorizationError(w, err)
+		return
+	}
 	scope := normalizeAgentScope(selector, accountID)
 	cols, rows := parseTerminalSize(r.URL.Query().Get("cols"), r.URL.Query().Get("rows"))
 	state, err := requestAgentWorkspaceActivity(r.Context(), scope, cols, rows, s.currentTerminalScrollback())
@@ -335,6 +343,10 @@ func (s *pluginServer) attachPersistentPane(w http.ResponseWriter, r *http.Reque
 	accountID := currentRequestAccountID(r)
 	if accountID == "" {
 		http.Error(w, "account id is required", http.StatusUnauthorized)
+		return nil
+	}
+	if err := s.authorizeInstanceSelector(r.Context(), selector); err != nil {
+		writeAuthorizationError(w, err)
 		return nil
 	}
 	return s.attachAgentPane(w, r, normalizeAgentScope(selector, accountID), paneID, cols, rows, s.currentTerminalScrollback())

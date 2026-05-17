@@ -1,4 +1,5 @@
 application:
+  multi_instance: true
   subdomain: lcmd-webshell
   routes:
     - /=exec://8080,/lzcapp/pkg/content/lcmd-webshell

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -35,6 +36,8 @@ type pluginServer struct {
 	serverRevision    string
 	workspaces        *workspaceManager
 	adminInfoResolver func(context.Context) (adminInfo, error)
+	instancesResolver func(context.Context) ([]instanceSummary, error)
+	deployUIDResolver func() string
 	publishHTTPClient *http.Client
 
 	settingsMu   sync.Mutex
@@ -65,6 +68,10 @@ type apiErrorResponse struct {
 }
 
 const lightOSUserIDHeader = "X-HC-USER-ID"
+const lazyCatAppDeployUIDEnv = "LAZYCAT_APP_DEPLOY_UID"
+
+var errInstanceForbidden = errors.New("instance is not accessible by current account")
+var errInvalidPublishCreatePayload = errors.New("invalid publish create payload")
 
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool { return true },
@@ -235,9 +242,14 @@ func (s *pluginServer) handleInstances(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
-	items, err := listInstances(r.Context())
+	accountID := currentRequestAccountID(r)
+	if accountID == "" {
+		http.Error(w, "account id is required", http.StatusUnauthorized)
+		return
+	}
+	items, err := s.listOwnedInstances(r.Context())
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadGateway)
+		writeAuthorizationError(w, err)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -270,6 +282,10 @@ func (s *pluginServer) handlePublishProxy(w http.ResponseWriter, r *http.Request
 	}
 	if r.Method != expectedMethod {
 		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	if err := s.authorizePublishProxyRequest(r); err != nil {
+		writeAuthorizationError(w, err)
 		return
 	}
 
@@ -322,6 +338,10 @@ func (s *pluginServer) handleServerRevision(w http.ResponseWriter, r *http.Reque
 			http.Error(w, "account id is required", http.StatusUnauthorized)
 			return
 		}
+		if err := s.authorizeInstanceSelector(r.Context(), selector); err != nil {
+			writeAuthorizationError(w, err)
+			return
+		}
 		scope := normalizeAgentScope(selector, accountID)
 		if blockedText := strings.TrimSpace(r.URL.Query().Get("terminal_input_blocked")); blockedText != "" {
 			s.setTerminalInputBlocked(scope, serverRevisionInputLockOwner(clientID), parseBoolQuery(blockedText))
@@ -359,6 +379,25 @@ func currentRequestAccountID(r *http.Request) string {
 		return ""
 	}
 	return strings.TrimSpace(r.Header.Get(lightOSUserIDHeader))
+}
+
+func writeAuthorizationError(w http.ResponseWriter, err error) {
+	switch {
+	case err == nil:
+		return
+	case errors.Is(err, errInstanceForbidden):
+		http.Error(w, err.Error(), http.StatusForbidden)
+	case strings.Contains(err.Error(), "account id is required"):
+		http.Error(w, err.Error(), http.StatusUnauthorized)
+	case strings.Contains(err.Error(), "deploy uid is required"):
+		http.Error(w, err.Error(), http.StatusUnauthorized)
+	case strings.Contains(err.Error(), "invalid instance selector"):
+		http.Error(w, err.Error(), http.StatusBadRequest)
+	case errors.Is(err, errInvalidPublishCreatePayload):
+		http.Error(w, err.Error(), http.StatusBadRequest)
+	default:
+		http.Error(w, err.Error(), http.StatusBadGateway)
+	}
 }
 
 func (s *pluginServer) setTerminalInputBlocked(scope agentScope, owner string, blocked bool) {
@@ -523,6 +562,113 @@ func listInstances(ctx context.Context) ([]instanceSummary, error) {
 		return nil, err
 	}
 	return items, nil
+}
+
+func (s *pluginServer) listInstances(ctx context.Context) ([]instanceSummary, error) {
+	if s != nil && s.instancesResolver != nil {
+		return s.instancesResolver(ctx)
+	}
+	return listInstances(ctx)
+}
+
+func (s *pluginServer) currentDeployUID() string {
+	if s != nil && s.deployUIDResolver != nil {
+		return strings.TrimSpace(s.deployUIDResolver())
+	}
+	return strings.TrimSpace(os.Getenv(lazyCatAppDeployUIDEnv))
+}
+
+func (s *pluginServer) listOwnedInstances(ctx context.Context) ([]instanceSummary, error) {
+	items, err := s.listInstances(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, ownerID := range s.currentOwnerDeployIDs(ctx) {
+		filtered := filterInstancesByOwnerDeployID(items, ownerID)
+		if len(filtered) > 0 {
+			return filtered, nil
+		}
+	}
+	return items, nil
+}
+
+func (s *pluginServer) currentOwnerDeployIDs(ctx context.Context) []string {
+	var ids []string
+	seen := make(map[string]struct{})
+	add := func(value string) {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			return
+		}
+		if _, ok := seen[value]; ok {
+			return
+		}
+		seen[value] = struct{}{}
+		ids = append(ids, value)
+	}
+	add(s.currentDeployUID())
+	if info, err := s.resolveLightOSAdminInfo(ctx); err == nil {
+		add(info.DeployID)
+	}
+	return ids
+}
+
+func filterInstancesByOwnerDeployID(items []instanceSummary, ownerID string) []instanceSummary {
+	ownerID = strings.TrimSpace(ownerID)
+	if ownerID == "" {
+		return nil
+	}
+	filtered := make([]instanceSummary, 0, len(items))
+	for _, item := range items {
+		if strings.TrimSpace(item.OwnerDeployID) == ownerID {
+			filtered = append(filtered, item)
+		}
+	}
+	return filtered
+}
+
+func (s *pluginServer) authorizeInstanceSelector(ctx context.Context, selector string) error {
+	selector = strings.TrimSpace(selector)
+	if err := validateInstanceSelector(selector); err != nil {
+		return err
+	}
+	items, err := s.listOwnedInstances(ctx)
+	if err != nil {
+		return err
+	}
+	for _, item := range items {
+		if instanceSelector(item) == selector {
+			return nil
+		}
+	}
+	return errInstanceForbidden
+}
+
+type publishCreateRequest struct {
+	InstanceName string `json:"instance_name"`
+}
+
+func (s *pluginServer) authorizePublishProxyRequest(r *http.Request) error {
+	if r == nil || r.URL.Path != "/api/publish/http/create" {
+		return nil
+	}
+	accountID := currentRequestAccountID(r)
+	if accountID == "" {
+		return errors.New("account id is required")
+	}
+	data, err := io.ReadAll(r.Body)
+	if err != nil {
+		return err
+	}
+	_ = r.Body.Close()
+	r.Body = io.NopCloser(bytes.NewReader(data))
+	r.ContentLength = int64(len(data))
+
+	var payload publishCreateRequest
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return fmt.Errorf("%w: %v", errInvalidPublishCreatePayload, err)
+	}
+	return s.authorizeInstanceSelector(r.Context(), payload.InstanceName)
 }
 
 func validateInstanceSelector(value string) error {

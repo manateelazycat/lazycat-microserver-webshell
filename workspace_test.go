@@ -33,6 +33,28 @@ func newTestPaneHistory(chunks ...string) paneHistory {
 	return history
 }
 
+func testInstancesResolver(items []instanceSummary) func(context.Context) ([]instanceSummary, error) {
+	return func(context.Context) ([]instanceSummary, error) {
+		copied := append([]instanceSummary(nil), items...)
+		return copied, nil
+	}
+}
+
+func testPluginServerWithInstances() *pluginServer {
+	return &pluginServer{
+		instancesResolver: testInstancesResolver(testInstanceSummaries()),
+		deployUIDResolver: func() string { return "deploy-a" },
+	}
+}
+
+func testInstanceSummaries() []instanceSummary {
+	return []instanceSummary{
+		{Name: "alpha", OwnerDeployID: "deploy-a", Status: "running", Username: "alice"},
+		{Name: "beta", OwnerDeployID: "deploy-b", Status: "running", Username: "bob"},
+		{Name: "gamma", OwnerDeployID: "deploy-a", Status: "stopped", Username: "alice"},
+	}
+}
+
 func TestBuildInstanceShellBootstrapScriptUsesConfiguredUser(t *testing.T) {
 	script := buildInstanceShellBootstrapScript("admin", "")
 	if !containsAll(script,
@@ -51,6 +73,123 @@ func TestBuildInstanceShellBootstrapScriptUsesConfiguredUser(t *testing.T) {
 	}
 	if containsAll(script, `su -s /bin/sh -c`) {
 		t.Fatalf("configured user login script should not use non-interactive su -c wrapper, got:\n%s", script)
+	}
+}
+
+func TestLightOSManifestEnablesMultiInstance(t *testing.T) {
+	data, err := os.ReadFile("lzc-manifest.yml")
+	if err != nil {
+		t.Fatalf("ReadFile(lzc-manifest.yml) error = %v", err)
+	}
+	if !containsAll(string(data), "application:", "multi_instance: true") {
+		t.Fatalf("expected lzc-manifest.yml to enable multi_instance, got:\n%s", data)
+	}
+}
+
+func TestHandleInstancesFiltersByDeployUID(t *testing.T) {
+	server := testPluginServerWithInstances()
+	request := httptest.NewRequest(http.MethodGet, "/api/instances", nil)
+	request.Header.Set(lightOSUserIDHeader, "login-user-a")
+	recorder := httptest.NewRecorder()
+
+	server.handleInstances(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("handleInstances status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	var items []instanceSummary
+	if err := json.NewDecoder(recorder.Body).Decode(&items); err != nil {
+		t.Fatalf("decode instances error = %v", err)
+	}
+	if len(items) != 2 {
+		t.Fatalf("instances count = %d, want 2: %+v", len(items), items)
+	}
+	for _, item := range items {
+		if item.OwnerDeployID != "deploy-a" {
+			t.Fatalf("returned cross-account instance: %+v", item)
+		}
+	}
+}
+
+func TestHandleInstancesUsesAdminInfoDeployIDWhenEnvDoesNotMatch(t *testing.T) {
+	server := &pluginServer{
+		instancesResolver: testInstancesResolver(testInstanceSummaries()),
+		deployUIDResolver: func() string { return "missing-deploy" },
+		adminInfoResolver: func(context.Context) (adminInfo, error) {
+			return adminInfo{DeployID: "deploy-a", BaseURL: "http://admin.local"}, nil
+		},
+	}
+	request := httptest.NewRequest(http.MethodGet, "/api/instances", nil)
+	request.Header.Set(lightOSUserIDHeader, "login-user-a")
+	recorder := httptest.NewRecorder()
+
+	server.handleInstances(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("handleInstances status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	var items []instanceSummary
+	if err := json.NewDecoder(recorder.Body).Decode(&items); err != nil {
+		t.Fatalf("decode instances error = %v", err)
+	}
+	if len(items) != 2 {
+		t.Fatalf("instances count = %d, want 2: %+v", len(items), items)
+	}
+	for _, item := range items {
+		if item.OwnerDeployID != "deploy-a" {
+			t.Fatalf("returned cross-account instance: %+v", item)
+		}
+	}
+}
+
+func TestHandleInstancesFallsBackWhenOwnerIDDoesNotMatchAnyInstance(t *testing.T) {
+	server := &pluginServer{
+		instancesResolver: testInstancesResolver(testInstanceSummaries()),
+		deployUIDResolver: func() string { return "missing-deploy" },
+		adminInfoResolver: func(context.Context) (adminInfo, error) {
+			return adminInfo{DeployID: "also-missing", BaseURL: "http://admin.local"}, nil
+		},
+	}
+	request := httptest.NewRequest(http.MethodGet, "/api/instances", nil)
+	request.Header.Set(lightOSUserIDHeader, "login-user-a")
+	recorder := httptest.NewRecorder()
+
+	server.handleInstances(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("handleInstances status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	var items []instanceSummary
+	if err := json.NewDecoder(recorder.Body).Decode(&items); err != nil {
+		t.Fatalf("decode instances error = %v", err)
+	}
+	if len(items) != len(testInstanceSummaries()) {
+		t.Fatalf("instances count = %d, want fallback count %d: %+v", len(items), len(testInstanceSummaries()), items)
+	}
+}
+
+func TestHandleInstancesRequiresAccountHeader(t *testing.T) {
+	server := testPluginServerWithInstances()
+	recorder := httptest.NewRecorder()
+
+	server.handleInstances(recorder, httptest.NewRequest(http.MethodGet, "/api/instances", nil))
+
+	if recorder.Code != http.StatusUnauthorized {
+		t.Fatalf("handleInstances status = %d, want 401", recorder.Code)
+	}
+}
+
+func TestAuthorizeInstanceSelectorRequiresOwnedSelector(t *testing.T) {
+	server := testPluginServerWithInstances()
+
+	if err := server.authorizeInstanceSelector(context.Background(), "alpha@deploy-a"); err != nil {
+		t.Fatalf("authorize own selector error = %v", err)
+	}
+	if err := server.authorizeInstanceSelector(context.Background(), "beta@deploy-b"); !errors.Is(err, errInstanceForbidden) {
+		t.Fatalf("authorize foreign selector error = %v, want errInstanceForbidden", err)
+	}
+	if err := server.authorizeInstanceSelector(context.Background(), "invalid"); err == nil || !strings.Contains(err.Error(), "invalid instance selector") {
+		t.Fatalf("authorize invalid selector error = %v, want invalid selector", err)
 	}
 }
 
@@ -195,6 +334,70 @@ func TestHandlePublishProxyForwardsInstallMultipartRequest(t *testing.T) {
 	}
 	if !strings.Contains(upstreamPayload, `name="id"`) || !strings.Contains(upstreamPayload, "pub-1") || !strings.Contains(upstreamPayload, "png-data") {
 		t.Fatalf("upstream multipart payload missing expected fields: %q", upstreamPayload)
+	}
+}
+
+func TestHandlePublishProxyCreateRequiresOwnedInstance(t *testing.T) {
+	upstreamCalled := false
+	server := testPluginServerWithInstances()
+	server.adminInfoResolver = func(context.Context) (adminInfo, error) {
+		return adminInfo{BaseURL: "http://admin.local"}, nil
+	}
+	server.publishHTTPClient = &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		upstreamCalled = true
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"ok":true}`)),
+			Request:    request,
+		}, nil
+	})}
+
+	request := httptest.NewRequest(http.MethodPost, "/api/publish/http/create", strings.NewReader(`{"instance_name":"beta@deploy-b","upstream":"http://127.0.0.1:8080"}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set(lightOSUserIDHeader, "login-user-a")
+	recorder := httptest.NewRecorder()
+	server.handlePublishProxy(recorder, request)
+
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("handlePublishProxy() status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	if upstreamCalled {
+		t.Fatal("foreign publish create should not be forwarded upstream")
+	}
+}
+
+func TestHandlePublishProxyCreateForwardsOwnedInstanceBody(t *testing.T) {
+	var upstreamPayload string
+	server := testPluginServerWithInstances()
+	server.adminInfoResolver = func(context.Context) (adminInfo, error) {
+		return adminInfo{BaseURL: "http://admin.local"}, nil
+	}
+	server.publishHTTPClient = &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		data, err := io.ReadAll(request.Body)
+		if err != nil {
+			t.Fatalf("ReadAll(upstream body) error = %v", err)
+		}
+		upstreamPayload = string(data)
+		return &http.Response{
+			StatusCode: http.StatusCreated,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"ok":true}`)),
+			Request:    request,
+		}, nil
+	})}
+	body := `{"instance_name":"alpha@deploy-a","upstream":"http://127.0.0.1:8080"}`
+	request := httptest.NewRequest(http.MethodPost, "/api/publish/http/create", strings.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set(lightOSUserIDHeader, "login-user-a")
+	recorder := httptest.NewRecorder()
+	server.handlePublishProxy(recorder, request)
+
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("handlePublishProxy() status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	if upstreamPayload != body {
+		t.Fatalf("upstream payload = %q, want %q", upstreamPayload, body)
 	}
 }
 
@@ -1202,6 +1405,17 @@ func TestHandleWorkspaceRequiresAccountHeader(t *testing.T) {
 	}
 }
 
+func TestHandleWorkspaceRejectsForeignSelector(t *testing.T) {
+	server := testPluginServerWithInstances()
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/workspace?name=beta@deploy-b", nil)
+	request.Header.Set(lightOSUserIDHeader, "login-user-a")
+	server.handleWorkspace(recorder, request)
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("handleWorkspace status = %d, want 403", recorder.Code)
+	}
+}
+
 func TestHandleWorkspaceActivityRequiresAccountHeader(t *testing.T) {
 	server := &pluginServer{}
 	recorder := httptest.NewRecorder()
@@ -1209,6 +1423,17 @@ func TestHandleWorkspaceActivityRequiresAccountHeader(t *testing.T) {
 	server.handleWorkspaceActivity(recorder, request)
 	if recorder.Code != http.StatusUnauthorized {
 		t.Fatalf("handleWorkspaceActivity status = %d, want 401", recorder.Code)
+	}
+}
+
+func TestHandleWorkspaceActivityRejectsForeignSelector(t *testing.T) {
+	server := testPluginServerWithInstances()
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/workspace/activity?name=beta@deploy-b", nil)
+	request.Header.Set(lightOSUserIDHeader, "login-user-a")
+	server.handleWorkspaceActivity(recorder, request)
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("handleWorkspaceActivity status = %d, want 403", recorder.Code)
 	}
 }
 
@@ -1224,6 +1449,19 @@ func TestAttachPersistentPaneRequiresAccountHeader(t *testing.T) {
 	}
 }
 
+func TestAttachPersistentPaneRejectsForeignSelector(t *testing.T) {
+	server := testPluginServerWithInstances()
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/ws?name=beta@deploy-b&pane=pane-1", nil)
+	request.Header.Set(lightOSUserIDHeader, "login-user-a")
+	if err := server.attachPersistentPane(recorder, request, 80, 24); err != nil {
+		t.Fatalf("attachPersistentPane returned error: %v", err)
+	}
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("attachPersistentPane status = %d, want 403", recorder.Code)
+	}
+}
+
 func TestHandleServerRevisionRequiresAccountHeaderForScopedState(t *testing.T) {
 	server := &pluginServer{}
 	recorder := httptest.NewRecorder()
@@ -1231,6 +1469,17 @@ func TestHandleServerRevisionRequiresAccountHeaderForScopedState(t *testing.T) {
 	server.handleServerRevision(recorder, request)
 	if recorder.Code != http.StatusUnauthorized {
 		t.Fatalf("handleServerRevision status = %d, want 401", recorder.Code)
+	}
+}
+
+func TestHandleServerRevisionRejectsForeignSelector(t *testing.T) {
+	server := testPluginServerWithInstances()
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/server-revision?name=beta@deploy-b&client_id=client-one", nil)
+	request.Header.Set(lightOSUserIDHeader, "login-user-a")
+	server.handleServerRevision(recorder, request)
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("handleServerRevision status = %d, want 403", recorder.Code)
 	}
 }
 
