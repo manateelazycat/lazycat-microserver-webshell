@@ -201,6 +201,12 @@
                   <span class="settings-switch" aria-hidden="true"></span>
                 </label>
               </section>
+              <section class="settings-section" aria-labelledby="settingsMultiScreenOutputTitle">
+                <div class="settings-section-head">
+                  <h3 id="settingsMultiScreenOutputTitle">多屏输出说明</h3>
+                </div>
+                <p class="settings-info-text">PTY 是内核输出，内核无法同时输出不同分辨率的 Shell 结果，所以多设备同时用时，PTY 的输出分辨率会按照正在交互的设备的分辨率输出，其他没有交互的设备分辨率会发生变化，这个不是 bug，是技术限制。当你切换到不同终端时，WebShell 会自动用当前交互设备的分辨率重新布局终端界面。</p>
+              </section>
             </div>
             <div class="settings-tab-panel" id="settingsPanelTheme" role="tabpanel" aria-labelledby="settingsTabTheme" data-settings-panel="theme" hidden>
               <section class="settings-section settings-theme-section" aria-labelledby="settingsThemeTitle">

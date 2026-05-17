@@ -1100,6 +1100,14 @@ body.split-resize-active * {
   font-weight: 650;
 }
 
+.settings-info-text {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.5;
+}
+
 .settings-font-actions {
   display: flex;
   align-items: center;
