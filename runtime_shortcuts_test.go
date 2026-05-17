@@ -73,6 +73,21 @@ func TestRuntimeShortcutSettingsGuardDesktopShortcutEditor(t *testing.T) {
 	}
 }
 
+func TestRuntimeDefaultMobileShortcutOrder(t *testing.T) {
+	data, err := os.ReadFile("runtime/static/main.js")
+	if err != nil {
+		t.Fatalf("ReadFile(runtime/static/main.js) error = %v", err)
+	}
+	source := string(data)
+	tabSnippet := `{ id: "tab", label: "Tab", ariaLabel: "Tab", data: "\t", inputKey: "tab" },`
+	returnSnippet := `{ id: "return", label: "Return", ariaLabel: "Return", data: "\r", inputKey: "enter", kind: "primary" },`
+	tabIndex := strings.Index(source, tabSnippet)
+	returnIndex := strings.Index(source, returnSnippet)
+	if tabIndex < 0 || returnIndex < 0 || tabIndex > returnIndex {
+		t.Fatalf("default mobile shortcut order should place Tab before Return")
+	}
+}
+
 func TestRuntimeWebSocketURLUsesWebSocketProtocols(t *testing.T) {
 	data, err := os.ReadFile("runtime/static/main.js")
 	if err != nil {

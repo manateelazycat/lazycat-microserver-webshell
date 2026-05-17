@@ -376,6 +376,20 @@ func TestHandleSettingsDefaultsMobileShortcuts(t *testing.T) {
 	if len(state.MobileShortcuts) != 2 || len(state.MobileShortcuts[0]) == 0 || len(state.MobileShortcuts[1]) == 0 {
 		t.Fatalf("MobileShortcuts = %+v, want default two non-empty rows", state.MobileShortcuts)
 	}
+	row := state.MobileShortcuts[0]
+	tabIndex := -1
+	returnIndex := -1
+	for index, shortcut := range row {
+		switch shortcut.ID {
+		case "tab":
+			tabIndex = index
+		case "return":
+			returnIndex = index
+		}
+	}
+	if tabIndex < 0 || returnIndex < 0 || tabIndex > returnIndex {
+		t.Fatalf("MobileShortcuts[0] = %+v, want tab before return", row)
+	}
 }
 
 func TestHandleSettingsPatchMobileShortcutsPreservesExistingSettings(t *testing.T) {
