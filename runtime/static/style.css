@@ -2788,8 +2788,7 @@ body.is-mobile-shortcut-dragging {
 }
 
 .dialog-actions button,
-.selection-sheet button,
-.mobile-shortcuts button {
+.selection-sheet button {
   border: 1px solid var(--dialog-button-border);
   border-radius: 6px;
   background: var(--dialog-button-bg);
@@ -2841,6 +2840,16 @@ body.is-mobile-shortcut-dragging {
 
 .mobile-shortcuts {
   display: none;
+}
+
+.mobile-shortcuts button {
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--terminal-fg);
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
 }
 
 .mobile-action-sheet {
