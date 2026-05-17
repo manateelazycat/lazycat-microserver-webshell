@@ -183,8 +183,10 @@ func staticFileServer(root string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ext := filepath.Ext(r.URL.Path)
 		switch ext {
-		case ".css", ".html", ".js", ".json":
+		case ".html":
 			w.Header().Set("Cache-Control", "no-store")
+		case ".css", ".js", ".json", ".wasm":
+			w.Header().Set("Cache-Control", "no-cache")
 		}
 		switch ext {
 		case ".wasm":

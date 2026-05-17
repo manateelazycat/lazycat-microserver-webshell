@@ -524,7 +524,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
 
   const loadThemeCatalog = async () => {
     try {
-      const response = await fetch("./static/themes.json", { cache: "no-store" });
+      const response = await fetch("./static/themes.json", { cache: "no-cache" });
       if (!response.ok) {
         return;
       }
