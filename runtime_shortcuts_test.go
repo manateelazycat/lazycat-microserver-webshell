@@ -261,3 +261,37 @@ func TestRuntimeTabOverviewRerendersAndFallsBackToWorkspaceTabs(t *testing.T) {
 		t.Fatalf("openTabOverview should schedule a follow-up overview render after the initial render")
 	}
 }
+
+func TestRuntimeMobileEdgeSwipeOpensTabOverview(t *testing.T) {
+	data, err := os.ReadFile("runtime/static/main.js")
+	if err != nil {
+		t.Fatalf("ReadFile(runtime/static/main.js) error = %v", err)
+	}
+	source := string(data)
+
+	wantSnippets := []string{
+		"let mobileOverviewEdgeSwipe = null;",
+		"const mobileOverviewSwipeEdgeWidth = 24;",
+		"const mobileOverviewSwipeAxisThreshold = 12;",
+		"const mobileOverviewSwipeOpenDistance = 56;",
+		"const mobileOverviewSwipeMaxVerticalTravel = 40;",
+		`const mobileOverviewHistoryGuardStateKey = "webshellMobileOverviewGuard";`,
+		"const ensureMobileOverviewHistoryGuard = () => {",
+		"window.history.pushState(withMobileOverviewHistoryGuard(state), \"\", window.location.href);",
+		"const openTabOverviewFromHistoryBack = () => {",
+		"if (openTabOverviewFromHistoryBack()) {",
+		"const hasBlockingOverviewGestureOverlayOpen = () => Boolean(",
+		"const handleMobileOverviewEdgeSwipeStart = (event) => {",
+		`edge = "left";`,
+		`edge = "right";`,
+		`const directedDeltaX = mobileOverviewEdgeSwipe.edge === "left" ? deltaX : -deltaX;`,
+		"openTabOverview();",
+		`document.addEventListener("touchstart", handleMobileOverviewEdgeSwipeStart, { capture: true, passive: true });`,
+		`document.addEventListener("touchmove", handleMobileOverviewEdgeSwipeMove, { capture: true, passive: false });`,
+	}
+	for _, want := range wantSnippets {
+		if !strings.Contains(source, want) {
+			t.Fatalf("runtime mobile overview edge swipe guard missing %q", want)
+		}
+	}
+}

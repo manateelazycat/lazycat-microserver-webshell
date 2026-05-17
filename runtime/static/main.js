@@ -389,6 +389,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
   let mobileViewportHeight = Math.max(0, Math.round(window.visualViewport?.height || window.innerHeight || 0));
   let mobileKeyboardInsetBottom = 0;
   let themePickerEdgeSwipe = null;
+  let mobileOverviewEdgeSwipe = null;
   let resolvedThemeCardWidth = themeCardWidth;
   let themePickerScrollbarSyncScheduled = false;
   let themePickerScrollbarDragging = false;
@@ -423,6 +424,11 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
   const themePickerSwipeAxisThreshold = 12;
   const themePickerSwipeCloseDistance = 56;
   const themePickerSwipeMaxVerticalTravel = 40;
+  const mobileOverviewSwipeEdgeWidth = 24;
+  const mobileOverviewSwipeAxisThreshold = 12;
+  const mobileOverviewSwipeOpenDistance = 56;
+  const mobileOverviewSwipeMaxVerticalTravel = 40;
+  const mobileOverviewHistoryGuardStateKey = "webshellMobileOverviewGuard";
   // Mobile IMEs keep Backspace auto-repeat active only while the focused editable has text.
   const terminalInputSentinel = "\u200b";
   const backtabSequence = "\x1b[Z";
@@ -3097,6 +3103,28 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
   };
 
   const updateLocationName = (nextName, { replace = false, tabId = activeTabId } = {}) => {
+    const nextURL = workspaceLocationURL(nextName, tabId);
+    const currentState = currentHistoryStateObject();
+    const nextState = {
+      ...currentState,
+      name: nextName,
+    };
+    if (!replace) {
+      delete nextState[mobileOverviewHistoryGuardStateKey];
+    }
+    if (replace && currentState[mobileOverviewHistoryGuardStateKey]) {
+      nextState[mobileOverviewHistoryGuardStateKey] = true;
+    }
+    if (replace) {
+      window.history.replaceState(nextState, "", nextURL);
+      ensureMobileOverviewHistoryGuard();
+      return;
+    }
+    window.history.pushState(nextState, "", nextURL);
+    ensureMobileOverviewHistoryGuard();
+  };
+
+  const workspaceLocationURL = (nextName, tabId = activeTabId) => {
     const nextURL = new URL(window.location.href);
     nextURL.searchParams.set("name", nextName);
     if (tabId) {
@@ -3104,11 +3132,59 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     } else {
       nextURL.searchParams.delete("tab");
     }
-    if (replace) {
-      window.history.replaceState({ name: nextName }, "", nextURL);
+    return nextURL;
+  };
+
+  const currentHistoryStateObject = () => {
+    const state = window.history.state;
+    return state && typeof state === "object" ? state : {};
+  };
+
+  const historyStateWithoutMobileOverviewGuard = () => {
+    const state = {
+      ...currentHistoryStateObject(),
+    };
+    delete state[mobileOverviewHistoryGuardStateKey];
+    return state;
+  };
+
+  const withMobileOverviewHistoryGuard = (state = currentHistoryStateObject()) => ({
+    ...state,
+    [mobileOverviewHistoryGuardStateKey]: true,
+  });
+
+  const ensureMobileOverviewHistoryGuard = () => {
+    if (!isMobileLayout()) {
       return;
     }
-    window.history.pushState({ name: nextName }, "", nextURL);
+    const state = currentHistoryStateObject();
+    if (state[mobileOverviewHistoryGuardStateKey]) {
+      return;
+    }
+    window.history.pushState(withMobileOverviewHistoryGuard(state), "", window.location.href);
+  };
+
+  const openTabOverviewFromHistoryBack = () => {
+    if (!isMobileLayout()) {
+      return false;
+    }
+    const state = currentHistoryStateObject();
+    if (state[mobileOverviewHistoryGuardStateKey]) {
+      return false;
+    }
+    let restoredState = state;
+    if (activeName) {
+      restoredState = {
+        ...historyStateWithoutMobileOverviewGuard(),
+        name: activeName,
+      };
+      window.history.replaceState(restoredState, "", workspaceLocationURL(activeName, activeTabId));
+    }
+    window.history.pushState(withMobileOverviewHistoryGuard(restoredState), "", window.location.href);
+    if (!hasBlockingOverviewGestureOverlayOpen()) {
+      openTabOverview();
+    }
+    return true;
   };
 
   const rememberActiveTab = () => {
@@ -4130,6 +4206,106 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     const tab = orderedTabs[Math.max(0, Math.min(index, orderedTabs.length - 1))];
     if (tab) {
       setActiveTab(tab.id);
+    }
+  };
+
+  const resetMobileOverviewEdgeSwipe = () => {
+    mobileOverviewEdgeSwipe = null;
+  };
+
+  const hasBlockingOverviewGestureOverlayOpen = () => Boolean(
+    isTabOverviewOpen() ||
+    isThemePickerOpen() ||
+    (settingsBackdrop && !settingsBackdrop.hidden) ||
+    (instanceSwitcherPanel && !instanceSwitcherPanel.hidden) ||
+    (mobileActionSheet && !mobileActionSheet.hidden) ||
+    (mobileCloseConfirmSheet && !mobileCloseConfirmSheet.hidden) ||
+    (serviceForwardEditor && !serviceForwardEditor.hidden) ||
+    (mobileShortcutEditor && !mobileShortcutEditor.hidden) ||
+    (desktopShortcutEditor && !desktopShortcutEditor.hidden) ||
+    (dialogBackdrop && !dialogBackdrop.hidden) ||
+    (contextMenu && !contextMenu.hidden) ||
+    (selectionSheet && !selectionSheet.hidden)
+  );
+
+  const handleMobileOverviewEdgeSwipeStart = (event) => {
+    if (
+      !isMobileLayout() ||
+      event.touches.length !== 1 ||
+      hasBlockingOverviewGestureOverlayOpen()
+    ) {
+      resetMobileOverviewEdgeSwipe();
+      return;
+    }
+    const touch = event.touches[0];
+    const viewportWidth = Math.max(1, Math.round(window.visualViewport?.width || window.innerWidth || document.documentElement.clientWidth || 1));
+    let edge = "";
+    if (touch.clientX <= mobileOverviewSwipeEdgeWidth) {
+      edge = "left";
+    } else if (viewportWidth - touch.clientX <= mobileOverviewSwipeEdgeWidth) {
+      edge = "right";
+    }
+    if (!edge) {
+      resetMobileOverviewEdgeSwipe();
+      return;
+    }
+    mobileOverviewEdgeSwipe = {
+      edge,
+      startX: touch.clientX,
+      startY: touch.clientY,
+      horizontal: false,
+      opened: false,
+    };
+  };
+
+  const handleMobileOverviewEdgeSwipeMove = (event) => {
+    if (!mobileOverviewEdgeSwipe || event.touches.length !== 1) {
+      return;
+    }
+    if (mobileOverviewEdgeSwipe.opened) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+    if (!isMobileLayout() || hasBlockingOverviewGestureOverlayOpen()) {
+      resetMobileOverviewEdgeSwipe();
+      return;
+    }
+    const touch = event.touches[0];
+    const deltaX = touch.clientX - mobileOverviewEdgeSwipe.startX;
+    const deltaY = touch.clientY - mobileOverviewEdgeSwipe.startY;
+    const absX = Math.abs(deltaX);
+    const absY = Math.abs(deltaY);
+    const directedDeltaX = mobileOverviewEdgeSwipe.edge === "left" ? deltaX : -deltaX;
+
+    if (directedDeltaX < -mobileOverviewSwipeAxisThreshold) {
+      resetMobileOverviewEdgeSwipe();
+      return;
+    }
+
+    if (!mobileOverviewEdgeSwipe.horizontal) {
+      if (absY > mobileOverviewSwipeAxisThreshold && absY > absX) {
+        resetMobileOverviewEdgeSwipe();
+        return;
+      }
+      if (directedDeltaX > mobileOverviewSwipeAxisThreshold && absX > absY * 1.2) {
+        mobileOverviewEdgeSwipe.horizontal = true;
+      }
+    }
+
+    if (!mobileOverviewEdgeSwipe?.horizontal) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    if (
+      !mobileOverviewEdgeSwipe.opened &&
+      directedDeltaX >= mobileOverviewSwipeOpenDistance &&
+      absY <= mobileOverviewSwipeMaxVerticalTravel
+    ) {
+      mobileOverviewEdgeSwipe.opened = true;
+      openTabOverview();
     }
   };
 
@@ -9272,6 +9448,11 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     }
   }, { passive: false });
 
+  document.addEventListener("touchstart", handleMobileOverviewEdgeSwipeStart, { capture: true, passive: true });
+  document.addEventListener("touchmove", handleMobileOverviewEdgeSwipeMove, { capture: true, passive: false });
+  document.addEventListener("touchend", resetMobileOverviewEdgeSwipe, { capture: true, passive: true });
+  document.addEventListener("touchcancel", resetMobileOverviewEdgeSwipe, { capture: true, passive: true });
+
   tabOverviewToggle?.addEventListener("click", (event) => {
     event.preventDefault();
     openTabOverview();
@@ -9408,6 +9589,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     redrawThemePickerOptions();
     resizeActiveTabForCurrentDevice();
     updateMobileActiveTabTitle();
+    ensureMobileOverviewHistoryGuard();
     scheduleTabOverviewRender();
   });
   if (isIOSPlatform()) {
@@ -9416,6 +9598,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     window.addEventListener("orientationchange", syncMobileVisualViewport);
   }
   syncMobileVisualViewport();
+  ensureMobileOverviewHistoryGuard();
   document.fonts?.ready?.then(() => {
     for (const tab of tabs.values()) {
       for (const pane of tab.panes.values()) {
@@ -9424,6 +9607,9 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     }
   });
   window.addEventListener("popstate", () => {
+    if (openTabOverviewFromHistoryBack()) {
+      return;
+    }
     const nextParams = new URLSearchParams(window.location.search);
     const nextName = (nextParams.get("name") || "").trim();
     const nextTab = (nextParams.get("tab") || "").trim();
