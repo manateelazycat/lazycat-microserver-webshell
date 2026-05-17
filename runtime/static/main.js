@@ -1172,9 +1172,9 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     settingsBackdrop && !settingsBackdrop.hidden &&
     settingsTabs.some((tab) => tab.dataset.settingsTab === "service-forwards" && tab.getAttribute("aria-selected") === "true");
 
-  const lightOSPublishURL = async (path) => {
-    const baseURL = await loadLightOSAdminBaseURL();
-    return new URL(path, baseURL).toString();
+  const publishAPIURL = (path) => {
+    const normalized = String(path || "").replace(/^\/+/, "");
+    return new URL(`./${normalized}`, window.location.href).toString();
   };
 
   const readJSONSafe = async (response) => {
@@ -1194,7 +1194,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     String(data?.error || data?.message || fallback || "请求失败").trim();
 
   const requestPublishListApi = async () => {
-    const response = await fetch(await lightOSPublishURL("/api/publish/list"), {
+    const response = await fetch(publishAPIURL("/api/publish/list"), {
       cache: "no-store",
       credentials: "include",
     });
@@ -1206,7 +1206,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
   };
 
   const requestPublishStatusApi = async () => {
-    const response = await fetch(await lightOSPublishURL("/api/publish/status"), {
+    const response = await fetch(publishAPIURL("/api/publish/status"), {
       cache: "no-store",
       credentials: "include",
     });
@@ -1218,7 +1218,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
   };
 
   const requestPublishCreateApi = async (payload) => {
-    const response = await fetch(await lightOSPublishURL("/api/publish/http/create"), {
+    const response = await fetch(publishAPIURL("/api/publish/http/create"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "include",
@@ -1232,7 +1232,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
   };
 
   const requestPublishUpdateApi = async (payload) => {
-    const response = await fetch(await lightOSPublishURL("/api/publish/http/update"), {
+    const response = await fetch(publishAPIURL("/api/publish/http/update"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "include",
@@ -1246,7 +1246,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
   };
 
   const requestPublishDeleteApi = async (payload) => {
-    const response = await fetch(await lightOSPublishURL("/api/publish/http/delete"), {
+    const response = await fetch(publishAPIURL("/api/publish/http/delete"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "include",
@@ -1268,7 +1268,7 @@ import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
     if (payload?.iconFile instanceof File) {
       formData.set("icon", payload.iconFile, payload.iconFile.name || "icon.png");
     }
-    const response = await fetch(await lightOSPublishURL("/api/publish/http/install-shell-lpk"), {
+    const response = await fetch(publishAPIURL("/api/publish/http/install-shell-lpk"), {
       method: "POST",
       credentials: "include",
       body: formData,

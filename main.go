@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"log"
 	"net"
@@ -29,10 +30,12 @@ import (
 )
 
 type pluginServer struct {
-	rootDir        string
-	fontDir        string
-	serverRevision string
-	workspaces     *workspaceManager
+	rootDir           string
+	fontDir           string
+	serverRevision    string
+	workspaces        *workspaceManager
+	adminInfoResolver func(context.Context) (adminInfo, error)
+	publishHTTPClient *http.Client
 
 	settingsMu   sync.Mutex
 	inputLocksMu sync.Mutex
@@ -57,11 +60,24 @@ type serverRevisionInfo struct {
 	ReloadRequired bool   `json:"reload_required,omitempty"`
 }
 
+type apiErrorResponse struct {
+	Error string `json:"error"`
+}
+
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool { return true },
 }
 
 const lightosctlPath = "/lzcinit/lightosctl"
+
+var allowedPublishProxyRoutes = map[string]string{
+	"/api/publish/list":                   http.MethodGet,
+	"/api/publish/status":                 http.MethodGet,
+	"/api/publish/http/create":            http.MethodPost,
+	"/api/publish/http/update":            http.MethodPost,
+	"/api/publish/http/delete":            http.MethodPost,
+	"/api/publish/http/install-shell-lpk": http.MethodPost,
+}
 
 func main() {
 	if handleAgentCommand(os.Args[1:]) {
@@ -149,6 +165,7 @@ func (s *pluginServer) run(ctx context.Context) error {
 	mux.HandleFunc("/", s.handleIndex)
 	mux.HandleFunc("/api/instances", s.handleInstances)
 	mux.HandleFunc("/api/lightos-admin-info", s.handleLightOSAdminInfo)
+	mux.HandleFunc("/api/publish/", s.handlePublishProxy)
 	mux.HandleFunc("/api/server-revision", s.handleServerRevision)
 	mux.HandleFunc("/api/settings", s.handleSettings)
 	mux.HandleFunc("/api/settings/fonts", s.handleSettingsFonts)
@@ -230,7 +247,7 @@ func (s *pluginServer) handleLightOSAdminInfo(w http.ResponseWriter, r *http.Req
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
-	info, err := resolveLightOSAdminInfo(r.Context())
+	info, err := s.resolveLightOSAdminInfo(r.Context())
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
@@ -238,6 +255,49 @@ func (s *pluginServer) handleLightOSAdminInfo(w http.ResponseWriter, r *http.Req
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	if err := json.NewEncoder(w).Encode(info); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+func (s *pluginServer) handlePublishProxy(w http.ResponseWriter, r *http.Request) {
+	expectedMethod, ok := allowedPublishProxyRoutes[r.URL.Path]
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	if r.Method != expectedMethod {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	info, err := s.resolveLightOSAdminInfo(r.Context())
+	if err != nil {
+		writeAPIError(w, http.StatusBadGateway, err)
+		return
+	}
+	targetURL, err := buildLightOSAdminURL(info.BaseURL, r.URL)
+	if err != nil {
+		writeAPIError(w, http.StatusBadGateway, err)
+		return
+	}
+	request, err := http.NewRequestWithContext(r.Context(), r.Method, targetURL, r.Body)
+	if err != nil {
+		writeAPIError(w, http.StatusBadGateway, err)
+		return
+	}
+	request.ContentLength = r.ContentLength
+	copyPublishProxyRequestHeaders(request.Header, r.Header)
+
+	response, err := s.publishClient().Do(request)
+	if err != nil {
+		writeAPIError(w, http.StatusBadGateway, err)
+		return
+	}
+	defer response.Body.Close()
+
+	copyPublishProxyResponseHeaders(w.Header(), response.Header)
+	w.WriteHeader(response.StatusCode)
+	if _, err := io.Copy(w, response.Body); err != nil {
+		log.Printf("publish proxy response copy failed: %v", err)
 	}
 }
 
@@ -500,6 +560,13 @@ func resolveLightOSAdminInfo(ctx context.Context) (adminInfo, error) {
 	return info, nil
 }
 
+func (s *pluginServer) resolveLightOSAdminInfo(ctx context.Context) (adminInfo, error) {
+	if s != nil && s.adminInfoResolver != nil {
+		return s.adminInfoResolver(ctx)
+	}
+	return resolveLightOSAdminInfo(ctx)
+}
+
 func parseLightOSAdminBaseURL(value string) (*url.URL, error) {
 	parsed, err := url.Parse(strings.TrimSpace(value))
 	if err != nil {
@@ -512,4 +579,80 @@ func parseLightOSAdminBaseURL(value string) (*url.URL, error) {
 		return nil, errors.New("invalid lightos-admin base_url scheme")
 	}
 	return parsed, nil
+}
+
+func buildLightOSAdminURL(baseURL string, requestURL *url.URL) (string, error) {
+	base, err := parseLightOSAdminBaseURL(baseURL)
+	if err != nil {
+		return "", err
+	}
+	target := *base
+	target.Path = joinURLPath(base.Path, requestURL.Path)
+	target.RawQuery = requestURL.RawQuery
+	target.Fragment = ""
+	return target.String(), nil
+}
+
+func joinURLPath(basePath, requestPath string) string {
+	basePath = strings.TrimRight(strings.TrimSpace(basePath), "/")
+	requestPath = "/" + strings.TrimLeft(strings.TrimSpace(requestPath), "/")
+	if basePath == "" {
+		return requestPath
+	}
+	return basePath + requestPath
+}
+
+func (s *pluginServer) publishClient() *http.Client {
+	if s != nil && s.publishHTTPClient != nil {
+		return s.publishHTTPClient
+	}
+	return &http.Client{Timeout: 30 * time.Second}
+}
+
+func copyPublishProxyRequestHeaders(dst, src http.Header) {
+	for key, values := range src {
+		if !isPublishProxyRequestHeaderAllowed(key) {
+			continue
+		}
+		for _, value := range values {
+			dst.Add(key, value)
+		}
+	}
+}
+
+func isPublishProxyRequestHeaderAllowed(key string) bool {
+	switch http.CanonicalHeaderKey(key) {
+	case "Accept", "Accept-Language", "Authorization", "Content-Type", "Cookie", "X-Csrf-Token", "X-Requested-With":
+		return true
+	default:
+		return false
+	}
+}
+
+func copyPublishProxyResponseHeaders(dst, src http.Header) {
+	for key, values := range src {
+		if !isPublishProxyResponseHeaderAllowed(key) {
+			continue
+		}
+		for _, value := range values {
+			dst.Add(key, value)
+		}
+	}
+}
+
+func isPublishProxyResponseHeaderAllowed(key string) bool {
+	switch http.CanonicalHeaderKey(key) {
+	case "Content-Type", "Cache-Control", "Set-Cookie":
+		return true
+	default:
+		return false
+	}
+}
+
+func writeAPIError(w http.ResponseWriter, status int, err error) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(status)
+	if encodeErr := json.NewEncoder(w).Encode(apiErrorResponse{Error: strings.TrimSpace(err.Error())}); encodeErr != nil {
+		log.Printf("api error response encode failed: %v", encodeErr)
+	}
 }

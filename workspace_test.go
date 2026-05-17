@@ -2,7 +2,9 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -16,6 +18,12 @@ import (
 
 	"lcmd-webshell/internal/pkg/fonts"
 )
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (fn roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return fn(request)
+}
 
 func TestBuildInstanceShellBootstrapScriptUsesConfiguredUser(t *testing.T) {
 	script := buildInstanceShellBootstrapScript("admin", "")
@@ -84,6 +92,145 @@ func TestHandleSettingsFontsUploadsMultipleFonts(t *testing.T) {
 	}
 	if state.TerminalFontID == "" || state.TerminalFontID != uploadedFonts[1].ID {
 		t.Fatalf("TerminalFontID = %q, want last uploaded font %q", state.TerminalFontID, uploadedFonts[1].ID)
+	}
+}
+
+func TestHandlePublishProxyForwardsListRequest(t *testing.T) {
+	var upstreamPath string
+	var upstreamQuery string
+	var upstreamAccept string
+	server := &pluginServer{
+		adminInfoResolver: func(context.Context) (adminInfo, error) {
+			return adminInfo{BaseURL: "https://admin.example/root/"}, nil
+		},
+		publishHTTPClient: &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+			upstreamPath = request.URL.Path
+			upstreamQuery = request.URL.RawQuery
+			upstreamAccept = request.Header.Get("Accept")
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body:       io.NopCloser(strings.NewReader(`[{"id":"pub-1"}]`)),
+				Request:    request,
+			}, nil
+		})},
+	}
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/publish/list?scope=current", nil)
+	request.Header.Set("Accept", "application/json")
+	server.handlePublishProxy(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("handlePublishProxy() status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	if upstreamPath != "/root/api/publish/list" || upstreamQuery != "scope=current" {
+		t.Fatalf("upstream URL path/query = %q?%q, want /root/api/publish/list?scope=current", upstreamPath, upstreamQuery)
+	}
+	if upstreamAccept != "application/json" {
+		t.Fatalf("upstream Accept = %q, want application/json", upstreamAccept)
+	}
+	if strings.TrimSpace(recorder.Body.String()) != `[{"id":"pub-1"}]` {
+		t.Fatalf("response body = %q", recorder.Body.String())
+	}
+}
+
+func TestHandlePublishProxyForwardsInstallMultipartRequest(t *testing.T) {
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	if err := writer.WriteField("id", "pub-1"); err != nil {
+		t.Fatalf("WriteField(id) error = %v", err)
+	}
+	part, err := writer.CreateFormFile("icon", "icon.png")
+	if err != nil {
+		t.Fatalf("CreateFormFile(icon) error = %v", err)
+	}
+	if _, err := io.WriteString(part, "png-data"); err != nil {
+		t.Fatalf("writing icon part error = %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("multipart close error = %v", err)
+	}
+
+	var upstreamContentType string
+	var upstreamPayload string
+	server := &pluginServer{
+		adminInfoResolver: func(context.Context) (adminInfo, error) {
+			return adminInfo{BaseURL: "http://admin.local"}, nil
+		},
+		publishHTTPClient: &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+			upstreamContentType = request.Header.Get("Content-Type")
+			data, err := io.ReadAll(request.Body)
+			if err != nil {
+				t.Fatalf("ReadAll(upstream body) error = %v", err)
+			}
+			upstreamPayload = string(data)
+			return &http.Response{
+				StatusCode: http.StatusCreated,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body:       io.NopCloser(strings.NewReader(`{"ok":true}`)),
+				Request:    request,
+			}, nil
+		})},
+	}
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/publish/http/install-shell-lpk", &body)
+	request.Header.Set("Content-Type", writer.FormDataContentType())
+	server.handlePublishProxy(recorder, request)
+
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("handlePublishProxy() status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.HasPrefix(upstreamContentType, "multipart/form-data; boundary=") {
+		t.Fatalf("upstream Content-Type = %q, want multipart/form-data", upstreamContentType)
+	}
+	if !strings.Contains(upstreamPayload, `name="id"`) || !strings.Contains(upstreamPayload, "pub-1") || !strings.Contains(upstreamPayload, "png-data") {
+		t.Fatalf("upstream multipart payload missing expected fields: %q", upstreamPayload)
+	}
+}
+
+func TestHandlePublishProxyRejectsUnknownRouteAndMethod(t *testing.T) {
+	server := &pluginServer{}
+
+	recorder := httptest.NewRecorder()
+	server.handlePublishProxy(recorder, httptest.NewRequest(http.MethodGet, "/api/publish/http/create", nil))
+	if recorder.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("GET create status = %d, want 405", recorder.Code)
+	}
+
+	recorder = httptest.NewRecorder()
+	server.handlePublishProxy(recorder, httptest.NewRequest(http.MethodGet, "/api/publish/../settings", nil))
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("unknown route status = %d, want 404", recorder.Code)
+	}
+}
+
+func TestHandlePublishProxyReturnsJSONBadGatewayOnUpstreamFailure(t *testing.T) {
+	server := &pluginServer{
+		adminInfoResolver: func(context.Context) (adminInfo, error) {
+			return adminInfo{BaseURL: "http://admin.local"}, nil
+		},
+		publishHTTPClient: &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+			return nil, errors.New("dial failed")
+		})},
+	}
+
+	recorder := httptest.NewRecorder()
+	server.handlePublishProxy(recorder, httptest.NewRequest(http.MethodGet, "/api/publish/status", nil))
+
+	if recorder.Code != http.StatusBadGateway {
+		t.Fatalf("handlePublishProxy() status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.HasPrefix(recorder.Header().Get("Content-Type"), "application/json") {
+		t.Fatalf("Content-Type = %q, want application/json", recorder.Header().Get("Content-Type"))
+	}
+	var payload apiErrorResponse
+	if err := json.NewDecoder(recorder.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode error response error = %v", err)
+	}
+	if !strings.Contains(payload.Error, "dial failed") {
+		t.Fatalf("error payload = %q, want to contain dial failed", payload.Error)
 	}
 }
 
