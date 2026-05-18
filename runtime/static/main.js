@@ -115,6 +115,12 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   const searchPrevious = document.getElementById("searchPrevious");
   const searchNext = document.getElementById("searchNext");
   const searchClose = document.getElementById("searchClose");
+  const attachmentToggle = document.getElementById("attachmentToggle");
+  const attachmentBackdrop = document.getElementById("attachmentBackdrop");
+  const attachmentClose = document.getElementById("attachmentClose");
+  const attachmentClipboard = document.getElementById("attachmentClipboard");
+  const attachmentFile = document.getElementById("attachmentFile");
+  const attachmentFileInput = document.getElementById("attachmentFileInput");
   const dialogBackdrop = document.getElementById("dialogBackdrop");
   const dialogPanel = document.getElementById("dialogPanel");
   const dialogTitle = document.getElementById("dialogTitle");
@@ -175,6 +181,8 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   const terminalOutputFlushFallbackMs = 32;
   const maxQueuedTerminalOutputBytes = 4 * 1024 * 1024;
   const activityPollIntervalMs = 4000;
+  const maxAttachmentUploadBytes = 2 * 1024 * 1024 * 1024;
+  const maxAttachmentUploadCount = 32;
   const mobileLayoutQuery = window.matchMedia?.("(max-width: 640px)");
   const touchShortcutLayoutQuery = window.matchMedia?.("(hover: none), (pointer: coarse)");
   const themeCardWidth = 280;
@@ -419,6 +427,10 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   let serviceForwardRequestSeq = 0;
   let serviceForwardEditingID = "";
   let serviceForwardBusy = false;
+  let attachmentDialogOpen = false;
+  let attachmentUploads = new Map();
+  let attachmentUploadSeq = 0;
+  let pendingAttachmentFileClipboard = null;
   const searchState = { open: false, query: "", matches: [], index: -1, sessionId: "" };
   const mobileSticky = { ctrl: false, alt: false, shift: false };
   let touchShortcutFeedbackEnabled = loadTouchShortcutFeedbackEnabled();
@@ -754,6 +766,17 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       return `${(size / 1024).toFixed(size < 10 * 1024 ? 1 : 0)} KB`;
     }
     return `${(size / 1024 / 1024).toFixed(1)} MB`;
+  };
+
+  const formatAttachmentBytes = (value) => {
+    const size = Number(value || 0);
+    if (!Number.isFinite(size) || size <= 0) {
+      return "0 B";
+    }
+    if (size < 1024 * 1024 * 1024) {
+      return formatBytes(size) || "0 B";
+    }
+    return `${(size / 1024 / 1024 / 1024).toFixed(2)} GB`;
   };
 
   const normalizeTerminalScrollback = (value) => {
@@ -2621,6 +2644,8 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     fullscreen: "F11",
     new_tab: "Ctrl + Shift + t",
     close_tab: "Ctrl + Shift + w",
+    close_other_tabs: "Ctrl + Shift + q",
+    rename_tab: "Ctrl + Shift + r",
     next_tab: "Ctrl + Tab",
     previous_tab: "Ctrl + Shift + Tab",
     last_tab: macShortcut("Option + 0", "Alt + 0"),
@@ -2640,7 +2665,8 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     copy_terminal: macShortcut("Command + c", "Ctrl + Shift + c"),
     paste_terminal: macShortcut("Command + v", "Ctrl + Shift + v"),
     search_terminal: "Ctrl + Shift + f",
-    select_all_terminal: "Ctrl + Shift + a",
+    attachment_clipboard: "Ctrl + Shift + a",
+    attachment_file: macShortcut("Command + Shift + e", "Ctrl + Shift + e"),
   };
   const shortcutActionMap = new Map();
 
@@ -2651,6 +2677,8 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     ["fullscreen", "全屏"],
     ["new_tab", "新建标签"],
     ["close_tab", "关闭标签"],
+    ["close_other_tabs", "关闭其他标签"],
+    ["rename_tab", "重命名标签"],
     ["next_tab", "下一个标签"],
     ["previous_tab", "上一个标签"],
     ["last_tab", "最后一个标签"],
@@ -2671,6 +2699,8 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     ["paste_terminal", "粘贴到终端"],
     ["search_terminal", "搜索终端"],
     ["select_all_terminal", "全选终端缓冲区"],
+    ["attachment_clipboard", "从剪贴板导入附件"],
+    ["attachment_file", "上传附件文件"],
   ]);
   for (let index = 1; index <= 9; index += 1) {
     desktopShortcutActionLabels.set(`tab_${index}`, `切换到第 ${index} 个标签`);
@@ -2680,6 +2710,8 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     { id: "fullscreen", label: "全屏", action: "fullscreen", shortcut: shortcutDefinitions.fullscreen },
     { id: "new-tab", label: "新建标签", action: "new_tab", shortcut: shortcutDefinitions.new_tab },
     { id: "close-tab", label: "关闭标签", action: "close_tab", shortcut: shortcutDefinitions.close_tab },
+    { id: "close-other-tabs", label: "关闭其他标签", action: "close_other_tabs", shortcut: shortcutDefinitions.close_other_tabs },
+    { id: "rename-tab", label: "重命名标签", action: "rename_tab", shortcut: shortcutDefinitions.rename_tab },
     { id: "next-tab", label: "下一个标签", action: "next_tab", shortcut: shortcutDefinitions.next_tab },
     { id: "previous-tab", label: "上一个标签", action: "previous_tab", shortcut: shortcutDefinitions.previous_tab },
     { id: "last-tab", label: "最后一个标签", action: "last_tab", shortcut: shortcutDefinitions.last_tab },
@@ -2699,7 +2731,8 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     { id: "copy-terminal", label: "复制", action: "copy_terminal", shortcut: shortcutDefinitions.copy_terminal },
     { id: "paste-terminal", label: "粘贴", action: "paste_terminal", shortcut: shortcutDefinitions.paste_terminal },
     { id: "search-terminal", label: "搜索", action: "search_terminal", shortcut: shortcutDefinitions.search_terminal },
-    { id: "select-all-terminal", label: "全选", action: "select_all_terminal", shortcut: shortcutDefinitions.select_all_terminal },
+    { id: "attachment-clipboard", label: "从剪贴板导入附件", action: "attachment_clipboard", shortcut: shortcutDefinitions.attachment_clipboard },
+    { id: "attachment-file", label: "上传附件文件", action: "attachment_file", shortcut: shortcutDefinitions.attachment_file },
   ];
   for (let index = 1; index <= 9; index += 1) {
     defaultDesktopShortcutsConfig.push({
@@ -2830,6 +2863,9 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   const getShortcutKeyFromEvent = (event) => {
     let key = normalizeShortcutKeyToken(event.key);
     if (isMacPlatform() && event.altKey) {
+      key = shortcutKeyFromEventCode(event) || key;
+    }
+    if ((!key || key === "process" || Number(event.keyCode || 0) === 229) && (event.ctrlKey || event.altKey || event.metaKey)) {
       key = shortcutKeyFromEventCode(event) || key;
     }
     if (!key || ["ctrl", "shift", "alt", "super"].includes(key)) {
@@ -3010,6 +3046,12 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     const size = terminalSizeQuery();
     url.searchParams.set("cols", String(size.cols));
     url.searchParams.set("rows", String(size.rows));
+    return url;
+  };
+
+  const attachmentURL = (name = activeName) => {
+    const url = new URL("./api/attachments", window.location.href);
+    url.searchParams.set("name", name);
     return url;
   };
 
@@ -4550,6 +4592,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     (serviceForwardEditor && !serviceForwardEditor.hidden) ||
     (mobileShortcutEditor && !mobileShortcutEditor.hidden) ||
     (desktopShortcutEditor && !desktopShortcutEditor.hidden) ||
+    (attachmentBackdrop && !attachmentBackdrop.hidden) ||
     (dialogBackdrop && !dialogBackdrop.hidden) ||
     (contextMenu && !contextMenu.hidden) ||
     (selectionSheet && !selectionSheet.hidden)
@@ -5406,7 +5449,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
         refreshTerminalMetrics(pane);
       }
     }
-    showToast(`Font size ${terminalFontSize}px`);
+    showToast(`字号 ${terminalFontSize}px`);
   };
 
   const adjustTerminalFontSize = (delta) => setTerminalFontSize(terminalFontSize + delta);
@@ -5505,9 +5548,67 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
 
   const readClipboardText = async () => {
     if (!navigator.clipboard?.readText || !window.isSecureContext) {
-      throw new Error("Clipboard read is unavailable in this browser context.");
+      throw new Error("当前浏览器环境无法读取剪贴板。");
     }
     return navigator.clipboard.readText();
+  };
+
+  const fileExtensionFromType = (type) => {
+    const mime = String(type || "").toLowerCase();
+    switch (mime) {
+      case "image/png":
+        return ".png";
+      case "image/jpeg":
+        return ".jpg";
+      case "image/gif":
+        return ".gif";
+      case "image/webp":
+        return ".webp";
+      case "text/html":
+        return ".html";
+      case "application/json":
+        return ".json";
+      default:
+        if (mime.startsWith("text/")) {
+          return ".txt";
+        }
+        return "";
+    }
+  };
+
+  const clipboardFileName = (blob, index) => {
+    const ext = fileExtensionFromType(blob?.type) || ".bin";
+    return `clipboard-${new Date().toISOString().replace(/[:.]/g, "-")}-${index + 1}${ext}`;
+  };
+
+  const readClipboardFiles = async () => {
+    const files = [];
+    if (navigator.clipboard?.read && window.isSecureContext) {
+      try {
+        const items = await navigator.clipboard.read();
+        for (const item of items || []) {
+          const types = Array.from(item?.types || []);
+          const fileTypes = types.filter((type) => !String(type).startsWith("text/"));
+          for (const type of fileTypes) {
+            const blob = await item.getType(type);
+            if (!blob || blob.size <= 0) {
+              continue;
+            }
+            const name = clipboardFileName(blob, files.length);
+            files.push(new File([blob], name, { type: blob.type || type }));
+          }
+        }
+      } catch {
+      }
+    }
+    if (files.length > 0) {
+      return files;
+    }
+    const text = await readClipboardText();
+    if (!text) {
+      throw new Error("剪贴板没有可导入的内容。");
+    }
+    return [new File([text], `clipboard-${new Date().toISOString().replace(/[:.]/g, "-")}.txt`, { type: "text/plain;charset=utf-8" })];
   };
 
   const copyFromSession = async (session = activeSession()) => {
@@ -5522,15 +5623,15 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       text = session.term.getSelection?.() || "";
     }
     if (!text) {
-      showToast("No selection to copy.");
+      showToast("没有可复制的选区。");
       return;
     }
     if (await copyText(text)) {
-      showToast("Copied.");
+      showToast("已复制。");
       session.term.clearSelection?.();
       updateSelectionSheet();
     } else {
-      showToast("Copy failed.");
+      showToast("复制失败。");
     }
   };
 
@@ -5544,7 +5645,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
         session.term.paste(value);
       }
     } catch (error) {
-      showToast(error.message || "Paste failed.");
+      showToast(error.message || "粘贴失败。");
     }
   };
 
@@ -5782,7 +5883,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     session.selectAllBufferActive = true;
     session.term.selectLines?.(0, Math.max(0, session.term.rows - 1));
     updateSelectionSheet();
-    showToast("Full terminal buffer selected.");
+    showToast("已选中完整终端缓冲区。");
   };
 
   const scrollToAbsoluteRow = (term, absoluteRow, preferredViewportRow = 2) => {
@@ -5859,6 +5960,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     searchState.open = true;
     searchPanel.hidden = false;
     searchInput.value = searchState.query;
+    renderAttachmentUploadsForActiveTab();
     window.setTimeout(() => {
       searchInput.focus();
       searchInput.select();
@@ -5871,6 +5973,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     if (searchPanel) {
       searchPanel.hidden = true;
     }
+    renderAttachmentUploadsForActiveTab();
     activeSession()?.term?.focus();
   };
 
@@ -6149,7 +6252,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   };
 
   const promptDialog = async (title, value) => {
-    const result = await openDialog({ mode: "prompt", title, value, okText: "Save", cancelText: "取消" });
+    const result = await openDialog({ mode: "prompt", title, value, okText: "保存", cancelText: "取消" });
     return result === null ? null : String(result || "").trim();
   };
 
@@ -8486,6 +8589,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     if (remember) {
       rememberActiveTab();
     }
+    renderAttachmentUploadsForActiveTab();
     window.requestAnimationFrame(() => {
       scrollTabButtonIntoView(tab.button);
       resizeTabForCurrentDevice(tab);
@@ -8501,7 +8605,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     if (!pane) {
       const missing = document.createElement("div");
       missing.className = "missing-pane";
-      missing.textContent = "Pane unavailable";
+      missing.textContent = "窗格不可用";
       return missing;
     }
     pane.shellEl.style.flexBasis = node.size ? `${node.size}%` : "";
@@ -8961,7 +9065,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       return;
     }
     if (!allowLast && tabs.size <= 1) {
-      showToast("At least one tab must remain.");
+      showToast("至少需要保留一个标签。");
       return;
     }
     if (!applyingWorkspaceState) {
@@ -8971,6 +9075,11 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
         }
       });
       return;
+    }
+    for (const upload of [...attachmentUploads.values()]) {
+      if (upload.tabId === tab.id) {
+        removeAttachmentUpload(upload.id);
+      }
     }
     let nextActiveTab = null;
     if (activeTabId === tab.id) {
@@ -9167,7 +9276,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
         openURL(target.link);
         break;
       case "copy-link":
-        copyText(target.link).then((ok) => showToast(ok ? "Link copied." : "Copy failed."));
+        copyText(target.link).then((ok) => showToast(ok ? "链接已复制。" : "复制失败。"));
         break;
       case "rename-tab":
         renameTab(target.tabId).catch((error) => showToast(error.message));
@@ -9258,6 +9367,16 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
           closeTab(tab.id);
         }
         return;
+      case "close_other_tabs":
+        if (tab) {
+          closeOtherTabs(tab.id);
+        }
+        return;
+      case "rename_tab":
+        if (tab) {
+          await renameTab(tab.id);
+        }
+        return;
       case "next_tab":
         setActiveTabByOffset(1);
         return;
@@ -9332,6 +9451,12 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       case "select_all_terminal":
         selectAllSessionBuffer();
         return;
+      case "attachment_clipboard":
+        await importAttachmentFromClipboard();
+        return;
+      case "attachment_file":
+        selectAttachmentFiles();
+        return;
       default: {
         const match = action.match(/^tab_(\d+)$/);
         if (match) {
@@ -9345,13 +9470,15 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     if (!(event instanceof KeyboardEvent)) {
       return;
     }
-    if (event.isComposing || event.key === "Process" || Number(event.keyCode || 0) === 229) {
+    const shortcut = getShortcutKeyFromEvent(event);
+    if ((event.isComposing || event.key === "Process" || Number(event.keyCode || 0) === 229) && !shortcutActionMap.has(shortcut)) {
       return;
     }
     if (
       (themePickerBackdrop && !themePickerBackdrop.hidden) ||
       (settingsBackdrop && !settingsBackdrop.hidden) ||
       (instanceSwitcherPanel && !instanceSwitcherPanel.hidden) ||
+      (attachmentBackdrop && !attachmentBackdrop.hidden) ||
       isTabOverviewOpen()
     ) {
       return;
@@ -9384,7 +9511,6 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
         return;
       }
     }
-    const shortcut = getShortcutKeyFromEvent(event);
     const action = shortcutActionMap.get(shortcut);
     if (!action) {
       return;
@@ -9393,7 +9519,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     event.stopPropagation();
     event.stopImmediatePropagation?.();
     closeContextMenu();
-    runShortcutAction(action).catch((error) => showToast(error.message || "Shortcut failed"));
+    runShortcutAction(action).catch((error) => showToast(error.message || "快捷键执行失败。"));
   };
 
   const renderInstanceSwitcher = () => {
@@ -9455,6 +9581,379 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       instanceSwitcherPanel.hidden = true;
     }
     instanceSwitcherButton?.setAttribute("aria-expanded", "false");
+  };
+
+  const isAttachmentDialogOpen = () => attachmentDialogOpen && attachmentBackdrop && !attachmentBackdrop.hidden;
+
+  const openAttachmentDialog = () => {
+    if (!attachmentBackdrop) {
+      return;
+    }
+    closeContextMenu();
+    closeInstanceSwitcher();
+    attachmentDialogOpen = true;
+    attachmentBackdrop.hidden = false;
+    window.setTimeout(() => attachmentClipboard?.focus(), 0);
+  };
+
+  const closeAttachmentDialog = ({ focusTerminal = true } = {}) => {
+    attachmentDialogOpen = false;
+    if (attachmentBackdrop) {
+      attachmentBackdrop.hidden = true;
+    }
+    if (focusTerminal) {
+      window.setTimeout(() => activeSession()?.term?.focus(), 0);
+    }
+  };
+
+  const normalizeAttachmentFiles = (files) => Array.from(files || []).filter((file) => file instanceof File || file instanceof Blob);
+
+  const totalAttachmentSize = (files) => files.reduce((sum, file) => sum + Number(file?.size || 0), 0);
+
+  const attachmentUploadTitle = (upload) => {
+    const count = upload.files.length;
+    if (count === 1) {
+      return upload.files[0]?.name || "附件";
+    }
+    return `${count} 个文件`;
+  };
+
+  const uploadStatusText = (upload) => {
+    if (upload.status === "success") {
+      if (upload.copyFailed) {
+        return "上传成功，点击复制路径。";
+      }
+      return "文件路径已复制到剪切板,粘贴即可";
+    }
+    if (upload.status === "error") {
+      return upload.error || "上传失败";
+    }
+    if (upload.status === "canceled") {
+      return "上传已取消";
+    }
+    const loaded = formatAttachmentBytes(upload.loaded);
+    const total = upload.total > 0 ? formatAttachmentBytes(upload.total) : "";
+    const percent = upload.total > 0 ? `${Math.round(Math.min(100, (upload.loaded / upload.total) * 100))}%` : "";
+    return [loaded && total ? `${loaded} / ${total}` : loaded, percent].filter(Boolean).join(" · ") || "准备上传";
+  };
+
+  const removeAttachmentUpload = (id) => {
+    const upload = attachmentUploads.get(id);
+    if (!upload) {
+      return;
+    }
+    upload.clipboardReservation?.reject?.();
+    upload.clipboardReservation = null;
+    if (upload.autoCloseTimer) {
+      window.clearTimeout(upload.autoCloseTimer);
+      upload.autoCloseTimer = null;
+    }
+    if (upload.status === "uploading" && upload.xhr) {
+      upload.canceled = true;
+      upload.xhr.abort();
+    }
+    upload.panel?.remove();
+    attachmentUploads.delete(id);
+  };
+
+  const ensureAttachmentUploadPanel = (upload) => {
+    if (upload.panel?.isConnected) {
+      return upload.panel;
+    }
+    const tab = tabs.get(upload.tabId);
+    if (!tab?.paneEl) {
+      return null;
+    }
+    const panel = document.createElement("section");
+    panel.className = "attachment-upload-panel";
+    panel.setAttribute("aria-live", "polite");
+    panel.innerHTML = `
+      <div class="attachment-upload-head">
+        <div class="attachment-upload-title"></div>
+        <button class="attachment-upload-copy" type="button" hidden>复制路径</button>
+        <button class="attachment-upload-close" type="button" aria-label="关闭上传提示">&times;</button>
+      </div>
+      <div class="attachment-upload-detail"></div>
+      <div class="attachment-upload-progress" aria-hidden="true"><span></span></div>
+    `;
+    panel.querySelector(".attachment-upload-copy")?.addEventListener("click", async () => {
+      const text = String(upload.paths || "").trim();
+      if (!text) {
+        return;
+      }
+      const copied = await copyText(text);
+      if (copied) {
+        upload.copyFailed = false;
+        renderAttachmentUpload(upload);
+        scheduleAttachmentUploadAutoClose(upload);
+      } else {
+        showToast("路径复制失败。");
+      }
+    });
+    panel.querySelector(".attachment-upload-close")?.addEventListener("click", () => removeAttachmentUpload(upload.id));
+    tab.paneEl.appendChild(panel);
+    upload.panel = panel;
+    return panel;
+  };
+
+  const scheduleAttachmentUploadAutoClose = (upload) => {
+    if (upload.autoCloseTimer) {
+      window.clearTimeout(upload.autoCloseTimer);
+    }
+    upload.autoCloseTimer = window.setTimeout(() => {
+      if (attachmentUploads.get(upload.id) === upload && upload.status === "success") {
+        removeAttachmentUpload(upload.id);
+      }
+    }, 5000);
+  };
+
+  const renderAttachmentUpload = (upload) => {
+    if (attachmentUploads.get(upload.id) !== upload) {
+      return;
+    }
+    const panel = ensureAttachmentUploadPanel(upload);
+    if (!panel) {
+      return;
+    }
+    panel.dataset.status = upload.status;
+    panel.classList.toggle("search-open", Boolean(searchPanel && !searchPanel.hidden && upload.tabId === activeTabId));
+    const title = panel.querySelector(".attachment-upload-title");
+    const copyButton = panel.querySelector(".attachment-upload-copy");
+    const detail = panel.querySelector(".attachment-upload-detail");
+    const progress = panel.querySelector(".attachment-upload-progress span");
+    if (title) {
+      title.textContent = attachmentUploadTitle(upload);
+    }
+    if (copyButton) {
+      copyButton.hidden = upload.status !== "success" || !upload.copyFailed || !String(upload.paths || "").trim();
+    }
+    if (detail) {
+      detail.textContent = uploadStatusText(upload);
+    }
+    if (progress) {
+      const percent = upload.total > 0 ? Math.max(0, Math.min(100, (upload.loaded / upload.total) * 100)) : 0;
+      progress.style.width = upload.status === "success" ? "100%" : `${percent}%`;
+    }
+  };
+
+  const renderAttachmentUploadsForActiveTab = () => {
+    for (const upload of attachmentUploads.values()) {
+      renderAttachmentUpload(upload);
+    }
+  };
+
+  const readAttachmentUploadResponse = (xhr) => {
+    const text = String(xhr.responseText || "").trim();
+    if (!text) {
+      return { files: [] };
+    }
+    try {
+      return JSON.parse(text);
+    } catch {
+      return { files: [] };
+    }
+  };
+
+  const xhrResponseError = (xhr, fallback) => {
+    const text = String(xhr.responseText || "").trim();
+    return text || fallback;
+  };
+
+  const createDeferredAttachmentClipboard = () => {
+    if (!navigator.clipboard?.write || typeof ClipboardItem !== "function" || typeof Blob !== "function" || !window.isSecureContext) {
+      return null;
+    }
+    let resolveText;
+    let rejectText;
+    const textPromise = new Promise((resolve, reject) => {
+      resolveText = resolve;
+      rejectText = reject;
+    });
+    const item = new ClipboardItem({
+      "text/plain": textPromise.then((text) => new Blob([String(text || "")], { type: "text/plain" })),
+    });
+    const writePromise = navigator.clipboard.write([item]);
+    writePromise.catch(() => {});
+    return {
+      resolve(text) {
+        resolveText(String(text || ""));
+      },
+      reject(error) {
+        rejectText(error || new Error("attachment clipboard canceled"));
+      },
+      promise: writePromise,
+    };
+  };
+
+  const reserveAttachmentClipboard = () => {
+    pendingAttachmentFileClipboard?.reject?.();
+    pendingAttachmentFileClipboard = null;
+    try {
+      pendingAttachmentFileClipboard = createDeferredAttachmentClipboard();
+    } catch (error) {
+      pendingAttachmentFileClipboard = null;
+    }
+  };
+
+  const consumeAttachmentClipboardReservation = () => {
+    const reserved = pendingAttachmentFileClipboard;
+    pendingAttachmentFileClipboard = null;
+    return reserved;
+  };
+
+  const cancelAttachmentClipboardReservation = () => {
+    pendingAttachmentFileClipboard?.reject?.();
+    pendingAttachmentFileClipboard = null;
+  };
+
+  const copyAttachmentPaths = async (paths, reservedClipboard = null) => {
+    const text = String(paths || "").trim();
+    if (!text) {
+      reservedClipboard?.reject?.();
+      return true;
+    }
+    if (reservedClipboard) {
+      try {
+        reservedClipboard.resolve(text);
+        await reservedClipboard.promise;
+        return true;
+      } catch (error) {
+      }
+    }
+    return copyText(text);
+  };
+
+  const uploadAttachments = (files, { source = "file", clipboardReservation = null } = {}) => {
+    const selectedFiles = normalizeAttachmentFiles(files);
+    if (selectedFiles.length === 0) {
+      clipboardReservation?.reject?.();
+      showToast(source === "clipboard" ? "剪贴板没有可导入的内容。" : "请选择要上传的文件。");
+      return;
+    }
+    if (selectedFiles.length > maxAttachmentUploadCount) {
+      clipboardReservation?.reject?.();
+      showToast(`一次最多上传 ${maxAttachmentUploadCount} 个文件。`);
+      return;
+    }
+    const oversized = selectedFiles.find((file) => Number(file.size || 0) > maxAttachmentUploadBytes);
+    if (oversized) {
+      clipboardReservation?.reject?.();
+      showToast(`文件超过 2GB：${oversized.name || "附件"}`);
+      return;
+    }
+    const tab = currentTab();
+    if (!tab || !activeName) {
+      clipboardReservation?.reject?.();
+      showToast("没有可用的当前终端。");
+      return;
+    }
+    const id = `attachment-${++attachmentUploadSeq}`;
+    const instanceName = activeName;
+    const upload = {
+      id,
+      tabId: tab.id,
+      instanceName,
+      files: selectedFiles,
+      total: totalAttachmentSize(selectedFiles),
+      loaded: 0,
+      status: "uploading",
+      xhr: null,
+      panel: null,
+      error: "",
+      canceled: false,
+      paths: "",
+      copyFailed: false,
+      clipboardReservation,
+      autoCloseTimer: null,
+    };
+    attachmentUploads.set(id, upload);
+    renderAttachmentUpload(upload);
+
+    const form = new FormData();
+    for (const file of selectedFiles) {
+      form.append("file", file, file.name || "attachment.bin");
+    }
+    const xhr = new XMLHttpRequest();
+    upload.xhr = xhr;
+    xhr.open("POST", attachmentURL(instanceName));
+    xhr.upload.addEventListener("progress", (event) => {
+      if (event.lengthComputable) {
+        upload.loaded = event.loaded;
+        upload.total = event.total || upload.total;
+      } else {
+        upload.loaded = Math.max(upload.loaded, event.loaded || 0);
+      }
+      renderAttachmentUpload(upload);
+    });
+    xhr.addEventListener("load", async () => {
+      upload.xhr = null;
+      upload.loaded = upload.total || upload.loaded;
+      if (xhr.status < 200 || xhr.status >= 300) {
+        upload.status = "error";
+        upload.error = xhrResponseError(xhr, `上传失败 (${xhr.status})`);
+        upload.clipboardReservation?.reject?.();
+        upload.clipboardReservation = null;
+        if (upload.autoCloseTimer) {
+          window.clearTimeout(upload.autoCloseTimer);
+          upload.autoCloseTimer = null;
+        }
+        renderAttachmentUpload(upload);
+        return;
+      }
+      const payload = readAttachmentUploadResponse(xhr);
+      const paths = Array.isArray(payload?.files) ? payload.files.map((file) => String(file?.path || "").trim()).filter(Boolean) : [];
+      upload.paths = paths.join("\n");
+      if (paths.length > 0) {
+        upload.copyFailed = !(await copyAttachmentPaths(upload.paths, upload.clipboardReservation));
+        upload.clipboardReservation = null;
+      }
+      upload.status = "success";
+      renderAttachmentUpload(upload);
+      if (!upload.copyFailed) {
+        scheduleAttachmentUploadAutoClose(upload);
+      }
+    });
+    xhr.addEventListener("error", () => {
+      upload.xhr = null;
+      upload.status = "error";
+      upload.error = "上传失败";
+      upload.clipboardReservation?.reject?.();
+      upload.clipboardReservation = null;
+      if (upload.autoCloseTimer) {
+        window.clearTimeout(upload.autoCloseTimer);
+        upload.autoCloseTimer = null;
+      }
+      renderAttachmentUpload(upload);
+    });
+    xhr.addEventListener("abort", () => {
+      upload.xhr = null;
+      upload.status = "canceled";
+      upload.error = "";
+      upload.clipboardReservation?.reject?.();
+      upload.clipboardReservation = null;
+      if (upload.autoCloseTimer) {
+        window.clearTimeout(upload.autoCloseTimer);
+        upload.autoCloseTimer = null;
+      }
+      renderAttachmentUpload(upload);
+    });
+    xhr.send(form);
+  };
+
+  const importAttachmentFromClipboard = async () => {
+    try {
+      const files = await readClipboardFiles();
+      closeAttachmentDialog({ focusTerminal: false });
+      uploadAttachments(files, { source: "clipboard" });
+    } catch (error) {
+      showToast(error.message || "剪贴板读取失败。");
+    }
+  };
+
+  const selectAttachmentFiles = () => {
+    closeAttachmentDialog({ focusTerminal: false });
+    reserveAttachmentClipboard();
+    attachmentFileInput?.click();
   };
 
   const resetTabsForInstance = () => {
@@ -9982,6 +10481,26 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   searchNext?.addEventListener("click", () => moveSearchResult(1));
   searchClose?.addEventListener("click", closeSearch);
 
+  attachmentToggle?.addEventListener("click", openAttachmentDialog);
+  attachmentClose?.addEventListener("click", closeAttachmentDialog);
+  attachmentBackdrop?.addEventListener("click", (event) => {
+    if (event.target === attachmentBackdrop) {
+      closeAttachmentDialog();
+    }
+  });
+  attachmentClipboard?.addEventListener("click", () => {
+    importAttachmentFromClipboard();
+  });
+  attachmentFile?.addEventListener("click", selectAttachmentFiles);
+  attachmentFileInput?.addEventListener("change", () => {
+    const files = Array.from(attachmentFileInput.files || []);
+    if (attachmentFileInput) {
+      attachmentFileInput.value = "";
+    }
+    uploadAttachments(files, { source: "file", clipboardReservation: consumeAttachmentClipboardReservation() });
+  });
+  attachmentFileInput?.addEventListener("cancel", cancelAttachmentClipboardReservation);
+
   dialogPanel?.addEventListener("submit", (event) => {
     event.preventDefault();
     if (dialogBackdrop?.dataset.mode === "prompt") {
@@ -10005,6 +10524,11 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     if (mobileShortcutEditor && !mobileShortcutEditor.hidden && event.key === "Escape") {
       event.preventDefault();
       closeMobileShortcutEditor();
+      return;
+    }
+    if (isAttachmentDialogOpen() && event.key === "Escape") {
+      event.preventDefault();
+      closeAttachmentDialog();
       return;
     }
     if (dialogResolve && event.key === "Escape") {
@@ -10137,6 +10661,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       closeMobileActionSheet();
       closeMobileCloseConfirm(false);
       closeInstanceSwitcher();
+      closeAttachmentDialog({ focusTerminal: false });
       closeThemePicker();
       closeSettings();
       closeTabOverview();
@@ -10200,14 +10725,14 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   });
   window.addEventListener("online", () => {
     setNetworkBanner(false);
-    showToast("Network is online. Reconnecting.");
+    showToast("网络已恢复，正在重连。");
     refreshServerRevision().catch(() => {});
     reconnectVisibleSessions();
     refreshActivity({ silent: true }).catch(() => {});
   });
   window.addEventListener("offline", () => {
     setNetworkBanner(true);
-    showToast("Network is offline.");
+    showToast("网络已断开。");
   });
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden) {

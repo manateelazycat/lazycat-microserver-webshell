@@ -20,9 +20,14 @@
               <rect x="14" y="14" width="6" height="6" rx="1.5"></rect>
             </svg>
           </button>
+          <button class="attachment-toggle" id="attachmentToggle" type="button" aria-label="上传附件" title="上传附件">
+            <svg t="1779115711937" class="topbar-icon attachment-toggle-icon icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" p-id="18708" width="200" height="200" aria-hidden="true" focusable="false">
+              <path d="M895.408 221.28l-769.136 239.12 217.888 178.16c-0.784 1.968-1.184 4.112-1.104 6.336l5.536 167.488c0.304 8.832 7.68 15.744 16.512 15.472 0.128 0 0.24-0.080 0.352-0.096 4.288 0 8.544-1.616 11.68-4.992l83.84-88.688 143.024 116.944 291.408-629.744zM785.936 288.816l-423.904 323.040-169.456-138.544 593.36-184.496zM379.312 773.6l-3.616-109.232 60.416 49.408-56.8 59.824zM387.504 632.688l436.048-332.304-231.248 499.76-204.8-167.456z" fill="#231F20" p-id="18709"></path>
+            </svg>
+          </button>
           <div class="mobile-active-tab-title" id="mobileActiveTabTitle" aria-live="polite">终端</div>
           <div class="tabs" id="tabs" role="tablist" aria-label="Terminal tabs"></div>
-          <button class="tab-add" id="newTab" type="button" aria-label="New tab" title="New tab">
+          <button class="tab-add" id="newTab" type="button" aria-label="新建标签" title="新建标签">
             <svg class="topbar-icon tab-add-icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
               <path d="M12 5v14M5 12h14"></path>
             </svg>
@@ -64,14 +69,14 @@
       </header>
       <main class="terminal-area" id="terminalArea">
         <div class="search-panel" id="searchPanel" hidden>
-          <input class="search-input" id="searchInput" type="search" autocomplete="off" spellcheck="false" aria-label="Search terminal" />
+          <input class="search-input" id="searchInput" type="search" autocomplete="off" spellcheck="false" aria-label="搜索终端" />
           <span class="search-count" id="searchCount">0/0</span>
-          <button class="search-btn" id="searchPrevious" type="button" aria-label="Previous result">&uarr;</button>
-          <button class="search-btn" id="searchNext" type="button" aria-label="Next result">&darr;</button>
-          <button class="search-btn" id="searchClose" type="button" aria-label="Close search">&times;</button>
+          <button class="search-btn" id="searchPrevious" type="button" aria-label="上一个结果">&uarr;</button>
+          <button class="search-btn" id="searchNext" type="button" aria-label="下一个结果">&darr;</button>
+          <button class="search-btn" id="searchClose" type="button" aria-label="关闭搜索">&times;</button>
         </div>
         <div class="empty-state" id="emptyState" hidden>
-          <button class="empty-state-action" id="emptyStateAction" type="button" aria-label="New Terminal">New Terminal</button>
+          <button class="empty-state-action" id="emptyStateAction" type="button" aria-label="新建终端">新建终端</button>
         </div>
       </main>
     </div>
@@ -424,17 +429,34 @@
         </div>
       </form>
     </div>
-    <div class="mobile-shortcuts" id="mobileShortcuts" aria-label="Terminal shortcuts">
-      <div class="mobile-shortcut-row" data-mobile-shortcut-row="top" role="toolbar" aria-label="Terminal shortcuts row 1"></div>
-      <div class="mobile-shortcut-row" data-mobile-shortcut-row="bottom" role="toolbar" aria-label="Terminal shortcuts row 2"></div>
+    <div class="attachment-backdrop" id="attachmentBackdrop" hidden>
+      <section class="attachment-panel" id="attachmentPanel" role="dialog" aria-modal="true" aria-labelledby="attachmentTitle">
+        <div class="attachment-header">
+          <h2 class="attachment-title" id="attachmentTitle">上传附件</h2>
+          <button class="attachment-close" id="attachmentClose" type="button" aria-label="关闭">&times;</button>
+        </div>
+        <div class="attachment-actions">
+          <button class="attachment-action" id="attachmentClipboard" type="button">
+            <span class="attachment-action-title">从粘贴板导入</span>
+          </button>
+          <button class="attachment-action" id="attachmentFile" type="button">
+            <span class="attachment-action-title">上传文件</span>
+          </button>
+        </div>
+      </section>
+    </div>
+    <input class="attachment-file-input" id="attachmentFileInput" type="file" multiple />
+    <div class="mobile-shortcuts" id="mobileShortcuts" aria-label="终端快捷键">
+      <div class="mobile-shortcut-row" data-mobile-shortcut-row="top" role="toolbar" aria-label="终端快捷键第一行"></div>
+      <div class="mobile-shortcut-row" data-mobile-shortcut-row="bottom" role="toolbar" aria-label="终端快捷键第二行"></div>
     </div>
     <div class="mobile-action-sheet" id="mobileActionSheet" hidden>
-      <button class="mobile-action-sheet-scrim" id="mobileActionSheetScrim" type="button" aria-label="Close menu"></button>
-      <section class="mobile-action-sheet-panel" role="dialog" aria-modal="true" aria-label="Terminal menu">
-        <button class="mobile-action-sheet-handle" id="mobileActionSheetHandle" type="button" aria-label="Close menu">
+      <button class="mobile-action-sheet-scrim" id="mobileActionSheetScrim" type="button" aria-label="关闭菜单"></button>
+      <section class="mobile-action-sheet-panel" role="dialog" aria-modal="true" aria-label="终端菜单">
+        <button class="mobile-action-sheet-handle" id="mobileActionSheetHandle" type="button" aria-label="关闭菜单">
           <span aria-hidden="true"></span>
         </button>
-        <div class="mobile-action-grid" id="mobileActionGrid" role="menu" aria-label="Terminal menu actions"></div>
+        <div class="mobile-action-grid" id="mobileActionGrid" role="menu" aria-label="终端菜单操作"></div>
       </section>
     </div>
     <div class="mobile-close-confirm-sheet" id="mobileCloseConfirmSheet" hidden>

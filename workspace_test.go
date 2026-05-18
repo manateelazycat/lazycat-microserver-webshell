@@ -743,6 +743,32 @@ func TestHandleSettingsDesktopShortcutsNullRestoresDefaultAndEmptyListIsExplicit
 	}
 }
 
+func TestHandleSettingsAcceptsAttachmentDesktopShortcuts(t *testing.T) {
+	server := &pluginServer{fontDir: t.TempDir()}
+	body := `{"desktop_shortcuts":[{"id":"attachment-clipboard","label":"从剪贴板导入附件","action":"attachment_clipboard","shortcut":"Ctrl + Shift + a"},{"id":"attachment-file","label":"上传附件文件","action":"attachment_file","shortcut":"Ctrl + Shift + e"}]}`
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPut, "/api/settings", strings.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	server.handleSettings(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("handleSettings() status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	var state fonts.State
+	if err := json.NewDecoder(recorder.Body).Decode(&state); err != nil {
+		t.Fatalf("decode response error = %v", err)
+	}
+	if state.DesktopShortcuts == nil || len(*state.DesktopShortcuts) != 2 {
+		t.Fatalf("DesktopShortcuts = %+v, want two attachment shortcuts", state.DesktopShortcuts)
+	}
+	if got := (*state.DesktopShortcuts)[0]; got.Action != "attachment_clipboard" || got.Shortcut != "Ctrl + Shift + a" {
+		t.Fatalf("DesktopShortcuts[0] = %+v, want attachment clipboard shortcut", got)
+	}
+	if got := (*state.DesktopShortcuts)[1]; got.Action != "attachment_file" || got.Shortcut != "Ctrl + Shift + e" {
+		t.Fatalf("DesktopShortcuts[1] = %+v, want attachment file shortcut", got)
+	}
+}
+
 func TestHandleSettingsRejectsInvalidMobileShortcutsWithoutWriting(t *testing.T) {
 	for _, body := range []string{
 		`{"mobile_shortcuts":[[{"id":"dup","label":"A","input_key":"a"}],[{"id":"dup","label":"B","input_key":"b"}]]}`,

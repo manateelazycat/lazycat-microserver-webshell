@@ -231,6 +231,7 @@ button {
 
 .tab-add,
 .tab-overview-toggle,
+.attachment-toggle,
 .icon-btn {
   display: inline-flex;
   align-items: center;
@@ -248,9 +249,11 @@ button {
 
 .tab-add:hover,
 .tab-overview-toggle:hover,
+.attachment-toggle:hover,
 .icon-btn:hover,
 .tab-add:focus-visible,
 .tab-overview-toggle:focus-visible,
+.attachment-toggle:focus-visible,
 .icon-btn:focus-visible {
   background: var(--chrome-hover-bg);
   color: var(--chrome-text-strong);
@@ -266,6 +269,10 @@ button {
   color: var(--terminal-fg);
 }
 
+.attachment-toggle {
+  color: var(--chrome-text);
+}
+
 .topbar-icon {
   display: block;
   width: 20px;
@@ -276,6 +283,20 @@ button {
   stroke-linejoin: round;
   stroke-width: 2;
   flex: 0 0 auto;
+}
+
+.attachment-toggle-icon {
+  width: 20px;
+  height: 20px;
+  fill: currentColor;
+  stroke: currentColor;
+  stroke-width: 32;
+}
+
+.attachment-toggle-icon path {
+  fill: currentColor;
+  stroke: currentColor;
+  stroke-linejoin: round;
 }
 
 .mobile-active-tab-title {
@@ -2871,6 +2892,224 @@ body.is-mobile-shortcut-dragging {
   background: var(--dialog-danger-hover-bg);
 }
 
+.attachment-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 165;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+  background: rgba(0, 0, 0, 0.42);
+  box-sizing: border-box;
+}
+
+.attachment-backdrop[hidden] {
+  display: none;
+}
+
+.attachment-panel {
+  width: min(360px, 100%);
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  background: var(--panel-bg);
+  color: var(--text);
+  box-shadow: 0 18px 42px var(--panel-shadow);
+  overflow: hidden;
+}
+
+.attachment-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 48px;
+  padding: 0 10px 0 16px;
+  border-bottom: 1px solid var(--panel-border);
+  box-sizing: border-box;
+}
+
+.attachment-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.attachment-close {
+  display: inline-flex;
+  width: 30px;
+  height: 30px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--chrome-text);
+  cursor: pointer;
+  font-size: 22px;
+  line-height: 1;
+}
+
+.attachment-close:hover,
+.attachment-close:focus-visible {
+  background: var(--panel-hover-bg);
+  color: var(--chrome-text-strong);
+  outline: none;
+}
+
+.attachment-actions {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+}
+
+.attachment-action {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--dialog-button-border);
+  border-radius: 7px;
+  background: var(--dialog-button-bg);
+  color: var(--dialog-button-text);
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.attachment-action:hover,
+.attachment-action:focus-visible {
+  background: var(--dialog-button-hover-bg);
+  outline: none;
+}
+
+.attachment-file-input {
+  position: fixed;
+  left: -9999px;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.attachment-upload-panel {
+  position: absolute;
+  top: 12px;
+  right: 16px;
+  z-index: 28;
+  width: min(340px, calc(100vw - 32px));
+  padding: 10px;
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  background: var(--panel-bg);
+  color: var(--text);
+  box-shadow: 0 18px 42px var(--panel-shadow);
+  box-sizing: border-box;
+}
+
+.attachment-upload-panel.search-open {
+  top: 58px;
+}
+
+.attachment-upload-head {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+.attachment-upload-title {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  color: var(--chrome-text-strong);
+  font-size: 13px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attachment-upload-copy {
+  display: inline-flex;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  padding: 0 8px;
+  border: 1px solid var(--dialog-button-border);
+  border-radius: 999px;
+  background: var(--dialog-button-bg);
+  color: var(--dialog-button-text);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.attachment-upload-copy:hover,
+.attachment-upload-copy:focus-visible {
+  background: var(--dialog-button-hover-bg);
+  outline: none;
+}
+
+.attachment-upload-copy[hidden] {
+  display: none;
+}
+
+.attachment-upload-close {
+  display: inline-flex;
+  width: 22px;
+  height: 22px;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--chrome-text);
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.attachment-upload-close:hover,
+.attachment-upload-close:focus-visible {
+  background: var(--panel-hover-bg);
+  color: var(--chrome-text-strong);
+  outline: none;
+}
+
+.attachment-upload-detail {
+  margin-top: 6px;
+  color: var(--chrome-text-muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.attachment-upload-progress {
+  height: 4px;
+  margin-top: 9px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.18);
+}
+
+.attachment-upload-progress span {
+  display: block;
+  width: 0;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width 0.16s ease;
+}
+
+.attachment-upload-panel[data-status="success"] .attachment-upload-progress span {
+  background: #22c55e;
+}
+
+.attachment-upload-panel[data-status="error"] .attachment-upload-detail,
+.attachment-upload-panel[data-status="canceled"] .attachment-upload-detail {
+  color: var(--danger);
+}
+
 .network-banner {
   position: fixed;
   right: 16px;
@@ -2967,7 +3206,7 @@ body.is-mobile-shortcut-dragging {
   .tabs-strip {
     align-items: center;
     gap: 6px;
-    justify-content: space-between;
+    justify-content: flex-start;
   }
 
   .tabs {
@@ -2979,7 +3218,7 @@ body.is-mobile-shortcut-dragging {
     position: absolute;
     left: 50%;
     z-index: 0;
-    width: min(58vw, 280px);
+    width: min(46vw, 240px);
     min-width: 0;
     overflow: hidden;
     color: var(--chrome-text-strong);
@@ -2994,6 +3233,7 @@ body.is-mobile-shortcut-dragging {
   }
 
   .tab-overview-toggle,
+  .attachment-toggle,
   .tab-add {
     position: relative;
     z-index: 1;
@@ -3004,6 +3244,22 @@ body.is-mobile-shortcut-dragging {
 
   .tab-add {
     color: var(--terminal-fg);
+    margin-left: auto;
+  }
+
+  .attachment-toggle {
+    color: var(--chrome-text);
+  }
+
+  .attachment-upload-panel {
+    top: 10px;
+    right: max(10px, var(--lzc-safe-area-inset-right));
+    left: max(10px, var(--lzc-safe-area-inset-left));
+    width: auto;
+  }
+
+  .attachment-upload-panel.search-open {
+    top: 58px;
   }
 
   .header-actions {

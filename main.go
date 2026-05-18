@@ -39,6 +39,7 @@ type pluginServer struct {
 	instancesResolver func(context.Context) ([]instanceSummary, error)
 	deployUIDResolver func() string
 	publishHTTPClient *http.Client
+	attachmentBackend attachmentUploadBackend
 
 	settingsMu   sync.Mutex
 	inputLocksMu sync.Mutex
@@ -179,6 +180,7 @@ func (s *pluginServer) run(ctx context.Context) error {
 	mux.HandleFunc("/api/settings", s.handleSettings)
 	mux.HandleFunc("/api/settings/fonts", s.handleSettingsFonts)
 	mux.HandleFunc("/api/settings/fonts/", s.handleSettingsFont)
+	mux.HandleFunc("/api/attachments", s.handleAttachments)
 	mux.HandleFunc("/api/workspace", s.handleWorkspace)
 	mux.HandleFunc("/api/workspace/activity", s.handleWorkspaceActivity)
 	mux.HandleFunc("/ws", s.handleWebSocket)
