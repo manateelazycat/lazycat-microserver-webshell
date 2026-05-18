@@ -6705,7 +6705,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   const generatedTerminalResponsePattern =
     /^(?:\x1b)?(?:\[\d{1,4};\d{1,4}R|\[\d{1,4}R|\[0n|\[\?[\d;]{1,16}c|\[>[\d;]{1,16}c)/;
   const generatedTerminalResponseTailPattern =
-    /^(?:\[\d{1,4};\d{1,4}R|\[\d{1,4}R|\d{1,4};\d{1,4}R|;\d{1,4}R|\d{1,4}R)+$/;
+    /^(?:\[\d{1,4};\d{1,4}R|\[\d{1,4}R|\d{1,4};\d{1,4}R|;\d{1,4}R|\d{1,4}R|\dR)+$/;
 
   const isGeneratedTerminalResponse = (data) => {
     if (typeof data !== "string" || data === "") {
@@ -6869,8 +6869,6 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
         shouldUnlock = false;
         rememberRestartTabForReload(restartTargetName, restartTargetTabId);
         armAllGeneratedInputSuppression(2000);
-        await setServerRevisionInputLocked(false).catch(() => {});
-        setAllTerminalInputLocked(false);
         discardAllTerminalInputBuffers();
         suppressBeforeUnloadForNavigation();
         window.location.reload();

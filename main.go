@@ -430,6 +430,14 @@ func (s *pluginServer) setTerminalInputBlocked(scope agentScope, owner string, b
 	}
 }
 
+func (s *pluginServer) clearTerminalInputBlockedClient(scope agentScope, clientID string) {
+	clientID = strings.TrimSpace(clientID)
+	if clientID == "" {
+		return
+	}
+	s.setTerminalInputBlocked(scope, serverRevisionInputLockOwner(clientID), false)
+}
+
 func (s *pluginServer) terminalInputBlocked(scope agentScope, clientID string) bool {
 	scope = normalizeAgentScope(scope.Selector, scope.AccountID)
 	s.inputLocksMu.Lock()

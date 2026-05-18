@@ -468,6 +468,7 @@ func (s *pluginServer) attachAgentPane(w http.ResponseWriter, r *http.Request, s
 	defer conn.Close()
 	conn.EnableWriteCompression(false)
 	conn.SetReadLimit(websocketReadLimit)
+	defer s.clearTerminalInputBlockedClient(scope, clientID)
 
 	attachCtx, cancelAttach := context.WithCancel(context.Background())
 	defer cancelAttach()

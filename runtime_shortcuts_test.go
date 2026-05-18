@@ -536,6 +536,7 @@ func TestRuntimeGeneratedTerminalResponsesAreMarked(t *testing.T) {
 	wantSnippets := []string{
 		"const generatedTerminalResponseTailPattern =",
 		`[\d{1,4};\d{1,4}R|\[\d{1,4}R`,
+		`|\dR)+$/`,
 		"const isGeneratedTerminalResponseTail = (data) => (",
 		"generatedTerminalResponseTailPattern.test(data)",
 		"const armGeneratedInputSuppression = (session, durationMs = 1000) => {",
@@ -660,6 +661,13 @@ func TestRuntimeMobileDeployRestartUsesBottomSheet(t *testing.T) {
         deployRestartDialogOpen = false;
         suppressBeforeUnloadForNavigation();`) {
 		t.Fatal("restart reload path should keep local input blocked until navigation")
+	}
+	if strings.Contains(mainSource, `await setServerRevisionInputLocked(false).catch(() => {});
+        setAllTerminalInputLocked(false);
+        discardAllTerminalInputBuffers();
+        suppressBeforeUnloadForNavigation();
+        window.location.reload();`) {
+		t.Fatal("restart reload path should keep server input blocked until websocket disconnect")
 	}
 	if !strings.Contains(indexSource, `class="mobile-close-confirm-actions" id="mobileCloseConfirmActions"`) {
 		t.Fatal("mobile close confirm actions container should have a stable id")

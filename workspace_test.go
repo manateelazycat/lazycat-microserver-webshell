@@ -1358,6 +1358,12 @@ func TestTerminalPaneDropsPlainCursorReportTailsInQueryWindow(t *testing.T) {
 	if err := pane.writeInput([]byte("[24;1R")); err != nil {
 		t.Fatalf("bracketed tail cursor report returned error: %v", err)
 	}
+	if err := pane.writeInput([]byte("6R")); err != nil {
+		t.Fatalf("short tail cursor report returned error: %v", err)
+	}
+	if err := pane.writeInput([]byte(";3R")); err != nil {
+		t.Fatalf("semicolon tail cursor report returned error: %v", err)
+	}
 	if err := pane.writeInput([]byte(";3R38;3R")); err != nil {
 		t.Fatalf("combined tail cursor report returned error: %v", err)
 	}
@@ -1463,6 +1469,17 @@ func TestPluginServerTerminalInputLockMatchesClient(t *testing.T) {
 	}
 	if !server.terminalInputBlocked(scope, "") {
 		t.Fatal("expected legacy websocket without client id to be blocked by any active lock")
+	}
+}
+
+func TestPluginServerTerminalInputLockClearsClientOnDisconnect(t *testing.T) {
+	server := &pluginServer{}
+	scope := normalizeAgentScope("demo@owner", "user-a")
+	clientID := "client-one"
+	server.setTerminalInputBlocked(scope, serverRevisionInputLockOwner(clientID), true)
+	server.clearTerminalInputBlockedClient(scope, clientID)
+	if server.terminalInputBlocked(scope, clientID) {
+		t.Fatal("expected matching client lock to be cleared on disconnect")
 	}
 }
 

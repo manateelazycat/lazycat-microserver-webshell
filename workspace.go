@@ -1364,7 +1364,7 @@ func (p *terminalPane) cursorReportWindowActiveLocked(now time.Time) bool {
 	return true
 }
 
-var cursorPositionReportTailPattern = regexp.MustCompile(`^(?:\[\d{1,4};\d{1,4}R|\[\d{1,4}R|\d{1,4};\d{1,4}R|;\d{1,4}R|\d{1,4}R)+$`)
+var cursorPositionReportTailPattern = regexp.MustCompile(`^(?:\[\d{1,4};\d{1,4}R|\[\d{1,4}R|\d{1,4};\d{1,4}R|;\d{1,4}R|\d{1,4}R|\dR)+$`)
 
 func isCursorPositionReport(data []byte) bool {
 	if len(data) < len("\x1b[1;1R") || data[0] != '\x1b' || data[1] != '[' || data[len(data)-1] != 'R' {
