@@ -198,6 +198,31 @@ func TestRuntimeTerminalRendererCellSeamPatch(t *testing.T) {
 	}
 }
 
+func TestRuntimeTerminalRendererBaselinePatch(t *testing.T) {
+	data, err := os.ReadFile("runtime/static/main.js")
+	if err != nil {
+		t.Fatalf("ReadFile(runtime/static/main.js) error = %v", err)
+	}
+	source := string(data)
+
+	wantSnippets := []string{
+		`const terminalBaselineSampleText = "\uF303\uF017Hg|pqyj\u00C5\u00C9()[]{}0123456789";`,
+		`const terminalAdjustedFontMetrics = (renderer, metrics) => {`,
+		`const measured = context.measureText(terminalBaselineSampleText);`,
+		`const nextBaseline = Math.round((nextHeight + ascent - descent) / 2);`,
+		`const installRendererBaselinePatch = (session) => {`,
+		`renderer.webshellOriginalMeasureFont = renderer.measureFont.bind(renderer);`,
+		`renderer.measureFont = () => terminalAdjustedFontMetrics(renderer, renderer.webshellOriginalMeasureFont());`,
+		`renderer.metrics = renderer.measureFont();`,
+		`installRendererBaselinePatch(session);`,
+	}
+	for _, want := range wantSnippets {
+		if !strings.Contains(source, want) {
+			t.Fatalf("runtime terminal renderer baseline patch missing %q", want)
+		}
+	}
+}
+
 func TestRuntimeMobileStickyModifiersApplyToTextInput(t *testing.T) {
 	data, err := os.ReadFile("runtime/static/main.js")
 	if err != nil {

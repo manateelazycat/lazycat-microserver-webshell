@@ -3484,6 +3484,46 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   const terminalCellFlagInverse = 16;
   const terminalCellFlagInvisible = 32;
   const terminalCellFlagFaint = 128;
+  const terminalBaselineSampleText = "\uF303\uF017Hg|pqyj\u00C5\u00C9()[]{}0123456789";
+
+  const terminalAdjustedFontMetrics = (renderer, metrics) => {
+    const width = Number(metrics?.width) || 0;
+    const height = Number(metrics?.height) || 0;
+    const baseline = Number(metrics?.baseline) || 0;
+    if (!renderer || !width || !height || !baseline) {
+      return metrics;
+    }
+    const context = document.createElement("canvas").getContext("2d");
+    if (!context) {
+      return metrics;
+    }
+    context.font = `${renderer.fontSize}px ${renderer.fontFamily}`;
+    context.textBaseline = "alphabetic";
+    const measured = context.measureText(terminalBaselineSampleText);
+    const ascent = Number(measured.actualBoundingBoxAscent);
+    const descent = Number(measured.actualBoundingBoxDescent);
+    if (!Number.isFinite(ascent) || !Number.isFinite(descent) || ascent <= 0) {
+      return metrics;
+    }
+    const nextHeight = Math.max(height, Math.ceil(ascent + descent) + 2);
+    const nextBaseline = Math.round((nextHeight + ascent - descent) / 2);
+    return {
+      ...metrics,
+      height: nextHeight,
+      baseline: Math.max(1, Math.min(nextHeight - 1, nextBaseline)),
+    };
+  };
+
+  const installRendererBaselinePatch = (session) => {
+    const renderer = session?.term?.renderer;
+    if (!renderer || renderer.webshellBaselinePatchInstalled || typeof renderer.measureFont !== "function") {
+      return;
+    }
+    renderer.webshellBaselinePatchInstalled = true;
+    renderer.webshellOriginalMeasureFont = renderer.measureFont.bind(renderer);
+    renderer.measureFont = () => terminalAdjustedFontMetrics(renderer, renderer.webshellOriginalMeasureFont());
+    renderer.metrics = renderer.measureFont();
+  };
 
   const terminalPowerlineShape = (renderer, cell, column, row) => {
     let text = "";
@@ -5550,6 +5590,10 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       return;
     }
     try {
+      installRendererBaselinePatch(session);
+      if (session.term.renderer && typeof session.term.renderer.measureFont === "function") {
+        session.term.renderer.metrics = session.term.renderer.measureFont();
+      }
       if (session.term.renderer && session.term.wasmTerm && typeof session.term.renderer.render === "function") {
         session.term.renderer.render(session.term.wasmTerm, true, session.term.viewportY || 0, session.term);
       }
@@ -8531,6 +8575,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     installTerminalInputFocus(session);
     installTerminalKeyOverrides(session);
     installTerminalHostViewportGuard(session);
+    installRendererBaselinePatch(session);
     installRendererThemeMapper(session);
     installRendererCellSeamPatch(session);
     installMobileTouchSelection(session);
