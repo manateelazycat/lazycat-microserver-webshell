@@ -22,14 +22,15 @@ import (
 )
 
 const (
-	agentProtocolVersion = "lcmd-webshell-agent-v3"
+	agentProtocolVersion = "lcmd-webshell-agent-v4"
 
-	agentFrameBinary = byte('B')
-	agentFrameText   = byte('T')
-	agentFrameInput  = byte('I')
-	agentFrameResize = byte('R')
-	agentFrameLock   = byte('L')
-	agentFrameDetach = byte('D')
+	agentFrameBinary         = byte('B')
+	agentFrameText           = byte('T')
+	agentFrameInput          = byte('I')
+	agentFrameGeneratedInput = byte('G')
+	agentFrameResize         = byte('R')
+	agentFrameLock           = byte('L')
+	agentFrameDetach         = byte('D')
 
 	agentMaxFramePayload = 32 << 20
 )
@@ -379,6 +380,8 @@ func (d *agentDaemon) handleAttach(ctx context.Context, conn net.Conn, reader *b
 		switch frameType {
 		case agentFrameInput:
 			_ = pane.writeInput(payload)
+		case agentFrameGeneratedInput:
+			_ = pane.writeGeneratedInput(payload)
 		case agentFrameResize:
 			var message terminalControlMessage
 			if err := json.Unmarshal(payload, &message); err == nil && message.Cols > 0 && message.Rows > 0 {

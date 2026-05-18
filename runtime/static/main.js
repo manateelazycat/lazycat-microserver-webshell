@@ -6580,8 +6580,13 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     if (!term || !wasmTerm || typeof term.processTerminalResponses !== "function" || typeof wasmTerm.hasResponse !== "function") {
       return;
     }
+    session.processingGeneratedTerminalResponses = true;
+    try {
     for (let index = 0; index < 256 && wasmTerm.hasResponse(); index += 1) {
       term.processTerminalResponses();
+    }
+    } finally {
+      session.processingGeneratedTerminalResponses = false;
     }
   };
 
@@ -7717,12 +7722,19 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     session.inputFlushTimer = window.setTimeout(() => flushInputBuffer(session), 8);
   };
 
-  const sendSessionInput = (session, data, { immediate = false } = {}) => {
+  const sendSessionInput = (session, data, { immediate = false, generated = false } = {}) => {
     if (isTerminalInputBlocked()) {
       discardSessionInputBuffers(session);
       return;
     }
     if (!data || session.socket?.readyState !== WebSocket.OPEN) {
+      return;
+    }
+    if (generated) {
+      try {
+        session.socket.send(JSON.stringify({ type: "input", data, generated: true }));
+      } catch (error) {
+      }
       return;
     }
     const byteLength = textEncoder.encode(data).length;
@@ -8274,9 +8286,13 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       if (shouldSuppressGeneratedTerminalInput(session, data)) {
         return;
       }
+      if (session.processingGeneratedTerminalResponses) {
+        sendSessionInput(session, data, { immediate: true, generated: true });
+        return;
+      }
       if (session.replayOutputDepth > 0) {
         if (session.allowGeneratedInputDuringReplay) {
-          sendSessionInput(session, data, { immediate: true });
+          sendSessionInput(session, data, { immediate: true, generated: true });
         }
         return;
       }

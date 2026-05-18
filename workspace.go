@@ -81,29 +81,31 @@ type terminalPane struct {
 	selector  string
 	rootDir   string
 
-	mu                   sync.Mutex
-	writeMu              sync.Mutex
-	cmd                  *exec.Cmd
-	ptyFile              *os.File
-	clients              map[*paneClient]struct{}
-	history              paneHistory
-	historyLimitBytes    int
-	cols                 int
-	rows                 int
-	tty                  string
-	busy                 bool
-	command              string
-	commandLine          string
-	cwd                  string
-	activityCheckedAt    time.Time
-	controlPending       []byte
-	terminalQueryPending []byte
-	hasAttached          bool
-	inputBlockers        map[string]struct{}
-	exited               bool
-	exitCode             int
-	exitText             string
-	done                 chan struct{}
+	mu                         sync.Mutex
+	writeMu                    sync.Mutex
+	cmd                        *exec.Cmd
+	ptyFile                    *os.File
+	clients                    map[*paneClient]struct{}
+	history                    paneHistory
+	historyLimitBytes          int
+	cols                       int
+	rows                       int
+	tty                        string
+	busy                       bool
+	command                    string
+	commandLine                string
+	cwd                        string
+	activityCheckedAt          time.Time
+	controlPending             []byte
+	terminalQueryPending       []byte
+	generatedEchoPending       []terminalGeneratedEcho
+	generatedEchoOutputPending []byte
+	hasAttached                bool
+	inputBlockers              map[string]struct{}
+	exited                     bool
+	exitCode                   int
+	exitText                   string
+	done                       chan struct{}
 }
 
 type paneClient struct {
@@ -181,11 +183,12 @@ type workspaceActivityState struct {
 }
 
 type terminalControlMessage struct {
-	Type    string `json:"type"`
-	Cols    int    `json:"cols"`
-	Rows    int    `json:"rows"`
-	Data    string `json:"data"`
-	Blocked bool   `json:"blocked,omitempty"`
+	Type      string `json:"type"`
+	Cols      int    `json:"cols"`
+	Rows      int    `json:"rows"`
+	Data      string `json:"data"`
+	Blocked   bool   `json:"blocked,omitempty"`
+	Generated bool   `json:"generated,omitempty"`
 }
 
 func newWorkspaceManager(rootDir string) *workspaceManager {
@@ -379,7 +382,11 @@ func handleTerminalControlMessage(pane *terminalPane, payload []byte, client *pa
 	switch message.Type {
 	case "input":
 		if message.Data != "" {
-			_ = pane.writeInput([]byte(message.Data))
+			if message.Generated {
+				_ = pane.writeGeneratedInput([]byte(message.Data))
+			} else {
+				_ = pane.writeInput([]byte(message.Data))
+			}
 		}
 	case "resize":
 		if message.Cols > 0 && message.Rows > 0 {
@@ -1161,7 +1168,8 @@ func (p *terminalPane) appendOutput(data []byte) {
 	if len(data) == 0 {
 		return
 	}
-	filtered := p.filterTerminalQueryOutput(data)
+	filtered := p.filterGeneratedInputEcho(data)
+	filtered = p.filterTerminalQueryOutput(filtered)
 	filtered = p.filterPrivateControlOutput(filtered)
 	if len(filtered) == 0 {
 		return
@@ -1270,6 +1278,123 @@ const (
 	secondaryDeviceAttributesResponse = "\x1b[>0;0;0c"
 )
 
+type terminalGeneratedEcho struct {
+	raw    []byte
+	quoted []byte
+}
+
+const maxPendingGeneratedEchoOutput = 128
+
+func (p *terminalPane) addGeneratedEchoFilter(data []byte) {
+	if len(data) == 0 {
+		return
+	}
+	echo := terminalGeneratedEcho{
+		raw:    append([]byte(nil), data...),
+		quoted: ttyEchoControlBytes(data),
+	}
+	p.mu.Lock()
+	p.generatedEchoPending = append(p.generatedEchoPending, echo)
+	p.mu.Unlock()
+}
+
+func (p *terminalPane) filterGeneratedInputEcho(data []byte) []byte {
+	if len(data) == 0 {
+		return nil
+	}
+
+	p.mu.Lock()
+	pending := append([]terminalGeneratedEcho(nil), p.generatedEchoPending...)
+	buffer := append(p.generatedEchoOutputPending, data...)
+	p.generatedEchoPending = nil
+	p.generatedEchoOutputPending = nil
+	p.mu.Unlock()
+
+	if len(pending) == 0 {
+		return buffer
+	}
+
+	var output []byte
+	for len(buffer) > 0 {
+		matched := false
+		for index := 0; index < len(pending); index++ {
+			if len(pending[index].raw) > 0 && bytes.HasPrefix(buffer, pending[index].raw) {
+				buffer = buffer[len(pending[index].raw):]
+				pending = append(pending[:index], pending[index+1:]...)
+				matched = true
+				break
+			}
+			if len(pending[index].quoted) > 0 && bytes.HasPrefix(buffer, pending[index].quoted) {
+				buffer = buffer[len(pending[index].quoted):]
+				pending = append(pending[:index], pending[index+1:]...)
+				matched = true
+				break
+			}
+		}
+		if matched {
+			continue
+		}
+
+		if keep := generatedEchoPrefixMatchLen(buffer, pending); keep > 0 {
+			emit := len(buffer) - keep
+			if emit > 0 {
+				output = append(output, buffer[:emit]...)
+			}
+			p.mu.Lock()
+			p.generatedEchoPending = append(p.generatedEchoPending, pending...)
+			p.generatedEchoOutputPending = append(p.generatedEchoOutputPending[:0], buffer[emit:]...)
+			p.mu.Unlock()
+			return output
+		}
+
+		output = append(output, buffer[0])
+		buffer = buffer[1:]
+	}
+
+	p.mu.Lock()
+	p.generatedEchoPending = append(p.generatedEchoPending, pending...)
+	p.mu.Unlock()
+	return output
+}
+
+func generatedEchoPrefixMatchLen(buffer []byte, pending []terminalGeneratedEcho) int {
+	maxKeep := min(len(buffer), maxPendingGeneratedEchoOutput)
+	for _, echo := range pending {
+		echoKeep := len(echo.raw) - 1
+		if quotedKeep := len(echo.quoted) - 1; quotedKeep > echoKeep {
+			echoKeep = quotedKeep
+		}
+		maxKeep = min(maxKeep, echoKeep)
+	}
+	for keep := maxKeep; keep > 0; keep-- {
+		suffix := buffer[len(buffer)-keep:]
+		for _, echo := range pending {
+			if len(echo.raw) > keep && bytes.Equal(suffix, echo.raw[:keep]) {
+				return keep
+			}
+			if len(echo.quoted) > keep && bytes.Equal(suffix, echo.quoted[:keep]) {
+				return keep
+			}
+		}
+	}
+	return 0
+}
+
+func ttyEchoControlBytes(data []byte) []byte {
+	var output []byte
+	for _, b := range data {
+		switch {
+		case b == 0x7f:
+			output = append(output, '^', '?')
+		case b < 0x20:
+			output = append(output, '^', b+0x40)
+		default:
+			output = append(output, b)
+		}
+	}
+	return output
+}
+
 func (p *terminalPane) filterTerminalQueryOutput(data []byte) []byte {
 	if len(data) == 0 {
 		return nil
@@ -1322,14 +1447,14 @@ func (p *terminalPane) filterTerminalQueryOutput(data []byte) []byte {
 			}
 			sequence := buffer[:final+1]
 			if response, ok := terminalQueryResponse(sequence); ok {
-				_ = p.writeInput([]byte(response))
+				_ = p.writeGeneratedInput([]byte(response))
 				buffer = buffer[final+1:]
 				continue
 			}
 			output = append(output, sequence...)
 			buffer = buffer[final+1:]
 		case 'Z':
-			_ = p.writeInput([]byte(primaryDeviceAttributesResponse))
+			_ = p.writeGeneratedInput([]byte(primaryDeviceAttributesResponse))
 			buffer = buffer[2:]
 		default:
 			output = append(output, buffer[0])
@@ -1523,6 +1648,14 @@ func (p *terminalPane) writeInput(data []byte) error {
 		}
 	}
 	return nil
+}
+
+func (p *terminalPane) writeGeneratedInput(data []byte) error {
+	if len(data) == 0 {
+		return nil
+	}
+	p.addGeneratedEchoFilter(data)
+	return p.writeInput(data)
 }
 
 func (p *terminalPane) setInputBlocked(blocked bool) {

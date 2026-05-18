@@ -596,7 +596,11 @@ func handleAgentAttachControlMessage(conn *websocket.Conn, writeMu *sync.Mutex, 
 	switch message.Type {
 	case "input":
 		if message.Data != "" && !inputBlocked {
-			_ = writeAgentFrame(stdin, agentFrameInput, []byte(message.Data))
+			frameType := agentFrameInput
+			if message.Generated {
+				frameType = agentFrameGeneratedInput
+			}
+			_ = writeAgentFrame(stdin, frameType, []byte(message.Data))
 		}
 	case "resize":
 		if message.Cols > 0 && message.Rows > 0 {

@@ -410,6 +410,26 @@ func TestRuntimeTerminalOutputBatchingGuard(t *testing.T) {
 	}
 }
 
+func TestRuntimeGeneratedTerminalResponsesAreMarked(t *testing.T) {
+	data, err := os.ReadFile("runtime/static/main.js")
+	if err != nil {
+		t.Fatalf("ReadFile(runtime/static/main.js) error = %v", err)
+	}
+	source := string(data)
+
+	wantSnippets := []string{
+		"session.processingGeneratedTerminalResponses = true;",
+		"session.processingGeneratedTerminalResponses = false;",
+		"JSON.stringify({ type: \"input\", data, generated: true })",
+		"sendSessionInput(session, data, { immediate: true, generated: true });",
+	}
+	for _, want := range wantSnippets {
+		if !strings.Contains(source, want) {
+			t.Fatalf("runtime generated terminal response guard missing %q", want)
+		}
+	}
+}
+
 func TestRuntimeTabResizeDoesNotTemporarilyActivateAllTabs(t *testing.T) {
 	data, err := os.ReadFile("runtime/static/main.js")
 	if err != nil {
