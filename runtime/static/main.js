@@ -3608,9 +3608,12 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     if (!width || !height) {
       return false;
     }
-    const y = row * height + offsetY;
+    const rawY = row * height + offsetY;
+    const y = terminalAlignToCanvasPixel(renderer, rawY, "floor");
+    const bottom = terminalAlignToCanvasPixel(renderer, rawY + height, "ceil");
+    const fillHeight = Math.max(terminalCanvasPixelPx(renderer), bottom - y);
     renderer.ctx.fillStyle = renderer.theme.background;
-    renderer.ctx.fillRect(0, y, columns * width, height);
+    renderer.ctx.fillRect(0, y, columns * width, fillHeight);
     let segmentColor = "";
     let segmentStart = 0;
     let segmentEnd = 0;
@@ -3619,7 +3622,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
         return;
       }
       renderer.ctx.fillStyle = segmentColor;
-      renderer.ctx.fillRect(segmentStart * width, y, (segmentEnd - segmentStart) * width, height);
+      renderer.ctx.fillRect(segmentStart * width, y, (segmentEnd - segmentStart) * width, fillHeight);
     };
     for (let column = 0; column < line.length; column += 1) {
       const cell = line[column];
