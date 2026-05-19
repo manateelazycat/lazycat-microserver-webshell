@@ -3612,8 +3612,12 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     const y = terminalAlignToCanvasPixel(renderer, rawY, "floor");
     const bottom = terminalAlignToCanvasPixel(renderer, rawY + height, "ceil");
     const fillHeight = Math.max(terminalCanvasPixelPx(renderer), bottom - y);
+    const canvasWidth = Math.max(
+      columns * width,
+      (Number(renderer.canvas?.width) || 0) / (Number(renderer.devicePixelRatio) || Number(window.devicePixelRatio) || 1),
+    );
     renderer.ctx.fillStyle = renderer.theme.background;
-    renderer.ctx.fillRect(0, y, columns * width, fillHeight);
+    renderer.ctx.fillRect(0, y, canvasWidth, fillHeight);
     let segmentColor = "";
     let segmentStart = 0;
     let segmentEnd = 0;
@@ -9228,7 +9232,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     pane.inputBufferSize = 0;
     clearInputFlushTimer(pane);
     clearReconnectTimer(pane);
-    flushSessionOutput(pane, { force: true });
+    discardSessionOutputBuffers(pane);
     runSessionCleanups(pane);
     if (pane.socket) {
       const socket = pane.socket;
