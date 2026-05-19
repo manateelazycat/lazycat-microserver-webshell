@@ -555,6 +555,43 @@ func TestRuntimeTerminalOutputBatchingGuard(t *testing.T) {
 	}
 }
 
+func TestRuntimeTerminalInputAvoidsPerKeyResize(t *testing.T) {
+	data, err := os.ReadFile("runtime/static/main.js")
+	if err != nil {
+		t.Fatalf("ReadFile(runtime/static/main.js) error = %v", err)
+	}
+	source := string(data)
+
+	wantSnippets := []string{
+		"const installRendererStableCanvasPatch = (session) => {",
+		"renderer.webshellStableCanvasPatchInstalled = true;",
+		"renderer.resize = (columns, rows) => {",
+		"const width = Math.max(1, Math.ceil((Number(columns) || 0) * cellWidth));",
+		"const sendTerminalSize = (pane, { force = false } = {}) => {",
+		"if (!force && pane.lastSentCols === cols && pane.lastSentRows === rows) {",
+		"const paneFitSnapshot = (pane) => {",
+		"const resizePane = (pane, { force = false } = {}) => {",
+		"if (!force && dimensionsUnchanged && containerUnchanged && metricsUnchanged) {",
+		"installRendererStableCanvasPatch(session);",
+	}
+	for _, want := range wantSnippets {
+		if !strings.Contains(source, want) {
+			t.Fatalf("runtime terminal input performance guard missing %q", want)
+		}
+	}
+	if strings.Contains(source, `host.addEventListener("keydown", () => {
+      reassertTerminalSize(session, { force: true });`) {
+		t.Fatal("runtime terminal input must not force terminal resize on every keydown")
+	}
+	beforeInputHandler := sourceBetween(t, source,
+		`const handleTerminalBeforeInput = (session, event) => {`,
+		`    const type = String(event.inputType || "");`,
+	)
+	if strings.Contains(beforeInputHandler, `{ force: true }`) {
+		t.Fatal("runtime terminal beforeinput must not force terminal resize on every text input")
+	}
+}
+
 func TestRuntimeGeneratedTerminalResponsesAreMarked(t *testing.T) {
 	data, err := os.ReadFile("runtime/static/main.js")
 	if err != nil {
