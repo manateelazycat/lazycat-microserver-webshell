@@ -3470,40 +3470,6 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     };
   };
 
-  const installRendererStableCanvasPatch = (session) => {
-    const renderer = session?.term?.renderer;
-    if (!renderer || renderer.webshellStableCanvasPatchInstalled || typeof renderer.resize !== "function") {
-      return;
-    }
-    renderer.webshellStableCanvasPatchInstalled = true;
-    renderer.webshellOriginalResize = renderer.resize.bind(renderer);
-    renderer.resize = (columns, rows) => {
-      const metrics = renderer.metrics || renderer.getMetrics?.();
-      const cellWidth = Number(metrics?.width) || 0;
-      const cellHeight = Number(metrics?.height) || 0;
-      if (!cellWidth || !cellHeight) {
-        renderer.webshellOriginalResize(columns, rows);
-        return;
-      }
-      const width = Math.max(1, Math.ceil((Number(columns) || 0) * cellWidth));
-      const height = Math.max(1, Math.ceil((Number(rows) || 0) * cellHeight));
-      const pixelRatio = Number(renderer.devicePixelRatio) || Number(window.devicePixelRatio) || 1;
-      renderer.canvas.style.width = `${width}px`;
-      renderer.canvas.style.height = `${height}px`;
-      renderer.canvas.width = Math.max(1, Math.round(width * pixelRatio));
-      renderer.canvas.height = Math.max(1, Math.round(height * pixelRatio));
-      if (typeof renderer.ctx.setTransform === "function") {
-        renderer.ctx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
-      } else {
-        renderer.ctx.scale(pixelRatio, pixelRatio);
-      }
-      renderer.ctx.textBaseline = "alphabetic";
-      renderer.ctx.textAlign = "left";
-      renderer.ctx.fillStyle = renderer.theme.background;
-      renderer.ctx.fillRect(0, 0, width, height);
-    };
-  };
-
   const terminalCellBleedPx = (renderer) => {
     const dpr = Number(renderer?.devicePixelRatio) || Number(window.devicePixelRatio) || 1;
     return Math.min(0.75, Math.max(0.35, 0.75 / dpr));
@@ -5199,7 +5165,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   };
 
   const handleTerminalBeforeInput = (session, event) => {
-    reassertTerminalSize(session);
+    reassertTerminalSize(session, { force: true });
     const type = String(event.inputType || "");
     const textarea = session?.term?.textarea;
     if (type === "insertCompositionText" || type === "deleteCompositionText" || event.isComposing) {
@@ -5384,6 +5350,9 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     let lastMobileTapX = 0;
     let lastMobileTapY = 0;
     let mobileTapTouchState = null;
+    host.addEventListener("keydown", () => {
+      reassertTerminalSize(session, { force: true });
+    }, { capture: true });
     textarea.addEventListener("beforeinput", (event) => {
       handleTerminalBeforeInput(session, event);
     }, { capture: true });
@@ -5525,65 +5494,24 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     resetTerminalHostViewport(session, { clean: true });
   };
 
-  const sendTerminalSize = (pane, { force = false } = {}) => {
-    const cols = Number(pane?.term?.cols) || 0;
-    const rows = Number(pane?.term?.rows) || 0;
-    if (!cols || !rows || pane?.socket?.readyState !== WebSocket.OPEN) {
-      return;
-    }
-    if (!force && pane.lastSentCols === cols && pane.lastSentRows === rows) {
-      return;
-    }
-    try {
-      pane.socket.send(JSON.stringify({ type: "resize", cols, rows }));
-      pane.lastSentCols = cols;
-      pane.lastSentRows = rows;
-    } catch (error) {
+  const sendTerminalSize = (pane) => {
+    if (pane?.socket?.readyState === WebSocket.OPEN) {
+      pane.socket.send(JSON.stringify({ type: "resize", cols: pane.term.cols, rows: pane.term.rows }));
     }
   };
 
-  const paneFitSnapshot = (pane) => {
-    const metrics = pane?.term?.renderer?.getMetrics?.();
-    return {
-      hostWidth: Number(pane?.terminalHost?.clientWidth) || 0,
-      hostHeight: Number(pane?.terminalHost?.clientHeight) || 0,
-      cellWidth: Number(metrics?.width) || 0,
-      cellHeight: Number(metrics?.height) || 0,
-    };
-  };
-
-  const resizePane = (pane, { force = false } = {}) => {
+  const resizePane = (pane) => {
     if (!pane || pane.closed) {
-      return false;
-    }
-    const snapshot = paneFitSnapshot(pane);
-    let proposed = null;
-    try {
-      proposed = typeof pane.fitAddon?.proposeDimensions === "function" ? pane.fitAddon.proposeDimensions() : null;
-    } catch (error) {
-      proposed = null;
-    }
-    const dimensionsUnchanged = proposed
-      && Number(proposed.cols) === Number(pane.term?.cols)
-      && Number(proposed.rows) === Number(pane.term?.rows);
-    const containerUnchanged = pane.lastFitHostWidth === snapshot.hostWidth && pane.lastFitHostHeight === snapshot.hostHeight;
-    const metricsUnchanged = pane.lastFitCellWidth === snapshot.cellWidth && pane.lastFitCellHeight === snapshot.cellHeight;
-    if (!force && dimensionsUnchanged && containerUnchanged && metricsUnchanged) {
-      return false;
+      return;
     }
     try {
       pane.fitAddon.fit();
     } catch (error) {
-      return false;
+      return;
     }
-    pane.lastFitHostWidth = snapshot.hostWidth;
-    pane.lastFitHostHeight = snapshot.hostHeight;
-    pane.lastFitCellWidth = snapshot.cellWidth;
-    pane.lastFitCellHeight = snapshot.cellHeight;
     resetTerminalHostViewport(pane, { clean: true });
     positionTerminalInput(pane);
-    sendTerminalSize(pane, { force });
-    return true;
+    sendTerminalSize(pane);
   };
 
   const resizeTab = (tab) => {
@@ -5694,7 +5622,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       if (session.term.renderer && session.term.wasmTerm && typeof session.term.renderer.render === "function") {
         session.term.renderer.render(session.term.wasmTerm, true, session.term.viewportY || 0, session.term);
       }
-      resizePane(session, { force: true });
+      resizePane(session);
     } catch (error) {
     }
   };
@@ -8823,7 +8751,6 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     installTerminalInputFocus(session);
     installTerminalKeyOverrides(session);
     installTerminalHostViewportGuard(session);
-    installRendererStableCanvasPatch(session);
     installRendererBaselinePatch(session);
     installRendererThemeMapper(session);
     installRendererCellSeamPatch(session);
