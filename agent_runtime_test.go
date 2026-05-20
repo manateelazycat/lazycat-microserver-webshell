@@ -1,6 +1,10 @@
 package main
 
-import "testing"
+import (
+	"fmt"
+	"strings"
+	"testing"
+)
 
 func TestCachedAgentRuntimeArchiveReusesSuccessfulBuild(t *testing.T) {
 	agentRuntimeArchiveCache.Lock()
@@ -39,5 +43,13 @@ func TestCachedAgentRuntimeArchiveReusesSuccessfulBuild(t *testing.T) {
 	}
 	if len(firstPayload) != len(secondPayload) || &firstPayload[0] != &secondPayload[0] {
 		t.Fatal("expected second call to reuse cached payload")
+	}
+}
+
+func TestEnsurePersistentAgentReportsScopeOnReadyTimeout(t *testing.T) {
+	scope := normalizeAgentScope("openclaw-86253ff1acf29126@cloud.lazycat.totoro", "c")
+	err := fmt.Errorf("persistent webshell agent did not become ready: selector=%s account=%s socket=%s log=%s", scope.Selector, scope.AccountID, scopedAgentSocketPath(scope), scopedAgentLogPath(scope))
+	if !strings.Contains(err.Error(), scope.Selector) || !strings.Contains(err.Error(), "socket=/tmp/lcmd-webshell-agent-") {
+		t.Fatalf("expected scope details in error, got %v", err)
 	}
 }

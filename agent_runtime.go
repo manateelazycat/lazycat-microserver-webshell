@@ -264,7 +264,7 @@ func ensurePersistentAgent(ctx context.Context, scope agentScope) (string, error
 		}
 		time.Sleep(120 * time.Millisecond)
 	}
-	return "", errors.New("persistent webshell agent did not become ready")
+	return "", persistentAgentStartupTimeoutError(ctx, scope)
 }
 
 func cachedInstanceUsername(ctx context.Context, selector string) (string, error) {
@@ -446,9 +446,33 @@ printf '%%s\n' %s
 		return fmt.Errorf("%w: %s", err, text)
 	}
 	if strings.TrimSpace(string(output)) != agentReadyMarker {
-		return errors.New("persistent webshell agent start did not complete")
+		return fmt.Errorf("persistent webshell agent start did not complete: selector=%s account=%s socket=%s log=%s output=%q", scope.Selector, scope.AccountID, socketPath, logPath, strings.TrimSpace(string(output)))
 	}
 	return nil
+}
+
+func persistentAgentStartupTimeoutError(ctx context.Context, scope agentScope) error {
+	snippet := readPersistentAgentLogTail(ctx, scope, 80)
+	message := fmt.Sprintf("persistent webshell agent did not become ready: selector=%s account=%s socket=%s log=%s", scope.Selector, scope.AccountID, scopedAgentSocketPath(scope), scopedAgentLogPath(scope))
+	if strings.TrimSpace(snippet) == "" {
+		return errors.New(message)
+	}
+	return fmt.Errorf("%s\nagent log tail:\n%s", message, snippet)
+}
+
+func readPersistentAgentLogTail(ctx context.Context, scope agentScope, lines int) string {
+	if lines <= 0 {
+		lines = 80
+	}
+	logPath := scopedAgentLogPath(scope)
+	script := "tail -n " + strconv.Itoa(lines) + " " + shellScriptQuote(logPath) + " 2>/dev/null || true"
+	reqCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	output, err := exec.CommandContext(reqCtx, lightosctlPath, "exec", scope.Selector, "/bin/sh", "-lc", script).CombinedOutput()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(output))
 }
 
 func (s *pluginServer) attachAgentPane(w http.ResponseWriter, r *http.Request, scope agentScope, paneID string, cols, rows, terminalScrollback int) error {
