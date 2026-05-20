@@ -1018,6 +1018,54 @@ body.split-resize-active * {
   box-sizing: border-box;
 }
 
+.settings-mobile-nav {
+  display: none;
+}
+
+.settings-mobile-nav[hidden] {
+  display: none;
+}
+
+.settings-mobile-nav-row {
+  min-width: 0;
+  border-bottom: 1px solid var(--panel-border);
+}
+
+.settings-mobile-nav-item {
+  position: relative;
+  display: flex;
+  width: 100%;
+  min-height: 54px;
+  align-items: center;
+  padding: 0 56px 0 18px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.settings-mobile-nav-item::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  right: 22px;
+  width: 8px;
+  height: 8px;
+  border-top: 2px solid currentColor;
+  border-right: 2px solid currentColor;
+  opacity: 0.46;
+  transform: translateY(-50%) rotate(45deg);
+}
+
+.settings-mobile-nav-item:hover,
+.settings-mobile-nav-item:focus-visible {
+  color: var(--chrome-text-strong);
+  outline: none;
+}
+
 .settings-tab {
   position: relative;
   width: 100%;
@@ -3353,49 +3401,50 @@ body.is-mobile-shortcut-dragging {
   }
 
   .settings-tabs {
-    width: auto;
-    flex: 0 0 auto;
-    flex-direction: row;
-    gap: 6px;
-    padding: 10px 14px 0;
-    border-right: 0;
-    border-bottom: 1px solid var(--panel-border);
-    overflow-x: auto;
-    scrollbar-width: none;
-  }
-
-  .settings-tabs::-webkit-scrollbar {
     display: none;
   }
 
-  .settings-tab {
-    flex: 0 0 auto;
-    width: auto;
-    min-width: 72px;
-    height: 36px;
-    min-height: 36px;
-    padding: 0 14px;
-    border-radius: 7px 7px 0 0;
-    text-align: center;
-    white-space: nowrap;
+  .settings-mobile-nav {
+    display: flex;
+    min-height: 0;
+    flex: 1 1 auto;
+    flex-direction: column;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 0 0 calc(20px + var(--lzc-safe-area-inset-bottom));
+    box-sizing: border-box;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
   }
 
-  .settings-tab[aria-selected="true"] {
-    background: transparent;
+  .settings-mobile-nav[hidden] {
+    display: none;
   }
 
-  .settings-tab[aria-selected="true"]::after {
-    top: auto;
-    right: 10px;
-    bottom: -1px;
-    left: 10px;
-    width: auto;
-    height: 2px;
+  .settings-mobile-nav::-webkit-scrollbar {
+    display: none;
+  }
+
+  .settings-mobile-nav-item {
+    padding-right: calc(max(18px, var(--lzc-safe-area-inset-right)) + 38px);
+    padding-left: max(18px, var(--lzc-safe-area-inset-left));
+  }
+
+  .settings-mobile-nav-item::after {
+    right: max(22px, calc(var(--lzc-safe-area-inset-right) + 4px));
+  }
+
+  .settings-mobile-nav-item:active {
+    background: var(--panel-hover-bg);
   }
 
   .settings-tab-panel {
     align-self: stretch;
     width: 100%;
+  }
+
+  .settings-panel[data-mobile-settings-view="index"] .settings-body {
+    display: none;
   }
 
   .settings-tab-panel[data-settings-panel="terminal"] {

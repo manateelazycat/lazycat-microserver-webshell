@@ -99,6 +99,43 @@ func TestRuntimeShortcutSettingsGuardDesktopShortcutEditor(t *testing.T) {
 	}
 }
 
+func TestRuntimeMobileSettingsUsesListNavigation(t *testing.T) {
+	wantSnippets := map[string][]string{
+		"runtime/static/index.html": {
+			`id="settingsMobileNav"`,
+			`role="list" aria-label="设置分类" hidden`,
+		},
+		"runtime/static/main.js": {
+			`const settingsMobileNav = document.getElementById("settingsMobileNav");`,
+			`let settingsMobileView = "detail";`,
+			`const renderSettingsMobileNav = () => {`,
+			`button.dataset.settingsMobileNavTab = tabID;`,
+			`settingsMobileView = isMobileLayout() ? "index" : "detail";`,
+			`const openSettingsMobileDetail = (tabID, { focus = true } = {}) => {`,
+			`openSettingsMobileIndex();`,
+			`openSettingsMobileDetail(item.dataset.settingsMobileNavTab);`,
+		},
+		"runtime/static/style.css": {
+			`.settings-mobile-nav`,
+			`.settings-tabs {` + "\n" + `    display: none;`,
+			`.settings-panel[data-mobile-settings-view="index"] .settings-body`,
+		},
+	}
+
+	for path, snippets := range wantSnippets {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("ReadFile(%s) error = %v", path, err)
+		}
+		source := string(data)
+		for _, want := range snippets {
+			if !strings.Contains(source, want) {
+				t.Fatalf("runtime mobile settings navigation guard missing %q in %s", want, path)
+			}
+		}
+	}
+}
+
 func TestRuntimeDefaultMobileShortcutOrder(t *testing.T) {
 	data, err := os.ReadFile("runtime/static/main.js")
 	if err != nil {

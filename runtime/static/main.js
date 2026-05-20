@@ -32,8 +32,11 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   const themePickerScrollbarTrack = document.getElementById("themePickerScrollbarTrack");
   const themePickerScrollbarThumb = document.getElementById("themePickerScrollbarThumb");
   const settingsBackdrop = document.getElementById("settingsBackdrop");
+  const settingsPanel = document.getElementById("settingsPanel");
+  const settingsTitle = document.getElementById("settingsTitle");
   const settingsBack = document.getElementById("settingsBack");
   const settingsClose = document.getElementById("settingsClose");
+  const settingsMobileNav = document.getElementById("settingsMobileNav");
   const settingsFontUploadButton = document.getElementById("settingsFontUploadButton");
   const settingsFontEditButton = document.getElementById("settingsFontEditButton");
   const settingsFontEditButtonHTML = settingsFontEditButton?.innerHTML || "";
@@ -415,6 +418,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   let themePickerScrollbarDragging = false;
   let themePickerScrollbarPointerId = null;
   let themePickerScrollbarThumbPointerOffset = 0;
+  let settingsMobileView = "detail";
   let settingsThemeScrollbarHideTimer = 0;
   let settingsMobileShortcutsScrollbarHideTimer = 0;
   let settingsDesktopShortcutsScrollbarHideTimer = 0;
@@ -915,6 +919,88 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     settingsDesktopShortcutsScrollbarHideTimer = window.setTimeout(hideSettingsDesktopShortcutsScrollbar, 800);
   };
 
+  const activeSettingsTabID = () =>
+    settingsTabs.find((tab) => tab.getAttribute("aria-selected") === "true")?.dataset.settingsTab || "terminal";
+
+  const settingsTabLabel = (tabID) => {
+    const tab = settingsTabs.find((item) => item.dataset.settingsTab === tabID);
+    return String(tab?.textContent || "设置").trim() || "设置";
+  };
+
+  const renderSettingsMobileNav = () => {
+    if (!settingsMobileNav) {
+      return;
+    }
+    settingsMobileNav.textContent = "";
+    for (const tab of settingsTabs) {
+      const tabID = String(tab.dataset.settingsTab || "").trim();
+      if (!tabID) {
+        continue;
+      }
+      const row = document.createElement("div");
+      row.className = "settings-mobile-nav-row";
+      row.setAttribute("role", "listitem");
+      const button = document.createElement("button");
+      button.className = "settings-mobile-nav-item";
+      button.type = "button";
+      button.dataset.settingsMobileNavTab = tabID;
+      button.textContent = settingsTabLabel(tabID);
+      row.append(button);
+      settingsMobileNav.append(row);
+    }
+  };
+
+  const isSettingsDetailVisible = () => !isMobileLayout() || settingsMobileView === "detail";
+
+  const syncSettingsMobileNavigation = () => {
+    const isMobile = isMobileLayout();
+    const view = isMobile ? settingsMobileView : "detail";
+    const activeTabID = activeSettingsTabID();
+    if (settingsPanel) {
+      settingsPanel.dataset.mobileSettingsView = view;
+    }
+    if (settingsMobileNav) {
+      settingsMobileNav.hidden = !isMobile || view !== "index";
+      for (const item of settingsMobileNav.querySelectorAll("[data-settings-mobile-nav-tab]")) {
+        const current = item.dataset.settingsMobileNavTab === activeTabID;
+        item.setAttribute("aria-current", current ? "page" : "false");
+      }
+    }
+    if (settingsTitle) {
+      settingsTitle.textContent = isMobile && view === "detail" ? settingsTabLabel(activeTabID) : "设置";
+    }
+    if (settingsBack) {
+      const label = isMobile && view === "detail" ? "返回设置列表" : "返回";
+      settingsBack.setAttribute("aria-label", label);
+      settingsBack.title = label;
+    }
+  };
+
+  const focusSettingsMobileNavItem = () => {
+    const activeTabID = activeSettingsTabID();
+    const navItems = Array.from(settingsMobileNav?.querySelectorAll("[data-settings-mobile-nav-tab]") || []);
+    const activeItem = navItems.find((item) => item.dataset.settingsMobileNavTab === activeTabID);
+    const firstItem = settingsMobileNav?.querySelector("[data-settings-mobile-nav-tab]");
+    (activeItem || firstItem)?.focus();
+  };
+
+  const openSettingsMobileIndex = ({ focus = true } = {}) => {
+    settingsMobileView = "index";
+    syncSettingsMobileNavigation();
+    if (focus) {
+      window.setTimeout(focusSettingsMobileNavItem, 0);
+    }
+  };
+
+  const openSettingsMobileDetail = (tabID, { focus = true } = {}) => {
+    setActiveSettingsTab(tabID);
+    settingsMobileView = "detail";
+    syncSettingsMobileNavigation();
+    if (focus) {
+      window.setTimeout(() => settingsBack?.focus(), 0);
+    }
+  };
+
   const setActiveSettingsTab = (tabID) => {
     const requestedTabID = String(tabID || "terminal").trim() || "terminal";
     const nextTabID = settingsTabs.some((tab) => tab.dataset.settingsTab === requestedTabID)
@@ -945,6 +1031,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
         refreshServiceForwards().catch((error) => setSettingsFeedback(error.message || "服务转发列表加载失败。", "error"));
       }
     }
+    syncSettingsMobileNavigation();
   };
 
   const registeredFontFaceKey = (font) => `${font?.id || ""}:${font?.family || ""}`;
@@ -1215,6 +1302,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
 
   const isServiceForwardsSettingsActive = () =>
     settingsBackdrop && !settingsBackdrop.hidden &&
+    isSettingsDetailVisible() &&
     settingsTabs.some((tab) => tab.dataset.settingsTab === "service-forwards" && tab.getAttribute("aria-selected") === "true");
 
   const publishAPIURL = (path) => {
@@ -2567,6 +2655,8 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     closeContextMenu();
     closeThemePicker();
     closeInstanceSwitcher();
+    renderSettingsMobileNav();
+    settingsMobileView = isMobileLayout() ? "index" : "detail";
     setActiveSettingsTab(tabID);
     renderSettingsFonts();
     renderSettingsThemeList();
@@ -2577,7 +2667,14 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     setSettingsFeedback("");
     if (settingsBackdrop) {
       settingsBackdrop.hidden = false;
-      window.setTimeout(() => settingsTabs.find((tab) => tab.getAttribute("aria-selected") === "true")?.focus(), 0);
+      syncSettingsMobileNavigation();
+      window.setTimeout(() => {
+        if (isMobileLayout() && settingsMobileView === "index") {
+          focusSettingsMobileNavItem();
+          return;
+        }
+        settingsTabs.find((tab) => tab.getAttribute("aria-selected") === "true")?.focus();
+      }, 0);
     }
     loadSettings().catch((error) => setSettingsFeedback(error.message || "设置加载失败。", "error"));
   };
@@ -2596,6 +2693,8 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     if (settingsBackdrop) {
       settingsBackdrop.hidden = true;
     }
+    settingsMobileView = "detail";
+    syncSettingsMobileNavigation();
     resetServiceForwardForm();
     if (wasOpen) {
       window.setTimeout(() => activeSession()?.term?.focus(), 0);
@@ -10518,12 +10617,25 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     setThemePickerScrollbarHovering(true);
   });
 
-  settingsBack?.addEventListener("click", closeSettings);
+  settingsBack?.addEventListener("click", () => {
+    if (isMobileLayout() && settingsMobileView === "detail") {
+      openSettingsMobileIndex();
+      return;
+    }
+    closeSettings();
+  });
   settingsClose?.addEventListener("click", closeSettings);
   settingsBackdrop?.addEventListener("click", (event) => {
     if (event.target === settingsBackdrop) {
       closeSettings();
     }
+  });
+  settingsMobileNav?.addEventListener("click", (event) => {
+    const item = event.target instanceof Element ? event.target.closest("[data-settings-mobile-nav-tab]") : null;
+    if (!item) {
+      return;
+    }
+    openSettingsMobileDetail(item.dataset.settingsMobileNavTab);
   });
   for (const tab of settingsTabs) {
     tab.addEventListener("click", () => setActiveSettingsTab(tab.dataset.settingsTab));
@@ -11073,6 +11185,9 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     redrawThemePickerOptions();
     resizeActiveTabForCurrentDevice();
     updateMobileActiveTabTitle();
+    if (settingsBackdrop && !settingsBackdrop.hidden) {
+      syncSettingsMobileNavigation();
+    }
     ensureMobileOverviewHistoryGuard();
     scheduleTabOverviewRender();
   });
