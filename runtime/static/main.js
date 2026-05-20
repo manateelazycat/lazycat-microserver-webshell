@@ -5806,6 +5806,98 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
 
   const fullBufferText = (term) => buildLogicalLines(term).map((line) => line.text).join("\n");
 
+  const terminalSelectionRange = (manager) => {
+    if (!manager?.selectionStart || !manager?.selectionEnd) {
+      return null;
+    }
+    let startCol = Number(manager.selectionStart.col);
+    let startRow = Number(manager.selectionStart.absoluteRow);
+    let endCol = Number(manager.selectionEnd.col);
+    let endRow = Number(manager.selectionEnd.absoluteRow);
+    if (![startCol, startRow, endCol, endRow].every(Number.isFinite)) {
+      return null;
+    }
+    startCol = Math.max(0, Math.floor(startCol));
+    startRow = Math.max(0, Math.floor(startRow));
+    endCol = Math.max(0, Math.floor(endCol));
+    endRow = Math.max(0, Math.floor(endRow));
+    if (startRow > endRow || (startRow === endRow && startCol > endCol)) {
+      [startCol, endCol] = [endCol, startCol];
+      [startRow, endRow] = [endRow, startRow];
+    }
+    return { startCol, startRow, endCol, endRow };
+  };
+
+  const terminalSelectionLineAt = (manager, absoluteRow, scrollback) => {
+    if (!manager?.wasmTerm || absoluteRow < 0) {
+      return null;
+    }
+    return absoluteRow < scrollback
+      ? manager.wasmTerm.getScrollbackLine?.(absoluteRow) || null
+      : manager.wasmTerm.getLine?.(absoluteRow - scrollback) || null;
+  };
+
+  const terminalSelectionCodepointText = (codepoint) => {
+    const value = Number(codepoint || 0);
+    if (!Number.isFinite(value) || value <= 0 || value > 0x10ffff || (value >= 0xd800 && value <= 0xdfff)) {
+      return "";
+    }
+    return String.fromCodePoint(value);
+  };
+
+  const terminalSelectionCellText = (manager, cell, absoluteRow, column, scrollback) => {
+    if (!cell) {
+      return { text: " ", content: false };
+    }
+    if (Number(cell?.width ?? 1) === 0) {
+      return { text: "", content: false };
+    }
+    if (!cell.codepoint) {
+      return { text: " ", content: false };
+    }
+    const text = cell.grapheme_len > 0
+      ? (absoluteRow < scrollback
+        ? manager.wasmTerm?.getScrollbackGraphemeString?.(absoluteRow, column)
+        : manager.wasmTerm?.getGraphemeString?.(absoluteRow - scrollback, column))
+      : terminalSelectionCodepointText(cell.codepoint);
+    if (!text) {
+      return { text: " ", content: false };
+    }
+    return { text, content: Boolean(text.trim()) };
+  };
+
+  const terminalSelectionText = (manager) => {
+    const range = terminalSelectionRange(manager);
+    if (!range || !manager?.wasmTerm) {
+      return "";
+    }
+    const scrollback = Math.max(0, Math.floor(manager.wasmTerm.getScrollbackLength?.() || 0));
+    let text = "";
+    for (let absoluteRow = range.startRow; absoluteRow <= range.endRow; absoluteRow += 1) {
+      const line = terminalSelectionLineAt(manager, absoluteRow, scrollback);
+      if (!line) {
+        continue;
+      }
+      const startCol = absoluteRow === range.startRow ? range.startCol : 0;
+      const endCol = absoluteRow === range.endRow ? range.endCol : Math.max(0, line.length - 1);
+      let lineText = "";
+      let lastContentLength = -1;
+      for (let column = startCol; column <= endCol; column += 1) {
+        const cellText = terminalSelectionCellText(manager, line[column], absoluteRow, column, scrollback);
+        lineText += cellText.text;
+        if (cellText.content) {
+          lastContentLength = lineText.length;
+        }
+      }
+      lineText = lastContentLength >= 0 ? lineText.substring(0, lastContentLength) : "";
+      text += lineText;
+      if (absoluteRow < range.endRow) {
+        text += "\n";
+      }
+    }
+    return text;
+  };
+
   const copyText = async (text) => {
     if (!text) {
       return false;
@@ -5986,6 +6078,22 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     }
   };
 
+  const installSelectionManagerCopyPatch = (session) => {
+    const manager = session?.term?.selectionManager;
+    if (!manager || manager.webshellSelectionCopyPatched) {
+      return;
+    }
+    manager.webshellSelectionCopyPatched = true;
+    manager.webshellOriginalGetSelection = manager.getSelection;
+    manager.getSelection = function (...args) {
+      try {
+        return terminalSelectionText(this);
+      } catch (error) {
+        return this.webshellOriginalGetSelection?.apply(this, args) || "";
+      }
+    };
+  };
+
   const installSelectionManagerStringDoubleClickPatch = (session) => {
     const manager = session?.term?.selectionManager;
     if (!manager || manager.webshellStringDoubleClickPatched) {
@@ -6075,6 +6183,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     if (!manager) {
       return;
     }
+    installSelectionManagerCopyPatch(session);
     installSelectionManagerStringDoubleClickPatch(session);
     if (manager.webshellAutoCopyDisabled) {
       return;

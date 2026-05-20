@@ -239,6 +239,35 @@ func TestRuntimeTerminalRendererCellSeamPatch(t *testing.T) {
 	}
 }
 
+func TestRuntimeTerminalSelectionCopySkipsWideCellPlaceholders(t *testing.T) {
+	data, err := os.ReadFile("runtime/static/main.js")
+	if err != nil {
+		t.Fatalf("ReadFile(runtime/static/main.js) error = %v", err)
+	}
+	source := string(data)
+
+	wantSnippets := []string{
+		`const terminalSelectionText = (manager) => {`,
+		`const terminalSelectionCellText = (manager, cell, absoluteRow, column, scrollback) => {`,
+		`if (Number(cell?.width ?? 1) === 0) {`,
+		`return { text: "", content: false };`,
+		`manager.wasmTerm?.getScrollbackGraphemeString?.(absoluteRow, column)`,
+		`manager.wasmTerm?.getGraphemeString?.(absoluteRow - scrollback, column)`,
+		`lineText += cellText.text;`,
+		`if (cellText.content) {`,
+		`lineText = lastContentLength >= 0 ? lineText.substring(0, lastContentLength) : "";`,
+		`manager.webshellOriginalGetSelection = manager.getSelection;`,
+		`manager.getSelection = function (...args) {`,
+		`return terminalSelectionText(this);`,
+		`installSelectionManagerCopyPatch(session);`,
+	}
+	for _, want := range wantSnippets {
+		if !strings.Contains(source, want) {
+			t.Fatalf("runtime terminal selection copy guard missing %q", want)
+		}
+	}
+}
+
 func TestRuntimeTerminalRendererBaselinePatch(t *testing.T) {
 	data, err := os.ReadFile("runtime/static/main.js")
 	if err != nil {
