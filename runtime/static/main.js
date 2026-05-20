@@ -454,6 +454,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   const themePickerSwipeMaxVerticalTravel = 40;
   const mobileOverviewSwipeEdgeWidth = 24;
   const mobileOverviewSwipeAxisThreshold = 12;
+  const mobileOverviewSwipeNativeBackBlockDistance = 4;
   const mobileOverviewSwipeOpenDistance = 56;
   const mobileOverviewSwipeMaxVerticalTravel = 40;
   const mobileOverviewHistoryGuardStateKey = "webshellMobileOverviewGuard";
@@ -3317,6 +3318,18 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     window.history.pushState(withMobileOverviewHistoryGuard(state), "", window.location.href);
   };
 
+  const refreshMobileOverviewHistoryGuardForUserGesture = () => {
+    if (!isMobileLayout()) {
+      return;
+    }
+    const state = currentHistoryStateObject();
+    if (!state[mobileOverviewHistoryGuardStateKey]) {
+      window.history.pushState(withMobileOverviewHistoryGuard(state), "", window.location.href);
+      return;
+    }
+    window.history.replaceState(withMobileOverviewHistoryGuard(state), "", window.location.href);
+  };
+
   const openTabOverviewFromHistoryBack = () => {
     if (!isMobileLayout()) {
       return false;
@@ -4784,6 +4797,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       resetMobileOverviewEdgeSwipe();
       return;
     }
+    refreshMobileOverviewHistoryGuardForUserGesture();
     mobileOverviewEdgeSwipe = {
       edge,
       startX: touch.clientX,
@@ -4822,6 +4836,10 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       if (absY > mobileOverviewSwipeAxisThreshold && absY > absX) {
         resetMobileOverviewEdgeSwipe();
         return;
+      }
+      if (directedDeltaX >= mobileOverviewSwipeNativeBackBlockDistance && absX > absY) {
+        event.preventDefault();
+        event.stopPropagation();
       }
       if (directedDeltaX > mobileOverviewSwipeAxisThreshold && absX > absY * 1.2) {
         mobileOverviewEdgeSwipe.horizontal = true;

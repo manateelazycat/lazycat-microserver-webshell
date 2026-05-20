@@ -825,23 +825,33 @@ func TestRuntimeMobileEdgeSwipeOpensTabOverview(t *testing.T) {
 		t.Fatalf("ReadFile(runtime/static/main.js) error = %v", err)
 	}
 	source := string(data)
+	styleData, err := os.ReadFile("runtime/static/style.css")
+	if err != nil {
+		t.Fatalf("ReadFile(runtime/static/style.css) error = %v", err)
+	}
+	styleSource := string(styleData)
 
 	wantSnippets := []string{
 		"let mobileOverviewEdgeSwipe = null;",
 		"const mobileOverviewSwipeEdgeWidth = 24;",
 		"const mobileOverviewSwipeAxisThreshold = 12;",
+		"const mobileOverviewSwipeNativeBackBlockDistance = 4;",
 		"const mobileOverviewSwipeOpenDistance = 56;",
 		"const mobileOverviewSwipeMaxVerticalTravel = 40;",
 		`const mobileOverviewHistoryGuardStateKey = "webshellMobileOverviewGuard";`,
 		"const ensureMobileOverviewHistoryGuard = () => {",
 		"window.history.pushState(withMobileOverviewHistoryGuard(state), \"\", window.location.href);",
+		"const refreshMobileOverviewHistoryGuardForUserGesture = () => {",
+		"window.history.replaceState(withMobileOverviewHistoryGuard(state), \"\", window.location.href);",
 		"const openTabOverviewFromHistoryBack = () => {",
 		"if (openTabOverviewFromHistoryBack()) {",
 		"const hasBlockingOverviewGestureOverlayOpen = () => Boolean(",
 		"const handleMobileOverviewEdgeSwipeStart = (event) => {",
+		"refreshMobileOverviewHistoryGuardForUserGesture();",
 		`edge = "left";`,
 		`edge = "right";`,
 		`const directedDeltaX = mobileOverviewEdgeSwipe.edge === "left" ? deltaX : -deltaX;`,
+		"directedDeltaX >= mobileOverviewSwipeNativeBackBlockDistance && absX > absY",
 		"openTabOverview();",
 		`document.addEventListener("touchstart", handleMobileOverviewEdgeSwipeStart, { capture: true, passive: true });`,
 		`document.addEventListener("touchmove", handleMobileOverviewEdgeSwipeMove, { capture: true, passive: false });`,
@@ -850,5 +860,8 @@ func TestRuntimeMobileEdgeSwipeOpensTabOverview(t *testing.T) {
 		if !strings.Contains(source, want) {
 			t.Fatalf("runtime mobile overview edge swipe guard missing %q", want)
 		}
+	}
+	if !strings.Contains(styleSource, "overscroll-behavior-x: none;") {
+		t.Fatal("runtime mobile overview edge swipe should disable native horizontal overscroll navigation")
 	}
 }
