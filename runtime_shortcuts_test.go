@@ -71,8 +71,8 @@ func TestRuntimePasteShortcutUsesNativePasteEvent(t *testing.T) {
 		`return event.ctrlKey && !event.metaKey;`,
 		`const focusTerminalForNativePasteShortcut = (session = activeSession()) => {`,
 		`focusTerminalInput(session);`,
-		`return document.activeElement === session.term.textarea;`,
-		`if (action === "paste_terminal" && isNativePasteShortcutEvent(event) && focusTerminalForNativePasteShortcut()) {`,
+		`if (action === "paste_terminal" && isNativePasteShortcutEvent(event)) {`,
+		`focusTerminalForNativePasteShortcut();`,
 		`throw new Error("当前页面策略禁止主动读取剪贴板，请使用系统粘贴快捷键。");`,
 		`textarea.addEventListener("paste", (event) => {`,
 		`pasteIntoSession(session, text).catch((error) => showToast(error.message));`,
@@ -85,10 +85,11 @@ func TestRuntimePasteShortcutUsesNativePasteEvent(t *testing.T) {
 	}
 
 	nativePasteBranch := sourceBetween(t, source,
-		`if (action === "paste_terminal" && isNativePasteShortcutEvent(event) && focusTerminalForNativePasteShortcut()) {`,
+		`if (action === "paste_terminal" && isNativePasteShortcutEvent(event)) {`,
 		`    event.preventDefault();`,
 	)
 	for _, want := range []string{
+		`focusTerminalForNativePasteShortcut();`,
 		`closeContextMenu();`,
 		`return;`,
 	} {
@@ -100,6 +101,7 @@ func TestRuntimePasteShortcutUsesNativePasteEvent(t *testing.T) {
 		`pasteIntoSession(`,
 		`readClipboardText(`,
 		`event.preventDefault();`,
+		`document.activeElement`,
 	} {
 		if strings.Contains(nativePasteBranch, forbidden) {
 			t.Fatalf("runtime native paste shortcut branch must not contain %q", forbidden)
