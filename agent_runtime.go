@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -40,6 +41,13 @@ func agentSelectorHash(selector string) string {
 type agentScope struct {
 	Selector  string
 	AccountID string
+}
+
+type persistentAgentStartupTrace struct {
+	scope      agentScope
+	socketPath string
+	logPath    string
+	entries    []string
 }
 
 func normalizeAgentScope(selector, accountID string) agentScope {
@@ -91,15 +99,75 @@ func scopedAgentLogPath(scope agentScope) string {
 	return "/tmp/lcmd-webshell-agent-" + scope.hash() + ".log"
 }
 
+func newPersistentAgentStartupTrace(scope agentScope) *persistentAgentStartupTrace {
+	scope = normalizeAgentScope(scope.Selector, scope.AccountID)
+	return &persistentAgentStartupTrace{
+		scope:      scope,
+		socketPath: scopedAgentSocketPath(scope),
+		logPath:    scopedAgentLogPath(scope),
+	}
+}
+
+func (t *persistentAgentStartupTrace) add(format string, args ...any) {
+	if t == nil {
+		return
+	}
+	t.entries = append(t.entries, fmt.Sprintf(format, args...))
+}
+
+func (t *persistentAgentStartupTrace) addCommandResult(stage string, output []byte, err error) {
+	if t == nil {
+		return
+	}
+	text := strings.TrimSpace(string(output))
+	if text == "" {
+		text = "<empty>"
+	}
+	if err != nil {
+		t.add("%s failed: err=%v output=%s", stage, err, text)
+		return
+	}
+	t.add("%s succeeded: output=%s", stage, text)
+}
+
+func (t *persistentAgentStartupTrace) String() string {
+	if t == nil {
+		return ""
+	}
+	var builder strings.Builder
+	builder.WriteString(fmt.Sprintf("selector=%s account=%s socket=%s log=%s", t.scope.Selector, t.scope.AccountID, t.socketPath, t.logPath))
+	for _, entry := range t.entries {
+		builder.WriteString("\n")
+		builder.WriteString(entry)
+	}
+	return builder.String()
+}
+
+func (t *persistentAgentStartupTrace) errorf(format string, args ...any) error {
+	message := fmt.Sprintf(format, args...)
+	trace := strings.TrimSpace(t.String())
+	if trace == "" {
+		log.Printf("persistent webshell agent startup failed: %s", message)
+		rememberPersistentAgentStartupError(t.scope, message)
+		return errors.New(message)
+	}
+	log.Printf("persistent webshell agent startup failed: %s\n%s", message, trace)
+	fullMessage := fmt.Sprintf("%s\nagent startup trace:\n%s", message, trace)
+	rememberPersistentAgentStartupError(t.scope, fullMessage)
+	return errors.New(fullMessage)
+}
+
 var persistentAgentCache = struct {
 	sync.Mutex
-	installed map[string]string
-	running   map[string]bool
-	username  map[string]string
+	installed     map[string]string
+	running       map[string]bool
+	username      map[string]string
+	startupErrors map[string]string
 }{
-	installed: make(map[string]string),
-	running:   make(map[string]bool),
-	username:  make(map[string]string),
+	installed:     make(map[string]string),
+	running:       make(map[string]bool),
+	username:      make(map[string]string),
+	startupErrors: make(map[string]string),
 }
 
 var agentRuntimeArchiveCache = struct {
@@ -181,6 +249,35 @@ func requestPersistentAgent(ctx context.Context, scope agentScope, request agent
 	return runPersistentAgentRequest(ctx, scope, request)
 }
 
+func rememberPersistentAgentStartupError(scope agentScope, message string) {
+	scope = normalizeAgentScope(scope.Selector, scope.AccountID)
+	message = strings.TrimSpace(message)
+	if scope.Selector == "" || scope.AccountID == "" || message == "" {
+		return
+	}
+	persistentAgentCache.Lock()
+	persistentAgentCache.startupErrors[scope.cacheKey()] = message
+	persistentAgentCache.Unlock()
+}
+
+func clearPersistentAgentStartupError(scope agentScope) {
+	scope = normalizeAgentScope(scope.Selector, scope.AccountID)
+	if scope.Selector == "" || scope.AccountID == "" {
+		return
+	}
+	persistentAgentCache.Lock()
+	delete(persistentAgentCache.startupErrors, scope.cacheKey())
+	persistentAgentCache.Unlock()
+}
+
+func latestPersistentAgentStartupError(scope agentScope) string {
+	scope = normalizeAgentScope(scope.Selector, scope.AccountID)
+	persistentAgentCache.Lock()
+	message := persistentAgentCache.startupErrors[scope.cacheKey()]
+	persistentAgentCache.Unlock()
+	return strings.TrimSpace(message)
+}
+
 func runPersistentAgentRequest(ctx context.Context, scope agentScope, request agentRequest) (agentResponse, error) {
 	scope = normalizeAgentScope(scope.Selector, scope.AccountID)
 	data, err := json.Marshal(request)
@@ -216,6 +313,8 @@ func runPersistentAgentRequest(ctx context.Context, scope agentScope, request ag
 
 func ensurePersistentAgent(ctx context.Context, scope agentScope) (string, error) {
 	scope = normalizeAgentScope(scope.Selector, scope.AccountID)
+	trace := newPersistentAgentStartupTrace(scope)
+	trace.add("ensure started")
 	if err := validateInstanceSelector(scope.Selector); err != nil {
 		return "", err
 	}
@@ -225,16 +324,19 @@ func ensurePersistentAgent(ctx context.Context, scope agentScope) (string, error
 	cacheKey := scope.cacheKey()
 	username, err := cachedInstanceUsername(ctx, scope.Selector)
 	if err != nil {
-		return "", err
+		trace.add("resolve username failed: %v", err)
+		return "", trace.errorf("persistent webshell agent username resolve failed")
 	}
+	trace.add("resolved username=%s", username)
 	persistentAgentCache.Lock()
 	previousManifest := persistentAgentCache.installed[cacheKey]
 	persistentAgentCache.Unlock()
-	manifest, err := ensureAgentBinaryInstalled(ctx, scope)
+	manifest, err := ensureAgentBinaryInstalled(ctx, scope, trace)
 	if err != nil {
-		return "", err
+		return "", trace.errorf("persistent webshell agent install failed: %v", err)
 	}
 	if previousManifest != "" && previousManifest != manifest {
+		trace.add("installed manifest changed, marking agent not running")
 		markPersistentAgentNotRunning(scope)
 	}
 
@@ -242,29 +344,41 @@ func ensurePersistentAgent(ctx context.Context, scope agentScope) (string, error
 	running := persistentAgentCache.running[cacheKey] && persistentAgentCache.installed[cacheKey] == manifest
 	persistentAgentCache.Unlock()
 	if running {
+		trace.add("agent running cache hit")
+		clearPersistentAgentStartupError(scope)
 		return username, nil
 	}
 
-	if ok := pingPersistentAgent(ctx, scope); ok {
+	if err := pingPersistentAgentError(ctx, scope); err == nil {
+		trace.add("pre-start ping succeeded")
 		persistentAgentCache.Lock()
 		persistentAgentCache.running[cacheKey] = true
 		persistentAgentCache.Unlock()
+		clearPersistentAgentStartupError(scope)
 		return username, nil
+	} else {
+		trace.add("pre-start ping failed: %v", err)
 	}
-	if err := startPersistentAgent(ctx, scope, username); err != nil {
-		return "", err
+	if err := startPersistentAgent(ctx, scope, username, trace); err != nil {
+		return "", trace.errorf("persistent webshell agent start failed: %v", err)
 	}
 	deadline := time.Now().Add(3 * time.Second)
+	attempt := 0
 	for time.Now().Before(deadline) {
-		if ok := pingPersistentAgent(ctx, scope); ok {
+		attempt++
+		if err := pingPersistentAgentError(ctx, scope); err == nil {
+			trace.add("ready ping attempt %d succeeded", attempt)
 			persistentAgentCache.Lock()
 			persistentAgentCache.running[cacheKey] = true
 			persistentAgentCache.Unlock()
+			clearPersistentAgentStartupError(scope)
 			return username, nil
+		} else {
+			trace.add("ready ping attempt %d failed: %v", attempt, err)
 		}
 		time.Sleep(120 * time.Millisecond)
 	}
-	return "", persistentAgentStartupTimeoutError(ctx, scope)
+	return "", persistentAgentStartupTimeoutError(ctx, scope, trace)
 }
 
 func cachedInstanceUsername(ctx context.Context, selector string) (string, error) {
@@ -290,15 +404,17 @@ func markPersistentAgentNotRunning(scope agentScope) {
 	persistentAgentCache.Unlock()
 }
 
-func ensureAgentBinaryInstalled(ctx context.Context, scope agentScope) (string, error) {
+func ensureAgentBinaryInstalled(ctx context.Context, scope agentScope, trace *persistentAgentStartupTrace) (string, error) {
 	payload, manifest, err := cachedAgentRuntimeArchive()
 	if err != nil {
 		return "", err
 	}
+	trace.add("agent archive ready: manifest=%s payload_bytes=%d", manifest, len(payload))
 	cacheKey := scope.cacheKey()
 	persistentAgentCache.Lock()
 	if persistentAgentCache.installed[cacheKey] == manifest {
 		persistentAgentCache.Unlock()
+		trace.add("install cache hit")
 		return manifest, nil
 	}
 	persistentAgentCache.Unlock()
@@ -314,10 +430,12 @@ func ensureAgentBinaryInstalled(ctx context.Context, scope agentScope) (string, 
 		"fi",
 	}, "\n")
 	output, err := exec.CommandContext(checkCtx, lightosctlPath, "exec", scope.Selector, "/bin/sh", "-lc", checkScript).CombinedOutput()
+	trace.addCommandResult("install check", output, err)
 	if err == nil && strings.TrimSpace(string(output)) == agentReadyMarker {
 		persistentAgentCache.Lock()
 		persistentAgentCache.installed[cacheKey] = manifest
 		persistentAgentCache.Unlock()
+		trace.add("installed binary already matches manifest")
 		return manifest, nil
 	}
 
@@ -333,6 +451,7 @@ func ensureAgentBinaryInstalled(ctx context.Context, scope agentScope) (string, 
 	command := exec.CommandContext(installCtx, lightosctlPath, "exec", "-i", scope.Selector, "/bin/sh", "-lc", installScript)
 	command.Stdin = bytes.NewReader(payload)
 	output, err = command.CombinedOutput()
+	trace.addCommandResult("install", output, err)
 	if err != nil {
 		text := strings.TrimSpace(string(output))
 		if text == "" {
@@ -408,19 +527,24 @@ func writeAgentTarFile(writer *tar.Writer, name string, data []byte, mode int64)
 }
 
 func pingPersistentAgent(ctx context.Context, scope agentScope) bool {
+	return pingPersistentAgentError(ctx, scope) == nil
+}
+
+func pingPersistentAgentError(ctx context.Context, scope agentScope) error {
 	scope = normalizeAgentScope(scope.Selector, scope.AccountID)
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	_, err := runPersistentAgentRequest(ctx, scope, agentRequest{Type: "ping", Selector: scope.Selector, AccountID: scope.AccountID})
-	return err == nil
+	return err
 }
 
-func startPersistentAgent(ctx context.Context, scope agentScope, username string) error {
+func startPersistentAgent(ctx context.Context, scope agentScope, username string, trace *persistentAgentStartupTrace) error {
 	scope = normalizeAgentScope(scope.Selector, scope.AccountID)
 	startCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	socketPath := scopedAgentSocketPath(scope)
 	logPath := scopedAgentLogPath(scope)
+	trace.add("start command prepared: socket=%s log=%s", socketPath, logPath)
 	script := fmt.Sprintf(`set -eu
 agent=%s
 socket=%s
@@ -438,6 +562,7 @@ fi
 printf '%%s\n' %s
 `, shellScriptQuote(agentInstallPath), shellScriptQuote(socketPath), shellScriptQuote(logPath), shellScriptQuote(defaultAgentSocketPath), shellScriptQuote(scope.Selector), shellScriptQuote(scope.AccountID), shellScriptQuote(username), shellScriptQuote(scope.Selector), shellScriptQuote(scope.AccountID), shellScriptQuote(username), shellScriptQuote(agentReadyMarker))
 	output, err := exec.CommandContext(startCtx, lightosctlPath, "exec", scope.Selector, "/bin/sh", "-lc", script).CombinedOutput()
+	trace.addCommandResult("start", output, err)
 	if err != nil {
 		text := strings.TrimSpace(string(output))
 		if text == "" {
@@ -451,13 +576,15 @@ printf '%%s\n' %s
 	return nil
 }
 
-func persistentAgentStartupTimeoutError(ctx context.Context, scope agentScope) error {
+func persistentAgentStartupTimeoutError(ctx context.Context, scope agentScope, trace *persistentAgentStartupTrace) error {
 	snippet := readPersistentAgentLogTail(ctx, scope, 80)
-	message := fmt.Sprintf("persistent webshell agent did not become ready: selector=%s account=%s socket=%s log=%s", scope.Selector, scope.AccountID, scopedAgentSocketPath(scope), scopedAgentLogPath(scope))
 	if strings.TrimSpace(snippet) == "" {
-		return errors.New(message)
+		trace.add("agent log tail: <empty>")
+	} else {
+		trace.add("agent log tail:\n%s", snippet)
 	}
-	return fmt.Errorf("%s\nagent log tail:\n%s", message, snippet)
+	message := fmt.Sprintf("persistent webshell agent did not become ready: selector=%s account=%s socket=%s log=%s", scope.Selector, scope.AccountID, scopedAgentSocketPath(scope), scopedAgentLogPath(scope))
+	return trace.errorf("%s", message)
 }
 
 func readPersistentAgentLogTail(ctx context.Context, scope agentScope, lines int) string {
@@ -475,10 +602,43 @@ func readPersistentAgentLogTail(ctx context.Context, scope agentScope, lines int
 	return strings.TrimSpace(string(output))
 }
 
+func (s *pluginServer) handleAgentStartupError(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	selector := strings.TrimSpace(r.URL.Query().Get("name"))
+	if selector == "" {
+		http.Error(w, "name is required", http.StatusBadRequest)
+		return
+	}
+	accountID := currentRequestAccountID(r)
+	if accountID == "" {
+		http.Error(w, "account id is required", http.StatusUnauthorized)
+		return
+	}
+	if err := s.authorizeInstanceSelector(r.Context(), selector); err != nil {
+		writeAuthorizationError(w, err)
+		return
+	}
+	writeJSON(w, agentStartupErrorResponse{
+		Error: latestPersistentAgentStartupError(normalizeAgentScope(selector, accountID)),
+	})
+}
+
 func (s *pluginServer) attachAgentPane(w http.ResponseWriter, r *http.Request, scope agentScope, paneID string, cols, rows, terminalScrollback int) error {
 	scope = normalizeAgentScope(scope.Selector, scope.AccountID)
 	if _, err := ensurePersistentAgent(r.Context(), scope); err != nil {
-		http.Error(w, err.Error(), http.StatusBadGateway)
+		if !websocket.IsWebSocketUpgrade(r) {
+			http.Error(w, err.Error(), http.StatusBadGateway)
+			return nil
+		}
+		conn, upgradeErr := upgrader.Upgrade(w, r, nil)
+		if upgradeErr != nil {
+			return upgradeErr
+		}
+		defer conn.Close()
+		_ = conn.WriteMessage(websocket.TextMessage, []byte("\r\n[webshell error]\r\n"+err.Error()+"\r\n"))
 		return nil
 	}
 	clientID := strings.TrimSpace(r.URL.Query().Get("client_id"))

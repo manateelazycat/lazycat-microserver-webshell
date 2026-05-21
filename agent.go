@@ -121,22 +121,22 @@ func runAgentCommand(args []string) error {
 
 func runAgentDaemon(socketPath, selector, accountID, username string) error {
 	if err := resetAgentDaemonSignalDisposition(); err != nil {
-		return err
+		return fmt.Errorf("reset agent daemon signal disposition failed: %w", err)
 	}
 	if err := raiseAgentOpenFilesLimit(); err != nil {
-		return err
+		return fmt.Errorf("raise agent open files limit failed: %w", err)
 	}
 	socketPath = strings.TrimSpace(socketPath)
 	if socketPath == "" {
-		return errors.New("socket path is required")
+		return errors.New("agent socket path is required")
 	}
 	if err := os.MkdirAll(filepath.Dir(socketPath), 0o755); err != nil {
-		return err
+		return fmt.Errorf("create agent socket directory failed: %w", err)
 	}
 	_ = os.Remove(socketPath)
 	listener, err := net.Listen("unix", socketPath)
 	if err != nil {
-		return err
+		return fmt.Errorf("listen agent unix socket failed: %w", err)
 	}
 	defer listener.Close()
 	_ = os.Chmod(socketPath, 0o600)
@@ -149,7 +149,7 @@ func runAgentDaemon(socketPath, selector, accountID, username string) error {
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
-			return err
+			return fmt.Errorf("accept agent unix socket connection failed: %w", err)
 		}
 		go daemon.handleConn(conn)
 	}

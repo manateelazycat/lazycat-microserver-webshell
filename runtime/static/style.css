@@ -711,6 +711,29 @@ body.split-resize-active * {
   background: var(--terminal-bg);
 }
 
+.startup-error-panel {
+  position: absolute;
+  inset: 0;
+  padding: 16px;
+  overflow: auto;
+  background: var(--terminal-bg);
+  color: #fda4af;
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  z-index: 2;
+}
+
+.startup-error-panel[hidden] {
+  display: none;
+}
+
+.startup-error-text {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .empty-state[hidden] {
   display: none;
 }
@@ -3239,6 +3262,9 @@ body.is-mobile-shortcut-dragging {
   color: var(--text);
   box-shadow: 0 18px 42px var(--panel-shadow);
   font-size: 13px;
+  max-height: min(60vh, 420px);
+  overflow: auto;
+  white-space: pre-wrap;
 }
 
 .toast[hidden] {

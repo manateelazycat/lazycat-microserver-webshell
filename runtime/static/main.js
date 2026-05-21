@@ -18,6 +18,8 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   const terminalArea = document.getElementById("terminalArea");
   const emptyState = document.getElementById("emptyState");
   const emptyStateAction = document.getElementById("emptyStateAction");
+  const startupErrorPanel = document.getElementById("startupErrorPanel");
+  const startupErrorText = document.getElementById("startupErrorText");
   const instanceSwitcher = document.getElementById("instanceSwitcher");
   const instanceSwitcherButton = document.getElementById("instanceSwitcherButton");
   const instanceSwitcherPanel = document.getElementById("instanceSwitcherPanel");
@@ -3010,6 +3012,24 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     }, 2200);
   };
 
+  const showStartupErrorPanel = (message) => {
+    const text = String(message || "").trim();
+    if (!startupErrorPanel || !startupErrorText || !text) {
+      return;
+    }
+    startupErrorText.textContent = text;
+    startupErrorPanel.hidden = false;
+  };
+
+  const hideStartupErrorPanel = () => {
+    if (startupErrorPanel) {
+      startupErrorPanel.hidden = true;
+    }
+    if (startupErrorText) {
+      startupErrorText.textContent = "";
+    }
+  };
+
   const setFeedback = (message) => {
     if (!instanceSwitcherFeedback) {
       return;
@@ -3154,6 +3174,12 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     const size = terminalSizeQuery();
     url.searchParams.set("cols", String(size.cols));
     url.searchParams.set("rows", String(size.rows));
+    return url;
+  };
+
+  const agentStartupErrorURL = (name = activeName) => {
+    const url = new URL("./api/agent/startup-error", window.location.href);
+    url.searchParams.set("name", name);
     return url;
   };
 
@@ -8708,6 +8734,36 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     positionTerminalInput(session);
   };
 
+  const readAgentStartupError = async (name) => {
+    const response = await fetch(agentStartupErrorURL(name), { cache: "no-store" });
+    if (!response.ok) {
+      return "";
+    }
+    const data = await response.json();
+    return String(data?.error || "").trim();
+  };
+
+  const writeSessionWebShellError = (session, message) => {
+    const text = String(message || "").trim();
+    if (!text || !session || session.closed || session.name !== activeName) {
+      return;
+    }
+    showStartupErrorPanel(text);
+    writeSessionImmediateOutput(session, `\r\n[webshell error]\r\n${text}\r\n`);
+  };
+
+  const showSessionStartupError = async (session, fallback = "") => {
+    if (!session || session.closed || session.name !== activeName) {
+      return;
+    }
+    let message = "";
+    try {
+      message = await readAgentStartupError(session.name);
+    } catch (error) {
+    }
+    writeSessionWebShellError(session, message || fallback);
+  };
+
   const scheduleReconnect = (session) => {
     if (disposed || session.closed || session.reconnectPending || session.name !== activeName) {
       return;
@@ -8725,9 +8781,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
           return;
         }
         connectSession(session).catch((error) => {
-          if (!session.closed && session.name === activeName) {
-            writeSessionImmediateOutput(session, `\r\n[webshell error] ${error.message}\r\n`);
-          }
+          showSessionStartupError(session, error.message || "WebSocket reconnect failed.");
         });
       }, 240);
   };
@@ -8755,6 +8809,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     session.replayComplete = false;
     session.replayVerified = false;
     session.allowGeneratedInputDuringReplay = false;
+    session.startupErrorShown = false;
     currentSocket.binaryType = "arraybuffer";
 
     const replayMessageHasIdentity = (message) => {
@@ -8804,6 +8859,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       if (session.socket !== currentSocket) {
         return;
       }
+      session.startupErrorShown = true;
       if (session.name !== activeName) {
         session.socket = null;
         currentSocket.close();
@@ -8870,6 +8926,10 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       if (session.exitExpected) {
         return;
       }
+      if (!session.startupErrorShown) {
+        session.startupErrorShown = true;
+        showSessionStartupError(session, "WebSocket closed before terminal attached.");
+      }
       scheduleReconnect(session);
     });
 
@@ -8880,6 +8940,10 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       session.socket = null;
       session.shellEl.dataset.connection = "error";
       flushSessionOutput(session);
+      if (!session.startupErrorShown) {
+        session.startupErrorShown = true;
+        showSessionStartupError(session, "WebSocket connection failed.");
+      }
     });
   };
 
@@ -9093,9 +9157,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     tab.panes.set(normalizedID, session);
     if (connect) {
       connectSession(session).catch((error) => {
-        if (!session.closed && session.name === activeName) {
-          writeSessionImmediateOutput(session, `\r\n[webshell error] ${error.message}\r\n`);
-        }
+        showSessionStartupError(session, error.message || "WebSocket connection failed.");
       });
     }
     return session;
@@ -10599,6 +10661,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     if (!normalized || normalized === activeName) {
       return;
     }
+    hideStartupErrorPanel();
     const generation = setActiveInstanceName(normalized);
     if (updateURL) {
       updateLocationName(activeName, { replace: replaceURL, tabId: "" });
@@ -11410,12 +11473,14 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   });
 
   bootstrap().catch((error) => {
-    showToast(error.message);
+    const message = error.message || "WebShell startup failed.";
+    showToast(message);
+    showStartupErrorPanel(message);
     setActiveInstanceName("");
     renderInstanceSwitcher();
     createTab({ label: "Error", focus: true, connect: false });
     const tab = currentTab();
     const pane = tab?.panes.get(tab.activePaneId);
-    pane?.term?.write(`\r\n[webshell error] ${error.message}\r\n`);
+    pane?.term?.write(`\r\n[webshell error]\r\n${message}\r\n`);
   });
 })();

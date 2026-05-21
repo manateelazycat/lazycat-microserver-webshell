@@ -612,7 +612,7 @@ func TestRuntimeTerminalOutputBatchingGuard(t *testing.T) {
 		"window.requestAnimationFrame(flush);",
 		"session.outputQueue.push(entry);",
 		"flushSessionOutput(session, { force: true });",
-		"writeSessionImmediateOutput(session, `\\r\\n[webshell error] ${error.message}\\r\\n`);",
+		"showSessionStartupError(session, error.message || \"WebSocket connection failed.\");",
 	}
 	for _, want := range wantSnippets {
 		if !strings.Contains(source, want) {

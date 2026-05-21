@@ -64,6 +64,10 @@ type serverRevisionInfo struct {
 	ReloadRequired bool   `json:"reload_required,omitempty"`
 }
 
+type agentStartupErrorResponse struct {
+	Error string `json:"error"`
+}
+
 type apiErrorResponse struct {
 	Error string `json:"error"`
 }
@@ -183,6 +187,7 @@ func (s *pluginServer) run(ctx context.Context) error {
 	mux.HandleFunc("/api/attachments", s.handleAttachments)
 	mux.HandleFunc("/api/workspace", s.handleWorkspace)
 	mux.HandleFunc("/api/workspace/activity", s.handleWorkspaceActivity)
+	mux.HandleFunc("/api/agent/startup-error", s.handleAgentStartupError)
 	mux.HandleFunc("/ws", s.handleWebSocket)
 	mux.Handle("/static/", http.StripPrefix("/static/", staticFileServer(filepath.Join(s.rootDir, "runtime", "static"))))
 
