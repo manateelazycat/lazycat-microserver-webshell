@@ -1,2 +1,3 @@
 dist
 *.lpk
+.DS_Store
