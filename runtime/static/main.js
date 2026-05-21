@@ -5208,13 +5208,12 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
 
   const focusTerminalForNativePasteShortcut = (session = activeSession()) => {
     if (!session?.term || session.closed) {
-      return false;
+      return;
     }
     if (isMobileLayout()) {
       session.allowMobileKeyboardFocusUntil = performance.now() + mobileKeyboardFocusAllowWindowMs;
     }
     focusTerminalInput(session);
-    return document.activeElement === session.term.textarea;
   };
 
   const setTerminalInputComposing = (session, composing) => {
@@ -10239,7 +10238,8 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     if (!action) {
       return;
     }
-    if (action === "paste_terminal" && isNativePasteShortcutEvent(event) && focusTerminalForNativePasteShortcut()) {
+    if (action === "paste_terminal" && isNativePasteShortcutEvent(event)) {
+      focusTerminalForNativePasteShortcut();
       closeContextMenu();
       return;
     }
