@@ -2990,6 +2990,17 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     });
   };
 
+  const isNativePasteShortcutEvent = (event) => {
+    const key = normalizeShortcutKeyToken(shortcutKeyFromEventCode(event) || event.key);
+    if (key !== "v" || event.altKey) {
+      return false;
+    }
+    if (isMacPlatform()) {
+      return event.metaKey && !event.ctrlKey;
+    }
+    return event.ctrlKey && !event.metaKey;
+  };
+
   const rebuildShortcutActionMap = () => {
     shortcutActionMap.clear();
     for (const item of desktopShortcutsConfig) {
@@ -5195,6 +5206,17 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     focusTerminalInput(targetSession);
   };
 
+  const focusTerminalForNativePasteShortcut = (session = activeSession()) => {
+    if (!session?.term || session.closed) {
+      return false;
+    }
+    if (isMobileLayout()) {
+      session.allowMobileKeyboardFocusUntil = performance.now() + mobileKeyboardFocusAllowWindowMs;
+    }
+    focusTerminalInput(session);
+    return document.activeElement === session.term.textarea;
+  };
+
   const setTerminalInputComposing = (session, composing) => {
     session.composingIME = composing;
     if (composing) {
@@ -5988,7 +6010,20 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     if (!navigator.clipboard?.readText || !window.isSecureContext) {
       throw new Error("当前浏览器环境无法读取剪贴板。");
     }
-    return navigator.clipboard.readText();
+    try {
+      return await navigator.clipboard.readText();
+    } catch (error) {
+      const name = String(error?.name || "");
+      const message = String(error?.message || "");
+      if (
+        name === "NotAllowedError" ||
+        name === "SecurityError" ||
+        /permissions[- ]policy|clipboard-read|read permission|not allowed/i.test(message)
+      ) {
+        throw new Error("当前页面策略禁止主动读取剪贴板，请使用系统粘贴快捷键。");
+      }
+      throw error;
+    }
   };
 
   const fileExtensionFromType = (type) => {
@@ -10202,6 +10237,10 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     }
     const action = shortcutActionMap.get(shortcut);
     if (!action) {
+      return;
+    }
+    if (action === "paste_terminal" && isNativePasteShortcutEvent(event) && focusTerminalForNativePasteShortcut()) {
+      closeContextMenu();
       return;
     }
     event.preventDefault();
