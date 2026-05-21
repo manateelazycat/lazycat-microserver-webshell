@@ -58,6 +58,55 @@ func TestRuntimeShortcutDefaultsGuardMacAndAltMappings(t *testing.T) {
 	}
 }
 
+func TestRuntimePasteShortcutUsesNativePasteEvent(t *testing.T) {
+	data, err := os.ReadFile("runtime/static/main.js")
+	if err != nil {
+		t.Fatalf("ReadFile(runtime/static/main.js) error = %v", err)
+	}
+	source := string(data)
+
+	wantSnippets := []string{
+		`const isNativePasteShortcutEvent = (event) => {`,
+		`const key = normalizeShortcutKeyToken(shortcutKeyFromEventCode(event) || event.key);`,
+		`return event.ctrlKey && !event.metaKey;`,
+		`const focusTerminalForNativePasteShortcut = (session = activeSession()) => {`,
+		`focusTerminalInput(session);`,
+		`return document.activeElement === session.term.textarea;`,
+		`if (action === "paste_terminal" && isNativePasteShortcutEvent(event) && focusTerminalForNativePasteShortcut()) {`,
+		`throw new Error("当前页面策略禁止主动读取剪贴板，请使用系统粘贴快捷键。");`,
+		`textarea.addEventListener("paste", (event) => {`,
+		`pasteIntoSession(session, text).catch((error) => showToast(error.message));`,
+		`terminalHost.addEventListener("paste", (event) => {`,
+	}
+	for _, want := range wantSnippets {
+		if !strings.Contains(source, want) {
+			t.Fatalf("runtime native paste shortcut guard missing %q", want)
+		}
+	}
+
+	nativePasteBranch := sourceBetween(t, source,
+		`if (action === "paste_terminal" && isNativePasteShortcutEvent(event) && focusTerminalForNativePasteShortcut()) {`,
+		`    event.preventDefault();`,
+	)
+	for _, want := range []string{
+		`closeContextMenu();`,
+		`return;`,
+	} {
+		if !strings.Contains(nativePasteBranch, want) {
+			t.Fatalf("runtime native paste shortcut branch missing %q", want)
+		}
+	}
+	for _, forbidden := range []string{
+		`pasteIntoSession(`,
+		`readClipboardText(`,
+		`event.preventDefault();`,
+	} {
+		if strings.Contains(nativePasteBranch, forbidden) {
+			t.Fatalf("runtime native paste shortcut branch must not contain %q", forbidden)
+		}
+	}
+}
+
 func TestRuntimeShortcutSettingsGuardDesktopShortcutEditor(t *testing.T) {
 	for _, path := range []string{"runtime/static/index.html", "runtime/static/main.js"} {
 		data, err := os.ReadFile(path)
