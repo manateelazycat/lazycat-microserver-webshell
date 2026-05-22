@@ -20,7 +20,7 @@ import (
 const (
 	DefaultDir = "/lzcapp/var/fonts"
 	DirEnv     = "WEBSHELL_FONT_DIR"
-	MaxBytes   = 10 << 20
+	MaxBytes   = 50 << 20
 
 	DefaultTerminalScrollback = 5000
 	MinTerminalScrollback     = 100
@@ -427,7 +427,7 @@ func (s Store) StoreUpload(filename, contentType string, reader io.Reader) (Desc
 		return Descriptor{}, err
 	}
 	if len(data) == 0 || len(data) > MaxBytes {
-		return Descriptor{}, fmt.Errorf("%w: font must be between 1 byte and 10 MB", ErrBadRequest)
+		return Descriptor{}, fmt.Errorf("%w: font must be between 1 byte and %s", ErrBadRequest, maxBytesLabel())
 	}
 	fontName, err := displayNameForUpload(data, filename, extension)
 	if err != nil {
@@ -1204,6 +1204,16 @@ func fontExists(fonts []Descriptor, id string) bool {
 		}
 	}
 	return false
+}
+
+func maxBytesLabel() string {
+	if MaxBytes%(1<<20) == 0 {
+		return fmt.Sprintf("%d MB", MaxBytes/(1<<20))
+	}
+	if MaxBytes%(1<<10) == 0 {
+		return fmt.Sprintf("%d KB", MaxBytes/(1<<10))
+	}
+	return fmt.Sprintf("%d bytes", MaxBytes)
 }
 
 func validateFilename(filename string) (string, error) {

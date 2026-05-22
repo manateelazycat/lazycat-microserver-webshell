@@ -3,6 +3,7 @@ package fonts
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -67,6 +68,18 @@ func TestStoreUsesFilenameForWebFontLabel(t *testing.T) {
 	}
 }
 
+func TestStoreRejectsUploadedFontOverMaxBytes(t *testing.T) {
+	store := Store{Dir: t.TempDir()}
+
+	_, err := store.StoreUpload("Huge.woff2", "font/woff2", io.LimitReader(zeroReader{}, MaxBytes+1))
+	if !errors.Is(err, ErrBadRequest) {
+		t.Fatalf("StoreUpload() error = %v, want ErrBadRequest", err)
+	}
+	if !strings.Contains(err.Error(), "font must be between 1 byte and 50 MB") {
+		t.Fatalf("StoreUpload() error = %q, want 50 MB limit message", err.Error())
+	}
+}
+
 func TestStoreDefaultsInvalidAndPersistsScrollback(t *testing.T) {
 	store := Store{Dir: t.TempDir()}
 
@@ -106,6 +119,13 @@ func TestStoreDefaultsInvalidAndPersistsScrollback(t *testing.T) {
 	if state.TerminalScrollback != 12000 {
 		t.Fatalf("TerminalScrollback = %d, want 12000", state.TerminalScrollback)
 	}
+}
+
+type zeroReader struct{}
+
+func (zeroReader) Read(p []byte) (int, error) {
+	clear(p)
+	return len(p), nil
 }
 
 func TestStoreSettingsUpdatesPreserveOtherFields(t *testing.T) {

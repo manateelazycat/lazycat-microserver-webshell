@@ -207,7 +207,8 @@ func (s *pluginServer) handleSettingsFonts(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	const maxFontUploadCount = 32
-	if err := r.ParseMultipartForm((fonts.MaxBytes * maxFontUploadCount) + (1 << 20)); err != nil {
+	const maxFontUploadMemory = 32 << 20
+	if err := r.ParseMultipartForm(maxFontUploadMemory); err != nil {
 		http.Error(w, "invalid upload", http.StatusBadRequest)
 		return
 	}
