@@ -2992,11 +2992,13 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
 
   const isNativePasteShortcutEvent = (event) => {
     const key = normalizeShortcutKeyToken(shortcutKeyFromEventCode(event) || event.key);
-    if (key !== "v" || event.altKey) {
+    const keyCode = Number(event.keyCode || event.which || 0);
+    if ((key !== "v" && keyCode !== 86) || event.altKey) {
       return false;
     }
+    const ctrlShiftPaste = event.ctrlKey && event.shiftKey && !event.metaKey;
     if (isMacPlatform()) {
-      return event.metaKey && !event.ctrlKey;
+      return (event.metaKey && !event.ctrlKey) || ctrlShiftPaste;
     }
     return event.ctrlKey && !event.metaKey;
   };
@@ -10166,7 +10168,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
         await copyFromSession();
         return;
       case "paste_terminal":
-        await pasteIntoSession();
+        focusTerminalForNativePasteShortcut();
         return;
       case "search_terminal":
         openSearch();
@@ -10209,6 +10211,13 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     if (isInteractiveShortcutTarget(event.target)) {
       return;
     }
+    if (isNativePasteShortcutEvent(event)) {
+      focusTerminalForNativePasteShortcut();
+      closeContextMenu();
+      event.stopPropagation();
+      event.stopImmediatePropagation?.();
+      return;
+    }
     if (event.ctrlKey && !event.altKey && !event.metaKey) {
       if (event.key === "+" || event.key === "=") {
         event.preventDefault();
@@ -10238,7 +10247,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     if (!action) {
       return;
     }
-    if (action === "paste_terminal" && isNativePasteShortcutEvent(event)) {
+    if (action === "paste_terminal") {
       focusTerminalForNativePasteShortcut();
       closeContextMenu();
       return;
