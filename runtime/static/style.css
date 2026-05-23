@@ -2778,7 +2778,7 @@ body.is-mobile-shortcut-dragging {
   color: var(--text);
   cursor: pointer;
   text-align: left;
-  touch-action: none;
+  touch-action: pan-y;
   box-shadow: 0 14px 36px rgba(0, 0, 0, 0.22);
   -webkit-touch-callout: none;
 }

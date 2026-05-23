@@ -992,9 +992,12 @@ func TestRuntimeMobileOverviewDragAndSelectionToolbar(t *testing.T) {
 
 	for _, want := range []string{
 		"let tabOverviewDragState = null;",
-		"const tabOverviewDragHoldDelayMs = 140;",
+		"const tabOverviewDragHoldDelayMs = 320;",
 		"const animateTabOverviewReorder = (beforeRects) => {",
 		"const updateTabOverviewDragAutoScroll = (state) => {",
+		`if (state.pointerType !== "mouse" && !state.dragReady) {`,
+		"finishTabOverviewDrag({ cancel: true });",
+		`document.addEventListener("touchmove", handleTabOverviewDragTouchMove, { capture: true, passive: false });`,
 		"const moveTabToOverviewIndex = async",
 		`postWorkspaceAction("move_tab", { tab_id: tabId, position });`,
 		"bindTabOverviewCardDrag(card);",
@@ -1034,6 +1037,7 @@ func TestRuntimeMobileOverviewDragAndSelectionToolbar(t *testing.T) {
 		".tab-overview-card-placeholder",
 		"body.is-tab-overview-dragging",
 		".tab-overview-card.is-reordering",
+		"touch-action: pan-y;",
 		"touch-action: none;",
 		".selection-sheet button:not(:last-child)::after",
 		"background: rgba(24, 24, 24, 0.96);",

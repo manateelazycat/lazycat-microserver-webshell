@@ -488,7 +488,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   const mobileOverviewSwipeMaxVerticalTravel = 40;
   const mobileOverviewHistoryGuardStateKey = "webshellMobileOverviewGuard";
   const tabOverviewDragMoveThresholdPx = 8;
-  const tabOverviewDragHoldDelayMs = 140;
+  const tabOverviewDragHoldDelayMs = 320;
   const tabOverviewDragAutoScrollEdgePx = 58;
   const tabOverviewDragAutoScrollMaxStepPx = 14;
   // Mobile IMEs keep Backspace auto-repeat active only while the focused editable has text.
@@ -4980,6 +4980,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     document.removeEventListener("pointermove", handleTabOverviewDragMove, { capture: true });
     document.removeEventListener("pointerup", handleTabOverviewDragEnd, { capture: true });
     document.removeEventListener("pointercancel", handleTabOverviewDragCancel, { capture: true });
+    document.removeEventListener("touchmove", handleTabOverviewDragTouchMove, { capture: true });
   };
 
   const tabOverviewReorderAnimationTimers = new WeakMap();
@@ -5176,6 +5177,14 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     finishTabOverviewDrag({ cancel: true });
   }
 
+  function handleTabOverviewDragTouchMove(event) {
+    if (!tabOverviewDragState?.dragging) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+  }
+
   const beginTabOverviewDrag = (state) => {
     if (!tabOverviewGrid || state.dragging) {
       return;
@@ -5202,6 +5211,9 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     state.placeholder = placeholder;
     tabOverviewGrid.classList.add("is-dragging");
     document.body.classList.add("is-tab-overview-dragging");
+    if (state.pointerType !== "mouse") {
+      document.addEventListener("touchmove", handleTabOverviewDragTouchMove, { capture: true, passive: false });
+    }
   };
 
   const findTabOverviewPlaceholderTarget = (state) => {
@@ -5288,7 +5300,10 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       if (Math.hypot(dx, dy) < tabOverviewDragMoveThresholdPx) {
         return;
       }
-      state.dragReady = true;
+      if (state.pointerType !== "mouse" && !state.dragReady) {
+        finishTabOverviewDrag({ cancel: true });
+        return;
+      }
       beginTabOverviewDrag(state);
     }
     event.preventDefault();
