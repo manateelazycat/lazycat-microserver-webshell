@@ -403,6 +403,8 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   let suppressBeforeUnloadOnce = false;
   let suppressBeforeUnloadResetTimer = 0;
   let tabOverviewRenderFrame = 0;
+  let tabOverviewDragState = null;
+  let tabOverviewSuppressClickUntil = 0;
   let lightOSAdminInfo = null;
   let lightOSAdminInfoPromise = null;
   let lightOSAdminBaseURL = "";
@@ -410,6 +412,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   let lightOSHomeURLPromise = null;
   let mobileActionSheetIgnoreClicksUntil = 0;
   let mobileCloseConfirmResolve = null;
+  let mobileCustomSelectState = null;
   let mobileViewportResizeFrame = 0;
   let mobileViewportHeight = Math.max(0, Math.round(window.visualViewport?.height || window.innerHeight || 0));
   let mobileKeyboardInsetBottom = 0;
@@ -460,6 +463,10 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   const mobileOverviewSwipeOpenDistance = 56;
   const mobileOverviewSwipeMaxVerticalTravel = 40;
   const mobileOverviewHistoryGuardStateKey = "webshellMobileOverviewGuard";
+  const tabOverviewDragMoveThresholdPx = 8;
+  const tabOverviewDragHoldDelayMs = 140;
+  const tabOverviewDragAutoScrollEdgePx = 58;
+  const tabOverviewDragAutoScrollMaxStepPx = 14;
   // Mobile IMEs keep Backspace auto-repeat active only while the focused editable has text.
   const terminalInputSentinel = "\u200b";
   const backtabSequence = "\x1b[Z";
@@ -538,6 +545,16 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     { value: "sticky_ctrl", label: "Ctrl 粘滞键" },
     { value: "sticky_alt", label: "Alt 粘滞键" },
     { value: "sticky_shift", label: "Shift 粘滞键" },
+    { value: "new_tab", label: "新建标签" },
+    { value: "close_tab", label: "关闭标签" },
+    { value: "rename_tab", label: "重命名标签" },
+    { value: "next_tab", label: "下一个标签" },
+    { value: "previous_tab", label: "上一个标签" },
+    { value: "vertical_split", label: "左右分屏" },
+    { value: "horizontal_split", label: "上下分屏" },
+    { value: "tab_overview", label: "总览" },
+    { value: "search_terminal", label: "搜索" },
+    { value: "attachment", label: "附件" },
     { value: "copy", label: "复制" },
     { value: "paste", label: "粘贴" },
     { value: "page_up", label: "PageUp" },
@@ -1692,6 +1709,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   };
 
   const resetServiceForwardForm = () => {
+    closeMobileCustomSelect();
     serviceForwardEditingID = "";
     if (serviceForwardEditor) {
       serviceForwardEditor.hidden = true;
@@ -2092,6 +2110,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   };
 
   const closeMobileShortcutEditor = () => {
+    closeMobileCustomSelect();
     mobileShortcutEditorState = null;
     if (mobileShortcutEditor) {
       mobileShortcutEditor.hidden = true;
@@ -2332,6 +2351,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   };
 
   const closeDesktopShortcutEditor = () => {
+    closeMobileCustomSelect();
     desktopShortcutEditorState = null;
     if (desktopShortcutEditor) {
       desktopShortcutEditor.hidden = true;
@@ -2692,6 +2712,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
 
   const closeSettings = () => {
     const wasOpen = settingsBackdrop && !settingsBackdrop.hidden;
+    closeMobileCustomSelect();
     hideSettingsThemeScrollbar();
     if (settingsBackdrop) {
       settingsBackdrop.hidden = true;
@@ -4327,6 +4348,188 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   const isMobileLayout = () => Boolean(mobileLayoutQuery?.matches);
   const isTouchShortcutLayout = () => Boolean(touchShortcutLayoutQuery?.matches);
 
+  const isMobileCustomSelectLayout = () => isMobileLayout() || isTouchShortcutLayout();
+
+  const mobileCustomSelectLabel = (select) =>
+    String(
+      select?.getAttribute?.("aria-label") ||
+      select?.closest?.("label")?.querySelector?.("span")?.textContent ||
+      "选择"
+    ).trim() || "选择";
+
+  const ensureMobileCustomSelectPopover = () => {
+    let popover = document.getElementById("mobileCustomSelectPopover");
+    if (popover) {
+      return popover;
+    }
+    popover = document.createElement("div");
+    popover.className = "mobile-custom-select-popover";
+    popover.id = "mobileCustomSelectPopover";
+    popover.hidden = true;
+
+    const scrim = document.createElement("button");
+    scrim.type = "button";
+    scrim.className = "mobile-custom-select-scrim";
+    scrim.setAttribute("aria-label", "关闭选择菜单");
+
+    const panel = document.createElement("section");
+    panel.className = "mobile-custom-select-panel";
+    panel.setAttribute("role", "listbox");
+    panel.setAttribute("aria-label", "选择");
+
+    const list = document.createElement("div");
+    list.className = "mobile-custom-select-options";
+    panel.appendChild(list);
+    popover.append(scrim, panel);
+    document.body.appendChild(popover);
+
+    scrim.addEventListener("click", () => closeMobileCustomSelect());
+    return popover;
+  };
+
+  const closeMobileCustomSelect = ({ focus = false } = {}) => {
+    const state = mobileCustomSelectState;
+    if (!state) {
+      return;
+    }
+    state.select?.classList?.remove("mobile-custom-select-open");
+    state.popover.hidden = true;
+    state.list.textContent = "";
+    mobileCustomSelectState = null;
+    if (focus) {
+      window.setTimeout(() => state.select?.focus?.({ preventScroll: true }), 0);
+    }
+  };
+
+  const positionMobileCustomSelect = (select, panel, list) => {
+    const viewport = window.visualViewport;
+    const viewportLeft = viewport?.offsetLeft || 0;
+    const viewportTop = viewport?.offsetTop || 0;
+    const viewportWidth = Math.max(1, viewport?.width || window.innerWidth || document.documentElement.clientWidth || 1);
+    const viewportHeight = Math.max(1, viewport?.height || window.innerHeight || document.documentElement.clientHeight || 1);
+    const rect = select.getBoundingClientRect();
+    const margin = 8;
+    const minWidth = Math.max(180, rect.width);
+    const width = Math.min(viewportWidth - margin * 2, minWidth);
+    const left = Math.max(viewportLeft + margin, Math.min(viewportLeft + viewportWidth - width - margin, rect.left));
+    const below = viewportTop + viewportHeight - rect.bottom - margin;
+    const above = rect.top - viewportTop - margin;
+    const maxHeight = Math.max(120, Math.min(360, Math.max(below, above) - 6));
+    const top = below >= Math.min(280, maxHeight)
+      ? rect.bottom + 6
+      : Math.max(viewportTop + margin, rect.top - maxHeight - 6);
+    panel.style.left = `${Math.round(left)}px`;
+    panel.style.top = `${Math.round(top)}px`;
+    panel.style.width = `${Math.round(width)}px`;
+    panel.style.maxHeight = `${Math.round(maxHeight)}px`;
+    list.style.maxHeight = `${Math.round(maxHeight)}px`;
+  };
+
+  const syncMobileCustomSelectPosition = () => {
+    const state = mobileCustomSelectState;
+    if (!state) {
+      return;
+    }
+    if (!isMobileCustomSelectLayout() || state.select.disabled || !document.body.contains(state.select)) {
+      closeMobileCustomSelect();
+      return;
+    }
+    positionMobileCustomSelect(state.select, state.panel, state.list);
+  };
+
+  const openMobileCustomSelect = (select) => {
+    if (!(select instanceof HTMLSelectElement) || select.disabled || !isMobileCustomSelectLayout()) {
+      return false;
+    }
+    const options = Array.from(select.options || []);
+    if (options.length === 0) {
+      return false;
+    }
+    closeMobileCustomSelect();
+    const popover = ensureMobileCustomSelectPopover();
+    const panel = popover.querySelector(".mobile-custom-select-panel");
+    const list = popover.querySelector(".mobile-custom-select-options");
+    if (!(panel instanceof HTMLElement) || !(list instanceof HTMLElement)) {
+      return false;
+    }
+    const label = mobileCustomSelectLabel(select);
+    panel.setAttribute("aria-label", label);
+    list.textContent = "";
+    const selectedIndex = select.selectedIndex;
+    options.forEach((option, index) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "mobile-custom-select-option";
+      button.dataset.optionIndex = String(index);
+      button.setAttribute("role", "option");
+      button.setAttribute("aria-selected", index === selectedIndex ? "true" : "false");
+      button.disabled = option.disabled;
+      button.textContent = option.textContent || option.label || option.value;
+      if (index === selectedIndex) {
+        button.classList.add("is-selected");
+      }
+      button.addEventListener("click", () => {
+        if (button.disabled) {
+          return;
+        }
+        const previousIndex = select.selectedIndex;
+        select.selectedIndex = index;
+        select.dispatchEvent(new Event("input", { bubbles: true }));
+        if (select.selectedIndex !== previousIndex) {
+          select.dispatchEvent(new Event("change", { bubbles: true }));
+        }
+        closeMobileCustomSelect({ focus: true });
+      });
+      list.appendChild(button);
+    });
+    popover.hidden = false;
+    select.classList.add("mobile-custom-select-open");
+    mobileCustomSelectState = { select, popover, panel, list };
+    positionMobileCustomSelect(select, panel, list);
+    window.requestAnimationFrame(() => {
+      list.querySelector(".mobile-custom-select-option.is-selected")?.scrollIntoView?.({ block: "nearest" });
+    });
+    return true;
+  };
+
+  const handleMobileCustomSelectOpenEvent = (event) => {
+    const select = event.currentTarget;
+    if (!(select instanceof HTMLSelectElement) || !isMobileCustomSelectLayout()) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    event.stopImmediatePropagation?.();
+    if (mobileCustomSelectState?.select === select) {
+      return;
+    }
+    openMobileCustomSelect(select);
+  };
+
+  const handleMobileCustomSelectKeyDown = (event) => {
+    if (
+      !(event.currentTarget instanceof HTMLSelectElement) ||
+      !isMobileCustomSelectLayout() ||
+      !["Enter", " ", "ArrowDown", "ArrowUp"].includes(event.key)
+    ) {
+      return;
+    }
+    handleMobileCustomSelectOpenEvent(event);
+  };
+
+  const installMobileCustomSelects = () => {
+    for (const select of document.querySelectorAll("select")) {
+      if (select.dataset.mobileCustomSelectInstalled === "true") {
+        continue;
+      }
+      select.dataset.mobileCustomSelectInstalled = "true";
+      select.addEventListener("touchstart", handleMobileCustomSelectOpenEvent, { capture: true, passive: false });
+      select.addEventListener("pointerdown", handleMobileCustomSelectOpenEvent, { capture: true, passive: false });
+      select.addEventListener("click", handleMobileCustomSelectOpenEvent, { capture: true });
+      select.addEventListener("keydown", handleMobileCustomSelectKeyDown, { capture: true });
+    }
+  };
+
   const syncTerminalMobilePixelScroll = (session) => {
     if (session?.term?.options) {
       session.term.options.mobilePixelScroll = mobilePixelScrollEnabled && isMobileLayout();
@@ -4638,9 +4841,396 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     drawLayoutOverviewPreview(ctx, tab, tab.layout, 0, 0, size.width, size.height, colors);
   };
 
+  const stopTabOverviewDragTracking = () => {
+    document.removeEventListener("pointermove", handleTabOverviewDragMove, { capture: true });
+    document.removeEventListener("pointerup", handleTabOverviewDragEnd, { capture: true });
+    document.removeEventListener("pointercancel", handleTabOverviewDragCancel, { capture: true });
+  };
+
+  const tabOverviewReorderAnimationTimers = new WeakMap();
+
+  const stopTabOverviewDragAutoScroll = (state) => {
+    if (state?.autoScrollFrame) {
+      window.cancelAnimationFrame(state.autoScrollFrame);
+      state.autoScrollFrame = 0;
+    }
+    if (state) {
+      state.autoScrollStep = 0;
+    }
+  };
+
+  const getTabOverviewReorderRects = () => {
+    if (!tabOverviewGrid) {
+      return new Map();
+    }
+    return new Map(
+      Array.from(tabOverviewGrid.querySelectorAll(".tab-overview-card:not(.is-dragging)"))
+        .map((card) => [card, card.getBoundingClientRect()]),
+    );
+  };
+
+  const cancelTabOverviewReorderAnimationTimer = (card) => {
+    const timer = tabOverviewReorderAnimationTimers.get(card);
+    if (timer) {
+      window.clearTimeout(timer);
+      tabOverviewReorderAnimationTimers.delete(card);
+    }
+  };
+
+  const clearTabOverviewReorderAnimation = (card) => {
+    cancelTabOverviewReorderAnimationTimer(card);
+    card.classList.remove("is-reordering");
+    card.style.removeProperty("transition");
+    card.style.removeProperty("transform");
+  };
+
+  const animateTabOverviewReorder = (beforeRects) => {
+    if (!tabOverviewGrid || !beforeRects.size) {
+      return;
+    }
+    for (const card of tabOverviewGrid.querySelectorAll(".tab-overview-card:not(.is-dragging)")) {
+      const before = beforeRects.get(card);
+      if (!before) {
+        continue;
+      }
+      const after = card.getBoundingClientRect();
+      const dx = before.left - after.left;
+      const dy = before.top - after.top;
+      if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) {
+        continue;
+      }
+      cancelTabOverviewReorderAnimationTimer(card);
+      card.classList.remove("is-reordering");
+      card.style.transition = "none";
+      card.style.transform = `translate3d(${Math.round(dx)}px, ${Math.round(dy)}px, 0)`;
+      card.getBoundingClientRect();
+      card.style.removeProperty("transition");
+      card.classList.add("is-reordering");
+      window.requestAnimationFrame(() => {
+        card.style.removeProperty("transform");
+      });
+      const cleanupTimer = window.setTimeout(() => {
+        if (tabOverviewReorderAnimationTimers.get(card) === cleanupTimer) {
+          tabOverviewReorderAnimationTimers.delete(card);
+          card.classList.remove("is-reordering");
+        }
+      }, 180);
+      tabOverviewReorderAnimationTimers.set(card, cleanupTimer);
+    }
+  };
+
+  const clearTabOverviewReorderAnimations = () => {
+    if (!tabOverviewGrid) {
+      return;
+    }
+    for (const card of tabOverviewGrid.querySelectorAll(".tab-overview-card.is-reordering")) {
+      clearTabOverviewReorderAnimation(card);
+    }
+  };
+
+  const resetTabOverviewDraggedCard = (state) => {
+    const card = state?.card;
+    const placeholder = state?.placeholder;
+    if (state?.longPressTimer) {
+      window.clearTimeout(state.longPressTimer);
+      state.longPressTimer = 0;
+    }
+    stopTabOverviewDragAutoScroll(state);
+    clearTabOverviewReorderAnimations();
+    if (!card) {
+      return;
+    }
+    try {
+      if (state?.pointerId != null && card.hasPointerCapture?.(state.pointerId)) {
+        card.releasePointerCapture(state.pointerId);
+      }
+    } catch (_) {
+      // The pointer may already be released by the browser.
+    }
+    card.classList.remove("is-dragging");
+    card.style.removeProperty("position");
+    card.style.removeProperty("left");
+    card.style.removeProperty("top");
+    card.style.removeProperty("width");
+    card.style.removeProperty("height");
+    card.style.removeProperty("z-index");
+    card.style.removeProperty("transform");
+    if (placeholder?.parentNode) {
+      placeholder.parentNode.insertBefore(card, placeholder);
+      placeholder.remove();
+    } else if (tabOverviewGrid && !tabOverviewGrid.contains(card)) {
+      tabOverviewGrid.appendChild(card);
+    }
+    tabOverviewGrid?.classList.remove("is-dragging");
+    document.body.classList.remove("is-tab-overview-dragging");
+  };
+
+  const moveTabToOverviewIndex = async (tabId, targetIndex, restoreActiveTabId = activeTabId) => {
+    const ordered = getOrderedTabs();
+    const currentIndex = ordered.findIndex((tab) => tab.id === tabId);
+    if (currentIndex < 0) {
+      return;
+    }
+    const safeTarget = Math.max(0, Math.min(targetIndex, ordered.length - 1));
+    if (safeTarget === currentIndex) {
+      return;
+    }
+    const moves = [];
+    if (safeTarget === 0) {
+      moves.push("first");
+    } else if (safeTarget === ordered.length - 1) {
+      moves.push("last");
+    } else if (safeTarget < currentIndex) {
+      for (let index = currentIndex; index > safeTarget; index -= 1) {
+        moves.push("left");
+      }
+    } else {
+      for (let index = currentIndex; index < safeTarget; index += 1) {
+        moves.push("right");
+      }
+    }
+    for (const position of moves) {
+      await postWorkspaceAction("move_tab", { tab_id: tabId, position });
+    }
+    if (restoreActiveTabId && restoreActiveTabId !== tabId && tabs.has(restoreActiveTabId)) {
+      await postWorkspaceAction("activate_tab", { tab_id: restoreActiveTabId });
+    }
+  };
+
+  function finishTabOverviewDrag({ cancel = false } = {}) {
+    const state = tabOverviewDragState;
+    if (!state) {
+      return;
+    }
+    stopTabOverviewDragTracking();
+    const placeholder = state.placeholder;
+    const orderedCards = Array.from(tabOverviewGrid?.children || [])
+      .filter((child) => child.classList?.contains("tab-overview-card") || child.classList?.contains("tab-overview-card-placeholder"));
+    const targetIndex = placeholder ? orderedCards.indexOf(placeholder) : state.originalIndex;
+    const shouldMove = state.dragging && !cancel && targetIndex >= 0 && targetIndex !== state.originalIndex;
+    resetTabOverviewDraggedCard(state);
+    tabOverviewDragState = null;
+    if (!state.dragging) {
+      return;
+    }
+    tabOverviewSuppressClickUntil = performance.now() + 350;
+    if (shouldMove) {
+      moveTabToOverviewIndex(state.tabId, targetIndex, state.previousActiveTabId)
+        .catch((error) => {
+          showToast(error.message || "标签排序失败。");
+          scheduleTabOverviewRender();
+        });
+    }
+  }
+
+  function handleTabOverviewDragEnd(event) {
+    if (tabOverviewDragState && event?.pointerId !== tabOverviewDragState.pointerId) {
+      return;
+    }
+    if (tabOverviewDragState?.dragging) {
+      event?.preventDefault?.();
+      event?.stopPropagation?.();
+    }
+    finishTabOverviewDrag();
+  }
+
+  function handleTabOverviewDragCancel(event) {
+    if (tabOverviewDragState && event?.pointerId !== tabOverviewDragState.pointerId) {
+      return;
+    }
+    finishTabOverviewDrag({ cancel: true });
+  }
+
+  const beginTabOverviewDrag = (state) => {
+    if (!tabOverviewGrid || state.dragging) {
+      return;
+    }
+    if (state.longPressTimer) {
+      window.clearTimeout(state.longPressTimer);
+      state.longPressTimer = 0;
+    }
+    const rect = state.card.getBoundingClientRect();
+    const placeholder = document.createElement("div");
+    placeholder.className = "tab-overview-card-placeholder";
+    placeholder.style.height = `${Math.round(rect.height)}px`;
+    tabOverviewGrid.insertBefore(placeholder, state.card);
+    document.body.appendChild(state.card);
+    state.card.classList.add("is-dragging");
+    state.card.style.position = "fixed";
+    state.card.style.left = `${Math.round(rect.left)}px`;
+    state.card.style.top = `${Math.round(rect.top)}px`;
+    state.card.style.width = `${Math.round(rect.width)}px`;
+    state.card.style.height = `${Math.round(rect.height)}px`;
+    state.card.style.zIndex = "110";
+    state.card.style.transform = "translate3d(0, 0, 0)";
+    state.dragging = true;
+    state.placeholder = placeholder;
+    tabOverviewGrid.classList.add("is-dragging");
+    document.body.classList.add("is-tab-overview-dragging");
+  };
+
+  const findTabOverviewPlaceholderTarget = (state) => {
+    if (!tabOverviewGrid) {
+      return null;
+    }
+    const cards = Array.from(tabOverviewGrid.querySelectorAll(".tab-overview-card:not(.is-dragging)"));
+    for (const card of cards) {
+      const rect = card.getBoundingClientRect();
+      if (
+        state.lastY < rect.top + rect.height / 2 ||
+        (state.lastY <= rect.bottom && state.lastX < rect.left + rect.width / 2)
+      ) {
+        return card;
+      }
+    }
+    return null;
+  };
+
+  const updateTabOverviewDragPlaceholder = (state) => {
+    if (!tabOverviewGrid || !state.placeholder) {
+      return;
+    }
+    const before = findTabOverviewPlaceholderTarget(state);
+    if (before === state.placeholder.nextElementSibling || (!before && state.placeholder === tabOverviewGrid.lastElementChild)) {
+      return;
+    }
+    const beforeRects = getTabOverviewReorderRects();
+    if (before) {
+      tabOverviewGrid.insertBefore(state.placeholder, before);
+    } else {
+      tabOverviewGrid.appendChild(state.placeholder);
+    }
+    animateTabOverviewReorder(beforeRects);
+  };
+
+  const updateTabOverviewDragAutoScroll = (state) => {
+    if (!tabOverviewGrid || !state.dragging) {
+      stopTabOverviewDragAutoScroll(state);
+      return;
+    }
+    const rect = tabOverviewGrid.getBoundingClientRect();
+    const topDistance = state.lastY - rect.top;
+    const bottomDistance = rect.bottom - state.lastY;
+    let step = 0;
+    if (topDistance >= 0 && topDistance < tabOverviewDragAutoScrollEdgePx) {
+      step = -Math.ceil((1 - topDistance / tabOverviewDragAutoScrollEdgePx) * tabOverviewDragAutoScrollMaxStepPx);
+    } else if (bottomDistance >= 0 && bottomDistance < tabOverviewDragAutoScrollEdgePx) {
+      step = Math.ceil((1 - bottomDistance / tabOverviewDragAutoScrollEdgePx) * tabOverviewDragAutoScrollMaxStepPx);
+    }
+    state.autoScrollStep = step;
+    if (!step) {
+      stopTabOverviewDragAutoScroll(state);
+      return;
+    }
+    if (state.autoScrollFrame) {
+      return;
+    }
+    const tick = () => {
+      if (tabOverviewDragState !== state || !state.dragging || !tabOverviewGrid || !state.autoScrollStep) {
+        stopTabOverviewDragAutoScroll(state);
+        return;
+      }
+      const beforeScrollTop = tabOverviewGrid.scrollTop;
+      tabOverviewGrid.scrollTop += state.autoScrollStep;
+      if (tabOverviewGrid.scrollTop !== beforeScrollTop) {
+        updateTabOverviewDragPlaceholder(state);
+      }
+      state.autoScrollFrame = window.requestAnimationFrame(tick);
+    };
+    state.autoScrollFrame = window.requestAnimationFrame(tick);
+  };
+
+  function handleTabOverviewDragMove(event) {
+    const state = tabOverviewDragState;
+    if (!state || event.pointerId !== state.pointerId) {
+      return;
+    }
+    state.lastX = event.clientX;
+    state.lastY = event.clientY;
+    const dx = state.lastX - state.startX;
+    const dy = state.lastY - state.startY;
+    if (!state.dragging) {
+      if (Math.hypot(dx, dy) < tabOverviewDragMoveThresholdPx) {
+        return;
+      }
+      state.dragReady = true;
+      beginTabOverviewDrag(state);
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    state.card.style.transform = `translate3d(${Math.round(dx)}px, ${Math.round(dy)}px, 0)`;
+    updateTabOverviewDragPlaceholder(state);
+    updateTabOverviewDragAutoScroll(state);
+  }
+
+  function handleTabOverviewCardPointerDown(event) {
+    if (
+      !(event instanceof PointerEvent) ||
+      !event.isPrimary ||
+      !isTabOverviewOpen() ||
+      tabs.size <= 1 ||
+      (event.pointerType === "mouse" && event.button !== 0)
+    ) {
+      return;
+    }
+    const card = event.currentTarget;
+    const target = event.target;
+    if (!(card instanceof HTMLElement) || !(target instanceof Element) || target.closest("[data-tab-overview-close]")) {
+      return;
+    }
+    const ordered = getOrderedTabs();
+    const tabId = card.dataset.tabId || "";
+    const originalIndex = ordered.findIndex((tab) => tab.id === tabId);
+    if (originalIndex < 0) {
+      return;
+    }
+    finishTabOverviewDrag({ cancel: true });
+    tabOverviewDragState = {
+      pointerId: event.pointerId,
+      tabId,
+      card,
+      startX: event.clientX,
+      startY: event.clientY,
+      lastX: event.clientX,
+      lastY: event.clientY,
+      pointerType: event.pointerType,
+      originalIndex,
+      previousActiveTabId: activeTabId,
+      dragReady: event.pointerType === "mouse",
+      dragging: false,
+      placeholder: null,
+      longPressTimer: 0,
+      autoScrollFrame: 0,
+      autoScrollStep: 0,
+    };
+    if (event.pointerType !== "mouse") {
+      const state = tabOverviewDragState;
+      state.longPressTimer = window.setTimeout(() => {
+        if (tabOverviewDragState === state && !state.dragging) {
+          state.dragReady = true;
+          beginTabOverviewDrag(state);
+        }
+      }, tabOverviewDragHoldDelayMs);
+    }
+    card.setPointerCapture?.(event.pointerId);
+    document.addEventListener("pointermove", handleTabOverviewDragMove, { capture: true, passive: false });
+    document.addEventListener("pointerup", handleTabOverviewDragEnd, { capture: true, passive: false });
+    document.addEventListener("pointercancel", handleTabOverviewDragCancel, { capture: true });
+  }
+
+  const bindTabOverviewCardDrag = (card) => {
+    card.addEventListener("pointerdown", handleTabOverviewCardPointerDown);
+  };
+
   const renderTabOverview = () => {
     if (!tabOverviewGrid) {
       return;
+    }
+    if (tabOverviewDragState?.dragging) {
+      return;
+    }
+    if (tabOverviewDragState) {
+      finishTabOverviewDrag({ cancel: true });
     }
     tabOverviewGrid.classList.remove("is-scrollable");
     syncTabOverviewPreviewRatio();
@@ -4702,6 +5292,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
 
       main.append(preview, meta);
       card.append(main, close);
+      bindTabOverviewCardDrag(card);
       previewItems.push({ canvas, tab });
       fragment.appendChild(card);
     }
@@ -4729,6 +5320,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     if (!tabOverview) {
       return;
     }
+    finishTabOverviewDrag({ cancel: true });
     if (tabOverviewRenderFrame) {
       window.cancelAnimationFrame(tabOverviewRenderFrame);
       tabOverviewRenderFrame = 0;
@@ -6085,16 +6677,20 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     return [new File([text], `clipboard-${new Date().toISOString().replace(/[:.]/g, "-")}.txt`, { type: "text/plain;charset=utf-8" })];
   };
 
+  const selectedTextFromSession = (session = activeSession()) => {
+    if (!session?.term) {
+      return "";
+    }
+    return session.selectAllBufferActive ? fullBufferText(session.term) : session.term.getSelection?.() || "";
+  };
+
   const copyFromSession = async (session = activeSession()) => {
     if (!session?.term) {
       return;
     }
-    let text = "";
+    const text = selectedTextFromSession(session);
     if (session.selectAllBufferActive) {
-      text = fullBufferText(session.term);
       session.selectAllBufferActive = false;
-    } else {
-      text = session.term.getSelection?.() || "";
     }
     if (!text) {
       showToast("没有可复制的选区。");
@@ -6476,6 +7072,20 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     }
     searchState.index = (searchState.index + delta + searchState.matches.length) % searchState.matches.length;
     selectSearchMatch();
+  };
+
+  const openSearchFromSelection = (session = activeSession()) => {
+    const query = selectedTextFromSession(session).replace(/\s+/g, " ").trim().slice(0, 200);
+    if (!query) {
+      showToast("没有可搜索的选区。");
+      return;
+    }
+    openSearch();
+    setSearchQuery(query);
+    if (searchInput) {
+      searchInput.value = query;
+      searchInput.select();
+    }
   };
 
   const logicalLineAt = (term, absoluteRow) => buildLogicalLines(term).find((line) => line.startRow <= absoluteRow && line.endRow >= absoluteRow) || null;
@@ -7011,12 +7621,73 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     }
   };
 
-  const updateSelectionSheet = () => {
-    if (selectionSheet) {
-      selectionSheet.hidden = true;
+  const hideSelectionSheet = () => {
+    if (!selectionSheet) {
+      return;
     }
+    selectionSheet.hidden = true;
+    selectionSheet.style.removeProperty("left");
+    selectionSheet.style.removeProperty("top");
+    selectionSheet.style.removeProperty("bottom");
+    selectionSheet.style.removeProperty("visibility");
+  };
+
+  const positionSelectionSheet = (session = activeSession()) => {
+    const term = session?.term;
+    const position = term?.getSelectionPosition?.();
+    const canvas = term?.canvas || term?.element?.querySelector?.("canvas");
+    const metrics = term?.renderer?.getMetrics?.();
+    if (!selectionSheet || !term?.hasSelection?.() || !position || !canvas || !metrics?.width || !metrics?.height) {
+      return false;
+    }
+    const viewport = window.visualViewport;
+    const viewportLeft = viewport?.offsetLeft || 0;
+    const viewportTop = viewport?.offsetTop || 0;
+    const viewportWidth = Math.max(1, viewport?.width || window.innerWidth || document.documentElement.clientWidth || 1);
+    const viewportHeight = Math.max(1, viewport?.height || window.innerHeight || document.documentElement.clientHeight || 1);
+    const canvasRect = canvas.getBoundingClientRect();
+    const startX = canvasRect.left + position.start.x * metrics.width;
+    const endX = canvasRect.left + (position.end.x + 1) * metrics.width;
+    const selectedTop = canvasRect.top + Math.min(position.start.y, position.end.y) * metrics.height;
+    const selectedBottom = canvasRect.top + (Math.max(position.start.y, position.end.y) + 1) * metrics.height;
+    selectionSheet.hidden = false;
+    selectionSheet.style.visibility = "hidden";
+    selectionSheet.style.left = "0px";
+    selectionSheet.style.top = "0px";
+    selectionSheet.style.bottom = "auto";
+    const rect = selectionSheet.getBoundingClientRect();
+    const margin = 8;
+    const preferredX = (startX + endX) / 2;
+    const minLeft = viewportLeft + margin;
+    const maxLeft = viewportLeft + viewportWidth - rect.width - margin;
+    const left = Math.max(minLeft, Math.min(maxLeft, preferredX - rect.width / 2));
+    const minTop = viewportTop + margin;
+    const maxTop = viewportTop + viewportHeight - rect.height - margin;
+    let top = selectedTop - rect.height - 10;
+    if (top < minTop) {
+      top = selectedBottom + 10;
+    }
+    top = Math.max(minTop, Math.min(maxTop, top));
+    selectionSheet.style.left = `${Math.round(left)}px`;
+    selectionSheet.style.top = `${Math.round(top)}px`;
+    selectionSheet.style.visibility = "";
+    return true;
+  };
+
+  const updateSelectionSheet = () => {
+    const session = activeSession();
     syncMobileMenuSelectionState();
-    updateMobileSelectionHandles();
+    updateMobileSelectionHandles(session);
+    if (
+      !isMobileLayout() ||
+      !hasActiveTerminalSelection(session) ||
+      isTabOverviewOpen() ||
+      (mobileActionSheet && !mobileActionSheet.hidden)
+    ) {
+      hideSelectionSheet();
+    } else if (!positionSelectionSheet(session)) {
+      hideSelectionSheet();
+    }
     if (mobileActionSheet && !mobileActionSheet.hidden) {
       renderMobileActionSheet();
     }
@@ -7648,6 +8319,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   };
 
   const runMobileAction = (action, session = activeSession()) => {
+    const tab = currentTab();
     switch (action) {
       case "sticky_ctrl":
       case "ctrl":
@@ -7663,6 +8335,54 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       case "shift":
         toggleMobileSticky("shift");
         focusMobileKeyboardFromShortcut(session);
+        return;
+      case "new_tab":
+        createUserTab().catch((error) => showToast(error.message));
+        return;
+      case "close_tab":
+        if (tab) {
+          closeTab(tab.id);
+        }
+        return;
+      case "rename_tab":
+        if (tab) {
+          renameTab(tab.id).catch((error) => showToast(error.message));
+        }
+        return;
+      case "next_tab":
+        setActiveTabByOffset(1);
+        return;
+      case "previous_tab":
+        setActiveTabByOffset(-1);
+        return;
+      case "vertical_split":
+        if (tab?.activePaneId) {
+          splitPane(tab.id, tab.activePaneId, "vertical");
+        }
+        return;
+      case "horizontal_split":
+        if (tab?.activePaneId) {
+          splitPane(tab.id, tab.activePaneId, "horizontal");
+        }
+        return;
+      case "tab_overview":
+      case "open_tab_overview":
+      case "overview":
+        openTabOverview();
+        return;
+      case "search_terminal":
+      case "search":
+        openSearch();
+        return;
+      case "attachment":
+      case "open_attachment":
+        openAttachmentDialog();
+        return;
+      case "attachment_clipboard":
+        importAttachmentFromClipboard().catch((error) => showToast(error.message));
+        return;
+      case "attachment_file":
+        selectAttachmentFiles();
         return;
       case "copy":
         copyFromSession(session).catch((error) => showToast(error.message));
@@ -8303,7 +9023,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     session.shellEl.addEventListener("touchcancel", finishTouchSelection, { capture: true, passive: false });
     addSessionCleanup(session, () => resetTouchSelectionState());
 
-    session.term.onScroll?.(() => updateMobileSelectionHandles(session));
+    session.term.onScroll?.(() => updateSelectionSheet());
   };
 
   const clearReconnectTimer = (session) => {
@@ -10772,6 +11492,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   }
 
   renderMobileShortcuts();
+  installMobileCustomSelects();
 
   newTabButton?.addEventListener("click", () => {
     createUserTab().catch((error) => showToast(error.message));
@@ -11267,6 +11988,11 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     }
   });
   document.addEventListener("keydown", (event) => {
+    if (mobileCustomSelectState && event.key === "Escape") {
+      event.preventDefault();
+      closeMobileCustomSelect({ focus: true });
+      return;
+    }
     if (serviceForwardEditor && !serviceForwardEditor.hidden && event.key === "Escape") {
       event.preventDefault();
       resetServiceForwardForm();
@@ -11318,6 +12044,11 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   });
 
   tabOverview?.addEventListener("click", (event) => {
+    if (performance.now() < tabOverviewSuppressClickUntil) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
     const target = event.target;
     if (target === tabOverview || target === tabOverviewGrid) {
       closeTabOverview();
@@ -11350,6 +12081,8 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       copyFromSession().catch((error) => showToast(error.message));
     } else if (action === "paste") {
       pasteIntoSession().catch((error) => showToast(error.message));
+    } else if (action === "search") {
+      openSearchFromSelection();
     } else if (action === "clear") {
       const session = activeSession();
       session?.term?.clearSelection?.();
@@ -11430,6 +12163,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     } else if (mobileActionSheet && !mobileActionSheet.hidden) {
       renderMobileActionSheet();
     }
+    syncMobileCustomSelectPosition();
     if (!isMobileLayout()) {
       closeMobileCloseConfirm(false);
     }
@@ -11437,6 +12171,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     redrawThemePickerOptions();
     resizeActiveTabForCurrentDevice();
     updateMobileActiveTabTitle();
+    updateSelectionSheet();
     if (settingsBackdrop && !settingsBackdrop.hidden) {
       syncSettingsMobileNavigation();
     }
@@ -11448,6 +12183,8 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     window.visualViewport?.addEventListener("scroll", syncMobileVisualViewport);
     window.addEventListener("orientationchange", syncMobileVisualViewport);
   }
+  window.visualViewport?.addEventListener("resize", syncMobileCustomSelectPosition);
+  window.visualViewport?.addEventListener("scroll", syncMobileCustomSelectPosition);
   syncMobileVisualViewport();
   ensureMobileOverviewHistoryGuard();
   document.fonts?.ready?.then(() => {

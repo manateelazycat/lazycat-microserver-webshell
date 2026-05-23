@@ -966,3 +966,77 @@ func TestRuntimeMobileEdgeSwipeOpensTabOverview(t *testing.T) {
 		t.Fatal("runtime mobile overview edge swipe should disable native horizontal overscroll navigation")
 	}
 }
+
+func TestRuntimeMobileOverviewDragAndSelectionToolbar(t *testing.T) {
+	mainData, err := os.ReadFile("runtime/static/main.js")
+	if err != nil {
+		t.Fatalf("ReadFile(runtime/static/main.js) error = %v", err)
+	}
+	mainSource := string(mainData)
+	styleData, err := os.ReadFile("runtime/static/style.css")
+	if err != nil {
+		t.Fatalf("ReadFile(runtime/static/style.css) error = %v", err)
+	}
+	styleSource := string(styleData)
+	indexData, err := os.ReadFile("runtime/static/index.html")
+	if err != nil {
+		t.Fatalf("ReadFile(runtime/static/index.html) error = %v", err)
+	}
+	indexSource := string(indexData)
+
+	for _, want := range []string{
+		"let tabOverviewDragState = null;",
+		"const tabOverviewDragHoldDelayMs = 140;",
+		"const animateTabOverviewReorder = (beforeRects) => {",
+		"const updateTabOverviewDragAutoScroll = (state) => {",
+		"const moveTabToOverviewIndex = async",
+		`postWorkspaceAction("move_tab", { tab_id: tabId, position });`,
+		"bindTabOverviewCardDrag(card);",
+		`card.addEventListener("pointerdown", handleTabOverviewCardPointerDown);`,
+		`case "new_tab":`,
+		`case "close_tab":`,
+		`case "rename_tab":`,
+		`case "next_tab":`,
+		`case "previous_tab":`,
+		`case "vertical_split":`,
+		`case "horizontal_split":`,
+		`case "tab_overview":`,
+		`case "search_terminal":`,
+		`case "attachment":`,
+		"const openSearchFromSelection = (session = activeSession()) => {",
+		"const positionSelectionSheet = (session = activeSession()) => {",
+		"const openMobileCustomSelect = (select) => {",
+		`select.addEventListener("touchstart", handleMobileCustomSelectOpenEvent, { capture: true, passive: false });`,
+		`select.addEventListener("pointerdown", handleMobileCustomSelectOpenEvent, { capture: true, passive: false });`,
+		`event.preventDefault();`,
+		`event.stopPropagation();`,
+	} {
+		if !strings.Contains(mainSource, want) {
+			t.Fatalf("runtime mobile overview/selection guard missing %q", want)
+		}
+	}
+	for _, want := range []string{
+		`data-selection-action="copy">复制`,
+		`data-selection-action="paste">粘贴`,
+		`data-selection-action="search">搜索`,
+	} {
+		if !strings.Contains(indexSource, want) {
+			t.Fatalf("runtime mobile selection toolbar markup missing %q", want)
+		}
+	}
+	for _, want := range []string{
+		".tab-overview-card-placeholder",
+		"body.is-tab-overview-dragging",
+		".tab-overview-card.is-reordering",
+		"touch-action: none;",
+		".selection-sheet button:not(:last-child)::after",
+		"background: rgba(24, 24, 24, 0.96);",
+		".mobile-custom-select-popover",
+		".mobile-custom-select-option.is-selected",
+		"appearance: none;",
+	} {
+		if !strings.Contains(styleSource, want) {
+			t.Fatalf("runtime mobile overview/selection CSS guard missing %q", want)
+		}
+	}
+}
