@@ -173,6 +173,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   const fontSizeVersionStorageKey = `${storagePrefix}.fontSizeVersion`;
   const fontSizeStorageVersion = "2";
   const lastTabStorageKey = (name) => `${storagePrefix}.lastTab.${name || "default"}`;
+  const recentTabsStorageKey = (name) => `${storagePrefix}.recentTabs.${name || "default"}`;
   const restartTabStorageKey = `${storagePrefix}.restartTab`;
   const touchShortcutFeedbackStorageKey = `${storagePrefix}.touchShortcutFeedback`;
   const defaultFontSize = 16;
@@ -4695,7 +4696,56 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
         break;
       }
     }
-    recentTabIds = next;
+    return applyRecentTabIds(next);
+  };
+
+  const normalizeRecentTabIds = (ids) => {
+    const next = [];
+    for (const id of Array.isArray(ids) ? ids : []) {
+      const tabId = String(id || "").trim();
+      if (tabId && tabs.has(tabId) && !next.includes(tabId)) {
+        next.push(tabId);
+      }
+      if (next.length >= 2) {
+        break;
+      }
+    }
+    return next;
+  };
+
+  const persistRecentTabIds = (name = activeName) => {
+    const targetName = String(name || "").trim();
+    if (!targetName) {
+      return;
+    }
+    try {
+      const key = recentTabsStorageKey(targetName);
+      if (recentTabIds.length > 0) {
+        window.localStorage.setItem(key, JSON.stringify(recentTabIds));
+      } else {
+        window.localStorage.removeItem(key);
+      }
+    } catch (error) {
+    }
+  };
+
+  const loadStoredRecentTabIds = (name = activeName) => {
+    const targetName = String(name || "").trim();
+    if (!targetName) {
+      return [];
+    }
+    try {
+      return normalizeRecentTabIds(JSON.parse(window.localStorage.getItem(recentTabsStorageKey(targetName)) || "[]"));
+    } catch (error) {
+      return [];
+    }
+  };
+
+  const applyRecentTabIds = (ids, { persist = true, name = activeName } = {}) => {
+    recentTabIds = normalizeRecentTabIds(ids);
+    if (persist) {
+      persistRecentTabIds(name);
+    }
     return recentTabIds;
   };
 
@@ -4714,8 +4764,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
         break;
       }
     }
-    recentTabIds = next;
-    return recentTabIds;
+    return applyRecentTabIds(next);
   };
 
   const swapRecentTabs = () => {
@@ -10121,7 +10170,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     return tab;
   };
 
-  const setActiveTab = (tabId, { focus = true, remember = true } = {}) => {
+  const setActiveTab = (tabId, { focus = true, remember = true, rememberRecent = true } = {}) => {
     const tab = tabs.get(tabId);
     if (!tab) {
       return;
@@ -10129,7 +10178,9 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     const previousTabId = activeTabId;
     const wasActive = previousTabId === tab.id;
     activeTabId = tab.id;
-    rememberRecentTab(tab.id, previousTabId);
+    if (rememberRecent) {
+      rememberRecentTab(tab.id, previousTabId);
+    }
     for (const item of tabs.values()) {
       const isActive = item.id === activeTabId;
       item.paneEl.classList.toggle("active", isActive);
@@ -10150,7 +10201,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       resizeTabForCurrentDevice(tab);
     });
     if (!applyingWorkspaceState && !wasActive) {
-      postWorkspaceAction("activate_tab", { tab_id: tab.id }).catch((error) => showToast(error.message));
+      postWorkspaceAction("activate_tab", { tab_id: tab.id, recent_tab_ids: recentTabIds }).catch((error) => showToast(error.message));
     }
     scheduleTabOverviewRender();
   };
@@ -10332,13 +10383,23 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
         renderTabLayout(tab);
       }
 
+      const stateRecentTabIds = Array.isArray(state?.recent_tab_ids) ? state.recent_tab_ids : null;
+      if (stateRecentTabIds) {
+        applyRecentTabIds(stateRecentTabIds, { name: targetName });
+      } else {
+        const storedRecentTabIds = loadStoredRecentTabIds(targetName);
+        applyRecentTabIds(storedRecentTabIds.length > 0 ? storedRecentTabIds : recentTabIds, { name: targetName });
+      }
       const savedTab = targetName ? window.localStorage.getItem(lastTabStorageKey(targetName)) : "";
       const stateActiveTab = state?.active_tab_id || "";
       const nextActiveTab = preferStateActiveTab
         ? tabs.get(restartTab) || tabs.get(stateActiveTab) || tabs.get(requestedTab) || tabs.get(savedTab) || tabs.values().next().value || null
         : tabs.get(restartTab) || tabs.get(requestedTab) || tabs.get(savedTab) || tabs.get(stateActiveTab) || tabs.values().next().value || null;
       if (nextActiveTab) {
-        setActiveTab(nextActiveTab.id, { focus });
+        setActiveTab(nextActiveTab.id, { focus, rememberRecent: !stateRecentTabIds });
+        if (stateRecentTabIds && recentTabIds[0] !== nextActiveTab.id) {
+          applyRecentTabIds([nextActiveTab.id, ...recentTabIds], { name: targetName });
+        }
       } else {
         activeTabId = null;
       }
