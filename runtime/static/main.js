@@ -7503,6 +7503,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
         message,
         okText: "关闭",
         cancelText: "取消",
+        actionsLayout: "vertical-ok-first",
       });
     }
     return confirmDialog(message, options);

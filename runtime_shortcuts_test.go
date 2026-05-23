@@ -926,6 +926,31 @@ func TestRuntimeMobileDeployRestartUsesBottomSheet(t *testing.T) {
 	}
 }
 
+func TestRuntimeMobileRunningCommandConfirmUsesVerticalButtons(t *testing.T) {
+	data, err := os.ReadFile("runtime/static/main.js")
+	if err != nil {
+		t.Fatalf("ReadFile(runtime/static/main.js) error = %v", err)
+	}
+	source := string(data)
+	start := strings.Index(source, "const confirmCloseRunningCommand = (message, options = {}) => {")
+	if start < 0 {
+		t.Fatal("confirmCloseRunningCommand definition not found")
+	}
+	end := strings.Index(source[start:], "return confirmDialog(message, options);")
+	if end < 0 {
+		t.Fatal("confirmCloseRunningCommand desktop fallback not found")
+	}
+	block := source[start : start+end]
+	for _, want := range []string{
+		`title: "检测到后台进程",`,
+		`actionsLayout: "vertical-ok-first",`,
+	} {
+		if !strings.Contains(block, want) {
+			t.Fatalf("mobile running command confirm guard missing %q", want)
+		}
+	}
+}
+
 func TestRuntimeMobileEdgeSwipeOpensTabOverview(t *testing.T) {
 	data, err := os.ReadFile("runtime/static/main.js")
 	if err != nil {
