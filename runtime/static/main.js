@@ -376,6 +376,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
 
   let activeName = (params.get("name") || "").trim();
   let activeTabId = null;
+  let recentTabIds = [];
   let activeInstanceGeneration = 0;
   let currentInstances = [];
   let disposed = false;
@@ -511,14 +512,15 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     ],
     [
       { id: "mobile-menu", label: "Menu", ariaLabel: "Menu", action: "open_mobile_menu", kind: "menu" },
-      { id: "esc", label: "Esc", ariaLabel: "Escape", data: "\x1b", inputKey: "escape", kind: "primary" },
       { id: "ctrl-e", label: "Ctrl+E", ariaLabel: "Control E", data: "\x05", inputKey: "e", inputModifiers: { ctrl: true } },
       { id: "ctrl-c", label: "Ctrl+C", ariaLabel: "Control C", data: "\x03", inputKey: "c", inputModifiers: { ctrl: true }, kind: "primary" },
+      { id: "swap-tab", label: "Swap", ariaLabel: "切换最近两个终端", action: "swap_tab" },
       { id: "shift-tab", label: "Shift+Tab", ariaLabel: "Shift Tab", data: backtabSequence, inputKey: "tab", inputModifiers: { shift: true } },
       { id: "tilde", label: "~", ariaLabel: "Tilde", data: "~", inputKey: "~", kind: "symbol" },
       { id: "slash", label: "/", ariaLabel: "Slash", data: "/", inputKey: "/", kind: "symbol" },
       { id: "dash", label: "-", ariaLabel: "Dash", data: "-", inputKey: "-", kind: "symbol" },
       { id: "dollar", label: "$", ariaLabel: "Dollar Sign", data: "$", inputKey: "$", kind: "symbol" },
+      { id: "esc", label: "Esc", ariaLabel: "Escape", data: "\x1b", inputKey: "escape", kind: "primary" },
       { id: "zoom-in", label: "Zoom+", ariaLabel: "Zoom In", action: "zoom_in", kind: "modifier" },
       { id: "zoom-out", label: "Zoom-", ariaLabel: "Zoom Out", action: "zoom_out", kind: "modifier" },
       { id: "home", label: "Home", ariaLabel: "Home", data: "\x1b[H", inputKey: "home" },
@@ -548,6 +550,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     { value: "new_tab", label: "新建标签" },
     { value: "close_tab", label: "关闭标签" },
     { value: "rename_tab", label: "重命名标签" },
+    { value: "swap_tab", label: "切换最近两个终端" },
     { value: "next_tab", label: "下一个标签" },
     { value: "previous_tab", label: "上一个标签" },
     { value: "vertical_split", label: "左右分屏" },
@@ -4642,6 +4645,49 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     return ordered;
   };
 
+  const pruneRecentTabIds = () => {
+    const next = [];
+    for (const id of recentTabIds) {
+      if (id && tabs.has(id) && !next.includes(id)) {
+        next.push(id);
+      }
+      if (next.length >= 2) {
+        break;
+      }
+    }
+    recentTabIds = next;
+    return recentTabIds;
+  };
+
+  const rememberRecentTab = (tabId, previousTabId = "") => {
+    const nextId = String(tabId || "").trim();
+    const previousId = String(previousTabId || "").trim();
+    const next = [];
+    if (nextId && tabs.has(nextId)) {
+      next.push(nextId);
+    }
+    for (const id of [previousId, ...recentTabIds]) {
+      if (id && id !== nextId && tabs.has(id) && !next.includes(id)) {
+        next.push(id);
+      }
+      if (next.length >= 2) {
+        break;
+      }
+    }
+    recentTabIds = next;
+    return recentTabIds;
+  };
+
+  const swapRecentTabs = () => {
+    const targetId = pruneRecentTabIds().find((id) => id !== activeTabId);
+    if (!targetId) {
+      showToast("没有可切换的最近终端。");
+      return false;
+    }
+    setActiveTab(targetId);
+    return true;
+  };
+
   const scrollTabButtonIntoView = (button) => {
     if (!button || !tabsEl.contains(button)) {
       return;
@@ -8349,6 +8395,11 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
           renameTab(tab.id).catch((error) => showToast(error.message));
         }
         return;
+      case "swap_tab":
+      case "swap_recent_tab":
+      case "swap":
+        swapRecentTabs();
+        return;
       case "next_tab":
         setActiveTabByOffset(1);
         return;
@@ -10014,8 +10065,10 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     if (!tab) {
       return;
     }
-    const wasActive = activeTabId === tab.id;
+    const previousTabId = activeTabId;
+    const wasActive = previousTabId === tab.id;
     activeTabId = tab.id;
+    rememberRecentTab(tab.id, previousTabId);
     for (const item of tabs.values()) {
       const isActive = item.id === activeTabId;
       item.paneEl.classList.toggle("active", isActive);
@@ -11419,6 +11472,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       for (const tab of [...tabs.values()]) {
         closeTab(tab.id, { remember: false });
       }
+      recentTabIds = [];
     } finally {
       applyingWorkspaceState = false;
     }

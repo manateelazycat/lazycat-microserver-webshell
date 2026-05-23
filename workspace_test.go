@@ -594,6 +594,53 @@ func TestHandleSettingsDefaultsMobileShortcuts(t *testing.T) {
 	if tabIndex < 0 || returnIndex < 0 || tabIndex > returnIndex {
 		t.Fatalf("MobileShortcuts[0] = %+v, want tab before return", row)
 	}
+	row = state.MobileShortcuts[1]
+	ctrlCIndex := -1
+	swapIndex := -1
+	dollarIndex := -1
+	escIndex := -1
+	for index, shortcut := range row {
+		switch shortcut.ID {
+		case "ctrl-c":
+			ctrlCIndex = index
+		case "swap-tab":
+			swapIndex = index
+			if shortcut.Action != "swap_tab" || shortcut.Label != "Swap" {
+				t.Fatalf("MobileShortcuts[1][%d] = %+v, want Swap action", index, shortcut)
+			}
+		case "dollar":
+			dollarIndex = index
+		case "esc":
+			escIndex = index
+		}
+	}
+	if ctrlCIndex < 0 || swapIndex < 0 || ctrlCIndex > swapIndex {
+		t.Fatalf("MobileShortcuts[1] = %+v, want Swap after Ctrl+C", row)
+	}
+	if dollarIndex < 0 || escIndex < 0 || dollarIndex > escIndex {
+		t.Fatalf("MobileShortcuts[1] = %+v, want Esc after $", row)
+	}
+}
+
+func TestHandleSettingsAcceptsSwapMobileShortcut(t *testing.T) {
+	server := &pluginServer{fontDir: t.TempDir()}
+
+	body := `{"mobile_shortcuts":[[{"id":"swap","label":"Swap","action":"swap_tab"}],[]]}`
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPut, "/api/settings", strings.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	server.handleSettings(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("handleSettings() status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	var state fonts.State
+	if err := json.NewDecoder(recorder.Body).Decode(&state); err != nil {
+		t.Fatalf("decode response error = %v", err)
+	}
+	if got := state.MobileShortcuts[0][0]; got.Action != "swap_tab" || got.Label != "Swap" {
+		t.Fatalf("MobileShortcuts[0][0] = %+v, want swap_tab", got)
+	}
 }
 
 func TestHandleSettingsPatchMobileShortcutsPreservesExistingSettings(t *testing.T) {
