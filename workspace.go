@@ -139,6 +139,7 @@ type paneHistorySnapshot struct {
 type workspaceState struct {
 	Selector       string     `json:"selector"`
 	ServerRevision string     `json:"server_revision,omitempty"`
+	AgentNotice    string     `json:"agent_notice,omitempty"`
 	ActiveTabID    string     `json:"active_tab_id"`
 	Tabs           []tabState `json:"tabs"`
 }
@@ -287,6 +288,7 @@ func (s *pluginServer) handleWorkspace(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		state.ServerRevision = s.serverRevision
+		state.AgentNotice = consumePersistentAgentNotice(scope)
 		writeJSON(w, state)
 	case http.MethodPost:
 		var request workspaceActionRequest
@@ -300,6 +302,7 @@ func (s *pluginServer) handleWorkspace(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		state.ServerRevision = s.serverRevision
+		state.AgentNotice = consumePersistentAgentNotice(scope)
 		writeJSON(w, state)
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)

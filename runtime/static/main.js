@@ -9603,6 +9603,15 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     writeSessionImmediateOutput(session, `\r\n[webshell error]\r\n${text}\r\n`);
   };
 
+  const genericWebSocketStartupFallbacks = new Set([
+    "WebSocket connection failed.",
+    "WebSocket closed before terminal attached.",
+    "WebSocket reconnect failed.",
+  ]);
+
+  const isGenericWebSocketStartupFallback = (message) =>
+    genericWebSocketStartupFallbacks.has(String(message || "").trim());
+
   const showSessionStartupError = async (session, fallback = "") => {
     if (!session || session.closed || session.name !== activeName) {
       return;
@@ -9612,7 +9621,14 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       message = await readAgentStartupError(session.name);
     } catch (error) {
     }
-    writeSessionWebShellError(session, message || fallback);
+    if (message) {
+      writeSessionWebShellError(session, message);
+      return;
+    }
+    if (isGenericWebSocketStartupFallback(fallback)) {
+      return;
+    }
+    writeSessionWebShellError(session, fallback);
   };
 
   const scheduleReconnect = (session) => {
@@ -10261,6 +10277,10 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     const targetName = responseSelector(state) || expectedName;
     if (!targetName || !isCurrentInstanceRequest(targetName, generation)) {
       return false;
+    }
+    const agentNotice = String(state?.agent_notice || "").trim();
+    if (agentNotice) {
+      showToast(agentNotice);
     }
     const restartTab = readRestartTabForName(targetName);
     const requestedTab = (new URLSearchParams(window.location.search).get("tab") || "").trim();

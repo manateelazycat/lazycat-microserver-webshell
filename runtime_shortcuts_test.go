@@ -713,12 +713,18 @@ func TestRuntimeTerminalOutputBatchingGuard(t *testing.T) {
 		"window.requestAnimationFrame(flush);",
 		"session.outputQueue.push(entry);",
 		"flushSessionOutput(session, { force: true });",
+		"const genericWebSocketStartupFallbacks = new Set([",
+		"const isGenericWebSocketStartupFallback = (message) =>",
+		"if (isGenericWebSocketStartupFallback(fallback)) {",
 		"showSessionStartupError(session, error.message || \"WebSocket connection failed.\");",
 	}
 	for _, want := range wantSnippets {
 		if !strings.Contains(source, want) {
 			t.Fatalf("runtime terminal batching guard missing %q", want)
 		}
+	}
+	if strings.Contains(source, "writeSessionWebShellError(session, message || fallback);") {
+		t.Fatal("generic websocket startup fallbacks should not be written as terminal errors")
 	}
 }
 

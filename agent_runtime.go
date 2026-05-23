@@ -163,11 +163,13 @@ var persistentAgentCache = struct {
 	running       map[string]bool
 	username      map[string]string
 	startupErrors map[string]string
+	notices       map[string]string
 }{
 	installed:     make(map[string]string),
 	running:       make(map[string]bool),
 	username:      make(map[string]string),
 	startupErrors: make(map[string]string),
+	notices:       make(map[string]string),
 }
 
 var agentRuntimeArchiveCache = struct {
@@ -278,6 +280,29 @@ func latestPersistentAgentStartupError(scope agentScope) string {
 	return strings.TrimSpace(message)
 }
 
+func rememberPersistentAgentNotice(scope agentScope, message string) {
+	scope = normalizeAgentScope(scope.Selector, scope.AccountID)
+	message = strings.TrimSpace(message)
+	if scope.Selector == "" || scope.AccountID == "" || message == "" {
+		return
+	}
+	persistentAgentCache.Lock()
+	persistentAgentCache.notices[scope.cacheKey()] = message
+	persistentAgentCache.Unlock()
+}
+
+func consumePersistentAgentNotice(scope agentScope) string {
+	scope = normalizeAgentScope(scope.Selector, scope.AccountID)
+	if scope.Selector == "" || scope.AccountID == "" {
+		return ""
+	}
+	persistentAgentCache.Lock()
+	defer persistentAgentCache.Unlock()
+	message := strings.TrimSpace(persistentAgentCache.notices[scope.cacheKey()])
+	delete(persistentAgentCache.notices, scope.cacheKey())
+	return message
+}
+
 func runPersistentAgentRequest(ctx context.Context, scope agentScope, request agentRequest) (agentResponse, error) {
 	scope = normalizeAgentScope(scope.Selector, scope.AccountID)
 	data, err := json.Marshal(request)
@@ -328,6 +353,23 @@ func ensurePersistentAgent(ctx context.Context, scope agentScope) (string, error
 		return "", trace.errorf("persistent webshell agent username resolve failed")
 	}
 	trace.add("resolved username=%s", username)
+
+	if persistentAgentRunningCached(scope) {
+		trace.add("agent running cache hit")
+		clearPersistentAgentStartupError(scope)
+		return username, nil
+	}
+
+	if err := pingPersistentAgentError(ctx, scope); err == nil {
+		trace.add("pre-install ping succeeded")
+		markPersistentAgentRunning(scope)
+		clearPersistentAgentStartupError(scope)
+		return username, nil
+	} else {
+		trace.add("pre-install ping failed: %v", err)
+		rememberIncompatiblePersistentAgentNotice(scope, err)
+	}
+
 	persistentAgentCache.Lock()
 	previousManifest := persistentAgentCache.installed[cacheKey]
 	persistentAgentCache.Unlock()
@@ -340,24 +382,14 @@ func ensurePersistentAgent(ctx context.Context, scope agentScope) (string, error
 		markPersistentAgentNotRunning(scope)
 	}
 
-	persistentAgentCache.Lock()
-	running := persistentAgentCache.running[cacheKey] && persistentAgentCache.installed[cacheKey] == manifest
-	persistentAgentCache.Unlock()
-	if running {
-		trace.add("agent running cache hit")
-		clearPersistentAgentStartupError(scope)
-		return username, nil
-	}
-
 	if err := pingPersistentAgentError(ctx, scope); err == nil {
 		trace.add("pre-start ping succeeded")
-		persistentAgentCache.Lock()
-		persistentAgentCache.running[cacheKey] = true
-		persistentAgentCache.Unlock()
+		markPersistentAgentRunning(scope)
 		clearPersistentAgentStartupError(scope)
 		return username, nil
 	} else {
 		trace.add("pre-start ping failed: %v", err)
+		rememberIncompatiblePersistentAgentNotice(scope, err)
 	}
 	if err := startPersistentAgent(ctx, scope, username, trace); err != nil {
 		return "", trace.errorf("persistent webshell agent start failed: %v", err)
@@ -368,9 +400,7 @@ func ensurePersistentAgent(ctx context.Context, scope agentScope) (string, error
 		attempt++
 		if err := pingPersistentAgentError(ctx, scope); err == nil {
 			trace.add("ready ping attempt %d succeeded", attempt)
-			persistentAgentCache.Lock()
-			persistentAgentCache.running[cacheKey] = true
-			persistentAgentCache.Unlock()
+			markPersistentAgentRunning(scope)
 			clearPersistentAgentStartupError(scope)
 			return username, nil
 		} else {
@@ -402,6 +432,26 @@ func markPersistentAgentNotRunning(scope agentScope) {
 	persistentAgentCache.Lock()
 	delete(persistentAgentCache.running, scope.cacheKey())
 	persistentAgentCache.Unlock()
+}
+
+func markPersistentAgentRunning(scope agentScope) {
+	persistentAgentCache.Lock()
+	persistentAgentCache.running[scope.cacheKey()] = true
+	persistentAgentCache.Unlock()
+}
+
+func persistentAgentRunningCached(scope agentScope) bool {
+	persistentAgentCache.Lock()
+	running := persistentAgentCache.running[scope.cacheKey()]
+	persistentAgentCache.Unlock()
+	return running
+}
+
+func rememberIncompatiblePersistentAgentNotice(scope agentScope, err error) {
+	if err == nil || !strings.Contains(err.Error(), "unsupported agent protocol") {
+		return
+	}
+	rememberPersistentAgentNotice(scope, "WebShell agent 协议已更新，旧终端会话无法复用，已创建新的终端会话。")
 }
 
 func ensureAgentBinaryInstalled(ctx context.Context, scope agentScope, trace *persistentAgentStartupTrace) (string, error) {
