@@ -31,15 +31,16 @@ import (
 )
 
 type pluginServer struct {
-	rootDir           string
-	fontDir           string
-	serverRevision    string
-	workspaces        *workspaceManager
-	adminInfoResolver func(context.Context) (adminInfo, error)
-	instancesResolver func(context.Context) ([]instanceSummary, error)
-	deployUIDResolver func() string
-	publishHTTPClient *http.Client
-	attachmentBackend attachmentUploadBackend
+	rootDir                string
+	fontDir                string
+	serverRevision         string
+	workspaces             *workspaceManager
+	adminInfoResolver      func(context.Context) (adminInfo, error)
+	instancesResolver      func(context.Context) ([]instanceSummary, error)
+	deployUIDResolver      func() string
+	publishHTTPClient      *http.Client
+	attachmentBackend      attachmentUploadBackend
+	attachmentFilesBackend attachmentFileBackend
 
 	settingsMu   sync.Mutex
 	inputLocksMu sync.Mutex
@@ -185,6 +186,8 @@ func (s *pluginServer) run(ctx context.Context) error {
 	mux.HandleFunc("/api/settings/fonts", s.handleSettingsFonts)
 	mux.HandleFunc("/api/settings/fonts/", s.handleSettingsFont)
 	mux.HandleFunc("/api/attachments", s.handleAttachments)
+	mux.HandleFunc("/api/attachments/files", s.handleAttachmentFiles)
+	mux.HandleFunc("/api/attachments/download", s.handleAttachmentDownload)
 	mux.HandleFunc("/api/workspace", s.handleWorkspace)
 	mux.HandleFunc("/api/workspace/activity", s.handleWorkspaceActivity)
 	mux.HandleFunc("/api/agent/startup-error", s.handleAgentStartupError)

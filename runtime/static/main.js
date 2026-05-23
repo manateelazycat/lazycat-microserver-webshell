@@ -125,6 +125,16 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   const attachmentClose = document.getElementById("attachmentClose");
   const attachmentClipboard = document.getElementById("attachmentClipboard");
   const attachmentFile = document.getElementById("attachmentFile");
+  const attachmentDownload = document.getElementById("attachmentDownload");
+  const attachmentBrowserBackdrop = document.getElementById("attachmentBrowserBackdrop");
+  const attachmentBrowserBack = document.getElementById("attachmentBrowserBack");
+  const attachmentBrowserClose = document.getElementById("attachmentBrowserClose");
+  const attachmentBrowserPath = document.getElementById("attachmentBrowserPath");
+  const attachmentBrowserBreadcrumbs = document.getElementById("attachmentBrowserBreadcrumbs");
+  const attachmentBrowserFeedback = document.getElementById("attachmentBrowserFeedback");
+  const attachmentBrowserList = document.getElementById("attachmentBrowserList");
+  const attachmentBrowserCancel = document.getElementById("attachmentBrowserCancel");
+  const attachmentBrowserDownload = document.getElementById("attachmentBrowserDownload");
   const attachmentFileInput = document.getElementById("attachmentFileInput");
   const dialogBackdrop = document.getElementById("dialogBackdrop");
   const dialogPanel = document.getElementById("dialogPanel");
@@ -432,6 +442,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   let settingsScrollbackSaveRequestSeq = 0;
   let settingsDesktopMouseClipboardRequestSeq = 0;
   let settingsMobilePixelScrollRequestSeq = 0;
+  let attachmentBrowserEdgeSwipe = null;
   let mobileShortcutsSaveRequestSeq = 0;
   let mobileShortcutsSaveVersion = 0;
   let mobileShortcutsPersistChain = Promise.resolve();
@@ -446,6 +457,13 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   let serviceForwardEditingID = "";
   let serviceForwardBusy = false;
   let attachmentDialogOpen = false;
+  let attachmentBrowserOpen = false;
+  let attachmentBrowserCurrentPath = "";
+  let attachmentBrowserParentPath = "";
+  let attachmentBrowserBreadcrumbPath = "";
+  let attachmentBrowserRequestSeq = 0;
+  const attachmentBrowserSelectedPaths = new Set();
+  const attachmentBrowserEntriesByPath = new Map();
   let attachmentUploads = new Map();
   let attachmentUploadSeq = 0;
   let pendingAttachmentFileClipboard = null;
@@ -458,6 +476,10 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   const themePickerSwipeAxisThreshold = 12;
   const themePickerSwipeCloseDistance = 56;
   const themePickerSwipeMaxVerticalTravel = 40;
+  const attachmentBrowserSwipeEdgeWidth = 24;
+  const attachmentBrowserSwipeAxisThreshold = 12;
+  const attachmentBrowserSwipeBackDistance = 56;
+  const attachmentBrowserSwipeMaxVerticalTravel = 40;
   const mobileOverviewSwipeEdgeWidth = 24;
   const mobileOverviewSwipeAxisThreshold = 12;
   const mobileOverviewSwipeNativeBackBlockDistance = 4;
@@ -3226,6 +3248,24 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     return url;
   };
 
+  const attachmentFilesURL = (path = "", name = activeName) => {
+    const url = new URL("./api/attachments/files", window.location.href);
+    url.searchParams.set("name", name);
+    if (path) {
+      url.searchParams.set("path", path);
+    }
+    return url;
+  };
+
+  const attachmentDownloadURL = (paths, name = activeName) => {
+    const url = new URL("./api/attachments/download", window.location.href);
+    url.searchParams.set("name", name);
+    for (const path of paths || []) {
+      url.searchParams.append("path", path);
+    }
+    return url;
+  };
+
   const serverRevisionURL = (name = activeName) => {
     const url = new URL("./api/server-revision", window.location.href);
     if (name) {
@@ -5448,6 +5488,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     (mobileShortcutEditor && !mobileShortcutEditor.hidden) ||
     (desktopShortcutEditor && !desktopShortcutEditor.hidden) ||
     (attachmentBackdrop && !attachmentBackdrop.hidden) ||
+    (attachmentBrowserBackdrop && !attachmentBrowserBackdrop.hidden) ||
     (dialogBackdrop && !dialogBackdrop.hidden) ||
     (contextMenu && !contextMenu.hidden) ||
     (selectionSheet && !selectionSheet.hidden)
@@ -6394,19 +6435,23 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
 
   const syncMobileVisualViewport = () => {
     const useKeyboardInset = isIOSPlatform();
+    const visualViewport = window.visualViewport;
+    const nextHeight = Math.max(0, Math.round(visualViewport?.height || window.innerHeight || 0));
+    if (nextHeight > 0) {
+      document.documentElement.style.setProperty("--mobile-visual-viewport-height", `${nextHeight}px`);
+    }
     if (!useKeyboardInset) {
       const insetChanged = mobileKeyboardInsetBottom !== 0;
+      const heightChanged = nextHeight !== mobileViewportHeight;
+      mobileViewportHeight = nextHeight;
       mobileKeyboardInsetBottom = 0;
-      document.documentElement.style.removeProperty("--mobile-visual-viewport-height");
       document.documentElement.style.setProperty("--mobile-keyboard-inset-bottom", "0px");
       document.body.classList.remove("mobile-keyboard-visible");
-      if (insetChanged) {
+      if (heightChanged || insetChanged) {
         scheduleMobileViewportResize();
       }
       return;
     }
-    const visualViewport = window.visualViewport;
-    const nextHeight = Math.max(0, Math.round(visualViewport?.height || window.innerHeight || 0));
     const measuredInset = visualViewport
       ? Math.max(0, Math.round((window.innerHeight || 0) - visualViewport.height - visualViewport.offsetTop))
       : 0;
@@ -6415,7 +6460,6 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     const insetChanged = nextInset !== mobileKeyboardInsetBottom;
     mobileViewportHeight = nextHeight;
     mobileKeyboardInsetBottom = nextInset;
-    document.documentElement.style.setProperty("--mobile-visual-viewport-height", `${nextHeight}px`);
     document.documentElement.style.setProperty("--mobile-keyboard-inset-bottom", `${nextInset}px`);
     document.body.classList.toggle("mobile-keyboard-visible", nextInset > mobileKeyboardInsetThresholdPx);
     if (heightChanged || insetChanged) {
@@ -11094,6 +11138,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   };
 
   const isAttachmentDialogOpen = () => attachmentDialogOpen && attachmentBackdrop && !attachmentBackdrop.hidden;
+  const isAttachmentBrowserOpen = () => attachmentBrowserOpen && attachmentBrowserBackdrop && !attachmentBrowserBackdrop.hidden;
 
   const openAttachmentDialog = () => {
     if (!attachmentBackdrop) {
@@ -11113,6 +11158,335 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     }
     if (focusTerminal) {
       window.setTimeout(() => activeSession()?.term?.focus(), 0);
+    }
+  };
+
+  const setAttachmentBrowserFeedback = (message, tone = "info") => {
+    if (!attachmentBrowserFeedback) {
+      return;
+    }
+    const text = String(message || "").trim();
+    attachmentBrowserFeedback.hidden = !text;
+    attachmentBrowserFeedback.textContent = text;
+    attachmentBrowserFeedback.dataset.tone = tone;
+  };
+
+  const setAttachmentBrowserBusy = (busy) => {
+    if (attachmentBrowserDownload) {
+      attachmentBrowserDownload.disabled = busy || attachmentBrowserSelectedPaths.size === 0;
+    }
+    attachmentBrowserCancel?.toggleAttribute("disabled", busy);
+  };
+
+  const attachmentBrowserDisplayName = (path) => {
+    const parts = String(path || "").split("/").filter(Boolean);
+    return parts.at(-1) || "/";
+  };
+
+  const normalizeAttachmentBrowserPath = (path) => {
+    const normalized = String(path || "/").trim().replace(/\/+$/g, "");
+    return normalized || "/";
+  };
+
+  const attachmentBrowserPathSegments = (path) => {
+    const normalized = normalizeAttachmentBrowserPath(path);
+    const segments = [{ label: "/", path: "/" }];
+    let accumulated = "";
+    for (const part of normalized.split("/").filter(Boolean)) {
+      accumulated += `/${part}`;
+      segments.push({ label: part, path: accumulated });
+    }
+    return segments;
+  };
+
+  const renderAttachmentBrowserBreadcrumbs = () => {
+    if (!attachmentBrowserBreadcrumbs) {
+      return;
+    }
+    const currentPath = normalizeAttachmentBrowserPath(attachmentBrowserCurrentPath);
+    if (attachmentBrowserBreadcrumbPath === currentPath && attachmentBrowserBreadcrumbs.childElementCount > 0) {
+      return;
+    }
+    attachmentBrowserBreadcrumbPath = currentPath;
+    attachmentBrowserBreadcrumbs.textContent = "";
+    const segments = attachmentBrowserPathSegments(attachmentBrowserCurrentPath);
+    const fragment = document.createDocumentFragment();
+    for (const [index, segment] of segments.entries()) {
+      if (index > 0) {
+        const separator = document.createElement("span");
+        separator.className = "attachment-browser-breadcrumb-separator";
+        separator.textContent = ">";
+        separator.setAttribute("aria-hidden", "true");
+        fragment.appendChild(separator);
+      }
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "attachment-browser-breadcrumb";
+      button.dataset.path = segment.path;
+      button.textContent = segment.label;
+      button.title = segment.path;
+      if (segment.path === currentPath) {
+        button.disabled = true;
+        button.setAttribute("aria-current", "page");
+      }
+      fragment.appendChild(button);
+    }
+    attachmentBrowserBreadcrumbs.appendChild(fragment);
+    requestAnimationFrame(() => {
+      if (attachmentBrowserBreadcrumbs) {
+        attachmentBrowserBreadcrumbs.scrollLeft = attachmentBrowserBreadcrumbs.scrollWidth;
+      }
+    });
+  };
+
+  const updateAttachmentBrowserControls = () => {
+    if (attachmentBrowserPath) {
+      attachmentBrowserPath.textContent = attachmentBrowserDisplayName(attachmentBrowserCurrentPath);
+      attachmentBrowserPath.title = attachmentBrowserCurrentPath || "/";
+    }
+    renderAttachmentBrowserBreadcrumbs();
+    if (attachmentBrowserDownload) {
+      const count = attachmentBrowserSelectedPaths.size;
+      attachmentBrowserDownload.disabled = count === 0;
+      attachmentBrowserDownload.textContent = count > 0 ? `下载选中 (${count})` : "下载选中";
+    }
+  };
+
+  const canNavigateAttachmentBrowserBack = () => Boolean(attachmentBrowserParentPath && attachmentBrowserParentPath !== attachmentBrowserCurrentPath);
+
+  const navigateAttachmentBrowserBack = () => {
+    if (!canNavigateAttachmentBrowserBack()) {
+      return false;
+    }
+    loadAttachmentBrowserPath(attachmentBrowserParentPath).catch((error) => setAttachmentBrowserFeedback(error.message || "文件列表读取失败。", "error"));
+    return true;
+  };
+
+  const normalizeAttachmentEntry = (entry) => ({
+    name: String(entry?.name || "").trim(),
+    path: String(entry?.path || "").trim(),
+    type: String(entry?.type || "file").trim() === "dir" ? "dir" : "file",
+    size: Number(entry?.size || 0),
+    modified: Number(entry?.modified || 0),
+  });
+
+  const attachmentBrowserDownloadFilename = (paths) => {
+    const selected = Array.from(paths || []).filter(Boolean);
+    if (selected.length !== 1) {
+      return "webshell-files.zip";
+    }
+    const path = selected[0];
+    const entry = attachmentBrowserEntriesByPath.get(path);
+    const name = String(entry?.name || path.split("/").filter(Boolean).pop() || "download").trim() || "download";
+    return entry?.type === "dir" && !name.toLowerCase().endsWith(".zip") ? `${name}.zip` : name;
+  };
+
+  const createAttachmentBrowserItem = (entry) => {
+    const item = document.createElement("div");
+    item.className = "attachment-browser-item";
+    item.dataset.path = entry.path;
+    item.dataset.type = entry.type;
+
+    const row = document.createElement("div");
+    row.className = "attachment-browser-file";
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.className = "attachment-browser-check";
+    checkbox.value = entry.path;
+    checkbox.checked = attachmentBrowserSelectedPaths.has(entry.path);
+    checkbox.setAttribute("aria-label", `选择 ${entry.name || entry.path}`);
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "attachment-browser-file-main";
+    button.dataset.path = entry.path;
+    button.setAttribute("aria-label", entry.type === "dir" ? `打开 ${entry.name || entry.path}` : `下载 ${entry.name || entry.path}`);
+    const name = document.createElement("span");
+    name.className = "attachment-browser-file-name";
+    name.textContent = entry.name || entry.path;
+    button.appendChild(name);
+    row.append(checkbox, button);
+    item.appendChild(row);
+    return item;
+  };
+
+  const renderAttachmentBrowserList = (entries) => {
+    if (!attachmentBrowserList) {
+      return;
+    }
+    attachmentBrowserList.textContent = "";
+    attachmentBrowserEntriesByPath.clear();
+    const normalized = Array.isArray(entries) ? entries.map(normalizeAttachmentEntry).filter((entry) => entry.name && entry.path) : [];
+    normalized.sort((left, right) => {
+      if (left.type === "dir" && right.type !== "dir") {
+        return -1;
+      }
+      if (left.type !== "dir" && right.type === "dir") {
+        return 1;
+      }
+      return left.name.localeCompare(right.name, undefined, { numeric: true, sensitivity: "base" });
+    });
+    if (normalized.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "attachment-browser-empty";
+      empty.textContent = "这个目录没有文件";
+      attachmentBrowserList.appendChild(empty);
+      return;
+    }
+    const fragment = document.createDocumentFragment();
+    for (const entry of normalized) {
+      attachmentBrowserEntriesByPath.set(entry.path, entry);
+      fragment.appendChild(createAttachmentBrowserItem(entry));
+    }
+    attachmentBrowserList.appendChild(fragment);
+  };
+
+  const loadAttachmentBrowserPath = async (path = attachmentBrowserCurrentPath) => {
+    if (!activeName) {
+      showToast("没有可用的当前终端。");
+      return;
+    }
+    const requestSeq = ++attachmentBrowserRequestSeq;
+    setAttachmentBrowserBusy(true);
+    setAttachmentBrowserFeedback("");
+    try {
+      const response = await fetch(attachmentFilesURL(path));
+      if (!response.ok) {
+        throw new Error(await readResponseText(response, `文件列表读取失败 (${response.status})`));
+      }
+      const payload = await response.json();
+      if (requestSeq !== attachmentBrowserRequestSeq) {
+        return;
+      }
+      attachmentBrowserCurrentPath = String(payload?.path || path || "/").trim() || "/";
+      attachmentBrowserParentPath = String(payload?.parent || "").trim();
+      attachmentBrowserSelectedPaths.clear();
+      renderAttachmentBrowserList(payload?.entries || []);
+      setAttachmentBrowserFeedback("");
+      updateAttachmentBrowserControls();
+    } catch (error) {
+      if (requestSeq === attachmentBrowserRequestSeq) {
+        setAttachmentBrowserFeedback(error.message || "文件列表读取失败。", "error");
+      }
+    } finally {
+      if (requestSeq === attachmentBrowserRequestSeq) {
+        setAttachmentBrowserBusy(false);
+        updateAttachmentBrowserControls();
+      }
+    }
+  };
+
+  const openAttachmentBrowser = () => {
+    if (!attachmentBrowserBackdrop) {
+      return;
+    }
+    closeAttachmentDialog({ focusTerminal: false });
+    closeContextMenu();
+    closeInstanceSwitcher();
+    const startPath = String(activeSession()?.cwd || "").trim() || "/";
+    attachmentBrowserOpen = true;
+    attachmentBrowserCurrentPath = startPath;
+    attachmentBrowserParentPath = "";
+    attachmentBrowserSelectedPaths.clear();
+    document.body?.classList.add("attachment-browser-open");
+    attachmentBrowserBackdrop.hidden = false;
+    renderAttachmentBrowserList([]);
+    updateAttachmentBrowserControls();
+    loadAttachmentBrowserPath(startPath).catch((error) => setAttachmentBrowserFeedback(error.message || "文件列表读取失败。", "error"));
+    window.setTimeout(() => attachmentBrowserBack?.focus(), 0);
+  };
+
+  const closeAttachmentBrowser = ({ focusTerminal = true } = {}) => {
+    attachmentBrowserOpen = false;
+    attachmentBrowserRequestSeq += 1;
+    attachmentBrowserSelectedPaths.clear();
+    attachmentBrowserEntriesByPath.clear();
+    attachmentBrowserBreadcrumbPath = "";
+    attachmentBrowserEdgeSwipe = null;
+    if (attachmentBrowserBackdrop) {
+      attachmentBrowserBackdrop.hidden = true;
+    }
+    document.body?.classList.remove("attachment-browser-open");
+    setAttachmentBrowserFeedback("");
+    if (focusTerminal) {
+      window.setTimeout(() => activeSession()?.term?.focus(), 0);
+    }
+  };
+
+  const triggerAttachmentDownload = (paths) => {
+    const selected = Array.from(paths || []).filter(Boolean);
+    if (selected.length === 0) {
+      return;
+    }
+    const link = document.createElement("a");
+    link.href = attachmentDownloadURL(selected).toString();
+    link.download = attachmentBrowserDownloadFilename(selected);
+    link.style.display = "none";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  };
+
+  const downloadSelectedAttachmentFiles = () => {
+    const selected = Array.from(attachmentBrowserSelectedPaths);
+    if (selected.length === 0) {
+      return;
+    }
+    triggerAttachmentDownload(selected);
+    closeAttachmentBrowser({ focusTerminal: true });
+  };
+
+  const resetAttachmentBrowserEdgeSwipe = () => {
+    attachmentBrowserEdgeSwipe = null;
+  };
+
+  const handleAttachmentBrowserTouchStart = (event) => {
+    if (!isAttachmentBrowserOpen() || !isMobileLayout() || event.touches.length !== 1 || !canNavigateAttachmentBrowserBack()) {
+      resetAttachmentBrowserEdgeSwipe();
+      return;
+    }
+    const touch = event.touches[0];
+    if (touch.clientX > attachmentBrowserSwipeEdgeWidth) {
+      resetAttachmentBrowserEdgeSwipe();
+      return;
+    }
+    attachmentBrowserEdgeSwipe = {
+      startX: touch.clientX,
+      startY: touch.clientY,
+      horizontal: false,
+      navigated: false,
+    };
+  };
+
+  const handleAttachmentBrowserTouchMove = (event) => {
+    if (!attachmentBrowserEdgeSwipe || event.touches.length !== 1) {
+      return;
+    }
+    const touch = event.touches[0];
+    const deltaX = touch.clientX - attachmentBrowserEdgeSwipe.startX;
+    const deltaY = touch.clientY - attachmentBrowserEdgeSwipe.startY;
+    const absX = Math.abs(deltaX);
+    const absY = Math.abs(deltaY);
+    if (deltaX < -attachmentBrowserSwipeAxisThreshold) {
+      resetAttachmentBrowserEdgeSwipe();
+      return;
+    }
+    if (!attachmentBrowserEdgeSwipe.horizontal) {
+      if (absY > attachmentBrowserSwipeAxisThreshold && absY > absX) {
+        resetAttachmentBrowserEdgeSwipe();
+        return;
+      }
+      if (deltaX > attachmentBrowserSwipeAxisThreshold && absX > absY * 1.2) {
+        attachmentBrowserEdgeSwipe.horizontal = true;
+      }
+    }
+    if (!attachmentBrowserEdgeSwipe?.horizontal) {
+      return;
+    }
+    event.preventDefault();
+    if (!attachmentBrowserEdgeSwipe.navigated && deltaX >= attachmentBrowserSwipeBackDistance && absY <= attachmentBrowserSwipeMaxVerticalTravel) {
+      attachmentBrowserEdgeSwipe.navigated = true;
+      navigateAttachmentBrowserBack();
+      resetAttachmentBrowserEdgeSwipe();
     }
   };
 
@@ -12018,6 +12392,54 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     importAttachmentFromClipboard();
   });
   attachmentFile?.addEventListener("click", selectAttachmentFiles);
+  attachmentDownload?.addEventListener("click", openAttachmentBrowser);
+  attachmentBrowserClose?.addEventListener("click", () => closeAttachmentBrowser());
+  attachmentBrowserCancel?.addEventListener("click", () => closeAttachmentBrowser());
+  attachmentBrowserBackdrop?.addEventListener("click", (event) => {
+    if (event.target === attachmentBrowserBackdrop) {
+      closeAttachmentBrowser();
+    }
+  });
+  attachmentBrowserBack?.addEventListener("click", () => {
+    closeAttachmentBrowser();
+  });
+  attachmentBrowserBreadcrumbs?.addEventListener("click", (event) => {
+    const button = event.target instanceof Element ? event.target.closest(".attachment-browser-breadcrumb[data-path]") : null;
+    if (!(button instanceof HTMLButtonElement) || button.disabled) {
+      return;
+    }
+    loadAttachmentBrowserPath(button.dataset.path || "/").catch((error) => setAttachmentBrowserFeedback(error.message || "文件列表读取失败。", "error"));
+  });
+  attachmentBrowserBackdrop?.addEventListener("touchstart", handleAttachmentBrowserTouchStart, { passive: true });
+  attachmentBrowserBackdrop?.addEventListener("touchmove", handleAttachmentBrowserTouchMove, { passive: false });
+  attachmentBrowserBackdrop?.addEventListener("touchend", resetAttachmentBrowserEdgeSwipe, { passive: true });
+  attachmentBrowserBackdrop?.addEventListener("touchcancel", resetAttachmentBrowserEdgeSwipe, { passive: true });
+  attachmentBrowserList?.addEventListener("click", (event) => {
+    const target = event.target;
+    const dirButton = target instanceof Element ? target.closest(".attachment-browser-file-main[data-path]") : null;
+    if (dirButton?.closest?.('.attachment-browser-item[data-type="dir"]')) {
+      loadAttachmentBrowserPath(dirButton.dataset.path || "").catch((error) => setAttachmentBrowserFeedback(error.message || "文件列表读取失败。", "error"));
+      return;
+    }
+    const fileButton = target instanceof Element ? target.closest(".attachment-browser-file-main[data-path]") : null;
+    if (fileButton?.closest?.('.attachment-browser-item[data-type="file"]')) {
+      triggerAttachmentDownload([fileButton.dataset.path || ""]);
+      closeAttachmentBrowser({ focusTerminal: true });
+    }
+  });
+  attachmentBrowserList?.addEventListener("change", (event) => {
+    const input = event.target instanceof Element ? event.target.closest(".attachment-browser-check") : null;
+    if (!(input instanceof HTMLInputElement)) {
+      return;
+    }
+    if (input.checked) {
+      attachmentBrowserSelectedPaths.add(input.value);
+    } else {
+      attachmentBrowserSelectedPaths.delete(input.value);
+    }
+    updateAttachmentBrowserControls();
+  });
+  attachmentBrowserDownload?.addEventListener("click", downloadSelectedAttachmentFiles);
   attachmentFileInput?.addEventListener("change", () => {
     const files = Array.from(attachmentFileInput.files || []);
     if (attachmentFileInput) {
@@ -12060,6 +12482,11 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     if (isAttachmentDialogOpen() && event.key === "Escape") {
       event.preventDefault();
       closeAttachmentDialog();
+      return;
+    }
+    if (isAttachmentBrowserOpen() && event.key === "Escape") {
+      event.preventDefault();
+      closeAttachmentBrowser();
       return;
     }
     if (dialogResolve && event.key === "Escape") {
@@ -12200,6 +12627,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       closeMobileCloseConfirm(false);
       closeInstanceSwitcher();
       closeAttachmentDialog({ focusTerminal: false });
+      closeAttachmentBrowser({ focusTerminal: false });
       closeThemePicker();
       closeSettings();
       closeTabOverview();
