@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -44,6 +45,42 @@ func testPluginServerWithInstances() *pluginServer {
 	return &pluginServer{
 		instancesResolver: testInstancesResolver(testInstanceSummaries()),
 		deployUIDResolver: func() string { return "deploy-a" },
+	}
+}
+
+func testWorkspaceWithTabs(tabIDs ...string) *terminalWorkspace {
+	workspace := &terminalWorkspace{
+		selector:   "test",
+		panes:      make(map[string]*terminalPane),
+		nextTabID:  len(tabIDs) + 1,
+		nextPaneID: len(tabIDs) + 1,
+	}
+	for index, tabID := range tabIDs {
+		paneID := "pane-" + strconv.Itoa(index+1)
+		workspace.panes[paneID] = &terminalPane{
+			id:      paneID,
+			clients: make(map[*paneClient]struct{}),
+			done:    make(chan struct{}),
+		}
+		workspace.tabs = append(workspace.tabs, &terminalTab{
+			ID:           tabID,
+			Label:        tabID,
+			ActivePaneID: paneID,
+			Layout:       &layoutNode{Type: "leaf", PaneID: paneID},
+			PaneIDs:      []string{paneID},
+		})
+	}
+	if len(tabIDs) > 0 {
+		workspace.setActiveTabLocked(tabIDs[0])
+	}
+	return workspace
+}
+
+func requireRecentTabIDs(t *testing.T, workspace *terminalWorkspace, want ...string) {
+	t.Helper()
+	got := workspace.snapshot().RecentTabIDs
+	if !slices.Equal(got, want) {
+		t.Fatalf("RecentTabIDs = %v, want %v", got, want)
 	}
 }
 
@@ -192,6 +229,46 @@ func TestAuthorizeOwnedInstanceSelectorRejectsForeignSelector(t *testing.T) {
 	if err := server.authorizeOwnedInstanceSelector(context.Background(), "beta@deploy-b"); !errors.Is(err, errInstanceForbidden) {
 		t.Fatalf("authorize foreign selector error = %v, want errInstanceForbidden", err)
 	}
+}
+
+func TestWorkspacePersistsRecentTabsForSwap(t *testing.T) {
+	workspace := testWorkspaceWithTabs("tab-1", "tab-2", "tab-3")
+	requireRecentTabIDs(t, workspace, "tab-1")
+
+	if err := workspace.applyAction(workspaceActionRequest{Action: "activate_tab", TabID: "tab-2"}); err != nil {
+		t.Fatalf("activate tab-2 error = %v", err)
+	}
+	requireRecentTabIDs(t, workspace, "tab-2", "tab-1")
+
+	if err := workspace.applyAction(workspaceActionRequest{Action: "activate_tab", TabID: "tab-3"}); err != nil {
+		t.Fatalf("activate tab-3 error = %v", err)
+	}
+	requireRecentTabIDs(t, workspace, "tab-3", "tab-2")
+
+	if err := workspace.applyAction(workspaceActionRequest{Action: "activate_tab", TabID: "tab-2"}); err != nil {
+		t.Fatalf("activate tab-2 again error = %v", err)
+	}
+	requireRecentTabIDs(t, workspace, "tab-2", "tab-3")
+
+	if err := workspace.applyAction(workspaceActionRequest{Action: "close_tab", TabID: "tab-3"}); err != nil {
+		t.Fatalf("close tab-3 error = %v", err)
+	}
+	requireRecentTabIDs(t, workspace, "tab-2")
+}
+
+func TestWorkspaceAcceptsClientRecentTabsForSwap(t *testing.T) {
+	workspace := testWorkspaceWithTabs("tab-1", "tab-2", "tab-3")
+	workspace.activeTab = "tab-1"
+	workspace.recentTabs = nil
+
+	if err := workspace.applyAction(workspaceActionRequest{
+		Action:       "activate_tab",
+		TabID:        "tab-2",
+		RecentTabIDs: []string{"tab-2", "tab-3"},
+	}); err != nil {
+		t.Fatalf("activate tab-2 with client recents error = %v", err)
+	}
+	requireRecentTabIDs(t, workspace, "tab-2", "tab-3")
 }
 
 func TestHandleSettingsFontsUploadsMultipleFonts(t *testing.T) {
