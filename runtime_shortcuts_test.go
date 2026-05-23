@@ -482,6 +482,8 @@ func TestRuntimeMobileIMECompositionPreviewVisible(t *testing.T) {
 		`const resolveTerminalPostCompositionInput = (session, value) => {`,
 		`const pending = session?.pendingCompositionInput;`,
 		"rawValue === committed || (preedit && rawValue === `${preedit}${committed}`)",
+		`} else if (!pending.sent && preedit && rawValue === preedit) {`,
+		`data = rawValue;`,
 		`data = rawValue.slice(preedit.length);`,
 		`if (!data) {`,
 		`const rememberTerminalPostCompositionSentInput = (session, pending, committed) => {`,

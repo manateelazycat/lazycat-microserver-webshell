@@ -6013,11 +6013,14 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     const committed = pending.committed || "";
     let data = rawValue;
     let handled = false;
-    if (!rawValue || rawValue === preedit) {
+    if (!rawValue) {
       data = "";
       handled = true;
     } else if (pending.sent && (rawValue === committed || (preedit && rawValue === `${preedit}${committed}`))) {
       data = "";
+      handled = true;
+    } else if (!pending.sent && preedit && rawValue === preedit) {
+      data = rawValue;
       handled = true;
     } else if (!pending.sent && preedit && rawValue.startsWith(preedit)) {
       data = rawValue.slice(preedit.length);
