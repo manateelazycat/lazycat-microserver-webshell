@@ -769,6 +769,36 @@ func TestRuntimeTerminalInputChunksLargePaste(t *testing.T) {
 	}
 }
 
+func TestRuntimeBeforeInputPasteUsesPastePath(t *testing.T) {
+	data, err := os.ReadFile("runtime/static/main.js")
+	if err != nil {
+		t.Fatalf("ReadFile(runtime/static/main.js) error = %v", err)
+	}
+	source := string(data)
+	branch := sourceBetween(t, source,
+		`} else if (type === "insertFromPaste") {`,
+		`    } else if (event.data) {`,
+	)
+	for _, want := range []string{
+		`const text = event.dataTransfer?.getData("text/plain") || event.data || "";`,
+		`event.preventDefault();`,
+		`pasteIntoSession(session, text).catch((error) => showToast(error.message));`,
+		`return;`,
+	} {
+		if !strings.Contains(branch, want) {
+			t.Fatalf("runtime beforeinput paste branch missing %q", want)
+		}
+	}
+	for _, forbidden := range []string{
+		`data = event.dataTransfer?.getData("text/plain") || event.data || "";`,
+		`sendTerminalTextInput(session, text`,
+	} {
+		if strings.Contains(branch, forbidden) {
+			t.Fatalf("runtime beforeinput paste branch must not contain %q", forbidden)
+		}
+	}
+}
+
 func TestRuntimeGeneratedTerminalResponsesAreMarked(t *testing.T) {
 	data, err := os.ReadFile("runtime/static/main.js")
 	if err != nil {

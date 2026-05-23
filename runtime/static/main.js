@@ -6111,7 +6111,25 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     } else if (type === "insertText" || type === "insertReplacementText") {
       data = event.data || "";
     } else if (type === "insertFromPaste") {
-      data = event.dataTransfer?.getData("text/plain") || event.data || "";
+      const text = event.dataTransfer?.getData("text/plain") || event.data || "";
+      const recentlyHandledPaste = text
+        && session?.lastPasteText === text
+        && performance.now() - Number(session?.lastPasteAt || 0) < 150;
+      event.preventDefault();
+      event.stopPropagation();
+      setTerminalInputComposing(session, false);
+      if (textarea) {
+        textarea.value = terminalInputSentinel;
+        moveTerminalTextareaCaretToEnd(textarea);
+      }
+      if (text && !recentlyHandledPaste) {
+        session.lastPasteText = text;
+        session.lastPasteAt = performance.now();
+        pasteIntoSession(session, text).catch((error) => showToast(error.message));
+      }
+      resetTerminalHostViewport(session, { clean: true });
+      positionTerminalInput(session);
+      return;
     } else if (event.data) {
       data = event.data;
     }
@@ -6333,6 +6351,8 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       event.preventDefault();
       event.stopImmediatePropagation();
       reassertTerminalSize(session, { force: true });
+      session.lastPasteText = text;
+      session.lastPasteAt = performance.now();
       pasteIntoSession(session, text).catch((error) => showToast(error.message));
     }, { capture: true });
     host.addEventListener("pointerdown", (event) => {
