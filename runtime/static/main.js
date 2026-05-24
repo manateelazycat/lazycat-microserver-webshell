@@ -45,6 +45,8 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   const settingsFontDeleteSelectedButton = document.getElementById("settingsFontDeleteSelectedButton");
   const settingsFontCards = document.getElementById("settingsFontCards");
   const settingsFontInput = document.getElementById("settingsFontInput");
+  const settingsLineHeightInput = document.getElementById("settingsLineHeightInput");
+  const settingsLineHeightResetButton = document.getElementById("settingsLineHeightResetButton");
   const settingsScrollbackInput = document.getElementById("settingsScrollbackInput");
   const settingsScrollbackResetButton = document.getElementById("settingsScrollbackResetButton");
   const settingsDesktopMouseClipboardToggle = document.getElementById("settingsDesktopMouseClipboardToggle");
@@ -183,6 +185,9 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   const defaultTerminalScrollback = 5000;
   const minTerminalScrollback = 100;
   const maxTerminalScrollback = 100000;
+  const defaultTerminalLineHeightPercent = 100;
+  const minTerminalLineHeightPercent = 100;
+  const maxTerminalLineHeightPercent = 160;
   const defaultTerminalFontFamily = '"DejaVu Sans Mono", "Liberation Mono", monospace';
   const touchShortcutMoveThresholdPx = 8;
   const touchShortcutRepeatInitialDelayMs = 320;
@@ -236,6 +241,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     ? Number(window.localStorage.getItem(fontSizeStorageKey))
     : NaN;
   let terminalFontSize = Number.isFinite(storedFontSize) ? Math.max(minFontSize, Math.min(maxFontSize, storedFontSize)) : defaultFontSize;
+  let terminalLineHeightPercent = defaultTerminalLineHeightPercent;
   const terminalOptionsBase = {
     cursorBlink: false,
     convertEol: true,
@@ -454,6 +460,8 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   let settingsThemeScrollbarHideTimer = 0;
   let settingsMobileShortcutsScrollbarHideTimer = 0;
   let settingsDesktopShortcutsScrollbarHideTimer = 0;
+  let settingsLineHeightSaveTimer = 0;
+  let settingsLineHeightSaveRequestSeq = 0;
   let settingsScrollbackSaveTimer = 0;
   let settingsScrollbackSaveRequestSeq = 0;
   let settingsDesktopMouseClipboardRequestSeq = 0;
@@ -615,7 +623,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     nextTheme.cursor = nextTheme.foreground;
     return nextTheme;
   };
-  const terminalOptions = () => ({ ...terminalOptionsBase, fontSize: terminalFontSize, theme: cloneTheme(activeTheme) });
+  const terminalOptions = (overrides = {}) => ({ ...terminalOptionsBase, fontSize: terminalFontSize, theme: cloneTheme(activeTheme), ...overrides });
 
   const selectStoredTheme = () => {
     activeTheme = themes.find((theme) => theme.id === window.localStorage.getItem(themeStorageKey)) || themes[0];
@@ -862,6 +870,26 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     return next;
   };
 
+  const normalizeTerminalLineHeightPercent = (value) => {
+    const next = Math.round(Number(value));
+    if (!Number.isFinite(next) || next < minTerminalLineHeightPercent || next > maxTerminalLineHeightPercent) {
+      return defaultTerminalLineHeightPercent;
+    }
+    return next;
+  };
+
+  const readSettingsLineHeightInput = () => {
+    const raw = String(settingsLineHeightInput?.value || "").trim();
+    if (!/^\d+$/.test(raw)) {
+      throw new Error(`行间距必须是 ${minTerminalLineHeightPercent}-${maxTerminalLineHeightPercent}% 之间的整数。`);
+    }
+    const value = Number(raw);
+    if (!Number.isSafeInteger(value) || value < minTerminalLineHeightPercent || value > maxTerminalLineHeightPercent) {
+      throw new Error(`行间距必须是 ${minTerminalLineHeightPercent}-${maxTerminalLineHeightPercent}% 之间的整数。`);
+    }
+    return value;
+  };
+
   const readSettingsScrollbackInput = () => {
     const raw = String(settingsScrollbackInput?.value || "").trim();
     if (!/^\d+$/.test(raw)) {
@@ -872,6 +900,12 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       throw new Error(`滚动历史行数必须是 ${minTerminalScrollback}-${maxTerminalScrollback} 之间的整数。`);
     }
     return value;
+  };
+
+  const syncSettingsLineHeightInput = () => {
+    if (settingsLineHeightInput) {
+      settingsLineHeightInput.value = String(terminalLineHeightPercent || defaultTerminalLineHeightPercent);
+    }
   };
 
   const syncSettingsScrollbackInput = () => {
@@ -901,6 +935,12 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   const setSettingsScrollbackSaving = (saving) => {
     if (settingsScrollbackResetButton) {
       settingsScrollbackResetButton.disabled = saving;
+    }
+  };
+
+  const setSettingsLineHeightSaving = (saving) => {
+    if (settingsLineHeightResetButton) {
+      settingsLineHeightResetButton.disabled = saving;
     }
   };
 
@@ -1162,7 +1202,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     for (const tab of tabs.values()) {
       for (const pane of tab.panes.values()) {
         pane.term.options.fontFamily = terminalOptionsBase.fontFamily;
-        refreshTerminalMetrics(pane);
+        refreshTerminalMetrics(pane, { deferFitRetry: true });
       }
     }
   };
@@ -1964,7 +2004,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     return true;
   };
 
-  const applySettingsState = async (state, { syncScrollbackInput = true } = {}) => {
+  const applySettingsState = async (state, { syncScrollbackInput = true, syncLineHeightInput = true } = {}) => {
     const fonts = Array.isArray(state?.fonts)
       ? state.fonts.map(normalizeUploadedFont).filter(Boolean)
       : [];
@@ -1972,6 +2012,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     terminalSymbolFont = normalizeTerminalSymbolFont(state?.terminal_symbol_font);
     const nextFontID = String(state?.terminal_font_id || "").trim();
     activeTerminalFontID = uploadedFonts.some((font) => font.id === nextFontID) ? nextFontID : "";
+    terminalLineHeightPercent = normalizeTerminalLineHeightPercent(state?.terminal_line_height_percent);
     terminalOptionsBase.scrollback = normalizeTerminalScrollback(state?.terminal_scrollback);
     desktopMouseClipboardEnabled = state?.desktop_mouse_clipboard_enabled !== false;
     mobilePixelScrollEnabled = state?.mobile_pixel_scroll_enabled !== false;
@@ -1981,6 +2022,9 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     applyDesktopShortcuts(hasCustomDesktopShortcuts ? state.desktop_shortcuts : defaultDesktopShortcutsConfig, { remember: true });
     if (syncScrollbackInput) {
       syncSettingsScrollbackInput();
+    }
+    if (syncLineHeightInput) {
+      syncSettingsLineHeightInput();
     }
     syncSettingsDesktopMouseClipboardToggle();
     syncSettingsMobilePixelScrollToggle();
@@ -2022,7 +2066,19 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     if (!response.ok) {
       throw new Error(await readResponseText(response, `滚动历史设置保存失败 (${response.status})`));
     }
-    await applySettingsState(await response.json(), { syncScrollbackInput });
+    await applySettingsState(await response.json(), { syncScrollbackInput, syncLineHeightInput: false });
+  };
+
+  const saveTerminalLineHeightPercent = async (percent, { syncLineHeightInput = false } = {}) => {
+    const response = await fetch("./api/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ terminal_line_height_percent: percent }),
+    });
+    if (!response.ok) {
+      throw new Error(await readResponseText(response, `行间距设置保存失败 (${response.status})`));
+    }
+    await applySettingsState(await response.json(), { syncScrollbackInput: false, syncLineHeightInput });
   };
 
   const saveDesktopMouseClipboardEnabled = async (enabled) => {
@@ -2036,7 +2092,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     if (!response.ok) {
       throw new Error(await readResponseText(response, `鼠标复制粘贴设置保存失败 (${response.status})`));
     }
-    await applySettingsState(await response.json(), { syncScrollbackInput: false });
+    await applySettingsState(await response.json(), { syncScrollbackInput: false, syncLineHeightInput: false });
   };
 
   const saveMobilePixelScrollEnabled = async (enabled) => {
@@ -2051,7 +2107,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     if (!response.ok) {
       throw new Error(await readResponseText(response, `像素级滚动设置保存失败 (${response.status})`));
     }
-    await applySettingsState(await response.json(), { syncScrollbackInput: false });
+    await applySettingsState(await response.json(), { syncScrollbackInput: false, syncLineHeightInput: false });
   };
 
   const saveMobileDoubleTapReminderEnabled = async (enabled) => {
@@ -2066,7 +2122,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     if (!response.ok) {
       throw new Error(await readResponseText(response, `双击屏幕提醒设置保存失败 (${response.status})`));
     }
-    await applySettingsState(await response.json(), { syncScrollbackInput: false });
+    await applySettingsState(await response.json(), { syncScrollbackInput: false, syncLineHeightInput: false });
   };
 
   const saveMobileShortcuts = (rows, { reset = false } = {}) => {
@@ -2089,7 +2145,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
           throw new Error(await readResponseText(response, `手机快捷键保存失败 (${response.status})`));
         }
         if (saveVersion === mobileShortcutsSaveVersion && requestSeq === mobileShortcutsSaveRequestSeq) {
-          await applySettingsState(await response.json(), { syncScrollbackInput: false });
+          await applySettingsState(await response.json(), { syncScrollbackInput: false, syncLineHeightInput: false });
         } else {
           lastSavedMobileShortcutRowsConfig = cloneMobileShortcutRows(nextRows);
           await response.text().catch(() => "");
@@ -2123,7 +2179,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
           throw new Error(await readResponseText(response, `PC快捷键保存失败 (${response.status})`));
         }
         if (saveVersion === desktopShortcutsSaveVersion && requestSeq === desktopShortcutsSaveRequestSeq) {
-          await applySettingsState(await response.json(), { syncScrollbackInput: false });
+          await applySettingsState(await response.json(), { syncScrollbackInput: false, syncLineHeightInput: false });
         } else {
           lastSavedDesktopShortcutsConfig = cloneDesktopShortcuts(nextShortcuts);
           await response.text().catch(() => "");
@@ -2642,6 +2698,44 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     state.placeholder.parentElement?.insertBefore(state.item, state.placeholder);
     state.placeholder.remove();
     renderSettingsMobileShortcuts();
+  };
+
+  const saveTerminalLineHeightFromInput = () => {
+    let percent = defaultTerminalLineHeightPercent;
+    try {
+      percent = readSettingsLineHeightInput();
+    } catch (error) {
+      syncSettingsLineHeightInput();
+      setSettingsFeedback(error.message || "行间距设置无效。", "error");
+      return;
+    }
+    if (percent === terminalLineHeightPercent) {
+      return;
+    }
+    const requestSeq = ++settingsLineHeightSaveRequestSeq;
+    setSettingsLineHeightSaving(true);
+    saveTerminalLineHeightPercent(percent)
+      .catch((error) => {
+        if (requestSeq === settingsLineHeightSaveRequestSeq) {
+          syncSettingsLineHeightInput();
+          setSettingsFeedback(error.message || "行间距设置保存失败。", "error");
+        }
+      })
+      .finally(() => {
+        if (requestSeq === settingsLineHeightSaveRequestSeq) {
+          setSettingsLineHeightSaving(false);
+        }
+      });
+  };
+
+  const scheduleTerminalLineHeightSave = () => {
+    window.clearTimeout(settingsLineHeightSaveTimer);
+    try {
+      readSettingsLineHeightInput();
+    } catch (error) {
+      return;
+    }
+    settingsLineHeightSaveTimer = window.setTimeout(saveTerminalLineHeightFromInput, 360);
   };
 
   const saveTerminalScrollbackFromInput = () => {
@@ -3257,12 +3351,45 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     return lightOSHomeURLPromise;
   };
 
+  const terminalEstimatedSizeForElement = (element) => {
+    if (!(element instanceof HTMLElement)) {
+      return null;
+    }
+    const metrics = terminalEstimatedFontMetrics();
+    if (!metrics?.width || !metrics?.height) {
+      return null;
+    }
+    const style = window.getComputedStyle(element);
+    const paddingLeft = Number.parseInt(style.getPropertyValue("padding-left"), 10) || 0;
+    const paddingRight = Number.parseInt(style.getPropertyValue("padding-right"), 10) || 0;
+    const paddingTop = Number.parseInt(style.getPropertyValue("padding-top"), 10) || 0;
+    const paddingBottom = Number.parseInt(style.getPropertyValue("padding-bottom"), 10) || 0;
+    const width = Math.max(0, Number(element.clientWidth || 0) - paddingLeft - paddingRight);
+    const height = Math.max(0, Number(element.clientHeight || 0) - paddingTop - paddingBottom);
+    if (!width || !height) {
+      return null;
+    }
+    return {
+      cols: Math.max(2, Math.floor(width / metrics.width)),
+      rows: Math.max(1, Math.floor(height / metrics.height)),
+    };
+  };
+
   const terminalSizeQuery = () => {
     const tab = currentTab();
     const pane = tab?.panes.get(tab.activePaneId);
+    const cols = Number(pane?.term?.cols) || 0;
+    const rows = Number(pane?.term?.rows) || 0;
+    if (cols > 0 && rows > 0) {
+      return { cols, rows };
+    }
+    const estimated = terminalEstimatedSizeForElement(terminalArea);
+    if (estimated) {
+      return estimated;
+    }
     return {
-      cols: pane?.term?.cols || 120,
-      rows: pane?.term?.rows || 32,
+      cols: 120,
+      rows: 32,
     };
   };
 
@@ -3757,16 +3884,42 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   const terminalCellFlagFaint = 128;
   const terminalBaselineSampleText = "\uF303\uF017Hg|pqyj\u00C5\u00C9()[]{}0123456789";
 
+  const terminalLineHeightRatio = () => normalizeTerminalLineHeightPercent(terminalLineHeightPercent) / defaultTerminalLineHeightPercent;
+
+  const applyTerminalLineHeightToMetrics = (metrics) => {
+    const width = Number(metrics?.width) || 0;
+    const height = Number(metrics?.height) || 0;
+    const baseline = Number(metrics?.baseline) || 0;
+    if (!width || !height || !baseline) {
+      return metrics;
+    }
+    const ratio = terminalLineHeightRatio();
+    const nextHeight = Math.max(height, Math.ceil(height * ratio));
+    const extra = nextHeight - height;
+    if (extra <= 0) {
+      return metrics;
+    }
+    const nextBaseline = Math.round(baseline + (extra / 2));
+    return {
+      ...metrics,
+      height: nextHeight,
+      baseline: Math.max(1, Math.min(nextHeight - 1, nextBaseline)),
+    };
+  };
+
   const terminalAdjustedFontMetrics = (renderer, metrics) => {
     const width = Number(metrics?.width) || 0;
     const height = Number(metrics?.height) || 0;
     const baseline = Number(metrics?.baseline) || 0;
-    if (!renderer || !width || !height || !baseline) {
+    if (!width || !height || !baseline) {
       return metrics;
+    }
+    if (!renderer) {
+      return applyTerminalLineHeightToMetrics(metrics);
     }
     const context = document.createElement("canvas").getContext("2d");
     if (!context) {
-      return metrics;
+      return applyTerminalLineHeightToMetrics(metrics);
     }
     context.font = `${renderer.fontSize}px ${renderer.fontFamily}`;
     context.textBaseline = "alphabetic";
@@ -3774,15 +3927,36 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     const ascent = Number(measured.actualBoundingBoxAscent);
     const descent = Number(measured.actualBoundingBoxDescent);
     if (!Number.isFinite(ascent) || !Number.isFinite(descent) || ascent <= 0) {
-      return metrics;
+      return applyTerminalLineHeightToMetrics(metrics);
     }
     const nextHeight = Math.max(height, Math.ceil(ascent + descent) + 2);
     const nextBaseline = Math.round((nextHeight + ascent - descent) / 2);
-    return {
+    return applyTerminalLineHeightToMetrics({
       ...metrics,
       height: nextHeight,
       baseline: Math.max(1, Math.min(nextHeight - 1, nextBaseline)),
-    };
+    });
+  };
+
+  const terminalEstimatedFontMetrics = () => {
+    const context = document.createElement("canvas").getContext("2d");
+    if (!context) {
+      return null;
+    }
+    context.font = `${terminalFontSize}px ${terminalOptionsBase.fontFamily}`;
+    const measured = context.measureText("M");
+    const width = Math.ceil(Number(measured.width) || 0);
+    const ascent = Number(measured.actualBoundingBoxAscent) || terminalFontSize * 0.8;
+    const descent = Number(measured.actualBoundingBoxDescent) || terminalFontSize * 0.2;
+    const height = Math.ceil(ascent + descent) + 2;
+    const baseline = Math.ceil(ascent) + 1;
+    if (!width || !height || !baseline) {
+      return null;
+    }
+    return terminalAdjustedFontMetrics(
+      { fontSize: terminalFontSize, fontFamily: terminalOptionsBase.fontFamily },
+      { width, height, baseline },
+    );
   };
 
   const installRendererBaselinePatch = (session) => {
@@ -5751,10 +5925,15 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     refreshTabAutoLabel(tab);
     syncCursorBlinkState();
     updateMobileSelectionHandles(activePane);
-    checkSessionConnectionHealth(activePane, { connect: true, force: true });
+    if (activePane?.pendingConnect) {
+      connectPendingSession(activePane);
+    } else {
+      checkSessionConnectionHealth(activePane, { connect: true, force: true });
+    }
     if (focus) {
       window.requestAnimationFrame(() => {
         resizePane(activePane);
+        connectPendingSession(activePane);
         activePane?.term?.focus();
       });
     }
@@ -6513,6 +6692,11 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     }
   };
 
+  const isPaneMeasurable = (pane) => {
+    const host = pane?.terminalHost;
+    return host instanceof HTMLElement && host.isConnected && host.clientWidth > 0 && host.clientHeight > 0;
+  };
+
   const resizePane = (pane) => {
     if (!pane || pane.closed) {
       return;
@@ -6530,6 +6714,47 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     sendTerminalSize(pane);
   };
 
+  const connectPendingSession = (session, { allowHidden = false } = {}) => {
+    if (!session || !session.pendingConnect || session.closed || session.name !== activeName) {
+      return;
+    }
+    const socketReadyState = session.socket?.readyState;
+    if (socketReadyState === WebSocket.OPEN || socketReadyState === WebSocket.CONNECTING) {
+      session.pendingConnect = false;
+      return;
+    }
+    if (isPaneMeasurable(session)) {
+      if (document.hidden && !allowHidden) {
+        return;
+      }
+      resizePane(session);
+      connectSession(session, { allowHidden }).catch((error) => {
+        showSessionStartupError(session, error.message || "WebSocket connection failed.");
+      });
+      return;
+    }
+    if (session.initialCols > 0 && session.initialRows > 0) {
+      connectSession(session, { allowHidden: true }).catch((error) => {
+        showSessionStartupError(session, error.message || "WebSocket connection failed.");
+      });
+    }
+  };
+
+  const connectPendingSessionsForTab = (tab, options = {}) => {
+    if (!tab) {
+      return;
+    }
+    for (const pane of tab.panes.values()) {
+      connectPendingSession(pane, options);
+    }
+  };
+
+  const connectPendingSessions = (options = {}) => {
+    for (const tab of tabs.values()) {
+      connectPendingSessionsForTab(tab, options);
+    }
+  };
+
   const resizeTab = (tab) => {
     if (!tab) {
       return;
@@ -6537,6 +6762,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     for (const pane of tab.panes.values()) {
       resizePane(pane);
     }
+    connectPendingSessionsForTab(tab);
   };
 
   const resizeActiveTab = () => resizeTab(currentTab());
@@ -6731,7 +6957,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     return tab?.panes.get(tab.activePaneId) || null;
   };
 
-  const refreshTerminalMetrics = (session) => {
+  const refreshTerminalMetrics = (session, { deferFitRetry = false } = {}) => {
     if (!session?.term) {
       return;
     }
@@ -6744,6 +6970,9 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
         session.term.renderer.render(session.term.wasmTerm, true, session.term.viewportY || 0, session.term);
       }
       resizePane(session);
+      if (deferFitRetry) {
+        window.setTimeout(() => resizePane(session), 60);
+      }
     } catch (error) {
     }
   };
@@ -6756,7 +6985,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     for (const tab of tabs.values()) {
       for (const pane of tab.panes.values()) {
         pane.term.options.fontSize = terminalFontSize;
-        refreshTerminalMetrics(pane);
+        refreshTerminalMetrics(pane, { deferFitRetry: true });
       }
     }
     showToast(`字号 ${terminalFontSize}px`);
@@ -10129,6 +10358,10 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       setNetworkBanner(true);
       return false;
     }
+    if (session.pendingConnect) {
+      connectPendingSession(session, { allowHidden: allowHidden || force });
+      return false;
+    }
     const socket = session.socket;
     if (socket?.readyState === WebSocket.OPEN) {
       const now = Date.now();
@@ -10168,6 +10401,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     ) {
       return;
     }
+    session.pendingConnect = false;
     clearReconnectTimer(session);
     const socketUrl = webSocketURL("./ws");
     socketUrl.searchParams.set("name", session.name);
@@ -10358,12 +10592,20 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     });
   };
 
-  const createPaneSession = (tab, instanceName, { id = "", connect = true } = {}) => {
+  const normalizeTerminalInitialSize = (value, minValue) => {
+    const next = Math.floor(Number(value));
+    return Number.isFinite(next) && next >= minValue ? next : 0;
+  };
+
+  const createPaneSession = (tab, instanceName, { id = "", connect = true, cols = 0, rows = 0 } = {}) => {
     const normalizedID = String(id || `pane-${nextPaneSeq++}`).trim();
     const numeric = Number(normalizedID.replace(/^pane-/, ""));
     if (Number.isFinite(numeric) && numeric >= nextPaneSeq) {
       nextPaneSeq = numeric + 1;
     }
+    const initialCols = normalizeTerminalInitialSize(cols, 2);
+    const initialRows = normalizeTerminalInitialSize(rows, 1);
+    const initialTerminalOptions = initialCols > 0 && initialRows > 0 ? { cols: initialCols, rows: initialRows } : {};
     const shellEl = document.createElement("section");
     shellEl.className = "pane-shell";
     shellEl.dataset.paneId = normalizedID;
@@ -10374,7 +10616,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     terminalHost.className = "terminal-host";
     shellEl.appendChild(terminalHost);
 
-    const term = new Terminal(terminalOptions());
+    const term = new Terminal(terminalOptions(initialTerminalOptions));
     const fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
     if (term.options) {
@@ -10399,6 +10641,9 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       term,
       fitAddon,
       socket: null,
+      pendingConnect: Boolean(connect),
+      initialCols,
+      initialRows,
       reconnectTimer: 0,
       reconnectPending: false,
       reconnectAttempts: 0,
@@ -10550,9 +10795,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
 
     tab.panes.set(normalizedID, session);
     if (connect) {
-      connectSession(session).catch((error) => {
-        showSessionStartupError(session, error.message || "WebSocket connection failed.");
-      });
+      connectPendingSession(session, { allowHidden: true });
     }
     return session;
   };
@@ -10852,7 +11095,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
         }
         for (const paneState of tabState.panes || []) {
           if (!tab.panes.has(paneState.id)) {
-            createPaneSession(tab, targetName, { id: paneState.id, connect: true });
+            createPaneSession(tab, targetName, { id: paneState.id, connect: true, cols: paneState.cols, rows: paneState.rows });
           }
           updatePaneActivity(paneState);
         }
@@ -10882,7 +11125,10 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       }
       updateEmptyState();
       scheduleTabOverviewRender();
-      window.requestAnimationFrame(() => resizeActiveTabForCurrentDevice());
+      window.requestAnimationFrame(() => {
+        resizeActiveTabForCurrentDevice();
+        connectPendingSessions({ allowHidden: true });
+      });
       return true;
     } finally {
       clearRestartTabForReload();
@@ -12614,6 +12860,36 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       }
     });
   }
+  const stepSettingsNumberInput = (button) => {
+    const targetID = String(button?.dataset?.numberTarget || "").trim();
+    const input = targetID ? document.getElementById(targetID) : null;
+    if (!(input instanceof HTMLInputElement) || input.disabled) {
+      return;
+    }
+    try {
+      if (button.dataset.numberStep === "down") {
+        input.stepDown();
+      } else {
+        input.stepUp();
+      }
+    } catch (error) {
+      const min = Number(input.min);
+      input.value = Number.isFinite(min) ? String(min) : "0";
+    }
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+    input.focus({ preventScroll: true });
+  };
+
+  settingsPanel?.addEventListener("click", (event) => {
+    const button = event.target instanceof Element ? event.target.closest("[data-number-step]") : null;
+    if (!(button instanceof HTMLButtonElement)) {
+      return;
+    }
+    event.preventDefault();
+    stepSettingsNumberInput(button);
+  });
+
   settingsFontCards?.addEventListener("click", (event) => {
     const card = event.target.closest(".settings-font-card");
     if (!card) {
@@ -12671,6 +12947,38 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
         settingsFontInput.disabled = false;
         if (settingsFontUploadButton) {
           settingsFontUploadButton.disabled = false;
+        }
+      });
+  });
+  settingsLineHeightInput?.addEventListener("input", scheduleTerminalLineHeightSave);
+  settingsLineHeightInput?.addEventListener("change", () => {
+    window.clearTimeout(settingsLineHeightSaveTimer);
+    try {
+      readSettingsLineHeightInput();
+    } catch (error) {
+      syncSettingsLineHeightInput();
+      setSettingsFeedback(error.message || "行间距设置无效。", "error");
+      return;
+    }
+    saveTerminalLineHeightFromInput();
+  });
+  settingsLineHeightResetButton?.addEventListener("click", () => {
+    window.clearTimeout(settingsLineHeightSaveTimer);
+    if (settingsLineHeightInput) {
+      settingsLineHeightInput.value = String(defaultTerminalLineHeightPercent);
+    }
+    const requestSeq = ++settingsLineHeightSaveRequestSeq;
+    setSettingsLineHeightSaving(true);
+    saveTerminalLineHeightPercent(defaultTerminalLineHeightPercent, { syncLineHeightInput: true })
+      .catch((error) => {
+        if (requestSeq === settingsLineHeightSaveRequestSeq) {
+          syncSettingsLineHeightInput();
+          setSettingsFeedback(error.message || "行间距恢复默认失败。", "error");
+        }
+      })
+      .finally(() => {
+        if (requestSeq === settingsLineHeightSaveRequestSeq) {
+          setSettingsLineHeightSaving(false);
         }
       });
   });

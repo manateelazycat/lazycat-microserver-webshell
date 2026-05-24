@@ -427,6 +427,74 @@ func TestRuntimeTerminalRendererBaselinePatch(t *testing.T) {
 	}
 }
 
+func TestRuntimeTerminalLineHeightSetting(t *testing.T) {
+	mainData, err := os.ReadFile("runtime/static/main.js")
+	if err != nil {
+		t.Fatalf("ReadFile(runtime/static/main.js) error = %v", err)
+	}
+	indexData, err := os.ReadFile("runtime/static/index.html")
+	if err != nil {
+		t.Fatalf("ReadFile(runtime/static/index.html) error = %v", err)
+	}
+	styleData, err := os.ReadFile("runtime/static/style.css")
+	if err != nil {
+		t.Fatalf("ReadFile(runtime/static/style.css) error = %v", err)
+	}
+	mainSource := string(mainData)
+	indexSource := string(indexData)
+	styleSource := string(styleData)
+
+	for _, want := range []string{
+		`id="settingsLineHeightInput"`,
+		`id="settingsLineHeightResetButton"`,
+		`min="100" max="160"`,
+		`class="settings-number-stepper"`,
+		`data-number-step="up" data-number-target="settingsLineHeightInput"`,
+		`data-number-step="down" data-number-target="settingsScrollbackInput"`,
+	} {
+		if !strings.Contains(indexSource, want) {
+			t.Fatalf("runtime line height setting index guard missing %q", want)
+		}
+	}
+	for _, want := range []string{
+		`const settingsLineHeightInput = document.getElementById("settingsLineHeightInput");`,
+		`const defaultTerminalLineHeightPercent = 100;`,
+		`const maxTerminalLineHeightPercent = 160;`,
+		`let terminalLineHeightPercent = defaultTerminalLineHeightPercent;`,
+		`const normalizeTerminalLineHeightPercent = (value) => {`,
+		`terminalLineHeightPercent = normalizeTerminalLineHeightPercent(state?.terminal_line_height_percent);`,
+		`body: JSON.stringify({ terminal_line_height_percent: percent }),`,
+		`settingsLineHeightInput?.addEventListener("input", scheduleTerminalLineHeightSave);`,
+		`const terminalLineHeightRatio = () => normalizeTerminalLineHeightPercent(terminalLineHeightPercent) / defaultTerminalLineHeightPercent;`,
+		`const applyTerminalLineHeightToMetrics = (metrics) => {`,
+		`return terminalAdjustedFontMetrics(`,
+		`const terminalEstimatedSizeForElement = (element) => {`,
+		`const terminalOptions = (overrides = {}) =>`,
+		`const createPaneSession = (tab, instanceName, { id = "", connect = true, cols = 0, rows = 0 } = {}) =>`,
+		`pendingConnect: Boolean(connect),`,
+		`const connectPendingSession = (session, { allowHidden = false } = {}) => {`,
+		`createPaneSession(tab, targetName, { id: paneState.id, connect: true, cols: paneState.cols, rows: paneState.rows });`,
+		`const stepSettingsNumberInput = (button) => {`,
+		`input.stepUp();`,
+		`settingsPanel?.addEventListener("click", (event) => {`,
+	} {
+		if !strings.Contains(mainSource, want) {
+			t.Fatalf("runtime line height setting main guard missing %q", want)
+		}
+	}
+	for _, want := range []string{
+		`.settings-number-stepper`,
+		`appearance: textfield;`,
+		`.settings-number-input::-webkit-inner-spin-button`,
+		`.settings-number-stepper-button.up::before`,
+		`.settings-number-stepper-button.down::before`,
+	} {
+		if !strings.Contains(styleSource, want) {
+			t.Fatalf("runtime line height setting style guard missing %q", want)
+		}
+	}
+}
+
 func TestRuntimeMobileStickyModifiersApplyToTextInput(t *testing.T) {
 	data, err := os.ReadFile("runtime/static/main.js")
 	if err != nil {
