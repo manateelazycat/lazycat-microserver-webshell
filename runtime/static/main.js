@@ -1196,12 +1196,6 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     defaultTerminalFontFamily,
   ].filter(Boolean).join(", ");
 
-  const buildSettingsFontPreviewFamily = (font) => [
-    font?.family ? cssString(font.family) : "",
-    terminalSymbolFont?.family ? cssString(terminalSymbolFont.family) : "",
-    defaultTerminalFontFamily,
-  ].filter(Boolean).join(", ");
-
   const applyTerminalFont = () => {
     const selected = uploadedFonts.find((font) => font.id === activeTerminalFontID);
     terminalOptionsBase.fontFamily = buildTerminalFontFamily(selected);
@@ -1254,12 +1248,10 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     defaultCard.setAttribute("aria-disabled", fontEditMode ? "true" : "false");
     defaultCard.innerHTML = `
       <span class="settings-font-card-check" aria-hidden="true"></span>
-      <span class="settings-font-card-preview">Aa 123 中文 ~/λ</span>
       <span class="settings-font-card-title">系统默认</span>
       <span class="settings-font-card-meta">内置终端字体</span>
       <span class="settings-font-card-state">${activeTerminalFontID ? "" : "当前使用"}</span>
     `;
-    defaultCard.querySelector(".settings-font-card-preview").style.fontFamily = buildSettingsFontPreviewFamily(null);
     settingsFontCards.appendChild(defaultCard);
     for (const font of uploadedFonts) {
       const selectedForDelete = selectedFontDeleteIDs.has(font.id);
@@ -1276,10 +1268,6 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       const title = document.createElement("span");
       title.className = "settings-font-card-title";
       title.textContent = font.label || font.filename || font.family;
-      const preview = document.createElement("span");
-      preview.className = "settings-font-card-preview";
-      preview.style.fontFamily = buildSettingsFontPreviewFamily(font);
-      preview.textContent = "Aa 123 中文 ~/λ";
       const meta = document.createElement("span");
       meta.className = "settings-font-card-meta";
       meta.textContent = [font.builtin ? "预装字体" : font.filename, size].filter(Boolean).join(" · ");
@@ -1289,7 +1277,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       const check = document.createElement("span");
       check.className = "settings-font-card-check";
       check.setAttribute("aria-hidden", "true");
-      card.append(check, preview, title, meta, state);
+      card.append(check, title, meta, state);
       settingsFontCards.appendChild(card);
     }
     syncFontEditControls();
@@ -3894,12 +3882,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   const terminalCellFlagInverse = 16;
   const terminalCellFlagInvisible = 32;
   const terminalCellFlagFaint = 128;
-  const terminalCellFlagBold = 1;
-  const terminalCellFlagItalic = 2;
-  const terminalCellFlagUnderline = 4;
-  const terminalCellFlagStrikethrough = 8;
   const terminalBaselineSampleText = "\uF303\uF017Hg|pqyj\u00C5\u00C9()[]{}0123456789";
-  const terminalCJKWideTextPattern = /[\u1100-\u115F\u2329\u232A\u2E80-\uA4CF\uAC00-\uD7A3\uF900-\uFAFF\uFE10-\uFE19\uFE30-\uFE6F\uFF00-\uFF60\uFFE0-\uFFE6]/u;
 
   const terminalLineHeightRatio = () => normalizeTerminalLineHeightPercent(terminalLineHeightPercent) / defaultTerminalLineHeightPercent;
 
@@ -3988,7 +3971,12 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   };
 
   const terminalPowerlineShape = (renderer, cell, column, row) => {
-    const text = terminalCellText(renderer, cell, column, row);
+    let text = "";
+    if (cell?.grapheme_len > 0 && renderer?.currentBuffer?.getGraphemeString) {
+      text = renderer.currentBuffer.getGraphemeString(row, column);
+    } else if (cell?.codepoint) {
+      text = String.fromCodePoint(cell.codepoint);
+    }
     if (text === "\uE0B6") {
       return "round-left";
     }
@@ -3997,22 +3985,6 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     }
     if (text === "\uE0B0") {
       return "arrow-right";
-    }
-    return "";
-  };
-
-  const terminalCellText = (renderer, cell, column, row) => {
-    if (!cell) {
-      return "";
-    }
-    try {
-      if (cell.grapheme_len > 0 && renderer?.currentBuffer?.getGraphemeString) {
-        return renderer.currentBuffer.getGraphemeString(row, column) || "";
-      }
-      if (cell.codepoint) {
-        return String.fromCodePoint(cell.codepoint);
-      }
-    } catch (error) {
     }
     return "";
   };
@@ -4222,111 +4194,6 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     return false;
   };
 
-  const terminalHoveredLinkIncludesCell = (renderer, column, row) => {
-    const range = renderer?.hoveredLinkRange;
-    if (!range) {
-      return false;
-    }
-    return (
-      (row === range.startY && column >= range.startX && (row < range.endY || column <= range.endX))
-      || (row > range.startY && row < range.endY)
-      || (row === range.endY && column <= range.endX && (row > range.startY || column >= range.startX))
-    );
-  };
-
-  const renderTerminalCellTextDecoration = (renderer, cell, column, row, offsetY, cellX, cellY, cellWidthPx, metrics) => {
-    if (cell.flags & terminalCellFlagUnderline) {
-      const y = cellY + metrics.baseline + 2;
-      renderer.ctx.strokeStyle = renderer.ctx.fillStyle;
-      renderer.ctx.lineWidth = 1;
-      renderer.ctx.beginPath();
-      renderer.ctx.moveTo(cellX, y);
-      renderer.ctx.lineTo(cellX + cellWidthPx, y);
-      renderer.ctx.stroke();
-    }
-    if (cell.flags & terminalCellFlagStrikethrough) {
-      const y = cellY + metrics.height / 2;
-      renderer.ctx.strokeStyle = renderer.ctx.fillStyle;
-      renderer.ctx.lineWidth = 1;
-      renderer.ctx.beginPath();
-      renderer.ctx.moveTo(cellX, y);
-      renderer.ctx.lineTo(cellX + cellWidthPx, y);
-      renderer.ctx.stroke();
-    }
-    if (cell.hyperlink_id > 0 && cell.hyperlink_id === renderer.hoveredHyperlinkId) {
-      const y = cellY + metrics.baseline + 2;
-      renderer.ctx.strokeStyle = "#4A90E2";
-      renderer.ctx.lineWidth = 1;
-      renderer.ctx.beginPath();
-      renderer.ctx.moveTo(cellX, y);
-      renderer.ctx.lineTo(cellX + cellWidthPx, y);
-      renderer.ctx.stroke();
-    }
-    if (terminalHoveredLinkIncludesCell(renderer, column, row)) {
-      const y = cellY + metrics.baseline + 2;
-      renderer.ctx.strokeStyle = "#4A90E2";
-      renderer.ctx.lineWidth = 1;
-      renderer.ctx.beginPath();
-      renderer.ctx.moveTo(cellX, y);
-      renderer.ctx.lineTo(cellX + cellWidthPx, y);
-      renderer.ctx.stroke();
-    }
-  };
-
-  const renderTerminalAdjustedCJKCellText = (renderer, cell, column, row, offsetY = 0) => {
-    if (!renderer?.ctx || !cell || (cell.flags & terminalCellFlagInvisible) || Number(cell.width) < 2) {
-      return false;
-    }
-    const text = terminalCellText(renderer, cell, column, row);
-    if (!text || !terminalCJKWideTextPattern.test(text)) {
-      return false;
-    }
-    const metrics = renderer.metrics || renderer.getMetrics?.();
-    const width = Number(metrics?.width) || 0;
-    const height = Number(metrics?.height) || 0;
-    const baseline = Number(metrics?.baseline) || 0;
-    if (!width || !height || !baseline) {
-      return false;
-    }
-    const cellWidthPx = width * Math.max(1, Number(cell.width) || 1);
-    const cellX = column * width;
-    const cellY = row * height + offsetY;
-    let font = "";
-    if (cell.flags & terminalCellFlagItalic) {
-      font += "italic ";
-    }
-    if (cell.flags & terminalCellFlagBold) {
-      font += "bold ";
-    }
-    renderer.ctx.font = `${font}${renderer.fontSize}px ${renderer.fontFamily}`;
-    const measuredWidth = Number(renderer.ctx.measureText(text).width) || 0;
-    const targetWidth = Math.max(width, cellWidthPx - terminalCanvasPixelPx(renderer));
-    const scale = measuredWidth > 0 ? Math.min(1.35, targetWidth / measuredWidth) : 1;
-    if (!Number.isFinite(scale) || scale <= 1.02) {
-      return false;
-    }
-    if (renderer.isInSelection?.(column, row)) {
-      renderer.ctx.fillStyle = renderer.theme.selectionForeground;
-    } else {
-      renderer.ctx.fillStyle = terminalCellForegroundCSS(renderer, cell, column, row);
-    }
-    const previousAlpha = renderer.ctx.globalAlpha;
-    if (cell.flags & terminalCellFlagFaint) {
-      renderer.ctx.globalAlpha = previousAlpha * 0.5;
-    }
-    const drawnWidth = measuredWidth * scale;
-    const textX = cellX + Math.max(0, (cellWidthPx - drawnWidth) / 2);
-    const textY = cellY + baseline;
-    renderer.ctx.save();
-    renderer.ctx.translate(textX, textY);
-    renderer.ctx.scale(scale, 1);
-    renderer.ctx.fillText(text, 0, 0);
-    renderer.ctx.restore();
-    renderer.ctx.globalAlpha = previousAlpha;
-    renderTerminalCellTextDecoration(renderer, cell, column, row, offsetY, cellX, cellY, cellWidthPx, metrics);
-    return true;
-  };
-
   const installRendererCellSeamPatch = (session) => {
     const renderer = session?.term?.renderer;
     if (!renderer || renderer.webshellCellSeamPatchInstalled || typeof renderer.renderCellBackground !== "function") {
@@ -4388,9 +4255,6 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
           if (shape && drawTerminalPowerlineShape(renderer, shape, cell, column, row, offsetY)) {
             return;
           }
-        }
-        if (renderTerminalAdjustedCJKCellText(renderer, cell, column, row, offsetY)) {
-          return;
         }
         renderer.webshellOriginalRenderCellText(cell, column, row, offsetY);
       };
