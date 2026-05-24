@@ -44,7 +44,7 @@ type pluginServer struct {
 
 	settingsMu   sync.Mutex
 	inputLocksMu sync.Mutex
-	inputLocks   map[string]map[string]struct{}
+	inputLocks   map[string]map[string]time.Time
 }
 
 type instanceSummary struct {
@@ -75,6 +75,7 @@ type apiErrorResponse struct {
 
 const lightOSUserIDHeader = "X-HC-USER-ID"
 const lazyCatAppDeployUIDEnv = "LAZYCAT_APP_DEPLOY_UID"
+const serverRevisionInputLockTTL = 60 * time.Second
 
 var errInstanceForbidden = errors.New("instance is not accessible by current account")
 var errInvalidPublishCreatePayload = errors.New("invalid publish create payload")
@@ -421,36 +422,49 @@ func (s *pluginServer) setTerminalInputBlocked(scope agentScope, owner string, b
 	defer s.inputLocksMu.Unlock()
 	if blocked {
 		if s.inputLocks == nil {
-			s.inputLocks = make(map[string]map[string]struct{})
+			s.inputLocks = make(map[string]map[string]time.Time)
 		}
 		if s.inputLocks[key] == nil {
-			s.inputLocks[key] = make(map[string]struct{})
+			s.inputLocks[key] = make(map[string]time.Time)
 		}
-		s.inputLocks[key][owner] = struct{}{}
+		s.inputLocks[key][owner] = time.Now().Add(serverRevisionInputLockTTL)
+		log.Printf("terminal input lock set: scope=%s owner=%s ttl=%s", scope.Selector, owner, serverRevisionInputLockTTL)
 		return
 	}
 	if s.inputLocks == nil || s.inputLocks[key] == nil {
 		return
 	}
-	delete(s.inputLocks[key], owner)
+	if _, ok := s.inputLocks[key][owner]; ok {
+		delete(s.inputLocks[key], owner)
+		log.Printf("terminal input lock cleared: scope=%s owner=%s", scope.Selector, owner)
+	}
 	if len(s.inputLocks[key]) == 0 {
 		delete(s.inputLocks, key)
 	}
 }
 
-func (s *pluginServer) clearTerminalInputBlockedClient(scope agentScope, clientID string) {
-	clientID = strings.TrimSpace(clientID)
-	if clientID == "" {
+func (s *pluginServer) expireTerminalInputLocksLocked(scope agentScope, key string, now time.Time) {
+	if s.inputLocks == nil || s.inputLocks[key] == nil {
 		return
 	}
-	s.setTerminalInputBlocked(scope, serverRevisionInputLockOwner(clientID), false)
+	for owner, expiresAt := range s.inputLocks[key] {
+		if !expiresAt.IsZero() && !expiresAt.After(now) {
+			delete(s.inputLocks[key], owner)
+			log.Printf("terminal input lock expired: scope=%s owner=%s", scope.Selector, owner)
+		}
+	}
+	if len(s.inputLocks[key]) == 0 {
+		delete(s.inputLocks, key)
+	}
 }
 
 func (s *pluginServer) terminalInputBlocked(scope agentScope, clientID string) bool {
 	scope = normalizeAgentScope(scope.Selector, scope.AccountID)
 	s.inputLocksMu.Lock()
 	defer s.inputLocksMu.Unlock()
-	locks := s.inputLocks[scope.cacheKey()]
+	key := scope.cacheKey()
+	s.expireTerminalInputLocksLocked(scope, key, time.Now())
+	locks := s.inputLocks[key]
 	if len(locks) == 0 {
 		return false
 	}

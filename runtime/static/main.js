@@ -202,6 +202,12 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   const maxBufferedInputBytes = 64 * 1024;
   const maxPendingInputBytes = 8 * 1024 * 1024;
   const maxQueuedInputBytes = 16 * 1024 * 1024;
+  const terminalWebSocketPingIntervalMs = 10 * 1000;
+  const terminalWebSocketHealthTimeoutMs = 25 * 1000;
+  const terminalAttachReadyTimeoutMs = 8 * 1000;
+  const terminalReconnectBaseDelayMs = 500;
+  const terminalReconnectMaxDelayMs = 10 * 1000;
+  const terminalReconnectJitterRatio = 0.2;
   const terminalOutputFlushFallbackMs = 32;
   const maxQueuedTerminalOutputBytes = 4 * 1024 * 1024;
   const activityPollIntervalMs = 4000;
@@ -5682,6 +5688,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     refreshTabAutoLabel(tab);
     syncCursorBlinkState();
     updateMobileSelectionHandles(activePane);
+    checkSessionConnectionHealth(activePane, { connect: true, force: true });
     if (focus) {
       window.requestAnimationFrame(() => {
         resizePane(activePane);
@@ -7782,7 +7789,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     const tab = currentTab();
     for (const pane of tab?.panes.values() || []) {
       if (pane.name === activeName) {
-        connectSession(pane).catch((error) => showToast(error.message));
+        checkSessionConnectionHealth(pane, { connect: true, force: true });
       }
     }
   };
@@ -9215,6 +9222,28 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       window.clearTimeout(session.reconnectTimer);
       session.reconnectTimer = 0;
     }
+    if (session) {
+      session.reconnectPending = false;
+    }
+  };
+
+  const clearSocketHealthTimer = (session) => {
+    if (session?.socketHealthTimer) {
+      window.clearInterval(session.socketHealthTimer);
+      session.socketHealthTimer = 0;
+    }
+  };
+
+  const clearAttachReadyTimer = (session) => {
+    if (session?.attachReadyTimer) {
+      window.clearTimeout(session.attachReadyTimer);
+      session.attachReadyTimer = 0;
+    }
+  };
+
+  const clearSessionConnectionTimers = (session) => {
+    clearSocketHealthTimer(session);
+    clearAttachReadyTimer(session);
   };
 
   const clearInputFlushTimer = (session) => {
@@ -9269,8 +9298,12 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     return { items, byteLength, exceeded: false };
   };
 
+  const isSessionInputReady = (session) => (
+    Boolean(session?.replayComplete && session.socket?.readyState === WebSocket.OPEN)
+  );
+
   const sendSessionInputChunk = (session, data, { generated = false } = {}) => {
-    if (!data || session?.socket?.readyState !== WebSocket.OPEN) {
+    if (!data || !isSessionInputReady(session)) {
       return false;
     }
     try {
@@ -9290,7 +9323,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       return;
     }
     clearInputFlushTimer(session);
-    if (!session.inputBuffer || session.socket?.readyState !== WebSocket.OPEN) {
+    if (!session.inputBuffer || !isSessionInputReady(session) || !checkSessionConnectionHealth(session, { connect: true })) {
       return;
     }
     const data = session.inputBuffer;
@@ -9299,6 +9332,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     if (!sendSessionInputChunk(session, data)) {
       session.inputBuffer = data + session.inputBuffer;
       session.inputBufferSize += textEncoder.encode(data).length;
+      checkSessionConnectionHealth(session, { connect: true, force: true });
     }
   };
 
@@ -9362,7 +9396,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
         }
       }
       let sent = 0;
-      while (session.inputQueue.length > 0 && session.socket?.readyState === WebSocket.OPEN) {
+      while (session.inputQueue.length > 0 && isSessionInputReady(session) && checkSessionConnectionHealth(session, { connect: true })) {
         const bufferedAmount = Number(session.socket.bufferedAmount || 0);
         if (bufferedAmount > terminalInputBackpressureBytes) {
           scheduleQueuedInputPump(session, terminalInputBackpressureDelayMs);
@@ -9385,7 +9419,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     } finally {
       session.inputPumpActive = false;
     }
-    if (session.inputQueue.length > 0 && session.socket?.readyState === WebSocket.OPEN) {
+    if (session.inputQueue.length > 0 && isSessionInputReady(session) && checkSessionConnectionHealth(session, { connect: true })) {
       scheduleQueuedInputPump(session, terminalInputBackpressureDelayMs);
     }
   };
@@ -9395,7 +9429,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       discardSessionInputBuffers(session);
       return;
     }
-    if (!data || session.socket?.readyState !== WebSocket.OPEN) {
+    if (!data || !isSessionInputReady(session) || !checkSessionConnectionHealth(session, { connect: true })) {
       return;
     }
     if (!generated && shouldSuppressGeneratedTerminalInput(session, data)) {
@@ -9431,6 +9465,9 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       discardSessionInputBuffers(session);
       return;
     }
+    if (!isSessionInputReady(session) || !checkSessionConnectionHealth(session, { connect: true })) {
+      return;
+    }
     for (const data of session.pendingInput || []) {
       sendSessionInput(session, data);
     }
@@ -9438,6 +9475,20 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     session.pendingInputSize = 0;
     flushInputBuffer(session);
     scheduleQueuedInputPump(session);
+  };
+
+  const enqueuePendingInput = (session, data) => {
+    const availablePendingBytes = Math.max(0, maxPendingInputBytes - session.pendingInputSize);
+    const { byteLength, exceeded } = buildTerminalInputQueueItems(data, { maxBytes: availablePendingBytes });
+    if (exceeded) {
+      return false;
+    }
+    if (session.pendingInputSize + byteLength > maxPendingInputBytes) {
+      return false;
+    }
+    session.pendingInput.push(data);
+    session.pendingInputSize += byteLength;
+    return true;
   };
 
   const sendOrQueueInput = (session, data, { userInput = true } = {}) => {
@@ -9458,33 +9509,12 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     if (/[\r\n]/.test(data)) {
       scheduleActivityRefresh(450);
     }
-    if (session.replayComplete) {
-      if (session.socket?.readyState === WebSocket.OPEN) {
-        sendSessionInput(session, data, { immediate: /[\r\n\x03\x04]/.test(data) });
-      } else {
-        const availablePendingBytes = Math.max(0, maxPendingInputBytes - session.pendingInputSize);
-        const { byteLength, exceeded } = buildTerminalInputQueueItems(data, { maxBytes: availablePendingBytes });
-        if (exceeded) {
-          return;
-        }
-        if (session.pendingInputSize + byteLength > maxPendingInputBytes) {
-          return;
-        }
-        session.pendingInput.push(data);
-        session.pendingInputSize += byteLength;
-      }
+    if (isSessionInputReady(session) && checkSessionConnectionHealth(session, { connect: true })) {
+      sendSessionInput(session, data, { immediate: /[\r\n\x03\x04]/.test(data) });
       return;
     }
-    const availablePendingBytes = Math.max(0, maxPendingInputBytes - session.pendingInputSize);
-    const { byteLength, exceeded } = buildTerminalInputQueueItems(data, { maxBytes: availablePendingBytes });
-    if (exceeded) {
-      return;
-    }
-    if (session.pendingInputSize + byteLength > maxPendingInputBytes) {
-      return;
-    }
-    session.pendingInput.push(data);
-    session.pendingInputSize += byteLength;
+    enqueuePendingInput(session, data);
+    checkSessionConnectionHealth(session, { connect: true });
   };
 
   const clearSessionOutputFlushSchedule = (session) => {
@@ -9720,26 +9750,144 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     writeSessionWebShellError(session, fallback);
   };
 
-  const scheduleReconnect = (session) => {
-    if (disposed || session.closed || session.reconnectPending || session.name !== activeName) {
+  const detachSessionSocket = (session, currentSocket, { connection = "" } = {}) => {
+    if (!session || session.socket !== currentSocket) {
+      return false;
+    }
+    session.socket = null;
+    session.replayComplete = false;
+    session.replayVerified = false;
+    session.allowGeneratedInputDuringReplay = false;
+    session.attachStartedAt = 0;
+    session.lastSocketHealthAt = 0;
+    clearSessionConnectionTimers(session);
+    if (connection) {
+      session.shellEl.dataset.connection = connection;
+    }
+    return true;
+  };
+
+  const markSessionSocketHealth = (session, currentSocket) => {
+    if (session?.socket === currentSocket) {
+      session.lastSocketHealthAt = Date.now();
+    }
+  };
+
+  const scheduleReconnect = (session, { immediate = false } = {}) => {
+    if (disposed || !session || session.closed || session.reconnectPending || session.reconnectTimer || session.name !== activeName) {
+      return;
+    }
+    if (document.hidden) {
       return;
     }
     if (navigator.onLine === false) {
       setNetworkBanner(true);
       return;
     }
+    if (session.socket?.readyState === WebSocket.OPEN || session.socket?.readyState === WebSocket.CONNECTING) {
+      return;
+    }
+    const attempt = Math.max(0, Number(session.reconnectAttempts || 0));
+    const baseDelay = immediate ? 0 : Math.min(terminalReconnectMaxDelayMs, terminalReconnectBaseDelayMs * (2 ** Math.min(attempt, 8)));
+    const jitter = baseDelay * terminalReconnectJitterRatio * ((Math.random() * 2) - 1);
+    const delay = Math.max(0, Math.round(baseDelay + jitter));
     session.reconnectPending = true;
-    clearReconnectTimer(session);
-      session.reconnectTimer = window.setTimeout(() => {
-        session.reconnectTimer = 0;
-        session.reconnectPending = false;
-        if (session.name !== activeName) {
-          return;
-        }
-        connectSession(session).catch((error) => {
-          showSessionStartupError(session, error.message || "WebSocket reconnect failed.");
-        });
-      }, 240);
+    session.shellEl.dataset.connection = "connecting";
+    session.reconnectTimer = window.setTimeout(() => {
+      session.reconnectTimer = 0;
+      session.reconnectPending = false;
+      if (disposed || session.closed || session.name !== activeName || document.hidden) {
+        return;
+      }
+      if (navigator.onLine === false) {
+        setNetworkBanner(true);
+        return;
+      }
+      session.reconnectAttempts = Math.min(20, Number(session.reconnectAttempts || 0) + 1);
+      connectSession(session).catch((error) => {
+        showSessionStartupError(session, error.message || "WebSocket reconnect failed.");
+      });
+    }, delay);
+  };
+
+  const closeSessionSocketForReconnect = (session, currentSocket, reason) => {
+    if (!detachSessionSocket(session, currentSocket, { connection: "closed" })) {
+      return;
+    }
+    console.warn(reason);
+    try {
+      currentSocket.close();
+    } catch (error) {
+    }
+    scheduleReconnect(session, { immediate: true });
+  };
+
+  const startSocketHealthMonitor = (session, currentSocket) => {
+    clearSocketHealthTimer(session);
+    markSessionSocketHealth(session, currentSocket);
+    session.socketHealthTimer = window.setInterval(() => {
+      if (session.socket !== currentSocket) {
+        clearSocketHealthTimer(session);
+        return;
+      }
+      if (currentSocket.readyState !== WebSocket.OPEN) {
+        return;
+      }
+      const lastHealth = Number(session.lastSocketHealthAt || 0);
+      if (lastHealth > 0 && Date.now() - lastHealth > terminalWebSocketHealthTimeoutMs) {
+        closeSessionSocketForReconnect(session, currentSocket, `Terminal WebSocket health timeout: ${session.name}/${session.id}`);
+        return;
+      }
+      try {
+        currentSocket.send(JSON.stringify({ type: "ping" }));
+      } catch (error) {
+        closeSessionSocketForReconnect(session, currentSocket, `Terminal WebSocket ping failed: ${session.name}/${session.id}`);
+      }
+    }, terminalWebSocketPingIntervalMs);
+  };
+
+  const startAttachReadyTimer = (session, currentSocket) => {
+    clearAttachReadyTimer(session);
+    session.attachStartedAt = Date.now();
+    session.attachReadyTimer = window.setTimeout(() => {
+      session.attachReadyTimer = 0;
+      if (session.socket !== currentSocket || session.replayComplete) {
+        return;
+      }
+      closeSessionSocketForReconnect(session, currentSocket, `Terminal attach timed out before replay complete: ${session.name}/${session.id}`);
+    }, terminalAttachReadyTimeoutMs);
+  };
+
+  const checkSessionConnectionHealth = (session, { connect = true, force = false } = {}) => {
+    if (disposed || !session || session.closed || session.name !== activeName) {
+      return false;
+    }
+    if (navigator.onLine === false) {
+      setNetworkBanner(true);
+      return false;
+    }
+    const socket = session.socket;
+    if (socket?.readyState === WebSocket.OPEN) {
+      const now = Date.now();
+      const lastHealth = Number(session.lastSocketHealthAt || 0);
+      if (lastHealth > 0 && now - lastHealth > terminalWebSocketHealthTimeoutMs) {
+        closeSessionSocketForReconnect(session, socket, `Terminal WebSocket health check failed: ${session.name}/${session.id}`);
+        return false;
+      }
+      const attachStartedAt = Number(session.attachStartedAt || 0);
+      if (!session.replayComplete && attachStartedAt > 0 && now - attachStartedAt > terminalAttachReadyTimeoutMs) {
+        closeSessionSocketForReconnect(session, socket, `Terminal attach readiness check failed: ${session.name}/${session.id}`);
+        return false;
+      }
+      return isSessionInputReady(session);
+    }
+    if (socket?.readyState === WebSocket.CONNECTING) {
+      return false;
+    }
+    if (connect) {
+      scheduleReconnect(session, { immediate: force });
+    }
+    return false;
   };
 
   const connectSession = async (session) => {
@@ -9747,6 +9895,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       !session ||
       session.closed ||
       session.name !== activeName ||
+      document.hidden ||
       navigator.onLine === false ||
       session.socket?.readyState === WebSocket.OPEN ||
       session.socket?.readyState === WebSocket.CONNECTING
@@ -9766,6 +9915,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     session.replayVerified = false;
     session.allowGeneratedInputDuringReplay = false;
     session.startupErrorShown = false;
+    session.shellEl.dataset.connection = "connecting";
     currentSocket.binaryType = "arraybuffer";
 
     const replayMessageHasIdentity = (message) => {
@@ -9786,12 +9936,8 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     const rejectMismatchedReplay = (message) => {
       const selector = String(message?.selector || "").trim() || "unknown";
       const paneID = String(message?.pane_id || message?.paneId || "").trim() || "unknown";
-      session.replayVerified = false;
-      session.shellEl.dataset.connection = "error";
+      detachSessionSocket(session, currentSocket, { connection: "error" });
       console.warn(`Rejected terminal replay for ${selector}/${paneID}; expected ${session.name}/${session.id}.`);
-      if (session.socket === currentSocket) {
-        session.socket = null;
-      }
       currentSocket.close();
     };
 
@@ -9800,7 +9946,9 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
         return;
       }
       session.reconnectPending = false;
-      session.shellEl.dataset.connection = "open";
+      session.shellEl.dataset.connection = "connecting";
+      startSocketHealthMonitor(session, currentSocket);
+      startAttachReadyTimer(session, currentSocket);
       if (isTerminalInputBlocked() || session.inputLocked) {
         sendSessionInputLock(session, true);
         discardSessionInputBuffers(session);
@@ -9815,9 +9963,10 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       if (session.socket !== currentSocket) {
         return;
       }
+      markSessionSocketHealth(session, currentSocket);
       session.startupErrorShown = true;
       if (session.name !== activeName) {
-        session.socket = null;
+        detachSessionSocket(session, currentSocket);
         currentSocket.close();
         return;
       }
@@ -9835,6 +9984,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
                 session.replayVerified = replayMessageHasIdentity(message) ? "identified" : "legacy";
                 session.allowGeneratedInputDuringReplay = message.allow_generated_input === true || message.allowGeneratedInput === true;
                 session.suppressGeneratedTerminalInputUntil = 0;
+                session.shellEl.dataset.connection = "connecting";
                 return;
               case "history-replay-complete":
                 if (!session.replayVerified || (session.replayVerified === "identified" && !validateReplayMessage(message))) {
@@ -9845,15 +9995,23 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
                 session.replayComplete = true;
                 session.replayVerified = false;
                 session.allowGeneratedInputDuringReplay = false;
+                clearAttachReadyTimer(session);
+                session.reconnectAttempts = 0;
                 session.shellEl.dataset.connection = "open";
                 flushPendingInput(session);
                 return;
               case "pong":
                 return;
               case "process-exit":
+                if (message.retryable === true && !/pane not found/i.test(String(message.message || ""))) {
+                  detachSessionSocket(session, currentSocket, { connection: "closed" });
+                  currentSocket.close();
+                  scheduleReconnect(session, { immediate: true });
+                  return;
+                }
                 const shouldFocusAfterExit = session.tabId === activeTabId && currentTab()?.activePaneId === session.id;
                 session.exitExpected = true;
-                session.socket = null;
+                detachSessionSocket(session, currentSocket);
                 disposePane(session);
                 refreshWorkspace({ focus: shouldFocusAfterExit }).catch((error) => showToast(error.message));
                 return;
@@ -9876,8 +10034,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       if (session.socket !== currentSocket) {
         return;
       }
-      session.socket = null;
-      session.shellEl.dataset.connection = "closed";
+      detachSessionSocket(session, currentSocket, { connection: "closed" });
       flushSessionOutput(session);
       if (session.exitExpected) {
         return;
@@ -9893,13 +10050,17 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       if (session.socket !== currentSocket) {
         return;
       }
-      session.socket = null;
-      session.shellEl.dataset.connection = "error";
+      detachSessionSocket(session, currentSocket, { connection: "error" });
       flushSessionOutput(session);
       if (!session.startupErrorShown) {
         session.startupErrorShown = true;
         showSessionStartupError(session, "WebSocket connection failed.");
       }
+      try {
+        currentSocket.close();
+      } catch (closeError) {
+      }
+      scheduleReconnect(session, { immediate: true });
     });
   };
 
@@ -9970,6 +10131,11 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       socket: null,
       reconnectTimer: 0,
       reconnectPending: false,
+      reconnectAttempts: 0,
+      socketHealthTimer: 0,
+      attachReadyTimer: 0,
+      attachStartedAt: 0,
+      lastSocketHealthAt: 0,
       replayComplete: false,
       replayVerified: false,
       pendingInput: [],
@@ -10681,6 +10847,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     clearInputPumpTimer(pane);
     pane.inputPumpActive = false;
     clearReconnectTimer(pane);
+    clearSessionConnectionTimers(pane);
     discardSessionOutputBuffers(pane);
     runSessionCleanups(pane);
     if (pane.socket) {
@@ -12843,6 +13010,12 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     reconnectVisibleSessions();
     refreshActivity({ silent: true }).catch(() => {});
   });
+  window.addEventListener("pageshow", () => {
+    resizeActiveTab();
+    refreshServerRevision().catch(() => {});
+    reconnectVisibleSessions();
+    refreshActivity({ silent: true }).catch(() => {});
+  });
   window.addEventListener("beforeunload", (event) => {
     if (!suppressBeforeUnloadOnce && hasCachedBusyPane()) {
       event.preventDefault();
@@ -12855,6 +13028,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       for (const pane of tab.panes.values()) {
         pane.closed = true;
         clearReconnectTimer(pane);
+        clearSessionConnectionTimers(pane);
         pane.socket?.close();
       }
     }

@@ -730,6 +730,36 @@ func TestRuntimeTerminalOutputBatchingGuard(t *testing.T) {
 	}
 }
 
+func TestRuntimeWebSocketReconnectHealthGuard(t *testing.T) {
+	data, err := os.ReadFile("runtime/static/main.js")
+	if err != nil {
+		t.Fatalf("ReadFile(runtime/static/main.js) error = %v", err)
+	}
+	source := string(data)
+
+	wantSnippets := []string{
+		"const terminalWebSocketPingIntervalMs = 10 * 1000;",
+		"const terminalWebSocketHealthTimeoutMs = 25 * 1000;",
+		"const terminalAttachReadyTimeoutMs = 8 * 1000;",
+		"const terminalReconnectBaseDelayMs = 500;",
+		"const isSessionInputReady = (session) => (",
+		"const checkSessionConnectionHealth = (session, { connect = true, force = false } = {}) => {",
+		"startSocketHealthMonitor(session, currentSocket);",
+		"startAttachReadyTimer(session, currentSocket);",
+		"clearAttachReadyTimer(session);",
+		"session.shellEl.dataset.connection = \"open\";",
+		"message.retryable === true",
+		"window.addEventListener(\"pageshow\", () => {",
+		"checkSessionConnectionHealth(pane, { connect: true, force: true });",
+		"document.hidden",
+	}
+	for _, want := range wantSnippets {
+		if !strings.Contains(source, want) {
+			t.Fatalf("runtime websocket reconnect health guard missing %q", want)
+		}
+	}
+}
+
 func TestRuntimeTerminalInputChunksLargePaste(t *testing.T) {
 	data, err := os.ReadFile("runtime/static/main.js")
 	if err != nil {

@@ -22,7 +22,7 @@ import (
 )
 
 const (
-	agentProtocolVersion = "lcmd-webshell-agent-v4"
+	agentProtocolVersion = "lcmd-webshell-agent-v5"
 
 	agentFrameBinary         = byte('B')
 	agentFrameText           = byte('T')

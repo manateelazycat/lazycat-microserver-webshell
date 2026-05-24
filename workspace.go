@@ -377,7 +377,10 @@ func writeWebSocketJSON(conn *websocket.Conn, payload any) error {
 	if err != nil {
 		return err
 	}
-	return conn.WriteMessage(websocket.TextMessage, data)
+	_ = conn.SetWriteDeadline(time.Now().Add(websocketWriteTimeout))
+	err = conn.WriteMessage(websocket.TextMessage, data)
+	_ = conn.SetWriteDeadline(time.Time{})
+	return err
 }
 
 func handleTerminalControlMessage(pane *terminalPane, payload []byte, client *paneClient) bool {
