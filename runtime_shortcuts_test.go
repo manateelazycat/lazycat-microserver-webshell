@@ -237,6 +237,39 @@ func TestRuntimeMobileSettingsUsesListNavigation(t *testing.T) {
 	}
 }
 
+func TestRuntimeMobileDoubleTapReminderSetting(t *testing.T) {
+	wantSnippets := map[string][]string{
+		"runtime/static/index.html": {
+			`id="settingsMobileDoubleTapReminderToggle"`,
+			`双击屏幕提醒`,
+			`熟悉手机双击进入编辑的操作后,可以关闭这个选项`,
+		},
+		"runtime/static/main.js": {
+			`const settingsMobileDoubleTapReminderToggle = document.getElementById("settingsMobileDoubleTapReminderToggle");`,
+			`let mobileDoubleTapReminderEnabled = true;`,
+			`mobileDoubleTapReminderEnabled = state?.mobile_double_tap_reminder_enabled !== false;`,
+			`body: JSON.stringify({ mobile_double_tap_reminder_enabled: enabled }),`,
+			`if (!mobileDoubleTapReminderEnabled || !mobileLayoutQuery?.matches) {`,
+			`const activePaneDirectoryLabel = () => {`,
+			`: activePaneDirectoryLabel() || String(currentTab()?.label || "终端").trim() || "终端";`,
+			`settingsMobileDoubleTapReminderToggle?.addEventListener("change", () => {`,
+		},
+	}
+
+	for path, snippets := range wantSnippets {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("ReadFile(%s) error = %v", path, err)
+		}
+		source := string(data)
+		for _, want := range snippets {
+			if !strings.Contains(source, want) {
+				t.Fatalf("runtime mobile double tap reminder setting guard missing %q in %s", want, path)
+			}
+		}
+	}
+}
+
 func TestRuntimeDefaultMobileShortcutOrder(t *testing.T) {
 	data, err := os.ReadFile("runtime/static/main.js")
 	if err != nil {

@@ -41,25 +41,27 @@ type Store struct {
 }
 
 type State struct {
-	TerminalFontID               string               `json:"terminal_font_id"`
-	TerminalSymbolFont           *SymbolDescriptor    `json:"terminal_symbol_font,omitempty"`
-	TerminalScrollback           int                  `json:"terminal_scrollback"`
-	DesktopMouseClipboardEnabled bool                 `json:"desktop_mouse_clipboard_enabled"`
-	MobilePixelScrollEnabled     bool                 `json:"mobile_pixel_scroll_enabled"`
-	MobileShortcuts              MobileShortcutRows   `json:"mobile_shortcuts"`
-	DesktopShortcuts             *DesktopShortcutList `json:"desktop_shortcuts,omitempty"`
-	Fonts                        []Descriptor         `json:"fonts"`
+	TerminalFontID                 string               `json:"terminal_font_id"`
+	TerminalSymbolFont             *SymbolDescriptor    `json:"terminal_symbol_font,omitempty"`
+	TerminalScrollback             int                  `json:"terminal_scrollback"`
+	DesktopMouseClipboardEnabled   bool                 `json:"desktop_mouse_clipboard_enabled"`
+	MobilePixelScrollEnabled       bool                 `json:"mobile_pixel_scroll_enabled"`
+	MobileDoubleTapReminderEnabled bool                 `json:"mobile_double_tap_reminder_enabled"`
+	MobileShortcuts                MobileShortcutRows   `json:"mobile_shortcuts"`
+	DesktopShortcuts               *DesktopShortcutList `json:"desktop_shortcuts,omitempty"`
+	Fonts                          []Descriptor         `json:"fonts"`
 }
 
 type Settings struct {
-	TerminalFontID               string               `json:"terminal_font_id"`
-	TerminalFontSystemDefault    bool                 `json:"terminal_font_system_default,omitempty"`
-	TerminalScrollback           int                  `json:"terminal_scrollback"`
-	DesktopMouseClipboardEnabled *bool                `json:"desktop_mouse_clipboard_enabled,omitempty"`
-	MobilePixelScrollEnabled     *bool                `json:"mobile_pixel_scroll_enabled,omitempty"`
-	MobileShortcuts              *MobileShortcutRows  `json:"mobile_shortcuts,omitempty"`
-	DesktopShortcuts             *DesktopShortcutList `json:"desktop_shortcuts"`
-	DeletedBuiltinFontIDs        []string             `json:"deleted_builtin_font_ids,omitempty"`
+	TerminalFontID                 string               `json:"terminal_font_id"`
+	TerminalFontSystemDefault      bool                 `json:"terminal_font_system_default,omitempty"`
+	TerminalScrollback             int                  `json:"terminal_scrollback"`
+	DesktopMouseClipboardEnabled   *bool                `json:"desktop_mouse_clipboard_enabled,omitempty"`
+	MobilePixelScrollEnabled       *bool                `json:"mobile_pixel_scroll_enabled,omitempty"`
+	MobileDoubleTapReminderEnabled *bool                `json:"mobile_double_tap_reminder_enabled,omitempty"`
+	MobileShortcuts                *MobileShortcutRows  `json:"mobile_shortcuts,omitempty"`
+	DesktopShortcuts               *DesktopShortcutList `json:"desktop_shortcuts"`
+	DeletedBuiltinFontIDs          []string             `json:"deleted_builtin_font_ids,omitempty"`
 }
 
 type MobileShortcutRows [][]MobileShortcut
@@ -337,14 +339,15 @@ func (s Store) State() (State, error) {
 		selected = DefaultTerminalFontID
 	}
 	return State{
-		TerminalFontID:               selected,
-		TerminalSymbolFont:           symbolFont,
-		TerminalScrollback:           settings.TerminalScrollback,
-		DesktopMouseClipboardEnabled: desktopMouseClipboardEnabled(settings),
-		MobilePixelScrollEnabled:     mobilePixelScrollEnabled(settings),
-		MobileShortcuts:              effectiveMobileShortcuts(settings),
-		DesktopShortcuts:             effectiveDesktopShortcuts(settings),
-		Fonts:                        fonts,
+		TerminalFontID:                 selected,
+		TerminalSymbolFont:             symbolFont,
+		TerminalScrollback:             settings.TerminalScrollback,
+		DesktopMouseClipboardEnabled:   desktopMouseClipboardEnabled(settings),
+		MobilePixelScrollEnabled:       mobilePixelScrollEnabled(settings),
+		MobileDoubleTapReminderEnabled: mobileDoubleTapReminderEnabled(settings),
+		MobileShortcuts:                effectiveMobileShortcuts(settings),
+		DesktopShortcuts:               effectiveDesktopShortcuts(settings),
+		Fonts:                          fonts,
 	}, nil
 }
 
@@ -352,11 +355,12 @@ func (s Store) ReadSettings() (Settings, error) {
 	data, err := os.ReadFile(s.settingsPath())
 	if errors.Is(err, os.ErrNotExist) {
 		return Settings{
-			TerminalScrollback:           DefaultTerminalScrollback,
-			DesktopMouseClipboardEnabled: boolPtr(true),
-			MobilePixelScrollEnabled:     boolPtr(true),
-			MobileShortcuts:              nil,
-			DesktopShortcuts:             nil,
+			TerminalScrollback:             DefaultTerminalScrollback,
+			DesktopMouseClipboardEnabled:   boolPtr(true),
+			MobilePixelScrollEnabled:       boolPtr(true),
+			MobileDoubleTapReminderEnabled: boolPtr(true),
+			MobileShortcuts:                nil,
+			DesktopShortcuts:               nil,
 		}, nil
 	}
 	if err != nil {
@@ -370,6 +374,7 @@ func (s Store) ReadSettings() (Settings, error) {
 	settings.TerminalScrollback = normalizeTerminalScrollback(settings.TerminalScrollback)
 	settings.DesktopMouseClipboardEnabled = normalizeDesktopMouseClipboardEnabled(settings.DesktopMouseClipboardEnabled)
 	settings.MobilePixelScrollEnabled = normalizeMobilePixelScrollEnabled(settings.MobilePixelScrollEnabled)
+	settings.MobileDoubleTapReminderEnabled = normalizeMobileDoubleTapReminderEnabled(settings.MobileDoubleTapReminderEnabled)
 	if settings.MobileShortcuts != nil {
 		normalized, err := normalizeMobileShortcuts(*settings.MobileShortcuts)
 		if err != nil {
@@ -600,6 +605,8 @@ func (s Store) WriteSettings(settings Settings) error {
 	settings.TerminalFontID = strings.TrimSpace(settings.TerminalFontID)
 	settings.TerminalScrollback = normalizeTerminalScrollback(settings.TerminalScrollback)
 	settings.DesktopMouseClipboardEnabled = normalizeDesktopMouseClipboardEnabled(settings.DesktopMouseClipboardEnabled)
+	settings.MobilePixelScrollEnabled = normalizeMobilePixelScrollEnabled(settings.MobilePixelScrollEnabled)
+	settings.MobileDoubleTapReminderEnabled = normalizeMobileDoubleTapReminderEnabled(settings.MobileDoubleTapReminderEnabled)
 	if settings.MobileShortcuts != nil {
 		normalized, err := normalizeMobileShortcuts(*settings.MobileShortcuts)
 		if err != nil {
@@ -649,6 +656,7 @@ func (s Store) SaveSettings(settings Settings) error {
 	settings.TerminalFontID = strings.TrimSpace(settings.TerminalFontID)
 	settings.DesktopMouseClipboardEnabled = normalizeDesktopMouseClipboardEnabled(settings.DesktopMouseClipboardEnabled)
 	settings.MobilePixelScrollEnabled = normalizeMobilePixelScrollEnabled(settings.MobilePixelScrollEnabled)
+	settings.MobileDoubleTapReminderEnabled = normalizeMobileDoubleTapReminderEnabled(settings.MobileDoubleTapReminderEnabled)
 	if settings.MobileShortcuts != nil {
 		normalized, err := normalizeMobileShortcuts(*settings.MobileShortcuts)
 		if err != nil {
@@ -677,6 +685,7 @@ func (s Store) MergeSettings(settings Settings, pruneMissingSelection bool) (Set
 	settings.TerminalFontID = strings.TrimSpace(settings.TerminalFontID)
 	settings.DesktopMouseClipboardEnabled = normalizeDesktopMouseClipboardEnabled(settings.DesktopMouseClipboardEnabled)
 	settings.MobilePixelScrollEnabled = normalizeMobilePixelScrollEnabled(settings.MobilePixelScrollEnabled)
+	settings.MobileDoubleTapReminderEnabled = normalizeMobileDoubleTapReminderEnabled(settings.MobileDoubleTapReminderEnabled)
 	if settings.MobileShortcuts != nil {
 		normalized, err := normalizeMobileShortcuts(*settings.MobileShortcuts)
 		if err != nil {
@@ -877,6 +886,14 @@ func normalizeDesktopMouseClipboardEnabled(value *bool) *bool {
 }
 
 func normalizeMobilePixelScrollEnabled(value *bool) *bool {
+	if value == nil {
+		return boolPtr(true)
+	}
+	enabled := *value
+	return &enabled
+}
+
+func normalizeMobileDoubleTapReminderEnabled(value *bool) *bool {
 	if value == nil {
 		return boolPtr(true)
 	}
@@ -1160,6 +1177,13 @@ func mobilePixelScrollEnabled(settings Settings) bool {
 		return true
 	}
 	return *settings.MobilePixelScrollEnabled
+}
+
+func mobileDoubleTapReminderEnabled(settings Settings) bool {
+	if settings.MobileDoubleTapReminderEnabled == nil {
+		return true
+	}
+	return *settings.MobileDoubleTapReminderEnabled
 }
 
 func boolPtr(value bool) *bool {

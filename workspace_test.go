@@ -552,7 +552,7 @@ func TestHandleSettingsPatchScrollbackPreservesFont(t *testing.T) {
 	}
 }
 
-func TestHandleSettingsDefaultsDesktopMouseClipboardAndMobilePixelScrollEnabled(t *testing.T) {
+func TestHandleSettingsDefaultsDesktopMouseClipboardMobilePixelScrollAndDoubleTapReminderEnabled(t *testing.T) {
 	server := &pluginServer{fontDir: t.TempDir()}
 
 	recorder := httptest.NewRecorder()
@@ -571,9 +571,12 @@ func TestHandleSettingsDefaultsDesktopMouseClipboardAndMobilePixelScrollEnabled(
 	if !state.MobilePixelScrollEnabled {
 		t.Fatalf("MobilePixelScrollEnabled = false, want default true")
 	}
+	if !state.MobileDoubleTapReminderEnabled {
+		t.Fatalf("MobileDoubleTapReminderEnabled = false, want default true")
+	}
 }
 
-func TestHandleSettingsPatchDesktopMouseClipboardAndMobilePixelScrollPreservesFontAndScrollback(t *testing.T) {
+func TestHandleSettingsPatchDesktopMouseClipboardMobilePixelScrollAndDoubleTapReminderPreservesFontAndScrollback(t *testing.T) {
 	server := &pluginServer{fontDir: t.TempDir()}
 	store := server.fontStore()
 	font, err := store.StoreUpload("Mono.woff2", "font/woff2", strings.NewReader("font-data"))
@@ -588,7 +591,7 @@ func TestHandleSettingsPatchDesktopMouseClipboardAndMobilePixelScrollPreservesFo
 	}
 
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodPut, "/api/settings", strings.NewReader(`{"desktop_mouse_clipboard_enabled":false,"mobile_pixel_scroll_enabled":false}`))
+	request := httptest.NewRequest(http.MethodPut, "/api/settings", strings.NewReader(`{"desktop_mouse_clipboard_enabled":false,"mobile_pixel_scroll_enabled":false,"mobile_double_tap_reminder_enabled":false}`))
 	request.Header.Set("Content-Type", "application/json")
 	server.handleSettings(recorder, request)
 
@@ -599,8 +602,8 @@ func TestHandleSettingsPatchDesktopMouseClipboardAndMobilePixelScrollPreservesFo
 	if err := json.NewDecoder(recorder.Body).Decode(&state); err != nil {
 		t.Fatalf("decode response error = %v", err)
 	}
-	if state.TerminalFontID != font.ID || state.TerminalScrollback != 44000 || state.DesktopMouseClipboardEnabled || state.MobilePixelScrollEnabled {
-		t.Fatalf("State = %+v, want selected font, scrollback 44000, disabled mouse clipboard, and disabled mobile pixel scroll", state)
+	if state.TerminalFontID != font.ID || state.TerminalScrollback != 44000 || state.DesktopMouseClipboardEnabled || state.MobilePixelScrollEnabled || state.MobileDoubleTapReminderEnabled {
+		t.Fatalf("State = %+v, want selected font, scrollback 44000, disabled mouse clipboard, disabled mobile pixel scroll, and disabled double tap reminder", state)
 	}
 }
 
@@ -730,9 +733,10 @@ func TestHandleSettingsPatchMobileShortcutsPreservesExistingSettings(t *testing.
 	}
 	disabled := false
 	settings := fonts.Settings{
-		TerminalFontID:               font.ID,
-		TerminalScrollback:           33000,
-		DesktopMouseClipboardEnabled: &disabled,
+		TerminalFontID:                 font.ID,
+		TerminalScrollback:             33000,
+		DesktopMouseClipboardEnabled:   &disabled,
+		MobileDoubleTapReminderEnabled: &disabled,
 	}
 	if err := store.SaveSettings(settings); err != nil {
 		t.Fatalf("SaveSettings() error = %v", err)
@@ -751,7 +755,7 @@ func TestHandleSettingsPatchMobileShortcutsPreservesExistingSettings(t *testing.
 	if err := json.NewDecoder(recorder.Body).Decode(&state); err != nil {
 		t.Fatalf("decode response error = %v", err)
 	}
-	if state.TerminalFontID != font.ID || state.TerminalScrollback != 33000 || state.DesktopMouseClipboardEnabled {
+	if state.TerminalFontID != font.ID || state.TerminalScrollback != 33000 || state.DesktopMouseClipboardEnabled || state.MobileDoubleTapReminderEnabled {
 		t.Fatalf("State = %+v, want preserved existing settings", state)
 	}
 	if got := state.MobileShortcuts[0][0]; got.ID != "custom-a" || !got.InputModifiers.Ctrl {

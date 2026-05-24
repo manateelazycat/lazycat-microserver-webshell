@@ -49,6 +49,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   const settingsScrollbackResetButton = document.getElementById("settingsScrollbackResetButton");
   const settingsDesktopMouseClipboardToggle = document.getElementById("settingsDesktopMouseClipboardToggle");
   const settingsMobilePixelScrollToggle = document.getElementById("settingsMobilePixelScrollToggle");
+  const settingsMobileDoubleTapReminderToggle = document.getElementById("settingsMobileDoubleTapReminderToggle");
   const settingsMobileShortcutAddButton = document.getElementById("settingsMobileShortcutAddButton");
   const settingsMobileShortcutResetButton = document.getElementById("settingsMobileShortcutResetButton");
   const settingsMobileShortcutList = document.getElementById("settingsMobileShortcutList");
@@ -411,6 +412,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   let terminalSymbolFont = null;
   let desktopMouseClipboardEnabled = true;
   let mobilePixelScrollEnabled = true;
+  let mobileDoubleTapReminderEnabled = true;
   let fontEditMode = false;
   const selectedFontDeleteIDs = new Set();
   const registeredFontFaces = new Map();
@@ -456,6 +458,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   let settingsScrollbackSaveRequestSeq = 0;
   let settingsDesktopMouseClipboardRequestSeq = 0;
   let settingsMobilePixelScrollRequestSeq = 0;
+  let settingsMobileDoubleTapReminderRequestSeq = 0;
   let attachmentBrowserEdgeSwipe = null;
   let mobileShortcutsSaveRequestSeq = 0;
   let mobileShortcutsSaveVersion = 0;
@@ -889,6 +892,12 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     }
   };
 
+  const syncSettingsMobileDoubleTapReminderToggle = () => {
+    if (settingsMobileDoubleTapReminderToggle) {
+      settingsMobileDoubleTapReminderToggle.checked = mobileDoubleTapReminderEnabled;
+    }
+  };
+
   const setSettingsScrollbackSaving = (saving) => {
     if (settingsScrollbackResetButton) {
       settingsScrollbackResetButton.disabled = saving;
@@ -928,6 +937,12 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   const setSettingsMobilePixelScrollSaving = (saving) => {
     if (settingsMobilePixelScrollToggle) {
       settingsMobilePixelScrollToggle.disabled = saving;
+    }
+  };
+
+  const setSettingsMobileDoubleTapReminderSaving = (saving) => {
+    if (settingsMobileDoubleTapReminderToggle) {
+      settingsMobileDoubleTapReminderToggle.disabled = saving;
     }
   };
 
@@ -1960,6 +1975,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     terminalOptionsBase.scrollback = normalizeTerminalScrollback(state?.terminal_scrollback);
     desktopMouseClipboardEnabled = state?.desktop_mouse_clipboard_enabled !== false;
     mobilePixelScrollEnabled = state?.mobile_pixel_scroll_enabled !== false;
+    mobileDoubleTapReminderEnabled = state?.mobile_double_tap_reminder_enabled !== false;
     applyMobileShortcutRows(normalizeMobileShortcutRows(state?.mobile_shortcuts), { remember: true });
     const hasCustomDesktopShortcuts = Array.isArray(state?.desktop_shortcuts);
     applyDesktopShortcuts(hasCustomDesktopShortcuts ? state.desktop_shortcuts : defaultDesktopShortcutsConfig, { remember: true });
@@ -1968,7 +1984,9 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     }
     syncSettingsDesktopMouseClipboardToggle();
     syncSettingsMobilePixelScrollToggle();
+    syncSettingsMobileDoubleTapReminderToggle();
     resizeActiveTabForCurrentDevice();
+    updateMobileActiveTabTitle();
     await registerTerminalSymbolFont(terminalSymbolFont);
     await registerUploadedFonts(uploadedFonts);
     renderSettingsFonts();
@@ -2032,6 +2050,21 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     });
     if (!response.ok) {
       throw new Error(await readResponseText(response, `像素级滚动设置保存失败 (${response.status})`));
+    }
+    await applySettingsState(await response.json(), { syncScrollbackInput: false });
+  };
+
+  const saveMobileDoubleTapReminderEnabled = async (enabled) => {
+    mobileDoubleTapReminderEnabled = enabled;
+    syncSettingsMobileDoubleTapReminderToggle();
+    updateMobileActiveTabTitle();
+    const response = await fetch("./api/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mobile_double_tap_reminder_enabled: enabled }),
+    });
+    if (!response.ok) {
+      throw new Error(await readResponseText(response, `双击屏幕提醒设置保存失败 (${response.status})`));
     }
     await applySettingsState(await response.json(), { syncScrollbackInput: false });
   };
@@ -4382,8 +4415,30 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
 
   const currentTab = () => tabs.get(activeTabId) || null;
 
+  const pathBasenameLabel = (path) => {
+    const raw = String(path || "").trim();
+    if (!raw) {
+      return "";
+    }
+    if (raw === "/") {
+      return "ROOT";
+    }
+    const trimmed = raw.replace(/\/+$/g, "");
+    if (!trimmed || trimmed === "/") {
+      return "ROOT";
+    }
+    const parts = trimmed.split("/").filter(Boolean);
+    return parts.pop() || "";
+  };
+
+  const activePaneDirectoryLabel = () => {
+    const tab = currentTab();
+    const pane = tab?.panes.get(tab.activePaneId) || null;
+    return pathBasenameLabel(pane?.cwd);
+  };
+
   const shouldShowMobileKeyboardFocusPrompt = () => {
-    if (!mobileLayoutQuery?.matches) {
+    if (!mobileDoubleTapReminderEnabled || !mobileLayoutQuery?.matches) {
       return false;
     }
     const tab = currentTab();
@@ -4398,7 +4453,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     }
     const label = shouldShowMobileKeyboardFocusPrompt()
       ? mobileKeyboardFocusPrompt
-      : String(currentTab()?.label || "终端").trim() || "终端";
+      : activePaneDirectoryLabel() || String(currentTab()?.label || "终端").trim() || "终端";
     mobileActiveTabTitle.textContent = label;
     mobileActiveTabTitle.title = label;
   };
@@ -7654,21 +7709,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     return result === null ? null : String(result || "").trim();
   };
 
-  const displayPathLabel = (path) => {
-    const raw = String(path || "").trim();
-    if (!raw) {
-      return "";
-    }
-    if (raw === "/") {
-      return "ROOT";
-    }
-    const trimmed = raw.replace(/\/+$/g, "");
-    if (!trimmed || trimmed === "/") {
-      return "ROOT";
-    }
-    const parts = trimmed.split("/").filter(Boolean);
-    return parts.pop() || "";
-  };
+  const displayPathLabel = pathBasenameLabel;
 
   const resolvePaneAutoLabel = (pane) => {
     const pathLabel = displayPathLabel(pane?.cwd);
@@ -7718,6 +7759,9 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       markSessionIdleNotification(pane, wasBusy, isBusy);
       if (tab.activePaneId === pane.id) {
         refreshTabAutoLabel(tab);
+        if (tab.id === activeTabId) {
+          updateMobileActiveTabTitle();
+        }
       }
       return;
     }
@@ -12691,6 +12735,26 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       .finally(() => {
         if (requestSeq === settingsMobilePixelScrollRequestSeq) {
           setSettingsMobilePixelScrollSaving(false);
+        }
+      });
+  });
+  settingsMobileDoubleTapReminderToggle?.addEventListener("change", () => {
+    const previous = mobileDoubleTapReminderEnabled;
+    const enabled = settingsMobileDoubleTapReminderToggle.checked;
+    const requestSeq = ++settingsMobileDoubleTapReminderRequestSeq;
+    setSettingsMobileDoubleTapReminderSaving(true);
+    saveMobileDoubleTapReminderEnabled(enabled)
+      .catch((error) => {
+        if (requestSeq === settingsMobileDoubleTapReminderRequestSeq) {
+          mobileDoubleTapReminderEnabled = previous;
+          syncSettingsMobileDoubleTapReminderToggle();
+          updateMobileActiveTabTitle();
+        }
+        setSettingsFeedback(error.message || "双击屏幕提醒设置保存失败。", "error");
+      })
+      .finally(() => {
+        if (requestSeq === settingsMobileDoubleTapReminderRequestSeq) {
+          setSettingsMobileDoubleTapReminderSaving(false);
         }
       });
   });
