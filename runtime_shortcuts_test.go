@@ -270,6 +270,41 @@ func TestRuntimeMobileDoubleTapReminderSetting(t *testing.T) {
 	}
 }
 
+func TestRuntimeSettingsFontCardsUseFontPreview(t *testing.T) {
+	mainData, err := os.ReadFile("runtime/static/main.js")
+	if err != nil {
+		t.Fatalf("ReadFile(runtime/static/main.js) error = %v", err)
+	}
+	styleData, err := os.ReadFile("runtime/static/style.css")
+	if err != nil {
+		t.Fatalf("ReadFile(runtime/static/style.css) error = %v", err)
+	}
+	mainSource := string(mainData)
+	styleSource := string(styleData)
+
+	for _, want := range []string{
+		`const buildSettingsFontPreviewFamily = (font) => [`,
+		`<span class="settings-font-card-preview">Aa 123 中文 ~/λ</span>`,
+		`defaultCard.querySelector(".settings-font-card-preview").style.fontFamily = buildSettingsFontPreviewFamily(null);`,
+		`preview.className = "settings-font-card-preview";`,
+		`preview.style.fontFamily = buildSettingsFontPreviewFamily(font);`,
+		`card.append(check, preview, title, meta, state);`,
+	} {
+		if !strings.Contains(mainSource, want) {
+			t.Fatalf("runtime settings font card preview guard missing %q", want)
+		}
+	}
+	for _, want := range []string{
+		`.settings-font-card-preview`,
+		`font-size: 18px;`,
+		`line-height: 1.25;`,
+	} {
+		if !strings.Contains(styleSource, want) {
+			t.Fatalf("runtime settings font card preview style guard missing %q", want)
+		}
+	}
+}
+
 func TestRuntimeDefaultMobileShortcutOrder(t *testing.T) {
 	data, err := os.ReadFile("runtime/static/main.js")
 	if err != nil {

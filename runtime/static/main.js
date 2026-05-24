@@ -1196,6 +1196,12 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     defaultTerminalFontFamily,
   ].filter(Boolean).join(", ");
 
+  const buildSettingsFontPreviewFamily = (font) => [
+    font?.family ? cssString(font.family) : "",
+    terminalSymbolFont?.family ? cssString(terminalSymbolFont.family) : "",
+    defaultTerminalFontFamily,
+  ].filter(Boolean).join(", ");
+
   const applyTerminalFont = () => {
     const selected = uploadedFonts.find((font) => font.id === activeTerminalFontID);
     terminalOptionsBase.fontFamily = buildTerminalFontFamily(selected);
@@ -1248,10 +1254,12 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     defaultCard.setAttribute("aria-disabled", fontEditMode ? "true" : "false");
     defaultCard.innerHTML = `
       <span class="settings-font-card-check" aria-hidden="true"></span>
+      <span class="settings-font-card-preview">Aa 123 中文 ~/λ</span>
       <span class="settings-font-card-title">系统默认</span>
       <span class="settings-font-card-meta">内置终端字体</span>
       <span class="settings-font-card-state">${activeTerminalFontID ? "" : "当前使用"}</span>
     `;
+    defaultCard.querySelector(".settings-font-card-preview").style.fontFamily = buildSettingsFontPreviewFamily(null);
     settingsFontCards.appendChild(defaultCard);
     for (const font of uploadedFonts) {
       const selectedForDelete = selectedFontDeleteIDs.has(font.id);
@@ -1268,6 +1276,10 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       const title = document.createElement("span");
       title.className = "settings-font-card-title";
       title.textContent = font.label || font.filename || font.family;
+      const preview = document.createElement("span");
+      preview.className = "settings-font-card-preview";
+      preview.style.fontFamily = buildSettingsFontPreviewFamily(font);
+      preview.textContent = "Aa 123 中文 ~/λ";
       const meta = document.createElement("span");
       meta.className = "settings-font-card-meta";
       meta.textContent = [font.builtin ? "预装字体" : font.filename, size].filter(Boolean).join(" · ");
@@ -1277,7 +1289,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       const check = document.createElement("span");
       check.className = "settings-font-card-check";
       check.setAttribute("aria-hidden", "true");
-      card.append(check, title, meta, state);
+      card.append(check, preview, title, meta, state);
       settingsFontCards.appendChild(card);
     }
     syncFontEditControls();
