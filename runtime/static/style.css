@@ -1538,12 +1538,21 @@ body.split-resize-active * {
 }
 
 .settings-font-card-title,
+.settings-font-card-preview,
 .settings-font-card-meta,
 .settings-font-card-state {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.settings-font-card-preview {
+  padding-right: 20px;
+  color: var(--text);
+  font-size: 18px;
+  font-weight: 500;
+  line-height: 1.25;
 }
 
 .settings-font-card-title {
