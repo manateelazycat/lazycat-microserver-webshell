@@ -22,10 +22,13 @@ const (
 	DirEnv     = "WEBSHELL_FONT_DIR"
 	MaxBytes   = 50 << 20
 
-	DefaultTerminalScrollback = 5000
-	MinTerminalScrollback     = 100
-	MaxTerminalScrollback     = 100000
-	DefaultTerminalFontID     = "03e60d3c1a9f8bef4e1f78836f80aacb9ec005260a6b094f5bfc10043bb115ab"
+	DefaultTerminalScrollback        = 5000
+	MinTerminalScrollback            = 100
+	MaxTerminalScrollback            = 100000
+	DefaultTerminalLineHeightPercent = 100
+	MinTerminalLineHeightPercent     = 100
+	MaxTerminalLineHeightPercent     = 160
+	DefaultTerminalFontID            = "03e60d3c1a9f8bef4e1f78836f80aacb9ec005260a6b094f5bfc10043bb115ab"
 )
 
 var (
@@ -44,6 +47,7 @@ type State struct {
 	TerminalFontID                 string               `json:"terminal_font_id"`
 	TerminalSymbolFont             *SymbolDescriptor    `json:"terminal_symbol_font,omitempty"`
 	TerminalScrollback             int                  `json:"terminal_scrollback"`
+	TerminalLineHeightPercent      int                  `json:"terminal_line_height_percent"`
 	DesktopMouseClipboardEnabled   bool                 `json:"desktop_mouse_clipboard_enabled"`
 	MobilePixelScrollEnabled       bool                 `json:"mobile_pixel_scroll_enabled"`
 	MobileDoubleTapReminderEnabled bool                 `json:"mobile_double_tap_reminder_enabled"`
@@ -56,6 +60,7 @@ type Settings struct {
 	TerminalFontID                 string               `json:"terminal_font_id"`
 	TerminalFontSystemDefault      bool                 `json:"terminal_font_system_default,omitempty"`
 	TerminalScrollback             int                  `json:"terminal_scrollback"`
+	TerminalLineHeightPercent      int                  `json:"terminal_line_height_percent"`
 	DesktopMouseClipboardEnabled   *bool                `json:"desktop_mouse_clipboard_enabled,omitempty"`
 	MobilePixelScrollEnabled       *bool                `json:"mobile_pixel_scroll_enabled,omitempty"`
 	MobileDoubleTapReminderEnabled *bool                `json:"mobile_double_tap_reminder_enabled,omitempty"`
@@ -342,6 +347,7 @@ func (s Store) State() (State, error) {
 		TerminalFontID:                 selected,
 		TerminalSymbolFont:             symbolFont,
 		TerminalScrollback:             settings.TerminalScrollback,
+		TerminalLineHeightPercent:      settings.TerminalLineHeightPercent,
 		DesktopMouseClipboardEnabled:   desktopMouseClipboardEnabled(settings),
 		MobilePixelScrollEnabled:       mobilePixelScrollEnabled(settings),
 		MobileDoubleTapReminderEnabled: mobileDoubleTapReminderEnabled(settings),
@@ -356,6 +362,7 @@ func (s Store) ReadSettings() (Settings, error) {
 	if errors.Is(err, os.ErrNotExist) {
 		return Settings{
 			TerminalScrollback:             DefaultTerminalScrollback,
+			TerminalLineHeightPercent:      DefaultTerminalLineHeightPercent,
 			DesktopMouseClipboardEnabled:   boolPtr(true),
 			MobilePixelScrollEnabled:       boolPtr(true),
 			MobileDoubleTapReminderEnabled: boolPtr(true),
@@ -372,6 +379,7 @@ func (s Store) ReadSettings() (Settings, error) {
 	}
 	settings.TerminalFontID = strings.TrimSpace(settings.TerminalFontID)
 	settings.TerminalScrollback = normalizeTerminalScrollback(settings.TerminalScrollback)
+	settings.TerminalLineHeightPercent = normalizeTerminalLineHeightPercent(settings.TerminalLineHeightPercent)
 	settings.DesktopMouseClipboardEnabled = normalizeDesktopMouseClipboardEnabled(settings.DesktopMouseClipboardEnabled)
 	settings.MobilePixelScrollEnabled = normalizeMobilePixelScrollEnabled(settings.MobilePixelScrollEnabled)
 	settings.MobileDoubleTapReminderEnabled = normalizeMobileDoubleTapReminderEnabled(settings.MobileDoubleTapReminderEnabled)
@@ -604,6 +612,7 @@ func (s Store) WriteMetadata(metadata Metadata) error {
 func (s Store) WriteSettings(settings Settings) error {
 	settings.TerminalFontID = strings.TrimSpace(settings.TerminalFontID)
 	settings.TerminalScrollback = normalizeTerminalScrollback(settings.TerminalScrollback)
+	settings.TerminalLineHeightPercent = normalizeTerminalLineHeightPercent(settings.TerminalLineHeightPercent)
 	settings.DesktopMouseClipboardEnabled = normalizeDesktopMouseClipboardEnabled(settings.DesktopMouseClipboardEnabled)
 	settings.MobilePixelScrollEnabled = normalizeMobilePixelScrollEnabled(settings.MobilePixelScrollEnabled)
 	settings.MobileDoubleTapReminderEnabled = normalizeMobileDoubleTapReminderEnabled(settings.MobileDoubleTapReminderEnabled)
@@ -654,6 +663,11 @@ func (s Store) WriteSettings(settings Settings) error {
 
 func (s Store) SaveSettings(settings Settings) error {
 	settings.TerminalFontID = strings.TrimSpace(settings.TerminalFontID)
+	var err error
+	settings.TerminalLineHeightPercent, err = normalizeTerminalLineHeightPercentForSave(settings.TerminalLineHeightPercent)
+	if err != nil {
+		return err
+	}
 	settings.DesktopMouseClipboardEnabled = normalizeDesktopMouseClipboardEnabled(settings.DesktopMouseClipboardEnabled)
 	settings.MobilePixelScrollEnabled = normalizeMobilePixelScrollEnabled(settings.MobilePixelScrollEnabled)
 	settings.MobileDoubleTapReminderEnabled = normalizeMobileDoubleTapReminderEnabled(settings.MobileDoubleTapReminderEnabled)
@@ -683,6 +697,11 @@ func (s Store) SaveSettings(settings Settings) error {
 
 func (s Store) MergeSettings(settings Settings, pruneMissingSelection bool) (Settings, error) {
 	settings.TerminalFontID = strings.TrimSpace(settings.TerminalFontID)
+	var err error
+	settings.TerminalLineHeightPercent, err = normalizeTerminalLineHeightPercentForSave(settings.TerminalLineHeightPercent)
+	if err != nil {
+		return Settings{}, err
+	}
 	settings.DesktopMouseClipboardEnabled = normalizeDesktopMouseClipboardEnabled(settings.DesktopMouseClipboardEnabled)
 	settings.MobilePixelScrollEnabled = normalizeMobilePixelScrollEnabled(settings.MobilePixelScrollEnabled)
 	settings.MobileDoubleTapReminderEnabled = normalizeMobileDoubleTapReminderEnabled(settings.MobileDoubleTapReminderEnabled)
@@ -875,6 +894,23 @@ func normalizeTerminalScrollback(value int) int {
 		return DefaultTerminalScrollback
 	}
 	return value
+}
+
+func normalizeTerminalLineHeightPercent(value int) int {
+	if value < MinTerminalLineHeightPercent || value > MaxTerminalLineHeightPercent {
+		return DefaultTerminalLineHeightPercent
+	}
+	return value
+}
+
+func normalizeTerminalLineHeightPercentForSave(value int) (int, error) {
+	if value == 0 {
+		return DefaultTerminalLineHeightPercent, nil
+	}
+	if err := ValidateTerminalLineHeightPercent(value); err != nil {
+		return 0, err
+	}
+	return value, nil
 }
 
 func normalizeDesktopMouseClipboardEnabled(value *bool) *bool {
@@ -1193,6 +1229,13 @@ func boolPtr(value bool) *bool {
 func ValidateTerminalScrollback(value int) error {
 	if value < MinTerminalScrollback || value > MaxTerminalScrollback {
 		return fmt.Errorf("%w: terminal scrollback must be between %d and %d", ErrBadRequest, MinTerminalScrollback, MaxTerminalScrollback)
+	}
+	return nil
+}
+
+func ValidateTerminalLineHeightPercent(value int) error {
+	if value < MinTerminalLineHeightPercent || value > MaxTerminalLineHeightPercent {
+		return fmt.Errorf("%w: terminal line height percent must be between %d and %d", ErrBadRequest, MinTerminalLineHeightPercent, MaxTerminalLineHeightPercent)
 	}
 	return nil
 }

@@ -552,6 +552,38 @@ func TestHandleSettingsPatchScrollbackPreservesFont(t *testing.T) {
 	}
 }
 
+func TestHandleSettingsPatchLineHeightPreservesFontAndScrollback(t *testing.T) {
+	server := &pluginServer{fontDir: t.TempDir()}
+	store := server.fontStore()
+	font, err := store.StoreUpload("Mono.woff2", "font/woff2", strings.NewReader("font-data"))
+	if err != nil {
+		t.Fatalf("StoreUpload() error = %v", err)
+	}
+	if err := store.SaveSettings(fonts.Settings{
+		TerminalFontID:            font.ID,
+		TerminalScrollback:        22000,
+		TerminalLineHeightPercent: fonts.DefaultTerminalLineHeightPercent,
+	}); err != nil {
+		t.Fatalf("SaveSettings() error = %v", err)
+	}
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPut, "/api/settings", strings.NewReader(`{"terminal_line_height_percent":135}`))
+	request.Header.Set("Content-Type", "application/json")
+	server.handleSettings(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("handleSettings() status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	var state fonts.State
+	if err := json.NewDecoder(recorder.Body).Decode(&state); err != nil {
+		t.Fatalf("decode response error = %v", err)
+	}
+	if state.TerminalFontID != font.ID || state.TerminalScrollback != 22000 || state.TerminalLineHeightPercent != 135 {
+		t.Fatalf("State = %+v, want selected font, scrollback 22000, and line height 135", state)
+	}
+}
+
 func TestHandleSettingsDefaultsDesktopMouseClipboardMobilePixelScrollAndDoubleTapReminderEnabled(t *testing.T) {
 	server := &pluginServer{fontDir: t.TempDir()}
 
@@ -573,6 +605,9 @@ func TestHandleSettingsDefaultsDesktopMouseClipboardMobilePixelScrollAndDoubleTa
 	}
 	if !state.MobileDoubleTapReminderEnabled {
 		t.Fatalf("MobileDoubleTapReminderEnabled = false, want default true")
+	}
+	if state.TerminalLineHeightPercent != fonts.DefaultTerminalLineHeightPercent {
+		t.Fatalf("TerminalLineHeightPercent = %d, want default %d", state.TerminalLineHeightPercent, fonts.DefaultTerminalLineHeightPercent)
 	}
 }
 
@@ -997,6 +1032,42 @@ func TestHandleSettingsRejectsInvalidScrollbackWithoutWriting(t *testing.T) {
 			}
 			if state.TerminalScrollback != 44000 {
 				t.Fatalf("TerminalScrollback = %d, want preserved 44000", state.TerminalScrollback)
+			}
+		})
+	}
+}
+
+func TestHandleSettingsRejectsInvalidLineHeightWithoutWriting(t *testing.T) {
+	for _, body := range []string{
+		`{"terminal_line_height_percent":0}`,
+		`{"terminal_line_height_percent":99}`,
+		`{"terminal_line_height_percent":161}`,
+		`{"terminal_line_height_percent":"120"}`,
+	} {
+		t.Run(body, func(t *testing.T) {
+			server := &pluginServer{fontDir: t.TempDir()}
+			store := server.fontStore()
+			if err := store.SaveSettings(fonts.Settings{
+				TerminalScrollback:        fonts.DefaultTerminalScrollback,
+				TerminalLineHeightPercent: 135,
+			}); err != nil {
+				t.Fatalf("SaveSettings() error = %v", err)
+			}
+
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(http.MethodPut, "/api/settings", strings.NewReader(body))
+			request.Header.Set("Content-Type", "application/json")
+			server.handleSettings(recorder, request)
+
+			if recorder.Code != http.StatusBadRequest {
+				t.Fatalf("handleSettings() status = %d, body = %s", recorder.Code, recorder.Body.String())
+			}
+			state, err := store.State()
+			if err != nil {
+				t.Fatalf("State() error = %v", err)
+			}
+			if state.TerminalLineHeightPercent != 135 {
+				t.Fatalf("TerminalLineHeightPercent = %d, want preserved 135", state.TerminalLineHeightPercent)
 			}
 		})
 	}

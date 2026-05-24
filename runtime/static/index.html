@@ -172,6 +172,29 @@
                   <div class="settings-font-cards" id="settingsFontCards" role="listbox" aria-label="终端字体"></div>
                 </div>
               </section>
+              <section class="settings-section" aria-labelledby="settingsLineHeightTitle">
+                <div class="settings-section-head">
+                  <h3 id="settingsLineHeightTitle">显示</h3>
+                </div>
+                <div class="settings-number-row">
+                  <label class="settings-number-label" for="settingsLineHeightInput">
+                    <span>行间距</span>
+                    <span>按百分比调整终端行高，100% 为默认，增大后同屏显示行数会减少。</span>
+                  </label>
+                  <div class="settings-number-control">
+                    <div class="settings-number-stepper">
+                      <input class="settings-number-input" id="settingsLineHeightInput" type="number" min="100" max="160" step="1" inputmode="numeric" />
+                      <div class="settings-number-stepper-buttons">
+                        <button class="settings-number-stepper-button up" type="button" data-number-step="up" data-number-target="settingsLineHeightInput" aria-label="增加行间距"></button>
+                        <button class="settings-number-stepper-button down" type="button" data-number-step="down" data-number-target="settingsLineHeightInput" aria-label="减少行间距"></button>
+                      </div>
+                    </div>
+                    <button class="settings-icon-button" id="settingsLineHeightResetButton" type="button" aria-label="恢复默认行间距" title="恢复默认">
+                      <svg t="1778915656350" class="icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" p-id="8293" width="200" height="200" aria-hidden="true"><path d="M566.4 80c-195.2 0-358.4 131.2-412.8 307.2l-41.6-60.8c-16-19.2-44.8-25.6-67.2-9.6-22.4 16-25.6 44.8-12.8 67.2l108.8 153.6c6.4 9.6 12.8 16 22.4 19.2 3.2 0 6.4 3.2 6.4 3.2h6.4c3.2 0 9.6 0 12.8-3.2H192c3.2 0 6.4-3.2 9.6-6.4l156.8-112c22.4-16 25.6-44.8 12.8-67.2-16-22.4-44.8-25.6-67.2-12.8l-64 44.8c44.8-134.4 169.6-230.4 320-230.4 185.6 0 336 150.4 336 336s-150.4 336-336 336c-83.2 0-166.4-32-227.2-89.6-19.2-19.2-51.2-16-67.2 3.2-19.2 19.2-16 51.2 3.2 67.2 80 73.6 182.4 115.2 291.2 115.2 236.8 0 432-195.2 432-432S806.4 80 566.4 80z" fill="currentColor" p-id="8294"></path></svg>
+                    </button>
+                  </div>
+                </div>
+              </section>
               <section class="settings-section" aria-labelledby="settingsScrollbackTitle">
                 <div class="settings-section-head">
                   <h3 id="settingsScrollbackTitle">滚动历史</h3>
@@ -182,7 +205,13 @@
                     <span>行数越大，新开或刷新终端时回放越慢；每 1000 行约 0.35MB，5000 行约 1.75MB，修改后刷新或新建终端生效。</span>
                   </label>
                   <div class="settings-number-control">
-                    <input class="settings-number-input" id="settingsScrollbackInput" type="number" min="100" max="100000" step="1" inputmode="numeric" />
+                    <div class="settings-number-stepper">
+                      <input class="settings-number-input" id="settingsScrollbackInput" type="number" min="100" max="100000" step="1" inputmode="numeric" />
+                      <div class="settings-number-stepper-buttons">
+                        <button class="settings-number-stepper-button up" type="button" data-number-step="up" data-number-target="settingsScrollbackInput" aria-label="增加滚动历史"></button>
+                        <button class="settings-number-stepper-button down" type="button" data-number-step="down" data-number-target="settingsScrollbackInput" aria-label="减少滚动历史"></button>
+                      </div>
+                    </div>
                     <button class="settings-icon-button" id="settingsScrollbackResetButton" type="button" aria-label="恢复默认滚动历史" title="恢复默认">
                       <svg t="1778915656350" class="icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" p-id="8293" width="200" height="200" aria-hidden="true"><path d="M566.4 80c-195.2 0-358.4 131.2-412.8 307.2l-41.6-60.8c-16-19.2-44.8-25.6-67.2-9.6-22.4 16-25.6 44.8-12.8 67.2l108.8 153.6c6.4 9.6 12.8 16 22.4 19.2 3.2 0 6.4 3.2 6.4 3.2h6.4c3.2 0 9.6 0 12.8-3.2H192c3.2 0 6.4-3.2 9.6-6.4l156.8-112c22.4-16 25.6-44.8 12.8-67.2-16-22.4-44.8-25.6-67.2-12.8l-64 44.8c44.8-134.4 169.6-230.4 320-230.4 185.6 0 336 150.4 336 336s-150.4 336-336 336c-83.2 0-166.4-32-227.2-89.6-19.2-19.2-51.2-16-67.2 3.2-19.2 19.2-16 51.2 3.2 67.2 80 73.6 182.4 115.2 291.2 115.2 236.8 0 432-195.2 432-432S806.4 80 566.4 80z" fill="currentColor" p-id="8294"></path></svg>
                     </button>

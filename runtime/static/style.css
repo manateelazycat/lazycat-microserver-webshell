@@ -1316,22 +1316,104 @@ body.split-resize-active * {
   gap: 8px;
 }
 
-.settings-number-input {
+.settings-number-stepper {
+  position: relative;
   width: 132px;
   height: 32px;
   min-width: 0;
-  padding: 0 10px;
+  flex: 0 0 132px;
+  overflow: hidden;
   border: 1px solid var(--panel-border);
   border-radius: 7px;
   background: var(--panel-bg);
   color: var(--text);
+}
+
+.settings-number-stepper:focus-within {
+  border-color: rgba(148, 163, 184, 0.68);
+}
+
+.settings-number-input {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 0 32px 0 10px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text);
+  appearance: textfield;
   font: inherit;
   font-size: 13px;
 }
 
+.settings-number-input::-webkit-outer-spin-button,
+.settings-number-input::-webkit-inner-spin-button {
+  margin: 0;
+  -webkit-appearance: none;
+}
+
 .settings-number-input:focus {
-  border-color: rgba(148, 163, 184, 0.68);
   outline: none;
+}
+
+.settings-number-stepper-buttons {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  bottom: 1px;
+  display: grid;
+  width: 26px;
+  grid-template-rows: 1fr 1fr;
+  overflow: hidden;
+  border-left: 1px solid var(--panel-border);
+  background: var(--panel-subtle-bg);
+}
+
+.settings-number-stepper-button {
+  position: relative;
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  place-items: center;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.settings-number-stepper-button + .settings-number-stepper-button {
+  border-top: 1px solid var(--panel-border);
+}
+
+.settings-number-stepper-button::before {
+  content: "";
+  display: block;
+  width: 0;
+  height: 0;
+  border-right: 4px solid transparent;
+  border-left: 4px solid transparent;
+}
+
+.settings-number-stepper-button.up::before {
+  border-bottom: 5px solid currentColor;
+}
+
+.settings-number-stepper-button.down::before {
+  border-top: 5px solid currentColor;
+}
+
+.settings-number-stepper-button:hover,
+.settings-number-stepper-button:focus-visible {
+  background: var(--panel-hover-bg);
+  color: var(--text);
+  outline: none;
+}
+
+.settings-number-stepper-button:active {
+  color: var(--accent);
 }
 
 .settings-switch-row {
@@ -4227,7 +4309,7 @@ body.is-tab-overview-dragging {
     flex-wrap: nowrap;
   }
 
-  .settings-number-input {
+  .settings-number-stepper {
     width: auto;
     flex: 1 1 auto;
   }
