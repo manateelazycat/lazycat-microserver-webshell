@@ -992,6 +992,13 @@ func TestRuntimeTabResizeDoesNotTemporarilyActivateAllTabs(t *testing.T) {
 		"const resizeActiveTabForCurrentDevice = () => resizeTabForCurrentDevice(currentTab());",
 		"syncTabMobilePixelScroll(tab);",
 		"resizeActiveTabForCurrentDevice();",
+		"const isPaneVisibleForSizing = (pane) => {",
+		"const resizePane = (pane, { visibleOnly = true } = {}) => {",
+		"return false;",
+		"pane.fitAddon?.proposeDimensions?.();",
+		"const scheduleVisibleTabResize = (tab) => {",
+		"window.setTimeout(() => resizeTabForCurrentDevice(tab), 80);",
+		"scheduleVisibleTabResize(tab);",
 	}
 	for _, want := range wantSnippets {
 		if !strings.Contains(source, want) {
@@ -999,11 +1006,28 @@ func TestRuntimeTabResizeDoesNotTemporarilyActivateAllTabs(t *testing.T) {
 		}
 	}
 
+	visibilityIndex := strings.Index(source, "const isPaneVisibleForSizing = (pane) => {")
+	resizeIndex := strings.Index(source, "const resizePane = (pane, { visibleOnly = true } = {}) => {")
+	resetIndex := strings.Index(source, "resetTerminalHostViewport(pane, { clean: true });")
+	if visibilityIndex < 0 || resizeIndex < 0 || resetIndex < 0 || !(visibilityIndex < resizeIndex && resizeIndex < resetIndex) {
+		t.Fatalf("runtime hidden pane resize guard is not before terminal viewport reset")
+	}
+
+	activeTabIndex := strings.Index(source, "const setActiveTab = (tabId, { focus = true, remember = true, rememberRecent = true } = {}) => {")
+	if activeTabIndex < 0 {
+		t.Fatalf("runtime setActiveTab is missing")
+	}
+	scheduleIndex := strings.Index(source[activeTabIndex:], "scheduleVisibleTabResize(tab);")
+	if scheduleIndex < 0 {
+		t.Fatalf("runtime setActiveTab does not schedule visible tab resize")
+	}
+
 	forbiddenSnippets := []string{
 		"const resizeAllTabsForCurrentDevice = () => {",
 		"paneEl.classList.add(\"active\");",
 		"classList.toggle(\"active\", tab.id === visibleTabId)",
 		"visibleTabId = activeTabId",
+		"needsVisibleResize",
 	}
 	for _, forbidden := range forbiddenSnippets {
 		if strings.Contains(source, forbidden) {

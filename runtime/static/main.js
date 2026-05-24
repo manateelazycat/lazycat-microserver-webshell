@@ -6694,17 +6694,32 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
 
   const isPaneMeasurable = (pane) => {
     const host = pane?.terminalHost;
-    return host instanceof HTMLElement && host.isConnected && host.clientWidth > 0 && host.clientHeight > 0;
+    if (!(host instanceof HTMLElement) || !host.isConnected || host.clientWidth <= 0 || host.clientHeight <= 0) {
+      return false;
+    }
+    const rect = host.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0;
   };
 
-  const resizePane = (pane) => {
+  const isPaneVisibleForSizing = (pane) => {
+    return pane?.tabId === activeTabId && isPaneMeasurable(pane);
+  };
+
+  const resizePane = (pane, { visibleOnly = true } = {}) => {
     if (!pane || pane.closed) {
-      return;
+      return false;
+    }
+    if (visibleOnly && !isPaneVisibleForSizing(pane)) {
+      return false;
+    }
+    const dimensions = pane.fitAddon?.proposeDimensions?.();
+    if (!dimensions || dimensions.cols <= 0 || dimensions.rows <= 0) {
+      return false;
     }
     try {
       pane.fitAddon.fit();
     } catch (error) {
-      return;
+      return false;
     }
     resetTerminalHostViewport(pane, { clean: true });
     positionTerminalInput(pane);
@@ -6712,6 +6727,8 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       resetTerminalAfterInitialFit(pane);
     }
     sendTerminalSize(pane);
+    updateMobileSelectionHandles(pane);
+    return true;
   };
 
   const connectPendingSession = (session, { allowHidden = false } = {}) => {
@@ -6766,6 +6783,17 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   };
 
   const resizeActiveTab = () => resizeTab(currentTab());
+
+  const scheduleVisibleTabResize = (tab) => {
+    if (!tab) {
+      return;
+    }
+    window.requestAnimationFrame(() => {
+      resizeTabForCurrentDevice(tab);
+      window.requestAnimationFrame(() => resizeTabForCurrentDevice(tab));
+      window.setTimeout(() => resizeTabForCurrentDevice(tab), 80);
+    });
+  };
 
   const reassertTerminalSize = (session, { force = false } = {}) => {
     if (!session || session.closed) {
@@ -10730,6 +10758,9 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       sendOrQueueInput(session, data, { userInput: !isGeneratedTerminalResponse(data) });
     });
     term.onResize(() => {
+      if (!isPaneVisibleForSizing(session)) {
+        return;
+      }
       resetTerminalHostViewport(session, { clean: true });
       positionTerminalInput(session);
       updateMobileSelectionHandles(session);
@@ -10916,10 +10947,8 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       rememberActiveTab();
     }
     renderAttachmentUploadsForActiveTab();
-    window.requestAnimationFrame(() => {
-      scrollTabButtonIntoView(tab.button);
-      resizeTabForCurrentDevice(tab);
-    });
+    scheduleVisibleTabResize(tab);
+    window.requestAnimationFrame(() => scrollTabButtonIntoView(tab.button));
     if (!applyingWorkspaceState && !wasActive) {
       postWorkspaceAction("activate_tab", { tab_id: tab.id, recent_tab_ids: recentTabIds }).catch((error) => showToast(error.message));
     }
