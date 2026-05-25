@@ -554,7 +554,7 @@ func TestRuntimeMobileIMECompositionPreviewVisible(t *testing.T) {
 		"preview.style.left = `${x}px`;",
 		`preview.style.color = activeTheme.foreground;`,
 		`preview.style.background = activeTheme.background;`,
-		`textarea.style.opacity = "0";`,
+		`textarea.style.opacity = "0.01";`,
 		`textarea.style.outline = "0";`,
 		`textarea.style.boxShadow = "none";`,
 		`textarea.style.webkitAppearance = "none";`,

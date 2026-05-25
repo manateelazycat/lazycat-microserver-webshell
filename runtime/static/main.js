@@ -6124,7 +6124,8 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     textarea.style.appearance = "none";
     textarea.style.webkitAppearance = "none";
     textarea.style.margin = "0";
-    textarea.style.opacity = "0";
+    // Windows WebView IME may ignore a focused textarea when it is fully transparent.
+    textarea.style.opacity = "0.01";
     textarea.style.clipPath = "none";
     textarea.style.overflow = "hidden";
     textarea.style.whiteSpace = "pre";
