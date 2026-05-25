@@ -1,6 +1,8 @@
 package main
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -8,25 +10,37 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
 
 const (
-	maxAttachmentUploadCount = 32
-	maxAttachmentUploadBytes = int64(2 << 30)
+	maxAttachmentUploadCount   = 32
+	maxAttachmentUploadBytes   = int64(2 << 30)
+	maxAttachmentDownloadCount = 64
+	maxAttachmentArchiveCount  = 4096
 )
 
 var errAttachmentTooLarge = errors.New("attachment file is too large")
+var errAttachmentBadRequest = errors.New("bad attachment request")
 
 type attachmentUploadBackend interface {
 	UploadAttachment(ctx context.Context, scope agentScope, username string, filename string, content io.Reader) (attachmentUploadResult, error)
 }
 
+type attachmentFileBackend interface {
+	ListAttachmentFiles(ctx context.Context, scope agentScope, username string, path string) (attachmentFileListResponse, error)
+	StatAttachmentFiles(ctx context.Context, scope agentScope, username string, paths []string) ([]attachmentFileEntry, error)
+	OpenAttachmentFile(ctx context.Context, scope agentScope, username string, path string) (io.ReadCloser, error)
+}
+
 type lightOSAttachmentUploadBackend struct{}
+type lightOSAttachmentFileBackend struct{}
 
 type attachmentUploadResult struct {
 	Name string `json:"name"`
@@ -36,6 +50,27 @@ type attachmentUploadResult struct {
 
 type attachmentUploadResponse struct {
 	Files []attachmentUploadResult `json:"files"`
+}
+
+type attachmentFileEntry struct {
+	Name     string `json:"name"`
+	Path     string `json:"path"`
+	Type     string `json:"type"`
+	Size     int64  `json:"size"`
+	Modified int64  `json:"modified"`
+}
+
+type attachmentFileListResponse struct {
+	Path    string                `json:"path"`
+	Parent  string                `json:"parent,omitempty"`
+	Entries []attachmentFileEntry `json:"entries"`
+}
+
+type attachmentArchiveSource struct {
+	Name     string
+	Path     string
+	Type     string
+	Modified int64
 }
 
 func (s *pluginServer) handleAttachments(w http.ResponseWriter, r *http.Request) {
@@ -113,11 +148,239 @@ func (s *pluginServer) handleAttachments(w http.ResponseWriter, r *http.Request)
 	writeJSONStatus(w, http.StatusCreated, response)
 }
 
+func (s *pluginServer) handleAttachmentFiles(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	scope, username, ok := s.resolveAttachmentRequestScope(w, r)
+	if !ok {
+		return
+	}
+	state, err := s.attachmentFileBackend().ListAttachmentFiles(r.Context(), scope, username, r.URL.Query().Get("path"))
+	if err != nil {
+		writeAttachmentFileError(w, err)
+		return
+	}
+	writeJSON(w, state)
+}
+
+func (s *pluginServer) handleAttachmentDownload(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	scope, username, ok := s.resolveAttachmentRequestScope(w, r)
+	if !ok {
+		return
+	}
+	paths := normalizeAttachmentDownloadPaths(r.URL.Query()["path"])
+	if len(paths) == 0 {
+		http.Error(w, "path is required", http.StatusBadRequest)
+		return
+	}
+	if len(paths) > maxAttachmentDownloadCount {
+		http.Error(w, "too many files", http.StatusBadRequest)
+		return
+	}
+	backend := s.attachmentFileBackend()
+	entries, err := backend.StatAttachmentFiles(r.Context(), scope, username, paths)
+	if err != nil {
+		writeAttachmentFileError(w, err)
+		return
+	}
+	if len(entries) != len(paths) {
+		http.Error(w, "invalid file selection", http.StatusBadGateway)
+		return
+	}
+	if len(entries) == 1 && entries[0].Type != "dir" {
+		s.serveSingleAttachmentDownload(w, r, backend, scope, username, entries[0])
+		return
+	}
+	s.serveAttachmentZipDownload(w, r, backend, scope, username, entries)
+}
+
+func (s *pluginServer) resolveAttachmentRequestScope(w http.ResponseWriter, r *http.Request) (agentScope, string, bool) {
+	selector := strings.TrimSpace(r.URL.Query().Get("name"))
+	if selector == "" {
+		http.Error(w, "name is required", http.StatusBadRequest)
+		return agentScope{}, "", false
+	}
+	accountID := currentRequestAccountID(r)
+	if accountID == "" {
+		http.Error(w, "account id is required", http.StatusUnauthorized)
+		return agentScope{}, "", false
+	}
+	if err := s.authorizeInstanceSelector(r.Context(), selector); err != nil {
+		writeAuthorizationError(w, err)
+		return agentScope{}, "", false
+	}
+	username, err := s.resolveAttachmentUsername(r.Context(), selector)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return agentScope{}, "", false
+	}
+	return normalizeAgentScope(selector, accountID), username, true
+}
+
+func (s *pluginServer) serveSingleAttachmentDownload(w http.ResponseWriter, r *http.Request, backend attachmentFileBackend, scope agentScope, username string, entry attachmentFileEntry) {
+	reader, err := backend.OpenAttachmentFile(r.Context(), scope, username, entry.Path)
+	if err != nil {
+		writeAttachmentFileError(w, err)
+		return
+	}
+	defer reader.Close()
+	filename := sanitizeAttachmentFilename(entry.Name)
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Disposition", attachmentDisposition(filename))
+	if entry.Size >= 0 {
+		w.Header().Set("Content-Length", strconv.FormatInt(entry.Size, 10))
+	}
+	if _, err := io.Copy(w, reader); err != nil {
+		return
+	}
+}
+
+func (s *pluginServer) serveAttachmentZipDownload(w http.ResponseWriter, r *http.Request, backend attachmentFileBackend, scope agentScope, username string, entries []attachmentFileEntry) {
+	sources, err := s.collectAttachmentArchiveSources(r.Context(), backend, scope, username, entries)
+	if err != nil {
+		writeAttachmentFileError(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/zip")
+	w.Header().Set("Content-Disposition", attachmentDisposition(attachmentZipFilename(entries)))
+	zipWriter := zip.NewWriter(w)
+	for _, source := range sources {
+		header := &zip.FileHeader{
+			Name:   source.Name,
+			Method: zip.Deflate,
+		}
+		if source.Modified > 0 {
+			header.SetModTime(time.Unix(source.Modified, 0))
+		}
+		if source.Type == "dir" {
+			header.Method = zip.Store
+			if _, err := zipWriter.CreateHeader(header); err != nil {
+				_ = zipWriter.Close()
+				return
+			}
+			continue
+		}
+		reader, err := backend.OpenAttachmentFile(r.Context(), scope, username, source.Path)
+		if err != nil {
+			_ = zipWriter.Close()
+			return
+		}
+		writer, err := zipWriter.CreateHeader(header)
+		if err != nil {
+			_ = reader.Close()
+			_ = zipWriter.Close()
+			return
+		}
+		_, copyErr := io.Copy(writer, reader)
+		closeErr := reader.Close()
+		if copyErr != nil || closeErr != nil {
+			_ = zipWriter.Close()
+			return
+		}
+	}
+	_ = zipWriter.Close()
+}
+
+func (s *pluginServer) collectAttachmentArchiveSources(ctx context.Context, backend attachmentFileBackend, scope agentScope, username string, entries []attachmentFileEntry) ([]attachmentArchiveSource, error) {
+	sources := make([]attachmentArchiveSource, 0, len(entries))
+	names := make(map[string]int, len(entries))
+	visitedDirs := make(map[string]struct{})
+	for _, entry := range entries {
+		if entry.Type == "dir" {
+			rootName := uniqueAttachmentArchivePath(entry.Name+"/", names)
+			rootPrefix := strings.TrimSuffix(rootName, "/")
+			if err := appendAttachmentArchiveDirSource(ctx, backend, scope, username, entry, rootName, rootPrefix, names, visitedDirs, &sources); err != nil {
+				return nil, err
+			}
+			continue
+		}
+		sources = append(sources, attachmentArchiveSource{
+			Name:     uniqueAttachmentArchivePath(entry.Name, names),
+			Path:     entry.Path,
+			Type:     "file",
+			Modified: entry.Modified,
+		})
+		if len(sources) > maxAttachmentArchiveCount {
+			return nil, fmt.Errorf("%w: too many files", errAttachmentBadRequest)
+		}
+	}
+	return sources, nil
+}
+
+func appendAttachmentArchiveDirSource(ctx context.Context, backend attachmentFileBackend, scope agentScope, username string, entry attachmentFileEntry, archiveName, archivePrefix string, names map[string]int, visitedDirs map[string]struct{}, sources *[]attachmentArchiveSource) error {
+	resolvedKey := strings.TrimSpace(entry.Path)
+	if resolvedKey != "" {
+		if _, ok := visitedDirs[resolvedKey]; ok {
+			return nil
+		}
+		visitedDirs[resolvedKey] = struct{}{}
+	}
+	if !strings.HasSuffix(archiveName, "/") {
+		archiveName += "/"
+	}
+	response, err := backend.ListAttachmentFiles(ctx, scope, username, entry.Path)
+	if err != nil {
+		return err
+	}
+	resolvedPath := strings.TrimSpace(response.Path)
+	if resolvedPath != "" && resolvedPath != resolvedKey {
+		if _, ok := visitedDirs[resolvedPath]; ok {
+			return nil
+		}
+		visitedDirs[resolvedPath] = struct{}{}
+	}
+	*sources = append(*sources, attachmentArchiveSource{
+		Name:     archiveName,
+		Type:     "dir",
+		Modified: entry.Modified,
+	})
+	if len(*sources) > maxAttachmentArchiveCount {
+		return fmt.Errorf("%w: too many files", errAttachmentBadRequest)
+	}
+	for _, child := range response.Entries {
+		child.Name = strings.TrimSpace(child.Name)
+		child.Path = strings.TrimSpace(child.Path)
+		if child.Name == "" || child.Path == "" {
+			continue
+		}
+		childArchiveName := uniqueAttachmentArchivePath(archivePrefix+"/"+child.Name, names)
+		if child.Type == "dir" {
+			if err := appendAttachmentArchiveDirSource(ctx, backend, scope, username, child, childArchiveName+"/", childArchiveName, names, visitedDirs, sources); err != nil {
+				return err
+			}
+			continue
+		}
+		*sources = append(*sources, attachmentArchiveSource{
+			Name:     childArchiveName,
+			Path:     child.Path,
+			Type:     "file",
+			Modified: child.Modified,
+		})
+		if len(*sources) > maxAttachmentArchiveCount {
+			return fmt.Errorf("%w: too many files", errAttachmentBadRequest)
+		}
+	}
+	return nil
+}
+
 func (s *pluginServer) attachmentUploadBackend() attachmentUploadBackend {
 	if s != nil && s.attachmentBackend != nil {
 		return s.attachmentBackend
 	}
 	return lightOSAttachmentUploadBackend{}
+}
+
+func (s *pluginServer) attachmentFileBackend() attachmentFileBackend {
+	if s != nil && s.attachmentFilesBackend != nil {
+		return s.attachmentFilesBackend
+	}
+	return lightOSAttachmentFileBackend{}
 }
 
 func (s *pluginServer) resolveAttachmentUsername(ctx context.Context, selector string) (string, error) {
@@ -139,6 +402,17 @@ func writeAttachmentUploadError(w http.ResponseWriter, err error) {
 		http.Error(w, err.Error(), http.StatusRequestEntityTooLarge)
 	case errors.Is(err, context.Canceled):
 		http.Error(w, "upload canceled", http.StatusRequestTimeout)
+	default:
+		http.Error(w, err.Error(), http.StatusBadGateway)
+	}
+}
+
+func writeAttachmentFileError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, errAttachmentBadRequest):
+		http.Error(w, err.Error(), http.StatusBadRequest)
+	case errors.Is(err, context.Canceled):
+		http.Error(w, "download canceled", http.StatusRequestTimeout)
 	default:
 		http.Error(w, err.Error(), http.StatusBadGateway)
 	}
@@ -241,6 +515,286 @@ func (lightOSAttachmentUploadBackend) UploadAttachment(ctx context.Context, scop
 		Path: finalPath,
 		Size: limited.BytesRead(),
 	}, nil
+}
+
+func (lightOSAttachmentFileBackend) ListAttachmentFiles(ctx context.Context, scope agentScope, username string, path string) (attachmentFileListResponse, error) {
+	if err := validateInstanceSelector(scope.Selector); err != nil {
+		return attachmentFileListResponse{}, err
+	}
+	output, err := runAttachmentJSONCommand(ctx, scope.Selector, username, buildAttachmentListScript(path))
+	if err != nil {
+		return attachmentFileListResponse{}, err
+	}
+	var response attachmentFileListResponse
+	if err := json.Unmarshal(output, &response); err != nil {
+		return attachmentFileListResponse{}, err
+	}
+	return response, nil
+}
+
+func (lightOSAttachmentFileBackend) StatAttachmentFiles(ctx context.Context, scope agentScope, username string, paths []string) ([]attachmentFileEntry, error) {
+	if err := validateInstanceSelector(scope.Selector); err != nil {
+		return nil, err
+	}
+	if len(paths) == 0 {
+		return nil, fmt.Errorf("%w: path is required", errAttachmentBadRequest)
+	}
+	output, err := runAttachmentJSONCommand(ctx, scope.Selector, username, buildAttachmentStatScript(paths))
+	if err != nil {
+		return nil, err
+	}
+	var entries []attachmentFileEntry
+	if err := json.Unmarshal(output, &entries); err != nil {
+		return nil, err
+	}
+	return entries, nil
+}
+
+func (lightOSAttachmentFileBackend) OpenAttachmentFile(ctx context.Context, scope agentScope, username string, path string) (io.ReadCloser, error) {
+	if err := validateInstanceSelector(scope.Selector); err != nil {
+		return nil, err
+	}
+	normalized := strings.TrimSpace(path)
+	if normalized == "" || strings.Contains(normalized, "\x00") {
+		return nil, fmt.Errorf("%w: invalid path", errAttachmentBadRequest)
+	}
+	reader, writer := io.Pipe()
+	command := exec.CommandContext(ctx, lightosctlPath, "exec", "-i", scope.Selector, "/bin/sh", "-lc", buildAttachmentCatScript(normalized, username))
+	command.Stdout = writer
+	var stderr bytes.Buffer
+	command.Stderr = &stderr
+	if err := command.Start(); err != nil {
+		_ = writer.Close()
+		return nil, err
+	}
+	go func() {
+		err := command.Wait()
+		_ = writer.CloseWithError(commandOutputError(err, stderr.String()))
+	}()
+	return reader, nil
+}
+
+func runAttachmentJSONCommand(ctx context.Context, selector, username, script string) ([]byte, error) {
+	reqCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	output, err := exec.CommandContext(reqCtx, lightosctlPath, "exec", selector, "/bin/sh", "-lc", buildAttachmentUserScopedScript(username, script)).CombinedOutput()
+	if err != nil {
+		text := strings.TrimSpace(string(output))
+		if text == "" {
+			return nil, err
+		}
+		return nil, fmt.Errorf("%w: %s", err, text)
+	}
+	return output, nil
+}
+
+func commandOutputError(err error, output string) error {
+	if err == nil {
+		return nil
+	}
+	text := strings.TrimSpace(output)
+	if text == "" {
+		return err
+	}
+	return fmt.Errorf("%w: %s", err, text)
+}
+
+func buildAttachmentUserScopedScript(username, script string) string {
+	if !instanceCommandNeedsUserSwitch(username) {
+		return script
+	}
+	return strings.Join([]string{
+		buildUserShellBootstrapScript(username),
+		"script=" + shellScriptQuote(script),
+		"if command -v setpriv >/dev/null 2>&1; then",
+		"  exec env HOME=\"$home\" USER=\"$user\" LOGNAME=\"$user\" XDG_CONFIG_HOME=\"$xdg_config_home\" setpriv --reuid \"$uid\" --regid \"$gid\" --init-groups /bin/sh -lc \"$script\"",
+		"fi",
+		"if command -v su >/dev/null 2>&1; then",
+		"  export HOME=\"$home\" USER=\"$user\" LOGNAME=\"$user\" XDG_CONFIG_HOME=\"$xdg_config_home\"",
+		"  exec su -s /bin/sh \"$user\" -c \"$script\"",
+		"fi",
+		"echo 'setpriv or su is required for webshell file browser.' >&2",
+		"exit 127",
+	}, "\n")
+}
+
+func buildAttachmentListScript(path string) string {
+	target := strings.TrimSpace(path)
+	if target == "" {
+		target = "."
+	}
+	return strings.Join([]string{
+		"set -eu",
+		attachmentJSONShellFunction(),
+		"target=" + shellScriptQuote(target),
+		"if [ ! -d \"$target\" ]; then echo 'path is not a directory' >&2; exit 1; fi",
+		"dir=$(cd \"$target\" 2>/dev/null && pwd -P) || exit 1",
+		"parent=$(dirname \"$dir\")",
+		"printf '{\"path\":'",
+		"json_string \"$dir\"",
+		"printf ',\"parent\":'",
+		"json_string \"$parent\"",
+		"printf ',\"entries\":['",
+		"first=1",
+		"for item in \"$dir\"/* \"$dir\"/.[!.]* \"$dir\"/..?*; do",
+		"  [ -e \"$item\" ] || continue",
+		"  name=${item##*/}",
+		"  [ \"$name\" = . ] || [ \"$name\" = .. ] && continue",
+		"  type=file",
+		"  if [ -d \"$item\" ]; then type=dir; elif [ -L \"$item\" ]; then type=link; fi",
+		"  size=$(stat -c '%s' \"$item\" 2>/dev/null || printf 0)",
+		"  modified=$(stat -c '%Y' \"$item\" 2>/dev/null || printf 0)",
+		"  if [ \"$first\" = 1 ]; then first=0; else printf ','; fi",
+		"  printf '{\"name\":'",
+		"  json_string \"$name\"",
+		"  printf ',\"path\":'",
+		"  json_string \"$item\"",
+		"  printf ',\"type\":'",
+		"  json_string \"$type\"",
+		"  printf ',\"size\":%s,\"modified\":%s}' \"$size\" \"$modified\"",
+		"done",
+		"printf ']}'",
+	}, "\n")
+}
+
+func buildAttachmentStatScript(paths []string) string {
+	lines := []string{
+		"set -eu",
+		attachmentJSONShellFunction(),
+		"printf '['",
+		"first=1",
+	}
+	for _, path := range paths {
+		lines = append(lines,
+			"item="+shellScriptQuote(path),
+			"if [ ! -f \"$item\" ] && [ ! -d \"$item\" ]; then echo 'selected path is not a file or directory' >&2; exit 1; fi",
+			"name=${item##*/}",
+			"type=file",
+			"if [ -d \"$item\" ]; then type=dir; fi",
+			"size=$(stat -c '%s' \"$item\" 2>/dev/null || printf 0)",
+			"modified=$(stat -c '%Y' \"$item\" 2>/dev/null || printf 0)",
+			"if [ \"$first\" = 1 ]; then first=0; else printf ','; fi",
+			"printf '{\"name\":'",
+			"json_string \"$name\"",
+			"printf ',\"path\":'",
+			"json_string \"$item\"",
+			"printf ',\"type\":'",
+			"json_string \"$type\"",
+			"printf ',\"size\":%s,\"modified\":%s}' \"$size\" \"$modified\"",
+		)
+	}
+	lines = append(lines, "printf ']'")
+	return strings.Join(lines, "\n")
+}
+
+func buildAttachmentCatScript(path, username string) string {
+	script := strings.Join([]string{
+		"set -eu",
+		"file=" + shellScriptQuote(path),
+		"if [ ! -f \"$file\" ]; then echo 'selected path is not a file' >&2; exit 1; fi",
+		"exec cat -- \"$file\"",
+	}, "\n")
+	return buildAttachmentUserScopedScript(username, script)
+}
+
+func attachmentJSONShellFunction() string {
+	return `json_string() {
+  LC_ALL=C awk 'BEGIN {
+    s = ARGV[1]
+    ARGV[1] = ""
+    printf "\""
+    for (i = 1; i <= length(s); i++) {
+      c = substr(s, i, 1)
+      if (c == "\\") printf "\\\\"
+      else if (c == "\"") printf "\\\""
+      else if (c == "\b") printf "\\b"
+      else if (c == "\f") printf "\\f"
+      else if (c == "\n") printf "\\n"
+      else if (c == "\r") printf "\\r"
+      else if (c == "\t") printf "\\t"
+      else printf "%s", c
+    }
+    printf "\""
+  }' "$1"
+}`
+}
+
+func normalizeAttachmentDownloadPaths(values []string) []string {
+	seen := make(map[string]struct{}, len(values))
+	paths := make([]string, 0, len(values))
+	for _, value := range values {
+		path := strings.TrimSpace(value)
+		if path == "" || strings.Contains(path, "\x00") {
+			continue
+		}
+		if _, ok := seen[path]; ok {
+			continue
+		}
+		seen[path] = struct{}{}
+		paths = append(paths, path)
+	}
+	return paths
+}
+
+func attachmentDisposition(filename string) string {
+	name := sanitizeAttachmentFilename(filename)
+	return mime.FormatMediaType("attachment", map[string]string{"filename": name})
+}
+
+func attachmentZipFilename(entries []attachmentFileEntry) string {
+	if len(entries) == 1 && entries[0].Type == "dir" {
+		name := sanitizeAttachmentFilename(entries[0].Name)
+		if !strings.HasSuffix(strings.ToLower(name), ".zip") {
+			name += ".zip"
+		}
+		return name
+	}
+	return "webshell-files.zip"
+}
+
+func uniqueAttachmentArchivePath(name string, seen map[string]int) string {
+	cleaned := sanitizeAttachmentArchivePath(name)
+	key := strings.TrimSuffix(cleaned, "/")
+	if key == "" {
+		key = cleaned
+	}
+	count := seen[key]
+	seen[key] = count + 1
+	if count == 0 {
+		return cleaned
+	}
+	isDir := strings.HasSuffix(cleaned, "/")
+	base := strings.TrimSuffix(cleaned, "/")
+	dir, file := filepath.Split(base)
+	ext := filepath.Ext(file)
+	stem := strings.TrimSuffix(file, ext)
+	next := dir + fmt.Sprintf("%s-%d%s", stem, count+1, ext)
+	if isDir {
+		next += "/"
+	}
+	return next
+}
+
+func sanitizeAttachmentArchivePath(name string) string {
+	parts := strings.FieldsFunc(strings.TrimSpace(name), func(r rune) bool {
+		return r == '/' || r == '\\'
+	})
+	cleaned := make([]string, 0, len(parts))
+	for _, part := range parts {
+		cleanedPart := sanitizeAttachmentFilename(part)
+		if cleanedPart == "clipboard.txt" && strings.Trim(part, ". ") == "" {
+			continue
+		}
+		cleaned = append(cleaned, cleanedPart)
+	}
+	if len(cleaned) == 0 {
+		cleaned = append(cleaned, "download")
+	}
+	result := strings.Join(cleaned, "/")
+	if strings.HasSuffix(strings.TrimSpace(name), "/") || strings.HasSuffix(strings.TrimSpace(name), "\\") {
+		result += "/"
+	}
+	return result
 }
 
 func cleanupAttachmentUploadPaths(ctx context.Context, selector, tmpPath, finalPath string) error {

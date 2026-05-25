@@ -237,6 +237,39 @@ func TestRuntimeMobileSettingsUsesListNavigation(t *testing.T) {
 	}
 }
 
+func TestRuntimeMobileDoubleTapReminderSetting(t *testing.T) {
+	wantSnippets := map[string][]string{
+		"runtime/static/index.html": {
+			`id="settingsMobileDoubleTapReminderToggle"`,
+			`双击屏幕提醒`,
+			`熟悉手机双击进入编辑的操作后,可以关闭这个选项`,
+		},
+		"runtime/static/main.js": {
+			`const settingsMobileDoubleTapReminderToggle = document.getElementById("settingsMobileDoubleTapReminderToggle");`,
+			`let mobileDoubleTapReminderEnabled = true;`,
+			`mobileDoubleTapReminderEnabled = state?.mobile_double_tap_reminder_enabled !== false;`,
+			`body: JSON.stringify({ mobile_double_tap_reminder_enabled: enabled }),`,
+			`if (!mobileDoubleTapReminderEnabled || !mobileLayoutQuery?.matches) {`,
+			`const activePaneDirectoryLabel = () => {`,
+			`: activePaneDirectoryLabel() || String(currentTab()?.label || "终端").trim() || "终端";`,
+			`settingsMobileDoubleTapReminderToggle?.addEventListener("change", () => {`,
+		},
+	}
+
+	for path, snippets := range wantSnippets {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("ReadFile(%s) error = %v", path, err)
+		}
+		source := string(data)
+		for _, want := range snippets {
+			if !strings.Contains(source, want) {
+				t.Fatalf("runtime mobile double tap reminder setting guard missing %q in %s", want, path)
+			}
+		}
+	}
+}
+
 func TestRuntimeDefaultMobileShortcutOrder(t *testing.T) {
 	data, err := os.ReadFile("runtime/static/main.js")
 	if err != nil {
@@ -394,6 +427,74 @@ func TestRuntimeTerminalRendererBaselinePatch(t *testing.T) {
 	}
 }
 
+func TestRuntimeTerminalLineHeightSetting(t *testing.T) {
+	mainData, err := os.ReadFile("runtime/static/main.js")
+	if err != nil {
+		t.Fatalf("ReadFile(runtime/static/main.js) error = %v", err)
+	}
+	indexData, err := os.ReadFile("runtime/static/index.html")
+	if err != nil {
+		t.Fatalf("ReadFile(runtime/static/index.html) error = %v", err)
+	}
+	styleData, err := os.ReadFile("runtime/static/style.css")
+	if err != nil {
+		t.Fatalf("ReadFile(runtime/static/style.css) error = %v", err)
+	}
+	mainSource := string(mainData)
+	indexSource := string(indexData)
+	styleSource := string(styleData)
+
+	for _, want := range []string{
+		`id="settingsLineHeightInput"`,
+		`id="settingsLineHeightResetButton"`,
+		`min="100" max="160"`,
+		`class="settings-number-stepper"`,
+		`data-number-step="up" data-number-target="settingsLineHeightInput"`,
+		`data-number-step="down" data-number-target="settingsScrollbackInput"`,
+	} {
+		if !strings.Contains(indexSource, want) {
+			t.Fatalf("runtime line height setting index guard missing %q", want)
+		}
+	}
+	for _, want := range []string{
+		`const settingsLineHeightInput = document.getElementById("settingsLineHeightInput");`,
+		`const defaultTerminalLineHeightPercent = 100;`,
+		`const maxTerminalLineHeightPercent = 160;`,
+		`let terminalLineHeightPercent = defaultTerminalLineHeightPercent;`,
+		`const normalizeTerminalLineHeightPercent = (value) => {`,
+		`terminalLineHeightPercent = normalizeTerminalLineHeightPercent(state?.terminal_line_height_percent);`,
+		`body: JSON.stringify({ terminal_line_height_percent: percent }),`,
+		`settingsLineHeightInput?.addEventListener("input", scheduleTerminalLineHeightSave);`,
+		`const terminalLineHeightRatio = () => normalizeTerminalLineHeightPercent(terminalLineHeightPercent) / defaultTerminalLineHeightPercent;`,
+		`const applyTerminalLineHeightToMetrics = (metrics) => {`,
+		`return terminalAdjustedFontMetrics(`,
+		`const terminalEstimatedSizeForElement = (element) => {`,
+		`const terminalOptions = (overrides = {}) =>`,
+		`const createPaneSession = (tab, instanceName, { id = "", connect = true, cols = 0, rows = 0 } = {}) =>`,
+		`pendingConnect: Boolean(connect),`,
+		`const connectPendingSession = (session, { allowHidden = false } = {}) => {`,
+		`createPaneSession(tab, targetName, { id: paneState.id, connect: true, cols: paneState.cols, rows: paneState.rows });`,
+		`const stepSettingsNumberInput = (button) => {`,
+		`input.stepUp();`,
+		`settingsPanel?.addEventListener("click", (event) => {`,
+	} {
+		if !strings.Contains(mainSource, want) {
+			t.Fatalf("runtime line height setting main guard missing %q", want)
+		}
+	}
+	for _, want := range []string{
+		`.settings-number-stepper`,
+		`appearance: textfield;`,
+		`.settings-number-input::-webkit-inner-spin-button`,
+		`.settings-number-stepper-button.up::before`,
+		`.settings-number-stepper-button.down::before`,
+	} {
+		if !strings.Contains(styleSource, want) {
+			t.Fatalf("runtime line height setting style guard missing %q", want)
+		}
+	}
+}
+
 func TestRuntimeMobileStickyModifiersApplyToTextInput(t *testing.T) {
 	data, err := os.ReadFile("runtime/static/main.js")
 	if err != nil {
@@ -482,6 +583,8 @@ func TestRuntimeMobileIMECompositionPreviewVisible(t *testing.T) {
 		`const resolveTerminalPostCompositionInput = (session, value) => {`,
 		`const pending = session?.pendingCompositionInput;`,
 		"rawValue === committed || (preedit && rawValue === `${preedit}${committed}`)",
+		`} else if (!pending.sent && preedit && rawValue === preedit) {`,
+		`data = rawValue;`,
 		`data = rawValue.slice(preedit.length);`,
 		`if (!data) {`,
 		`const rememberTerminalPostCompositionSentInput = (session, pending, committed) => {`,
@@ -713,11 +816,60 @@ func TestRuntimeTerminalOutputBatchingGuard(t *testing.T) {
 		"window.requestAnimationFrame(flush);",
 		"session.outputQueue.push(entry);",
 		"flushSessionOutput(session, { force: true });",
+		"const genericWebSocketStartupFallbacks = new Set([",
+		"const isGenericWebSocketStartupFallback = (message) =>",
+		"if (isGenericWebSocketStartupFallback(fallback)) {",
 		"showSessionStartupError(session, error.message || \"WebSocket connection failed.\");",
 	}
 	for _, want := range wantSnippets {
 		if !strings.Contains(source, want) {
 			t.Fatalf("runtime terminal batching guard missing %q", want)
+		}
+	}
+	if strings.Contains(source, "writeSessionWebShellError(session, message || fallback);") {
+		t.Fatal("generic websocket startup fallbacks should not be written as terminal errors")
+	}
+}
+
+func TestRuntimeWebSocketReconnectHealthGuard(t *testing.T) {
+	data, err := os.ReadFile("runtime/static/main.js")
+	if err != nil {
+		t.Fatalf("ReadFile(runtime/static/main.js) error = %v", err)
+	}
+	source := string(data)
+
+	wantSnippets := []string{
+		"const terminalWebSocketPingIntervalMs = 10 * 1000;",
+		"const terminalWebSocketHealthTimeoutMs = 25 * 1000;",
+		"const terminalResumeProbeTimeoutMs = 1500;",
+		"const terminalUserRecoveryThrottleMs = 1500;",
+		"const terminalAttachReadyTimeoutMs = 8 * 1000;",
+		"const terminalReconnectBaseDelayMs = 500;",
+		"const isSessionInputReady = (session) => (",
+		"const checkSessionConnectionHealth = (session, { connect = true, force = false, allowHidden = false } = {}) => {",
+		"const probeOpenSessionSocket = (session, { allowHidden = false } = {}) => {",
+		"socket.send(JSON.stringify({ type: \"ping\" }));",
+		"Terminal WebSocket resume probe timed out",
+		"const recoverVisibleSessionsFromUserGesture = () => {",
+		"reconnectVisibleSessions({ allowHidden: true, probe: true });",
+		"flushPendingInput(session);",
+		"if (session.resumeProbeTimer && force) {",
+		"startSocketHealthMonitor(session, currentSocket);",
+		"startAttachReadyTimer(session, currentSocket);",
+		"clearAttachReadyTimer(session);",
+		"clearSocketResumeProbeTimer(session);",
+		"session.shellEl.dataset.connection = \"open\";",
+		"message.retryable === true",
+		"window.addEventListener(\"pageshow\", () => {",
+		"checkSessionConnectionHealth(pane, { connect: true, force: true, allowHidden });",
+		"document.addEventListener(\"pointerdown\", recoverVisibleSessionsFromUserGesture, { capture: true, passive: true });",
+		"document.addEventListener(\"touchstart\", recoverVisibleSessionsFromUserGesture, { capture: true, passive: true });",
+		"checkSessionConnectionHealth(session, { connect: true, force: userInput, allowHidden: userInput })",
+		"document.hidden",
+	}
+	for _, want := range wantSnippets {
+		if !strings.Contains(source, want) {
+			t.Fatalf("runtime websocket reconnect health guard missing %q", want)
 		}
 	}
 }
@@ -760,6 +912,36 @@ func TestRuntimeTerminalInputChunksLargePaste(t *testing.T) {
 	}
 	if strings.Contains(source, "session.term.paste(value);") {
 		t.Fatal("runtime paste path should not send large clipboard content through terminal paste directly")
+	}
+}
+
+func TestRuntimeBeforeInputPasteUsesPastePath(t *testing.T) {
+	data, err := os.ReadFile("runtime/static/main.js")
+	if err != nil {
+		t.Fatalf("ReadFile(runtime/static/main.js) error = %v", err)
+	}
+	source := string(data)
+	branch := sourceBetween(t, source,
+		`} else if (type === "insertFromPaste") {`,
+		`    } else if (event.data) {`,
+	)
+	for _, want := range []string{
+		`const text = event.dataTransfer?.getData("text/plain") || event.data || "";`,
+		`event.preventDefault();`,
+		`pasteIntoSession(session, text).catch((error) => showToast(error.message));`,
+		`return;`,
+	} {
+		if !strings.Contains(branch, want) {
+			t.Fatalf("runtime beforeinput paste branch missing %q", want)
+		}
+	}
+	for _, forbidden := range []string{
+		`data = event.dataTransfer?.getData("text/plain") || event.data || "";`,
+		`sendTerminalTextInput(session, text`,
+	} {
+		if strings.Contains(branch, forbidden) {
+			t.Fatalf("runtime beforeinput paste branch must not contain %q", forbidden)
+		}
 	}
 }
 
@@ -810,6 +992,13 @@ func TestRuntimeTabResizeDoesNotTemporarilyActivateAllTabs(t *testing.T) {
 		"const resizeActiveTabForCurrentDevice = () => resizeTabForCurrentDevice(currentTab());",
 		"syncTabMobilePixelScroll(tab);",
 		"resizeActiveTabForCurrentDevice();",
+		"const isPaneVisibleForSizing = (pane) => {",
+		"const resizePane = (pane, { visibleOnly = true } = {}) => {",
+		"return false;",
+		"pane.fitAddon?.proposeDimensions?.();",
+		"const scheduleVisibleTabResize = (tab) => {",
+		"window.setTimeout(() => resizeTabForCurrentDevice(tab), 80);",
+		"scheduleVisibleTabResize(tab);",
 	}
 	for _, want := range wantSnippets {
 		if !strings.Contains(source, want) {
@@ -817,15 +1006,68 @@ func TestRuntimeTabResizeDoesNotTemporarilyActivateAllTabs(t *testing.T) {
 		}
 	}
 
+	visibilityIndex := strings.Index(source, "const isPaneVisibleForSizing = (pane) => {")
+	resizeIndex := strings.Index(source, "const resizePane = (pane, { visibleOnly = true } = {}) => {")
+	resetIndex := strings.Index(source, "resetTerminalHostViewport(pane, { clean: true });")
+	if visibilityIndex < 0 || resizeIndex < 0 || resetIndex < 0 || !(visibilityIndex < resizeIndex && resizeIndex < resetIndex) {
+		t.Fatalf("runtime hidden pane resize guard is not before terminal viewport reset")
+	}
+
+	activeTabIndex := strings.Index(source, "const setActiveTab = (tabId, { focus = true, remember = true, rememberRecent = true } = {}) => {")
+	if activeTabIndex < 0 {
+		t.Fatalf("runtime setActiveTab is missing")
+	}
+	scheduleIndex := strings.Index(source[activeTabIndex:], "scheduleVisibleTabResize(tab);")
+	if scheduleIndex < 0 {
+		t.Fatalf("runtime setActiveTab does not schedule visible tab resize")
+	}
+
 	forbiddenSnippets := []string{
 		"const resizeAllTabsForCurrentDevice = () => {",
 		"paneEl.classList.add(\"active\");",
 		"classList.toggle(\"active\", tab.id === visibleTabId)",
 		"visibleTabId = activeTabId",
+		"needsVisibleResize",
 	}
 	for _, forbidden := range forbiddenSnippets {
 		if strings.Contains(source, forbidden) {
 			t.Fatalf("runtime tab resize regression detected: found %q", forbidden)
+		}
+	}
+}
+
+func TestRuntimeMobileOrientationReplaysVisibleTerminalAfterViewportSettle(t *testing.T) {
+	data, err := os.ReadFile("runtime/static/main.js")
+	if err != nil {
+		t.Fatalf("ReadFile(runtime/static/main.js) error = %v", err)
+	}
+	source := string(data)
+
+	wantSnippets := []string{
+		"const mobileOrientationViewportRecoveryDelays = [0, 80, 180, 360, 720];",
+		"const mobileOrientationHistoryReplayDelayMs = 900;",
+		"const currentMobileViewportOrientation = () => {",
+		"const rememberMobileViewportOrientationChange = () => {",
+		"const scheduleMobileOrientationViewportRecovery = () => {",
+		"if (rememberMobileViewportOrientationChange() || mobileOrientationRecoveryTimer) {",
+		"const shouldRecoverOrientation = orientationChanged || (detectOrientation && mobileOrientationRecoveryTimer);",
+		"syncMobileVisualViewport({ detectOrientation: false });",
+		"replayActiveTabFromServerAfterViewportChange();",
+		"const resetTerminalForHistoryReplay = (session) => {",
+		"session.term.reset();",
+		"session.term.selectionManager.wasmTerm = session.term.wasmTerm;",
+		"const requestSessionHistoryReplay = (session) => {",
+		"session.resetOnNextReplay = true;",
+		"socket.close(4000, \"viewport changed\");",
+		"const replayActiveTabFromServerAfterViewportChange = () => {",
+		"if (session.resetOnNextReplay) {",
+		"resetTerminalForHistoryReplay(session);",
+		"window.addEventListener(\"orientationchange\", handleMobileOrientationChange);",
+		"window.screen?.orientation?.addEventListener?.(\"change\", handleMobileOrientationChange);",
+	}
+	for _, want := range wantSnippets {
+		if !strings.Contains(source, want) {
+			t.Fatalf("runtime mobile orientation replay guard missing %q", want)
 		}
 	}
 }
@@ -920,6 +1162,31 @@ func TestRuntimeMobileDeployRestartUsesBottomSheet(t *testing.T) {
 	}
 }
 
+func TestRuntimeMobileRunningCommandConfirmUsesVerticalButtons(t *testing.T) {
+	data, err := os.ReadFile("runtime/static/main.js")
+	if err != nil {
+		t.Fatalf("ReadFile(runtime/static/main.js) error = %v", err)
+	}
+	source := string(data)
+	start := strings.Index(source, "const confirmCloseRunningCommand = (message, options = {}) => {")
+	if start < 0 {
+		t.Fatal("confirmCloseRunningCommand definition not found")
+	}
+	end := strings.Index(source[start:], "return confirmDialog(message, options);")
+	if end < 0 {
+		t.Fatal("confirmCloseRunningCommand desktop fallback not found")
+	}
+	block := source[start : start+end]
+	for _, want := range []string{
+		`title: "检测到后台进程",`,
+		`actionsLayout: "vertical-ok-first",`,
+	} {
+		if !strings.Contains(block, want) {
+			t.Fatalf("mobile running command confirm guard missing %q", want)
+		}
+	}
+}
+
 func TestRuntimeMobileEdgeSwipeOpensTabOverview(t *testing.T) {
 	data, err := os.ReadFile("runtime/static/main.js")
 	if err != nil {
@@ -964,5 +1231,83 @@ func TestRuntimeMobileEdgeSwipeOpensTabOverview(t *testing.T) {
 	}
 	if !strings.Contains(styleSource, "overscroll-behavior-x: none;") {
 		t.Fatal("runtime mobile overview edge swipe should disable native horizontal overscroll navigation")
+	}
+}
+
+func TestRuntimeMobileOverviewDragAndSelectionToolbar(t *testing.T) {
+	mainData, err := os.ReadFile("runtime/static/main.js")
+	if err != nil {
+		t.Fatalf("ReadFile(runtime/static/main.js) error = %v", err)
+	}
+	mainSource := string(mainData)
+	styleData, err := os.ReadFile("runtime/static/style.css")
+	if err != nil {
+		t.Fatalf("ReadFile(runtime/static/style.css) error = %v", err)
+	}
+	styleSource := string(styleData)
+	indexData, err := os.ReadFile("runtime/static/index.html")
+	if err != nil {
+		t.Fatalf("ReadFile(runtime/static/index.html) error = %v", err)
+	}
+	indexSource := string(indexData)
+
+	for _, want := range []string{
+		"let tabOverviewDragState = null;",
+		"const tabOverviewDragHoldDelayMs = 320;",
+		"const animateTabOverviewReorder = (beforeRects) => {",
+		"const updateTabOverviewDragAutoScroll = (state) => {",
+		`if (state.pointerType !== "mouse" && !state.dragReady) {`,
+		"finishTabOverviewDrag({ cancel: true });",
+		`document.addEventListener("touchmove", handleTabOverviewDragTouchMove, { capture: true, passive: false });`,
+		"const moveTabToOverviewIndex = async",
+		`postWorkspaceAction("move_tab", { tab_id: tabId, position });`,
+		"bindTabOverviewCardDrag(card);",
+		`card.addEventListener("pointerdown", handleTabOverviewCardPointerDown);`,
+		`case "new_tab":`,
+		`case "close_tab":`,
+		`case "rename_tab":`,
+		`case "next_tab":`,
+		`case "previous_tab":`,
+		`case "vertical_split":`,
+		`case "horizontal_split":`,
+		`case "tab_overview":`,
+		`case "search_terminal":`,
+		`case "attachment":`,
+		"const openSearchFromSelection = (session = activeSession()) => {",
+		"const positionSelectionSheet = (session = activeSession()) => {",
+		"const openMobileCustomSelect = (select) => {",
+		`select.addEventListener("touchstart", handleMobileCustomSelectOpenEvent, { capture: true, passive: false });`,
+		`select.addEventListener("pointerdown", handleMobileCustomSelectOpenEvent, { capture: true, passive: false });`,
+		`event.preventDefault();`,
+		`event.stopPropagation();`,
+	} {
+		if !strings.Contains(mainSource, want) {
+			t.Fatalf("runtime mobile overview/selection guard missing %q", want)
+		}
+	}
+	for _, want := range []string{
+		`data-selection-action="copy">复制`,
+		`data-selection-action="paste">粘贴`,
+		`data-selection-action="search">搜索`,
+	} {
+		if !strings.Contains(indexSource, want) {
+			t.Fatalf("runtime mobile selection toolbar markup missing %q", want)
+		}
+	}
+	for _, want := range []string{
+		".tab-overview-card-placeholder",
+		"body.is-tab-overview-dragging",
+		".tab-overview-card.is-reordering",
+		"touch-action: pan-y;",
+		"touch-action: none;",
+		".selection-sheet button:not(:last-child)::after",
+		"background: rgba(24, 24, 24, 0.96);",
+		".mobile-custom-select-popover",
+		".mobile-custom-select-option.is-selected",
+		"appearance: none;",
+	} {
+		if !strings.Contains(styleSource, want) {
+			t.Fatalf("runtime mobile overview/selection CSS guard missing %q", want)
+		}
 	}
 }

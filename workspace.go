@@ -54,6 +54,7 @@ type terminalWorkspace struct {
 	mu         sync.Mutex
 	tabs       []*terminalTab
 	activeTab  string
+	recentTabs []string
 	panes      map[string]*terminalPane
 	nextTabID  int
 	nextPaneID int
@@ -139,7 +140,9 @@ type paneHistorySnapshot struct {
 type workspaceState struct {
 	Selector       string     `json:"selector"`
 	ServerRevision string     `json:"server_revision,omitempty"`
+	AgentNotice    string     `json:"agent_notice,omitempty"`
 	ActiveTabID    string     `json:"active_tab_id"`
+	RecentTabIDs   []string   `json:"recent_tab_ids"`
 	Tabs           []tabState `json:"tabs"`
 }
 
@@ -170,6 +173,7 @@ type workspaceActionRequest struct {
 	Action       string      `json:"action"`
 	TabID        string      `json:"tab_id"`
 	PaneID       string      `json:"pane_id"`
+	RecentTabIDs []string    `json:"recent_tab_ids,omitempty"`
 	Direction    string      `json:"direction"`
 	Label        string      `json:"label"`
 	Layout       *layoutNode `json:"layout"`
@@ -287,6 +291,7 @@ func (s *pluginServer) handleWorkspace(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		state.ServerRevision = s.serverRevision
+		state.AgentNotice = consumePersistentAgentNotice(scope)
 		writeJSON(w, state)
 	case http.MethodPost:
 		var request workspaceActionRequest
@@ -300,6 +305,7 @@ func (s *pluginServer) handleWorkspace(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		state.ServerRevision = s.serverRevision
+		state.AgentNotice = consumePersistentAgentNotice(scope)
 		writeJSON(w, state)
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
@@ -371,7 +377,10 @@ func writeWebSocketJSON(conn *websocket.Conn, payload any) error {
 	if err != nil {
 		return err
 	}
-	return conn.WriteMessage(websocket.TextMessage, data)
+	_ = conn.SetWriteDeadline(time.Now().Add(websocketWriteTimeout))
+	err = conn.WriteMessage(websocket.TextMessage, data)
+	_ = conn.SetWriteDeadline(time.Time{})
+	return err
 }
 
 func handleTerminalControlMessage(pane *terminalPane, payload []byte, client *paneClient) bool {
@@ -431,7 +440,7 @@ func (w *terminalWorkspace) applyAction(request workspaceActionRequest) error {
 	case "move_tab":
 		return w.moveTabLocked(request.TabID, request.Position)
 	case "activate_tab":
-		return w.activateTabLocked(request.TabID)
+		return w.activateTabLocked(request.TabID, request.RecentTabIDs)
 	case "activate_pane":
 		return w.activatePaneLocked(request.TabID, request.PaneID)
 	case "update_layout":
@@ -445,11 +454,13 @@ func (w *terminalWorkspace) snapshot() workspaceState {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.refreshAutoTabLabelsLocked()
+	w.pruneRecentTabsLocked()
 
 	state := workspaceState{
-		Selector:    w.selector,
-		ActiveTabID: w.activeTab,
-		Tabs:        make([]tabState, 0, len(w.tabs)),
+		Selector:     w.selector,
+		ActiveTabID:  w.activeTab,
+		RecentTabIDs: append([]string{}, w.recentTabs...),
+		Tabs:         make([]tabState, 0, len(w.tabs)),
 	}
 	for _, tab := range w.tabs {
 		nextTab := tabState{
@@ -560,6 +571,73 @@ func (w *terminalWorkspace) refreshAutoTabLabelsLocked() {
 	}
 }
 
+func (w *terminalWorkspace) appendRecentTabLocked(items []string, tabID string) []string {
+	tabID = strings.TrimSpace(tabID)
+	if tabID == "" || w.findTabLocked(tabID) == nil {
+		return items
+	}
+	for _, item := range items {
+		if item == tabID {
+			return items
+		}
+	}
+	return append(items, tabID)
+}
+
+func (w *terminalWorkspace) pruneRecentTabsLocked() {
+	next := make([]string, 0, 2)
+	for _, tabID := range w.recentTabs {
+		next = w.appendRecentTabLocked(next, tabID)
+		if len(next) >= 2 {
+			break
+		}
+	}
+	w.recentTabs = next
+}
+
+func (w *terminalWorkspace) setRecentTabsLocked(tabIDs []string) {
+	next := make([]string, 0, 2)
+	for _, tabID := range tabIDs {
+		next = w.appendRecentTabLocked(next, tabID)
+		if len(next) >= 2 {
+			break
+		}
+	}
+	w.recentTabs = next
+}
+
+func (w *terminalWorkspace) rememberRecentTabLocked(tabID string) {
+	tabID = strings.TrimSpace(tabID)
+	if tabID == "" || w.findTabLocked(tabID) == nil {
+		w.pruneRecentTabsLocked()
+		return
+	}
+
+	next := make([]string, 0, 2)
+	for _, candidate := range append([]string{tabID, w.activeTab}, w.recentTabs...) {
+		next = w.appendRecentTabLocked(next, candidate)
+		if len(next) >= 2 {
+			break
+		}
+	}
+	w.recentTabs = next
+}
+
+func (w *terminalWorkspace) setActiveTabLocked(tabID string) {
+	tabID = strings.TrimSpace(tabID)
+	if tabID == "" {
+		w.activeTab = ""
+		w.pruneRecentTabsLocked()
+		return
+	}
+	if w.findTabLocked(tabID) == nil {
+		w.pruneRecentTabsLocked()
+		return
+	}
+	w.rememberRecentTabLocked(tabID)
+	w.activeTab = tabID
+}
+
 func (w *terminalWorkspace) resolveAutoTabLabelLocked(tab *terminalTab) string {
 	if tab == nil {
 		return ""
@@ -620,7 +698,7 @@ func (w *terminalWorkspace) createTabLocked(sourceTabID, sourcePaneID string, co
 		PaneIDs:      []string{pane.id},
 	}
 	w.insertTabAfterSourceLocked(tab, sourceTabID)
-	w.activeTab = tab.ID
+	w.setActiveTabLocked(tab.ID)
 	return nil
 }
 
@@ -718,10 +796,13 @@ func (w *terminalWorkspace) closeTabLocked(tabID string) error {
 	}
 	w.tabs = append(w.tabs[:index], w.tabs[index+1:]...)
 	if w.activeTab == tabID {
-		w.activeTab = ""
+		nextActiveTab := ""
 		if len(w.tabs) > 0 {
-			w.activeTab = w.tabs[min(index, len(w.tabs)-1)].ID
+			nextActiveTab = w.tabs[min(index, len(w.tabs)-1)].ID
 		}
+		w.setActiveTabLocked(nextActiveTab)
+	} else {
+		w.pruneRecentTabsLocked()
 	}
 	return nil
 }
@@ -737,7 +818,7 @@ func (w *terminalWorkspace) closeOtherTabsLocked(tabID string) error {
 			}
 		}
 	}
-	w.activeTab = tabID
+	w.setActiveTabLocked(tabID)
 	return nil
 }
 
@@ -769,7 +850,7 @@ func (w *terminalWorkspace) splitPaneLocked(tabID, paneID, direction string, col
 	}
 	tab.PaneIDs = append(tab.PaneIDs, pane.id)
 	tab.ActivePaneID = pane.id
-	w.activeTab = tab.ID
+	w.setActiveTabLocked(tab.ID)
 	return nil
 }
 
@@ -838,7 +919,7 @@ func (w *terminalWorkspace) movePaneToTabLocked(tabID, paneID string) error {
 		PaneIDs:      []string{paneID},
 	}
 	w.insertTabAfterSourceLocked(tab, source.ID)
-	w.activeTab = tab.ID
+	w.setActiveTabLocked(tab.ID)
 	return nil
 }
 
@@ -868,16 +949,21 @@ func (w *terminalWorkspace) moveTabLocked(tabID, position string) error {
 	}
 	w.tabs = append(w.tabs[:index], w.tabs[index+1:]...)
 	w.tabs = append(w.tabs[:target], append([]*terminalTab{tab}, w.tabs[target:]...)...)
-	w.activeTab = tab.ID
+	w.setActiveTabLocked(tab.ID)
 	return nil
 }
 
-func (w *terminalWorkspace) activateTabLocked(tabID string) error {
+func (w *terminalWorkspace) activateTabLocked(tabID string, recentTabIDs []string) error {
 	tab := w.findTabLocked(tabID)
 	if tab == nil {
 		return errors.New("tab not found")
 	}
-	w.activeTab = tab.ID
+	if recentTabIDs != nil {
+		w.setRecentTabsLocked(append([]string{tab.ID}, recentTabIDs...))
+		w.activeTab = tab.ID
+	} else {
+		w.setActiveTabLocked(tab.ID)
+	}
 	return nil
 }
 
@@ -890,7 +976,7 @@ func (w *terminalWorkspace) activatePaneLocked(tabID, paneID string) error {
 		return errors.New("pane not found")
 	}
 	tab.ActivePaneID = paneID
-	w.activeTab = tab.ID
+	w.setActiveTabLocked(tab.ID)
 	return nil
 }
 
@@ -936,6 +1022,7 @@ func (w *terminalWorkspace) closeAllPanes() {
 	w.panes = make(map[string]*terminalPane)
 	w.tabs = nil
 	w.activeTab = ""
+	w.recentTabs = nil
 	w.mu.Unlock()
 
 	for _, pane := range panes {

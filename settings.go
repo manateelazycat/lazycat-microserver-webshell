@@ -14,12 +14,14 @@ import (
 )
 
 type settingsPatch struct {
-	TerminalFontID               optionalString           `json:"terminal_font_id"`
-	TerminalScrollback           optionalInt              `json:"terminal_scrollback"`
-	DesktopMouseClipboardEnabled optionalBool             `json:"desktop_mouse_clipboard_enabled"`
-	MobilePixelScrollEnabled     optionalBool             `json:"mobile_pixel_scroll_enabled"`
-	MobileShortcuts              optionalMobileShortcuts  `json:"mobile_shortcuts"`
-	DesktopShortcuts             optionalDesktopShortcuts `json:"desktop_shortcuts"`
+	TerminalFontID                 optionalString           `json:"terminal_font_id"`
+	TerminalScrollback             optionalInt              `json:"terminal_scrollback"`
+	TerminalLineHeightPercent      optionalInt              `json:"terminal_line_height_percent"`
+	DesktopMouseClipboardEnabled   optionalBool             `json:"desktop_mouse_clipboard_enabled"`
+	MobilePixelScrollEnabled       optionalBool             `json:"mobile_pixel_scroll_enabled"`
+	MobileDoubleTapReminderEnabled optionalBool             `json:"mobile_double_tap_reminder_enabled"`
+	MobileShortcuts                optionalMobileShortcuts  `json:"mobile_shortcuts"`
+	DesktopShortcuts               optionalDesktopShortcuts `json:"desktop_shortcuts"`
 }
 
 type optionalString struct {
@@ -153,6 +155,12 @@ func (s *pluginServer) handleSettings(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
+		if payload.TerminalLineHeightPercent.Set && !payload.TerminalLineHeightPercent.Null {
+			if err := fonts.ValidateTerminalLineHeightPercent(payload.TerminalLineHeightPercent.Value); err != nil {
+				writeSettingsError(w, err)
+				return
+			}
+		}
 		s.settingsMu.Lock()
 		settings, err := store.ReadSettings()
 		updateFont := payload.TerminalFontID.Set && !payload.TerminalFontID.Null
@@ -164,11 +172,17 @@ func (s *pluginServer) handleSettings(w http.ResponseWriter, r *http.Request) {
 			if payload.TerminalScrollback.Set && !payload.TerminalScrollback.Null {
 				settings.TerminalScrollback = payload.TerminalScrollback.Value
 			}
+			if payload.TerminalLineHeightPercent.Set && !payload.TerminalLineHeightPercent.Null {
+				settings.TerminalLineHeightPercent = payload.TerminalLineHeightPercent.Value
+			}
 			if payload.DesktopMouseClipboardEnabled.Set && !payload.DesktopMouseClipboardEnabled.Null {
 				settings.DesktopMouseClipboardEnabled = &payload.DesktopMouseClipboardEnabled.Value
 			}
 			if payload.MobilePixelScrollEnabled.Set && !payload.MobilePixelScrollEnabled.Null {
 				settings.MobilePixelScrollEnabled = &payload.MobilePixelScrollEnabled.Value
+			}
+			if payload.MobileDoubleTapReminderEnabled.Set && !payload.MobileDoubleTapReminderEnabled.Null {
+				settings.MobileDoubleTapReminderEnabled = &payload.MobileDoubleTapReminderEnabled.Value
 			}
 			if payload.MobileShortcuts.Set {
 				if payload.MobileShortcuts.Null {

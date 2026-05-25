@@ -11,10 +11,12 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"lcmd-webshell/internal/pkg/fonts"
 )
@@ -44,6 +46,42 @@ func testPluginServerWithInstances() *pluginServer {
 	return &pluginServer{
 		instancesResolver: testInstancesResolver(testInstanceSummaries()),
 		deployUIDResolver: func() string { return "deploy-a" },
+	}
+}
+
+func testWorkspaceWithTabs(tabIDs ...string) *terminalWorkspace {
+	workspace := &terminalWorkspace{
+		selector:   "test",
+		panes:      make(map[string]*terminalPane),
+		nextTabID:  len(tabIDs) + 1,
+		nextPaneID: len(tabIDs) + 1,
+	}
+	for index, tabID := range tabIDs {
+		paneID := "pane-" + strconv.Itoa(index+1)
+		workspace.panes[paneID] = &terminalPane{
+			id:      paneID,
+			clients: make(map[*paneClient]struct{}),
+			done:    make(chan struct{}),
+		}
+		workspace.tabs = append(workspace.tabs, &terminalTab{
+			ID:           tabID,
+			Label:        tabID,
+			ActivePaneID: paneID,
+			Layout:       &layoutNode{Type: "leaf", PaneID: paneID},
+			PaneIDs:      []string{paneID},
+		})
+	}
+	if len(tabIDs) > 0 {
+		workspace.setActiveTabLocked(tabIDs[0])
+	}
+	return workspace
+}
+
+func requireRecentTabIDs(t *testing.T, workspace *terminalWorkspace, want ...string) {
+	t.Helper()
+	got := workspace.snapshot().RecentTabIDs
+	if !slices.Equal(got, want) {
+		t.Fatalf("RecentTabIDs = %v, want %v", got, want)
 	}
 }
 
@@ -192,6 +230,46 @@ func TestAuthorizeOwnedInstanceSelectorRejectsForeignSelector(t *testing.T) {
 	if err := server.authorizeOwnedInstanceSelector(context.Background(), "beta@deploy-b"); !errors.Is(err, errInstanceForbidden) {
 		t.Fatalf("authorize foreign selector error = %v, want errInstanceForbidden", err)
 	}
+}
+
+func TestWorkspacePersistsRecentTabsForSwap(t *testing.T) {
+	workspace := testWorkspaceWithTabs("tab-1", "tab-2", "tab-3")
+	requireRecentTabIDs(t, workspace, "tab-1")
+
+	if err := workspace.applyAction(workspaceActionRequest{Action: "activate_tab", TabID: "tab-2"}); err != nil {
+		t.Fatalf("activate tab-2 error = %v", err)
+	}
+	requireRecentTabIDs(t, workspace, "tab-2", "tab-1")
+
+	if err := workspace.applyAction(workspaceActionRequest{Action: "activate_tab", TabID: "tab-3"}); err != nil {
+		t.Fatalf("activate tab-3 error = %v", err)
+	}
+	requireRecentTabIDs(t, workspace, "tab-3", "tab-2")
+
+	if err := workspace.applyAction(workspaceActionRequest{Action: "activate_tab", TabID: "tab-2"}); err != nil {
+		t.Fatalf("activate tab-2 again error = %v", err)
+	}
+	requireRecentTabIDs(t, workspace, "tab-2", "tab-3")
+
+	if err := workspace.applyAction(workspaceActionRequest{Action: "close_tab", TabID: "tab-3"}); err != nil {
+		t.Fatalf("close tab-3 error = %v", err)
+	}
+	requireRecentTabIDs(t, workspace, "tab-2")
+}
+
+func TestWorkspaceAcceptsClientRecentTabsForSwap(t *testing.T) {
+	workspace := testWorkspaceWithTabs("tab-1", "tab-2", "tab-3")
+	workspace.activeTab = "tab-1"
+	workspace.recentTabs = nil
+
+	if err := workspace.applyAction(workspaceActionRequest{
+		Action:       "activate_tab",
+		TabID:        "tab-2",
+		RecentTabIDs: []string{"tab-2", "tab-3"},
+	}); err != nil {
+		t.Fatalf("activate tab-2 with client recents error = %v", err)
+	}
+	requireRecentTabIDs(t, workspace, "tab-2", "tab-3")
 }
 
 func TestHandleSettingsFontsUploadsMultipleFonts(t *testing.T) {
@@ -474,7 +552,39 @@ func TestHandleSettingsPatchScrollbackPreservesFont(t *testing.T) {
 	}
 }
 
-func TestHandleSettingsDefaultsDesktopMouseClipboardEnabled(t *testing.T) {
+func TestHandleSettingsPatchLineHeightPreservesFontAndScrollback(t *testing.T) {
+	server := &pluginServer{fontDir: t.TempDir()}
+	store := server.fontStore()
+	font, err := store.StoreUpload("Mono.woff2", "font/woff2", strings.NewReader("font-data"))
+	if err != nil {
+		t.Fatalf("StoreUpload() error = %v", err)
+	}
+	if err := store.SaveSettings(fonts.Settings{
+		TerminalFontID:            font.ID,
+		TerminalScrollback:        22000,
+		TerminalLineHeightPercent: fonts.DefaultTerminalLineHeightPercent,
+	}); err != nil {
+		t.Fatalf("SaveSettings() error = %v", err)
+	}
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPut, "/api/settings", strings.NewReader(`{"terminal_line_height_percent":135}`))
+	request.Header.Set("Content-Type", "application/json")
+	server.handleSettings(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("handleSettings() status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	var state fonts.State
+	if err := json.NewDecoder(recorder.Body).Decode(&state); err != nil {
+		t.Fatalf("decode response error = %v", err)
+	}
+	if state.TerminalFontID != font.ID || state.TerminalScrollback != 22000 || state.TerminalLineHeightPercent != 135 {
+		t.Fatalf("State = %+v, want selected font, scrollback 22000, and line height 135", state)
+	}
+}
+
+func TestHandleSettingsDefaultsDesktopMouseClipboardMobilePixelScrollAndDoubleTapReminderEnabled(t *testing.T) {
 	server := &pluginServer{fontDir: t.TempDir()}
 
 	recorder := httptest.NewRecorder()
@@ -490,12 +600,18 @@ func TestHandleSettingsDefaultsDesktopMouseClipboardEnabled(t *testing.T) {
 	if !state.DesktopMouseClipboardEnabled {
 		t.Fatalf("DesktopMouseClipboardEnabled = false, want default true")
 	}
-	if state.MobilePixelScrollEnabled {
-		t.Fatalf("MobilePixelScrollEnabled = true, want default false")
+	if !state.MobilePixelScrollEnabled {
+		t.Fatalf("MobilePixelScrollEnabled = false, want default true")
+	}
+	if !state.MobileDoubleTapReminderEnabled {
+		t.Fatalf("MobileDoubleTapReminderEnabled = false, want default true")
+	}
+	if state.TerminalLineHeightPercent != fonts.DefaultTerminalLineHeightPercent {
+		t.Fatalf("TerminalLineHeightPercent = %d, want default %d", state.TerminalLineHeightPercent, fonts.DefaultTerminalLineHeightPercent)
 	}
 }
 
-func TestHandleSettingsPatchDesktopMouseClipboardAndMobilePixelScrollPreserveFontAndScrollback(t *testing.T) {
+func TestHandleSettingsPatchDesktopMouseClipboardMobilePixelScrollAndDoubleTapReminderPreservesFontAndScrollback(t *testing.T) {
 	server := &pluginServer{fontDir: t.TempDir()}
 	store := server.fontStore()
 	font, err := store.StoreUpload("Mono.woff2", "font/woff2", strings.NewReader("font-data"))
@@ -510,7 +626,7 @@ func TestHandleSettingsPatchDesktopMouseClipboardAndMobilePixelScrollPreserveFon
 	}
 
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodPut, "/api/settings", strings.NewReader(`{"desktop_mouse_clipboard_enabled":false,"mobile_pixel_scroll_enabled":true}`))
+	request := httptest.NewRequest(http.MethodPut, "/api/settings", strings.NewReader(`{"desktop_mouse_clipboard_enabled":false,"mobile_pixel_scroll_enabled":false,"mobile_double_tap_reminder_enabled":false}`))
 	request.Header.Set("Content-Type", "application/json")
 	server.handleSettings(recorder, request)
 
@@ -521,8 +637,8 @@ func TestHandleSettingsPatchDesktopMouseClipboardAndMobilePixelScrollPreserveFon
 	if err := json.NewDecoder(recorder.Body).Decode(&state); err != nil {
 		t.Fatalf("decode response error = %v", err)
 	}
-	if state.TerminalFontID != font.ID || state.TerminalScrollback != 44000 || state.DesktopMouseClipboardEnabled || !state.MobilePixelScrollEnabled {
-		t.Fatalf("State = %+v, want selected font, scrollback 44000, disabled mouse clipboard, and enabled mobile pixel scroll", state)
+	if state.TerminalFontID != font.ID || state.TerminalScrollback != 44000 || state.DesktopMouseClipboardEnabled || state.MobilePixelScrollEnabled || state.MobileDoubleTapReminderEnabled {
+		t.Fatalf("State = %+v, want selected font, scrollback 44000, disabled mouse clipboard, disabled mobile pixel scroll, and disabled double tap reminder", state)
 	}
 }
 
@@ -594,6 +710,53 @@ func TestHandleSettingsDefaultsMobileShortcuts(t *testing.T) {
 	if tabIndex < 0 || returnIndex < 0 || tabIndex > returnIndex {
 		t.Fatalf("MobileShortcuts[0] = %+v, want tab before return", row)
 	}
+	row = state.MobileShortcuts[1]
+	ctrlCIndex := -1
+	swapIndex := -1
+	dollarIndex := -1
+	escIndex := -1
+	for index, shortcut := range row {
+		switch shortcut.ID {
+		case "ctrl-c":
+			ctrlCIndex = index
+		case "swap-tab":
+			swapIndex = index
+			if shortcut.Action != "swap_tab" || shortcut.Label != "Swap" {
+				t.Fatalf("MobileShortcuts[1][%d] = %+v, want Swap action", index, shortcut)
+			}
+		case "dollar":
+			dollarIndex = index
+		case "esc":
+			escIndex = index
+		}
+	}
+	if ctrlCIndex < 0 || swapIndex < 0 || ctrlCIndex > swapIndex {
+		t.Fatalf("MobileShortcuts[1] = %+v, want Swap after Ctrl+C", row)
+	}
+	if dollarIndex < 0 || escIndex < 0 || dollarIndex > escIndex {
+		t.Fatalf("MobileShortcuts[1] = %+v, want Esc after $", row)
+	}
+}
+
+func TestHandleSettingsAcceptsSwapMobileShortcut(t *testing.T) {
+	server := &pluginServer{fontDir: t.TempDir()}
+
+	body := `{"mobile_shortcuts":[[{"id":"swap","label":"Swap","action":"swap_tab"}],[]]}`
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPut, "/api/settings", strings.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	server.handleSettings(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("handleSettings() status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	var state fonts.State
+	if err := json.NewDecoder(recorder.Body).Decode(&state); err != nil {
+		t.Fatalf("decode response error = %v", err)
+	}
+	if got := state.MobileShortcuts[0][0]; got.Action != "swap_tab" || got.Label != "Swap" {
+		t.Fatalf("MobileShortcuts[0][0] = %+v, want swap_tab", got)
+	}
 }
 
 func TestHandleSettingsPatchMobileShortcutsPreservesExistingSettings(t *testing.T) {
@@ -605,9 +768,10 @@ func TestHandleSettingsPatchMobileShortcutsPreservesExistingSettings(t *testing.
 	}
 	disabled := false
 	settings := fonts.Settings{
-		TerminalFontID:               font.ID,
-		TerminalScrollback:           33000,
-		DesktopMouseClipboardEnabled: &disabled,
+		TerminalFontID:                 font.ID,
+		TerminalScrollback:             33000,
+		DesktopMouseClipboardEnabled:   &disabled,
+		MobileDoubleTapReminderEnabled: &disabled,
 	}
 	if err := store.SaveSettings(settings); err != nil {
 		t.Fatalf("SaveSettings() error = %v", err)
@@ -626,7 +790,7 @@ func TestHandleSettingsPatchMobileShortcutsPreservesExistingSettings(t *testing.
 	if err := json.NewDecoder(recorder.Body).Decode(&state); err != nil {
 		t.Fatalf("decode response error = %v", err)
 	}
-	if state.TerminalFontID != font.ID || state.TerminalScrollback != 33000 || state.DesktopMouseClipboardEnabled {
+	if state.TerminalFontID != font.ID || state.TerminalScrollback != 33000 || state.DesktopMouseClipboardEnabled || state.MobileDoubleTapReminderEnabled {
 		t.Fatalf("State = %+v, want preserved existing settings", state)
 	}
 	if got := state.MobileShortcuts[0][0]; got.ID != "custom-a" || !got.InputModifiers.Ctrl {
@@ -868,6 +1032,42 @@ func TestHandleSettingsRejectsInvalidScrollbackWithoutWriting(t *testing.T) {
 			}
 			if state.TerminalScrollback != 44000 {
 				t.Fatalf("TerminalScrollback = %d, want preserved 44000", state.TerminalScrollback)
+			}
+		})
+	}
+}
+
+func TestHandleSettingsRejectsInvalidLineHeightWithoutWriting(t *testing.T) {
+	for _, body := range []string{
+		`{"terminal_line_height_percent":0}`,
+		`{"terminal_line_height_percent":99}`,
+		`{"terminal_line_height_percent":161}`,
+		`{"terminal_line_height_percent":"120"}`,
+	} {
+		t.Run(body, func(t *testing.T) {
+			server := &pluginServer{fontDir: t.TempDir()}
+			store := server.fontStore()
+			if err := store.SaveSettings(fonts.Settings{
+				TerminalScrollback:        fonts.DefaultTerminalScrollback,
+				TerminalLineHeightPercent: 135,
+			}); err != nil {
+				t.Fatalf("SaveSettings() error = %v", err)
+			}
+
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(http.MethodPut, "/api/settings", strings.NewReader(body))
+			request.Header.Set("Content-Type", "application/json")
+			server.handleSettings(recorder, request)
+
+			if recorder.Code != http.StatusBadRequest {
+				t.Fatalf("handleSettings() status = %d, body = %s", recorder.Code, recorder.Body.String())
+			}
+			state, err := store.State()
+			if err != nil {
+				t.Fatalf("State() error = %v", err)
+			}
+			if state.TerminalLineHeightPercent != 135 {
+				t.Fatalf("TerminalLineHeightPercent = %d, want preserved 135", state.TerminalLineHeightPercent)
 			}
 		})
 	}
@@ -1484,14 +1684,29 @@ func TestPluginServerTerminalInputLockMatchesClient(t *testing.T) {
 	}
 }
 
-func TestPluginServerTerminalInputLockClearsClientOnDisconnect(t *testing.T) {
+func TestPluginServerTerminalInputLockClearsExplicitly(t *testing.T) {
 	server := &pluginServer{}
 	scope := normalizeAgentScope("demo@owner", "user-a")
 	clientID := "client-one"
 	server.setTerminalInputBlocked(scope, serverRevisionInputLockOwner(clientID), true)
-	server.clearTerminalInputBlockedClient(scope, clientID)
+	server.setTerminalInputBlocked(scope, serverRevisionInputLockOwner(clientID), false)
 	if server.terminalInputBlocked(scope, clientID) {
-		t.Fatal("expected matching client lock to be cleared on disconnect")
+		t.Fatal("expected matching client lock to be cleared explicitly")
+	}
+}
+
+func TestPluginServerTerminalInputLockExpires(t *testing.T) {
+	server := &pluginServer{}
+	scope := normalizeAgentScope("demo@owner", "user-a")
+	clientID := "client-one"
+	owner := serverRevisionInputLockOwner(clientID)
+	server.setTerminalInputBlocked(scope, owner, true)
+	key := scope.cacheKey()
+	server.inputLocksMu.Lock()
+	server.inputLocks[key][owner] = time.Now().Add(-time.Second)
+	server.inputLocksMu.Unlock()
+	if server.terminalInputBlocked(scope, clientID) {
+		t.Fatal("expected expired matching client lock to be ignored")
 	}
 }
 
@@ -1775,7 +1990,7 @@ func TestAgentHistoryReplayWritesStartAndCompleteForEmptyHistory(t *testing.T) {
 
 func TestHandleAgentAttachControlMessageDropsInputWhenServerLocked(t *testing.T) {
 	var blocked bytes.Buffer
-	if !handleAgentAttachControlMessage(nil, &sync.Mutex{}, &blocked, []byte(`{"type":"input","data":"8;36R"}`), true) {
+	if !handleAgentAttachControlMessage(nil, &sync.Mutex{}, &blocked, []byte(`{"type":"input","data":"8;36R"}`), true, nil) {
 		t.Fatal("blocked input message should keep the connection open")
 	}
 	if blocked.Len() != 0 {
@@ -1783,7 +1998,7 @@ func TestHandleAgentAttachControlMessageDropsInputWhenServerLocked(t *testing.T)
 	}
 
 	var allowed bytes.Buffer
-	if !handleAgentAttachControlMessage(nil, &sync.Mutex{}, &allowed, []byte(`{"type":"input","data":"6;55R"}`), false) {
+	if !handleAgentAttachControlMessage(nil, &sync.Mutex{}, &allowed, []byte(`{"type":"input","data":"6;55R"}`), false, nil) {
 		t.Fatal("allowed input message should keep the connection open")
 	}
 	frameType, payload, err := readAgentFrame(&allowed)
@@ -1795,7 +2010,7 @@ func TestHandleAgentAttachControlMessageDropsInputWhenServerLocked(t *testing.T)
 	}
 
 	var generated bytes.Buffer
-	if !handleAgentAttachControlMessage(nil, &sync.Mutex{}, &generated, []byte(`{"type":"input","data":"\u001b[45;1R","generated":true}`), false) {
+	if !handleAgentAttachControlMessage(nil, &sync.Mutex{}, &generated, []byte(`{"type":"input","data":"\u001b[45;1R","generated":true}`), false, nil) {
 		t.Fatal("generated input message should keep the connection open")
 	}
 	frameType, payload, err = readAgentFrame(&generated)
@@ -1804,6 +2019,29 @@ func TestHandleAgentAttachControlMessageDropsInputWhenServerLocked(t *testing.T)
 	}
 	if frameType != agentFrameGeneratedInput || string(payload) != "\x1b[45;1R" {
 		t.Fatalf("unexpected generated frame: type=%q payload=%q", frameType, string(payload))
+	}
+}
+
+func TestHandleAgentAttachControlMessageUsesConnectionLocalInputLock(t *testing.T) {
+	var out bytes.Buffer
+	localBlocked := false
+	if !handleAgentAttachControlMessage(nil, &sync.Mutex{}, &out, []byte(`{"type":"input_lock","blocked":true}`), false, &localBlocked) {
+		t.Fatal("input_lock control message should keep the connection open")
+	}
+	if !localBlocked {
+		t.Fatal("expected local input lock to be enabled")
+	}
+	if out.Len() != 0 {
+		t.Fatalf("expected input_lock to stay local, got %d framed bytes", out.Len())
+	}
+	if !handleAgentAttachControlMessage(nil, &sync.Mutex{}, &out, []byte(`{"type":"input_lock","blocked":false}`), true, &localBlocked) {
+		t.Fatal("input unlock control message should keep the connection open")
+	}
+	if localBlocked {
+		t.Fatal("expected local input lock to be disabled")
+	}
+	if out.Len() != 0 {
+		t.Fatalf("expected input unlock to stay local, got %d framed bytes", out.Len())
 	}
 }
 

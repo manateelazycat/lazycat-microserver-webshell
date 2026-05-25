@@ -31,6 +31,8 @@ const (
 	agentLogPath            = "/tmp/lcmd-webshell-agent.log"
 	agentReadyMarker        = "__LCMD_WEBSHELL_AGENT_READY__"
 	agentInstallCachePrefix = agentProtocolVersion + "\t"
+	websocketReadTimeout    = 30 * time.Second
+	websocketWriteTimeout   = 5 * time.Second
 )
 
 func agentSelectorHash(selector string) string {
@@ -163,11 +165,13 @@ var persistentAgentCache = struct {
 	running       map[string]bool
 	username      map[string]string
 	startupErrors map[string]string
+	notices       map[string]string
 }{
 	installed:     make(map[string]string),
 	running:       make(map[string]bool),
 	username:      make(map[string]string),
 	startupErrors: make(map[string]string),
+	notices:       make(map[string]string),
 }
 
 var agentRuntimeArchiveCache = struct {
@@ -278,6 +282,29 @@ func latestPersistentAgentStartupError(scope agentScope) string {
 	return strings.TrimSpace(message)
 }
 
+func rememberPersistentAgentNotice(scope agentScope, message string) {
+	scope = normalizeAgentScope(scope.Selector, scope.AccountID)
+	message = strings.TrimSpace(message)
+	if scope.Selector == "" || scope.AccountID == "" || message == "" {
+		return
+	}
+	persistentAgentCache.Lock()
+	persistentAgentCache.notices[scope.cacheKey()] = message
+	persistentAgentCache.Unlock()
+}
+
+func consumePersistentAgentNotice(scope agentScope) string {
+	scope = normalizeAgentScope(scope.Selector, scope.AccountID)
+	if scope.Selector == "" || scope.AccountID == "" {
+		return ""
+	}
+	persistentAgentCache.Lock()
+	defer persistentAgentCache.Unlock()
+	message := strings.TrimSpace(persistentAgentCache.notices[scope.cacheKey()])
+	delete(persistentAgentCache.notices, scope.cacheKey())
+	return message
+}
+
 func runPersistentAgentRequest(ctx context.Context, scope agentScope, request agentRequest) (agentResponse, error) {
 	scope = normalizeAgentScope(scope.Selector, scope.AccountID)
 	data, err := json.Marshal(request)
@@ -328,6 +355,23 @@ func ensurePersistentAgent(ctx context.Context, scope agentScope) (string, error
 		return "", trace.errorf("persistent webshell agent username resolve failed")
 	}
 	trace.add("resolved username=%s", username)
+
+	if persistentAgentRunningCached(scope) {
+		trace.add("agent running cache hit")
+		clearPersistentAgentStartupError(scope)
+		return username, nil
+	}
+
+	if err := pingPersistentAgentError(ctx, scope); err == nil {
+		trace.add("pre-install ping succeeded")
+		markPersistentAgentRunning(scope)
+		clearPersistentAgentStartupError(scope)
+		return username, nil
+	} else {
+		trace.add("pre-install ping failed: %v", err)
+		rememberIncompatiblePersistentAgentNotice(scope, err)
+	}
+
 	persistentAgentCache.Lock()
 	previousManifest := persistentAgentCache.installed[cacheKey]
 	persistentAgentCache.Unlock()
@@ -340,24 +384,14 @@ func ensurePersistentAgent(ctx context.Context, scope agentScope) (string, error
 		markPersistentAgentNotRunning(scope)
 	}
 
-	persistentAgentCache.Lock()
-	running := persistentAgentCache.running[cacheKey] && persistentAgentCache.installed[cacheKey] == manifest
-	persistentAgentCache.Unlock()
-	if running {
-		trace.add("agent running cache hit")
-		clearPersistentAgentStartupError(scope)
-		return username, nil
-	}
-
 	if err := pingPersistentAgentError(ctx, scope); err == nil {
 		trace.add("pre-start ping succeeded")
-		persistentAgentCache.Lock()
-		persistentAgentCache.running[cacheKey] = true
-		persistentAgentCache.Unlock()
+		markPersistentAgentRunning(scope)
 		clearPersistentAgentStartupError(scope)
 		return username, nil
 	} else {
 		trace.add("pre-start ping failed: %v", err)
+		rememberIncompatiblePersistentAgentNotice(scope, err)
 	}
 	if err := startPersistentAgent(ctx, scope, username, trace); err != nil {
 		return "", trace.errorf("persistent webshell agent start failed: %v", err)
@@ -368,9 +402,7 @@ func ensurePersistentAgent(ctx context.Context, scope agentScope) (string, error
 		attempt++
 		if err := pingPersistentAgentError(ctx, scope); err == nil {
 			trace.add("ready ping attempt %d succeeded", attempt)
-			persistentAgentCache.Lock()
-			persistentAgentCache.running[cacheKey] = true
-			persistentAgentCache.Unlock()
+			markPersistentAgentRunning(scope)
 			clearPersistentAgentStartupError(scope)
 			return username, nil
 		} else {
@@ -402,6 +434,26 @@ func markPersistentAgentNotRunning(scope agentScope) {
 	persistentAgentCache.Lock()
 	delete(persistentAgentCache.running, scope.cacheKey())
 	persistentAgentCache.Unlock()
+}
+
+func markPersistentAgentRunning(scope agentScope) {
+	persistentAgentCache.Lock()
+	persistentAgentCache.running[scope.cacheKey()] = true
+	persistentAgentCache.Unlock()
+}
+
+func persistentAgentRunningCached(scope agentScope) bool {
+	persistentAgentCache.Lock()
+	running := persistentAgentCache.running[scope.cacheKey()]
+	persistentAgentCache.Unlock()
+	return running
+}
+
+func rememberIncompatiblePersistentAgentNotice(scope agentScope, err error) {
+	if err == nil || !strings.Contains(err.Error(), "unsupported agent protocol") {
+		return
+	}
+	rememberPersistentAgentNotice(scope, "WebShell agent 协议已更新，旧终端会话无法复用，已创建新的终端会话。")
 }
 
 func ensureAgentBinaryInstalled(ctx context.Context, scope agentScope, trace *persistentAgentStartupTrace) (string, error) {
@@ -641,6 +693,24 @@ func (s *pluginServer) attachAgentPane(w http.ResponseWriter, r *http.Request, s
 		_ = conn.WriteMessage(websocket.TextMessage, []byte("\r\n[webshell error]\r\n"+err.Error()+"\r\n"))
 		return nil
 	}
+	if err := pingPersistentAgentError(r.Context(), scope); err != nil {
+		log.Printf("persistent webshell agent ping before attach failed: scope=%s account=%s err=%v", scope.Selector, scope.AccountID, err)
+		rememberIncompatiblePersistentAgentNotice(scope, err)
+		markPersistentAgentNotRunning(scope)
+		if _, ensureErr := ensurePersistentAgent(r.Context(), scope); ensureErr != nil {
+			if !websocket.IsWebSocketUpgrade(r) {
+				http.Error(w, ensureErr.Error(), http.StatusBadGateway)
+				return nil
+			}
+			conn, upgradeErr := upgrader.Upgrade(w, r, nil)
+			if upgradeErr != nil {
+				return upgradeErr
+			}
+			defer conn.Close()
+			_ = writeWebSocketJSON(conn, map[string]any{"type": "process-exit", "message": ensureErr.Error(), "exit_code": -1, "retryable": true})
+			return nil
+		}
+	}
 	clientID := strings.TrimSpace(r.URL.Query().Get("client_id"))
 	if clientID == "" {
 		clientID = strings.TrimSpace(r.URL.Query().Get("client"))
@@ -652,7 +722,7 @@ func (s *pluginServer) attachAgentPane(w http.ResponseWriter, r *http.Request, s
 	defer conn.Close()
 	conn.EnableWriteCompression(false)
 	conn.SetReadLimit(websocketReadLimit)
-	defer s.clearTerminalInputBlockedClient(scope, clientID)
+	_ = conn.SetReadDeadline(time.Now().Add(websocketReadTimeout))
 
 	attachCtx, cancelAttach := context.WithCancel(context.Background())
 	defer cancelAttach()
@@ -722,11 +792,20 @@ func (s *pluginServer) attachAgentPane(w http.ResponseWriter, r *http.Request, s
 	writerDone := make(chan struct{})
 	go func() {
 		defer close(writerDone)
+		forwardedFrames := 0
 		for {
 			frameType, payload, err := readAgentFrame(stdout)
 			if err != nil {
 				if text := strings.TrimSpace(stderr.String()); text != "" {
-					_ = writeWebSocketJSONLocked(conn, &writeMu, map[string]any{"type": "process-exit", "message": text, "exit_code": -1})
+					response := map[string]any{"type": "process-exit", "message": text, "exit_code": -1}
+					if forwardedFrames == 0 && isRetryableAgentAttachError(text) {
+						response["retryable"] = true
+						markPersistentAgentNotRunning(scope)
+					}
+					if isPaneNotFoundAttachError(text) {
+						response["retryable"] = false
+					}
+					_ = writeWebSocketJSONLocked(conn, &writeMu, response)
 				}
 				_ = conn.Close()
 				return
@@ -735,16 +814,16 @@ func (s *pluginServer) attachAgentPane(w http.ResponseWriter, r *http.Request, s
 			if frameType == agentFrameText {
 				messageType = websocket.TextMessage
 			}
-			writeMu.Lock()
-			err = conn.WriteMessage(messageType, payload)
-			writeMu.Unlock()
+			err = writeWebSocketMessageLocked(conn, &writeMu, messageType, payload)
 			if err != nil {
 				_ = conn.Close()
 				return
 			}
+			forwardedFrames++
 		}
 	}()
 
+	localInputBlocked := false
 	for {
 		messageType, payload, err := conn.ReadMessage()
 		if err != nil {
@@ -752,13 +831,15 @@ func (s *pluginServer) attachAgentPane(w http.ResponseWriter, r *http.Request, s
 			<-writerDone
 			return nil
 		}
+		_ = conn.SetReadDeadline(time.Now().Add(websocketReadTimeout))
+		inputBlocked := localInputBlocked || s.terminalInputBlocked(scope, clientID)
 		switch messageType {
 		case websocket.BinaryMessage:
-			if len(payload) > 0 && !s.terminalInputBlocked(scope, clientID) {
+			if len(payload) > 0 && !inputBlocked {
 				_ = writeAgentFrame(stdin, agentFrameInput, payload)
 			}
 		case websocket.TextMessage:
-			keepOpen := handleAgentAttachControlMessage(conn, &writeMu, stdin, payload, s.terminalInputBlocked(scope, clientID))
+			keepOpen := handleAgentAttachControlMessage(conn, &writeMu, stdin, payload, inputBlocked, &localInputBlocked)
 			if !keepOpen {
 				stopAttach()
 				<-writerDone
@@ -768,7 +849,32 @@ func (s *pluginServer) attachAgentPane(w http.ResponseWriter, r *http.Request, s
 	}
 }
 
-func handleAgentAttachControlMessage(conn *websocket.Conn, writeMu *sync.Mutex, stdin io.Writer, payload []byte, inputBlocked bool) bool {
+func isPaneNotFoundAttachError(message string) bool {
+	return strings.Contains(strings.ToLower(strings.TrimSpace(message)), "pane not found")
+}
+
+func isRetryableAgentAttachError(message string) bool {
+	text := strings.ToLower(strings.TrimSpace(message))
+	if text == "" || isPaneNotFoundAttachError(text) {
+		return false
+	}
+	for _, marker := range []string{
+		"broken pipe",
+		"connection refused",
+		"deadline exceeded",
+		"i/o timeout",
+		"no such file or directory",
+		"socket",
+		"unsupported agent protocol",
+	} {
+		if strings.Contains(text, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func handleAgentAttachControlMessage(conn *websocket.Conn, writeMu *sync.Mutex, stdin io.Writer, payload []byte, inputBlocked bool, localInputBlocked *bool) bool {
 	var message terminalControlMessage
 	if err := json.Unmarshal(payload, &message); err != nil {
 		if data, ok := strings.CutPrefix(string(payload), "input:"); ok {
@@ -793,8 +899,9 @@ func handleAgentAttachControlMessage(conn *websocket.Conn, writeMu *sync.Mutex, 
 			_ = writeAgentFrame(stdin, agentFrameResize, data)
 		}
 	case "input_lock":
-		data, _ := json.Marshal(message)
-		_ = writeAgentFrame(stdin, agentFrameLock, data)
+		if localInputBlocked != nil {
+			*localInputBlocked = message.Blocked
+		}
 	case "ping":
 		_ = writeWebSocketJSONLocked(conn, writeMu, map[string]any{"type": "pong"})
 	case "detach":
@@ -804,12 +911,19 @@ func handleAgentAttachControlMessage(conn *websocket.Conn, writeMu *sync.Mutex, 
 	return true
 }
 
+func writeWebSocketMessageLocked(conn *websocket.Conn, mu *sync.Mutex, messageType int, payload []byte) error {
+	mu.Lock()
+	defer mu.Unlock()
+	_ = conn.SetWriteDeadline(time.Now().Add(websocketWriteTimeout))
+	err := conn.WriteMessage(messageType, payload)
+	_ = conn.SetWriteDeadline(time.Time{})
+	return err
+}
+
 func writeWebSocketJSONLocked(conn *websocket.Conn, mu *sync.Mutex, payload any) error {
 	data, err := json.Marshal(payload)
 	if err != nil {
 		return err
 	}
-	mu.Lock()
-	defer mu.Unlock()
-	return conn.WriteMessage(websocket.TextMessage, data)
+	return writeWebSocketMessageLocked(conn, mu, websocket.TextMessage, data)
 }

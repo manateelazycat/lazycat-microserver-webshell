@@ -45,10 +45,13 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   const settingsFontDeleteSelectedButton = document.getElementById("settingsFontDeleteSelectedButton");
   const settingsFontCards = document.getElementById("settingsFontCards");
   const settingsFontInput = document.getElementById("settingsFontInput");
+  const settingsLineHeightInput = document.getElementById("settingsLineHeightInput");
+  const settingsLineHeightResetButton = document.getElementById("settingsLineHeightResetButton");
   const settingsScrollbackInput = document.getElementById("settingsScrollbackInput");
   const settingsScrollbackResetButton = document.getElementById("settingsScrollbackResetButton");
   const settingsDesktopMouseClipboardToggle = document.getElementById("settingsDesktopMouseClipboardToggle");
   const settingsMobilePixelScrollToggle = document.getElementById("settingsMobilePixelScrollToggle");
+  const settingsMobileDoubleTapReminderToggle = document.getElementById("settingsMobileDoubleTapReminderToggle");
   const settingsMobileShortcutAddButton = document.getElementById("settingsMobileShortcutAddButton");
   const settingsMobileShortcutResetButton = document.getElementById("settingsMobileShortcutResetButton");
   const settingsMobileShortcutList = document.getElementById("settingsMobileShortcutList");
@@ -125,6 +128,16 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   const attachmentClose = document.getElementById("attachmentClose");
   const attachmentClipboard = document.getElementById("attachmentClipboard");
   const attachmentFile = document.getElementById("attachmentFile");
+  const attachmentDownload = document.getElementById("attachmentDownload");
+  const attachmentBrowserBackdrop = document.getElementById("attachmentBrowserBackdrop");
+  const attachmentBrowserBack = document.getElementById("attachmentBrowserBack");
+  const attachmentBrowserClose = document.getElementById("attachmentBrowserClose");
+  const attachmentBrowserPath = document.getElementById("attachmentBrowserPath");
+  const attachmentBrowserBreadcrumbs = document.getElementById("attachmentBrowserBreadcrumbs");
+  const attachmentBrowserFeedback = document.getElementById("attachmentBrowserFeedback");
+  const attachmentBrowserList = document.getElementById("attachmentBrowserList");
+  const attachmentBrowserCancel = document.getElementById("attachmentBrowserCancel");
+  const attachmentBrowserDownload = document.getElementById("attachmentBrowserDownload");
   const attachmentFileInput = document.getElementById("attachmentFileInput");
   const dialogBackdrop = document.getElementById("dialogBackdrop");
   const dialogPanel = document.getElementById("dialogPanel");
@@ -163,6 +176,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   const fontSizeVersionStorageKey = `${storagePrefix}.fontSizeVersion`;
   const fontSizeStorageVersion = "2";
   const lastTabStorageKey = (name) => `${storagePrefix}.lastTab.${name || "default"}`;
+  const recentTabsStorageKey = (name) => `${storagePrefix}.recentTabs.${name || "default"}`;
   const restartTabStorageKey = `${storagePrefix}.restartTab`;
   const touchShortcutFeedbackStorageKey = `${storagePrefix}.touchShortcutFeedback`;
   const defaultFontSize = 16;
@@ -171,6 +185,9 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   const defaultTerminalScrollback = 5000;
   const minTerminalScrollback = 100;
   const maxTerminalScrollback = 100000;
+  const defaultTerminalLineHeightPercent = 100;
+  const minTerminalLineHeightPercent = 100;
+  const maxTerminalLineHeightPercent = 160;
   const defaultTerminalFontFamily = '"DejaVu Sans Mono", "Liberation Mono", monospace';
   const touchShortcutMoveThresholdPx = 8;
   const touchShortcutRepeatInitialDelayMs = 320;
@@ -181,6 +198,8 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   const mobileKeyboardFocusAllowWindowMs = 600;
   const mobileKeyboardFocusPrompt = "双击屏幕开启键盘输入";
   const mobileKeyboardInsetThresholdPx = 80;
+  const mobileOrientationViewportRecoveryDelays = [0, 80, 180, 360, 720];
+  const mobileOrientationHistoryReplayDelayMs = 900;
   const desktopSelectionCopyMoveThresholdPx = 4;
   const terminalSizeReassertIntervalMs = 250;
   const terminalInputChunkChars = 16 * 1024;
@@ -191,6 +210,14 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   const maxBufferedInputBytes = 64 * 1024;
   const maxPendingInputBytes = 8 * 1024 * 1024;
   const maxQueuedInputBytes = 16 * 1024 * 1024;
+  const terminalWebSocketPingIntervalMs = 10 * 1000;
+  const terminalWebSocketHealthTimeoutMs = 25 * 1000;
+  const terminalResumeProbeTimeoutMs = 1500;
+  const terminalUserRecoveryThrottleMs = 1500;
+  const terminalAttachReadyTimeoutMs = 8 * 1000;
+  const terminalReconnectBaseDelayMs = 500;
+  const terminalReconnectMaxDelayMs = 10 * 1000;
+  const terminalReconnectJitterRatio = 0.2;
   const terminalOutputFlushFallbackMs = 32;
   const maxQueuedTerminalOutputBytes = 4 * 1024 * 1024;
   const activityPollIntervalMs = 4000;
@@ -214,6 +241,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     ? Number(window.localStorage.getItem(fontSizeStorageKey))
     : NaN;
   let terminalFontSize = Number.isFinite(storedFontSize) ? Math.max(minFontSize, Math.min(maxFontSize, storedFontSize)) : defaultFontSize;
+  let terminalLineHeightPercent = defaultTerminalLineHeightPercent;
   const terminalOptionsBase = {
     cursorBlink: false,
     convertEol: true,
@@ -376,6 +404,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
 
   let activeName = (params.get("name") || "").trim();
   let activeTabId = null;
+  let recentTabIds = [];
   let activeInstanceGeneration = 0;
   let currentInstances = [];
   let disposed = false;
@@ -388,7 +417,8 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   let activeTerminalFontID = "";
   let terminalSymbolFont = null;
   let desktopMouseClipboardEnabled = true;
-  let mobilePixelScrollEnabled = false;
+  let mobilePixelScrollEnabled = true;
+  let mobileDoubleTapReminderEnabled = true;
   let fontEditMode = false;
   const selectedFontDeleteIDs = new Set();
   const registeredFontFaces = new Map();
@@ -403,6 +433,8 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   let suppressBeforeUnloadOnce = false;
   let suppressBeforeUnloadResetTimer = 0;
   let tabOverviewRenderFrame = 0;
+  let tabOverviewDragState = null;
+  let tabOverviewSuppressClickUntil = 0;
   let lightOSAdminInfo = null;
   let lightOSAdminInfoPromise = null;
   let lightOSAdminBaseURL = "";
@@ -410,7 +442,11 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   let lightOSHomeURLPromise = null;
   let mobileActionSheetIgnoreClicksUntil = 0;
   let mobileCloseConfirmResolve = null;
+  let mobileCustomSelectState = null;
   let mobileViewportResizeFrame = 0;
+  let mobileOrientationRecoverySeq = 0;
+  let mobileOrientationRecoveryTimer = 0;
+  let lastMobileViewportOrientation = "";
   let mobileViewportHeight = Math.max(0, Math.round(window.visualViewport?.height || window.innerHeight || 0));
   let mobileKeyboardInsetBottom = 0;
   let themePickerEdgeSwipe = null;
@@ -424,10 +460,14 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   let settingsThemeScrollbarHideTimer = 0;
   let settingsMobileShortcutsScrollbarHideTimer = 0;
   let settingsDesktopShortcutsScrollbarHideTimer = 0;
+  let settingsLineHeightSaveTimer = 0;
+  let settingsLineHeightSaveRequestSeq = 0;
   let settingsScrollbackSaveTimer = 0;
   let settingsScrollbackSaveRequestSeq = 0;
   let settingsDesktopMouseClipboardRequestSeq = 0;
   let settingsMobilePixelScrollRequestSeq = 0;
+  let settingsMobileDoubleTapReminderRequestSeq = 0;
+  let attachmentBrowserEdgeSwipe = null;
   let mobileShortcutsSaveRequestSeq = 0;
   let mobileShortcutsSaveVersion = 0;
   let mobileShortcutsPersistChain = Promise.resolve();
@@ -442,6 +482,13 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   let serviceForwardEditingID = "";
   let serviceForwardBusy = false;
   let attachmentDialogOpen = false;
+  let attachmentBrowserOpen = false;
+  let attachmentBrowserCurrentPath = "";
+  let attachmentBrowserParentPath = "";
+  let attachmentBrowserBreadcrumbPath = "";
+  let attachmentBrowserRequestSeq = 0;
+  const attachmentBrowserSelectedPaths = new Set();
+  const attachmentBrowserEntriesByPath = new Map();
   let attachmentUploads = new Map();
   let attachmentUploadSeq = 0;
   let pendingAttachmentFileClipboard = null;
@@ -450,16 +497,25 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   let touchShortcutFeedbackEnabled = loadTouchShortcutFeedbackEnabled();
   const textEncoder = new TextEncoder();
   const serverRevisionClientID = globalThis.crypto?.randomUUID?.() || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  let terminalUserRecoveryLastAt = 0;
   const themePickerSwipeEdgeWidth = 24;
   const themePickerSwipeAxisThreshold = 12;
   const themePickerSwipeCloseDistance = 56;
   const themePickerSwipeMaxVerticalTravel = 40;
+  const attachmentBrowserSwipeEdgeWidth = 24;
+  const attachmentBrowserSwipeAxisThreshold = 12;
+  const attachmentBrowserSwipeBackDistance = 56;
+  const attachmentBrowserSwipeMaxVerticalTravel = 40;
   const mobileOverviewSwipeEdgeWidth = 24;
   const mobileOverviewSwipeAxisThreshold = 12;
   const mobileOverviewSwipeNativeBackBlockDistance = 4;
   const mobileOverviewSwipeOpenDistance = 56;
   const mobileOverviewSwipeMaxVerticalTravel = 40;
   const mobileOverviewHistoryGuardStateKey = "webshellMobileOverviewGuard";
+  const tabOverviewDragMoveThresholdPx = 8;
+  const tabOverviewDragHoldDelayMs = 320;
+  const tabOverviewDragAutoScrollEdgePx = 58;
+  const tabOverviewDragAutoScrollMaxStepPx = 14;
   // Mobile IMEs keep Backspace auto-repeat active only while the focused editable has text.
   const terminalInputSentinel = "\u200b";
   const backtabSequence = "\x1b[Z";
@@ -504,14 +560,15 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     ],
     [
       { id: "mobile-menu", label: "Menu", ariaLabel: "Menu", action: "open_mobile_menu", kind: "menu" },
-      { id: "esc", label: "Esc", ariaLabel: "Escape", data: "\x1b", inputKey: "escape", kind: "primary" },
       { id: "ctrl-e", label: "Ctrl+E", ariaLabel: "Control E", data: "\x05", inputKey: "e", inputModifiers: { ctrl: true } },
       { id: "ctrl-c", label: "Ctrl+C", ariaLabel: "Control C", data: "\x03", inputKey: "c", inputModifiers: { ctrl: true }, kind: "primary" },
+      { id: "swap-tab", label: "Swap", ariaLabel: "切换最近两个终端", action: "swap_tab" },
       { id: "shift-tab", label: "Shift+Tab", ariaLabel: "Shift Tab", data: backtabSequence, inputKey: "tab", inputModifiers: { shift: true } },
       { id: "tilde", label: "~", ariaLabel: "Tilde", data: "~", inputKey: "~", kind: "symbol" },
       { id: "slash", label: "/", ariaLabel: "Slash", data: "/", inputKey: "/", kind: "symbol" },
       { id: "dash", label: "-", ariaLabel: "Dash", data: "-", inputKey: "-", kind: "symbol" },
       { id: "dollar", label: "$", ariaLabel: "Dollar Sign", data: "$", inputKey: "$", kind: "symbol" },
+      { id: "esc", label: "Esc", ariaLabel: "Escape", data: "\x1b", inputKey: "escape", kind: "primary" },
       { id: "zoom-in", label: "Zoom+", ariaLabel: "Zoom In", action: "zoom_in", kind: "modifier" },
       { id: "zoom-out", label: "Zoom-", ariaLabel: "Zoom Out", action: "zoom_out", kind: "modifier" },
       { id: "home", label: "Home", ariaLabel: "Home", data: "\x1b[H", inputKey: "home" },
@@ -538,6 +595,17 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     { value: "sticky_ctrl", label: "Ctrl 粘滞键" },
     { value: "sticky_alt", label: "Alt 粘滞键" },
     { value: "sticky_shift", label: "Shift 粘滞键" },
+    { value: "new_tab", label: "新建标签" },
+    { value: "close_tab", label: "关闭标签" },
+    { value: "rename_tab", label: "重命名标签" },
+    { value: "swap_tab", label: "切换最近两个终端" },
+    { value: "next_tab", label: "下一个标签" },
+    { value: "previous_tab", label: "上一个标签" },
+    { value: "vertical_split", label: "左右分屏" },
+    { value: "horizontal_split", label: "上下分屏" },
+    { value: "tab_overview", label: "总览" },
+    { value: "search_terminal", label: "搜索" },
+    { value: "attachment", label: "附件" },
     { value: "copy", label: "复制" },
     { value: "paste", label: "粘贴" },
     { value: "page_up", label: "PageUp" },
@@ -555,7 +623,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     nextTheme.cursor = nextTheme.foreground;
     return nextTheme;
   };
-  const terminalOptions = () => ({ ...terminalOptionsBase, fontSize: terminalFontSize, theme: cloneTheme(activeTheme) });
+  const terminalOptions = (overrides = {}) => ({ ...terminalOptionsBase, fontSize: terminalFontSize, theme: cloneTheme(activeTheme), ...overrides });
 
   const selectStoredTheme = () => {
     activeTheme = themes.find((theme) => theme.id === window.localStorage.getItem(themeStorageKey)) || themes[0];
@@ -802,6 +870,26 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     return next;
   };
 
+  const normalizeTerminalLineHeightPercent = (value) => {
+    const next = Math.round(Number(value));
+    if (!Number.isFinite(next) || next < minTerminalLineHeightPercent || next > maxTerminalLineHeightPercent) {
+      return defaultTerminalLineHeightPercent;
+    }
+    return next;
+  };
+
+  const readSettingsLineHeightInput = () => {
+    const raw = String(settingsLineHeightInput?.value || "").trim();
+    if (!/^\d+$/.test(raw)) {
+      throw new Error(`行间距必须是 ${minTerminalLineHeightPercent}-${maxTerminalLineHeightPercent}% 之间的整数。`);
+    }
+    const value = Number(raw);
+    if (!Number.isSafeInteger(value) || value < minTerminalLineHeightPercent || value > maxTerminalLineHeightPercent) {
+      throw new Error(`行间距必须是 ${minTerminalLineHeightPercent}-${maxTerminalLineHeightPercent}% 之间的整数。`);
+    }
+    return value;
+  };
+
   const readSettingsScrollbackInput = () => {
     const raw = String(settingsScrollbackInput?.value || "").trim();
     if (!/^\d+$/.test(raw)) {
@@ -812,6 +900,12 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       throw new Error(`滚动历史行数必须是 ${minTerminalScrollback}-${maxTerminalScrollback} 之间的整数。`);
     }
     return value;
+  };
+
+  const syncSettingsLineHeightInput = () => {
+    if (settingsLineHeightInput) {
+      settingsLineHeightInput.value = String(terminalLineHeightPercent || defaultTerminalLineHeightPercent);
+    }
   };
 
   const syncSettingsScrollbackInput = () => {
@@ -832,9 +926,21 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     }
   };
 
+  const syncSettingsMobileDoubleTapReminderToggle = () => {
+    if (settingsMobileDoubleTapReminderToggle) {
+      settingsMobileDoubleTapReminderToggle.checked = mobileDoubleTapReminderEnabled;
+    }
+  };
+
   const setSettingsScrollbackSaving = (saving) => {
     if (settingsScrollbackResetButton) {
       settingsScrollbackResetButton.disabled = saving;
+    }
+  };
+
+  const setSettingsLineHeightSaving = (saving) => {
+    if (settingsLineHeightResetButton) {
+      settingsLineHeightResetButton.disabled = saving;
     }
   };
 
@@ -871,6 +977,12 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   const setSettingsMobilePixelScrollSaving = (saving) => {
     if (settingsMobilePixelScrollToggle) {
       settingsMobilePixelScrollToggle.disabled = saving;
+    }
+  };
+
+  const setSettingsMobileDoubleTapReminderSaving = (saving) => {
+    if (settingsMobileDoubleTapReminderToggle) {
+      settingsMobileDoubleTapReminderToggle.disabled = saving;
     }
   };
 
@@ -1090,7 +1202,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     for (const tab of tabs.values()) {
       for (const pane of tab.panes.values()) {
         pane.term.options.fontFamily = terminalOptionsBase.fontFamily;
-        refreshTerminalMetrics(pane);
+        refreshTerminalMetrics(pane, { deferFitRetry: true });
       }
     }
   };
@@ -1692,6 +1804,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   };
 
   const resetServiceForwardForm = () => {
+    closeMobileCustomSelect();
     serviceForwardEditingID = "";
     if (serviceForwardEditor) {
       serviceForwardEditor.hidden = true;
@@ -1891,7 +2004,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     return true;
   };
 
-  const applySettingsState = async (state, { syncScrollbackInput = true } = {}) => {
+  const applySettingsState = async (state, { syncScrollbackInput = true, syncLineHeightInput = true } = {}) => {
     const fonts = Array.isArray(state?.fonts)
       ? state.fonts.map(normalizeUploadedFont).filter(Boolean)
       : [];
@@ -1899,18 +2012,25 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     terminalSymbolFont = normalizeTerminalSymbolFont(state?.terminal_symbol_font);
     const nextFontID = String(state?.terminal_font_id || "").trim();
     activeTerminalFontID = uploadedFonts.some((font) => font.id === nextFontID) ? nextFontID : "";
+    terminalLineHeightPercent = normalizeTerminalLineHeightPercent(state?.terminal_line_height_percent);
     terminalOptionsBase.scrollback = normalizeTerminalScrollback(state?.terminal_scrollback);
     desktopMouseClipboardEnabled = state?.desktop_mouse_clipboard_enabled !== false;
-    mobilePixelScrollEnabled = state?.mobile_pixel_scroll_enabled === true;
+    mobilePixelScrollEnabled = state?.mobile_pixel_scroll_enabled !== false;
+    mobileDoubleTapReminderEnabled = state?.mobile_double_tap_reminder_enabled !== false;
     applyMobileShortcutRows(normalizeMobileShortcutRows(state?.mobile_shortcuts), { remember: true });
     const hasCustomDesktopShortcuts = Array.isArray(state?.desktop_shortcuts);
     applyDesktopShortcuts(hasCustomDesktopShortcuts ? state.desktop_shortcuts : defaultDesktopShortcutsConfig, { remember: true });
     if (syncScrollbackInput) {
       syncSettingsScrollbackInput();
     }
+    if (syncLineHeightInput) {
+      syncSettingsLineHeightInput();
+    }
     syncSettingsDesktopMouseClipboardToggle();
     syncSettingsMobilePixelScrollToggle();
+    syncSettingsMobileDoubleTapReminderToggle();
     resizeActiveTabForCurrentDevice();
+    updateMobileActiveTabTitle();
     await registerTerminalSymbolFont(terminalSymbolFont);
     await registerUploadedFonts(uploadedFonts);
     renderSettingsFonts();
@@ -1946,7 +2066,19 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     if (!response.ok) {
       throw new Error(await readResponseText(response, `滚动历史设置保存失败 (${response.status})`));
     }
-    await applySettingsState(await response.json(), { syncScrollbackInput });
+    await applySettingsState(await response.json(), { syncScrollbackInput, syncLineHeightInput: false });
+  };
+
+  const saveTerminalLineHeightPercent = async (percent, { syncLineHeightInput = false } = {}) => {
+    const response = await fetch("./api/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ terminal_line_height_percent: percent }),
+    });
+    if (!response.ok) {
+      throw new Error(await readResponseText(response, `行间距设置保存失败 (${response.status})`));
+    }
+    await applySettingsState(await response.json(), { syncScrollbackInput: false, syncLineHeightInput });
   };
 
   const saveDesktopMouseClipboardEnabled = async (enabled) => {
@@ -1960,7 +2092,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     if (!response.ok) {
       throw new Error(await readResponseText(response, `鼠标复制粘贴设置保存失败 (${response.status})`));
     }
-    await applySettingsState(await response.json(), { syncScrollbackInput: false });
+    await applySettingsState(await response.json(), { syncScrollbackInput: false, syncLineHeightInput: false });
   };
 
   const saveMobilePixelScrollEnabled = async (enabled) => {
@@ -1975,7 +2107,22 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     if (!response.ok) {
       throw new Error(await readResponseText(response, `像素级滚动设置保存失败 (${response.status})`));
     }
-    await applySettingsState(await response.json(), { syncScrollbackInput: false });
+    await applySettingsState(await response.json(), { syncScrollbackInput: false, syncLineHeightInput: false });
+  };
+
+  const saveMobileDoubleTapReminderEnabled = async (enabled) => {
+    mobileDoubleTapReminderEnabled = enabled;
+    syncSettingsMobileDoubleTapReminderToggle();
+    updateMobileActiveTabTitle();
+    const response = await fetch("./api/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mobile_double_tap_reminder_enabled: enabled }),
+    });
+    if (!response.ok) {
+      throw new Error(await readResponseText(response, `双击屏幕提醒设置保存失败 (${response.status})`));
+    }
+    await applySettingsState(await response.json(), { syncScrollbackInput: false, syncLineHeightInput: false });
   };
 
   const saveMobileShortcuts = (rows, { reset = false } = {}) => {
@@ -1998,7 +2145,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
           throw new Error(await readResponseText(response, `手机快捷键保存失败 (${response.status})`));
         }
         if (saveVersion === mobileShortcutsSaveVersion && requestSeq === mobileShortcutsSaveRequestSeq) {
-          await applySettingsState(await response.json(), { syncScrollbackInput: false });
+          await applySettingsState(await response.json(), { syncScrollbackInput: false, syncLineHeightInput: false });
         } else {
           lastSavedMobileShortcutRowsConfig = cloneMobileShortcutRows(nextRows);
           await response.text().catch(() => "");
@@ -2032,7 +2179,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
           throw new Error(await readResponseText(response, `PC快捷键保存失败 (${response.status})`));
         }
         if (saveVersion === desktopShortcutsSaveVersion && requestSeq === desktopShortcutsSaveRequestSeq) {
-          await applySettingsState(await response.json(), { syncScrollbackInput: false });
+          await applySettingsState(await response.json(), { syncScrollbackInput: false, syncLineHeightInput: false });
         } else {
           lastSavedDesktopShortcutsConfig = cloneDesktopShortcuts(nextShortcuts);
           await response.text().catch(() => "");
@@ -2092,6 +2239,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   };
 
   const closeMobileShortcutEditor = () => {
+    closeMobileCustomSelect();
     mobileShortcutEditorState = null;
     if (mobileShortcutEditor) {
       mobileShortcutEditor.hidden = true;
@@ -2332,6 +2480,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   };
 
   const closeDesktopShortcutEditor = () => {
+    closeMobileCustomSelect();
     desktopShortcutEditorState = null;
     if (desktopShortcutEditor) {
       desktopShortcutEditor.hidden = true;
@@ -2551,6 +2700,44 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     renderSettingsMobileShortcuts();
   };
 
+  const saveTerminalLineHeightFromInput = () => {
+    let percent = defaultTerminalLineHeightPercent;
+    try {
+      percent = readSettingsLineHeightInput();
+    } catch (error) {
+      syncSettingsLineHeightInput();
+      setSettingsFeedback(error.message || "行间距设置无效。", "error");
+      return;
+    }
+    if (percent === terminalLineHeightPercent) {
+      return;
+    }
+    const requestSeq = ++settingsLineHeightSaveRequestSeq;
+    setSettingsLineHeightSaving(true);
+    saveTerminalLineHeightPercent(percent)
+      .catch((error) => {
+        if (requestSeq === settingsLineHeightSaveRequestSeq) {
+          syncSettingsLineHeightInput();
+          setSettingsFeedback(error.message || "行间距设置保存失败。", "error");
+        }
+      })
+      .finally(() => {
+        if (requestSeq === settingsLineHeightSaveRequestSeq) {
+          setSettingsLineHeightSaving(false);
+        }
+      });
+  };
+
+  const scheduleTerminalLineHeightSave = () => {
+    window.clearTimeout(settingsLineHeightSaveTimer);
+    try {
+      readSettingsLineHeightInput();
+    } catch (error) {
+      return;
+    }
+    settingsLineHeightSaveTimer = window.setTimeout(saveTerminalLineHeightFromInput, 360);
+  };
+
   const saveTerminalScrollbackFromInput = () => {
     let scrollback = defaultTerminalScrollback;
     try {
@@ -2692,6 +2879,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
 
   const closeSettings = () => {
     const wasOpen = settingsBackdrop && !settingsBackdrop.hidden;
+    closeMobileCustomSelect();
     hideSettingsThemeScrollbar();
     if (settingsBackdrop) {
       settingsBackdrop.hidden = true;
@@ -3163,12 +3351,45 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     return lightOSHomeURLPromise;
   };
 
+  const terminalEstimatedSizeForElement = (element) => {
+    if (!(element instanceof HTMLElement)) {
+      return null;
+    }
+    const metrics = terminalEstimatedFontMetrics();
+    if (!metrics?.width || !metrics?.height) {
+      return null;
+    }
+    const style = window.getComputedStyle(element);
+    const paddingLeft = Number.parseInt(style.getPropertyValue("padding-left"), 10) || 0;
+    const paddingRight = Number.parseInt(style.getPropertyValue("padding-right"), 10) || 0;
+    const paddingTop = Number.parseInt(style.getPropertyValue("padding-top"), 10) || 0;
+    const paddingBottom = Number.parseInt(style.getPropertyValue("padding-bottom"), 10) || 0;
+    const width = Math.max(0, Number(element.clientWidth || 0) - paddingLeft - paddingRight);
+    const height = Math.max(0, Number(element.clientHeight || 0) - paddingTop - paddingBottom);
+    if (!width || !height) {
+      return null;
+    }
+    return {
+      cols: Math.max(2, Math.floor(width / metrics.width)),
+      rows: Math.max(1, Math.floor(height / metrics.height)),
+    };
+  };
+
   const terminalSizeQuery = () => {
     const tab = currentTab();
     const pane = tab?.panes.get(tab.activePaneId);
+    const cols = Number(pane?.term?.cols) || 0;
+    const rows = Number(pane?.term?.rows) || 0;
+    if (cols > 0 && rows > 0) {
+      return { cols, rows };
+    }
+    const estimated = terminalEstimatedSizeForElement(terminalArea);
+    if (estimated) {
+      return estimated;
+    }
     return {
-      cols: pane?.term?.cols || 120,
-      rows: pane?.term?.rows || 32,
+      cols: 120,
+      rows: 32,
     };
   };
 
@@ -3199,6 +3420,24 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   const attachmentURL = (name = activeName) => {
     const url = new URL("./api/attachments", window.location.href);
     url.searchParams.set("name", name);
+    return url;
+  };
+
+  const attachmentFilesURL = (path = "", name = activeName) => {
+    const url = new URL("./api/attachments/files", window.location.href);
+    url.searchParams.set("name", name);
+    if (path) {
+      url.searchParams.set("path", path);
+    }
+    return url;
+  };
+
+  const attachmentDownloadURL = (paths, name = activeName) => {
+    const url = new URL("./api/attachments/download", window.location.href);
+    url.searchParams.set("name", name);
+    for (const path of paths || []) {
+      url.searchParams.append("path", path);
+    }
     return url;
   };
 
@@ -3645,16 +3884,42 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   const terminalCellFlagFaint = 128;
   const terminalBaselineSampleText = "\uF303\uF017Hg|pqyj\u00C5\u00C9()[]{}0123456789";
 
+  const terminalLineHeightRatio = () => normalizeTerminalLineHeightPercent(terminalLineHeightPercent) / defaultTerminalLineHeightPercent;
+
+  const applyTerminalLineHeightToMetrics = (metrics) => {
+    const width = Number(metrics?.width) || 0;
+    const height = Number(metrics?.height) || 0;
+    const baseline = Number(metrics?.baseline) || 0;
+    if (!width || !height || !baseline) {
+      return metrics;
+    }
+    const ratio = terminalLineHeightRatio();
+    const nextHeight = Math.max(height, Math.ceil(height * ratio));
+    const extra = nextHeight - height;
+    if (extra <= 0) {
+      return metrics;
+    }
+    const nextBaseline = Math.round(baseline + (extra / 2));
+    return {
+      ...metrics,
+      height: nextHeight,
+      baseline: Math.max(1, Math.min(nextHeight - 1, nextBaseline)),
+    };
+  };
+
   const terminalAdjustedFontMetrics = (renderer, metrics) => {
     const width = Number(metrics?.width) || 0;
     const height = Number(metrics?.height) || 0;
     const baseline = Number(metrics?.baseline) || 0;
-    if (!renderer || !width || !height || !baseline) {
+    if (!width || !height || !baseline) {
       return metrics;
+    }
+    if (!renderer) {
+      return applyTerminalLineHeightToMetrics(metrics);
     }
     const context = document.createElement("canvas").getContext("2d");
     if (!context) {
-      return metrics;
+      return applyTerminalLineHeightToMetrics(metrics);
     }
     context.font = `${renderer.fontSize}px ${renderer.fontFamily}`;
     context.textBaseline = "alphabetic";
@@ -3662,15 +3927,36 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     const ascent = Number(measured.actualBoundingBoxAscent);
     const descent = Number(measured.actualBoundingBoxDescent);
     if (!Number.isFinite(ascent) || !Number.isFinite(descent) || ascent <= 0) {
-      return metrics;
+      return applyTerminalLineHeightToMetrics(metrics);
     }
     const nextHeight = Math.max(height, Math.ceil(ascent + descent) + 2);
     const nextBaseline = Math.round((nextHeight + ascent - descent) / 2);
-    return {
+    return applyTerminalLineHeightToMetrics({
       ...metrics,
       height: nextHeight,
       baseline: Math.max(1, Math.min(nextHeight - 1, nextBaseline)),
-    };
+    });
+  };
+
+  const terminalEstimatedFontMetrics = () => {
+    const context = document.createElement("canvas").getContext("2d");
+    if (!context) {
+      return null;
+    }
+    context.font = `${terminalFontSize}px ${terminalOptionsBase.fontFamily}`;
+    const measured = context.measureText("M");
+    const width = Math.ceil(Number(measured.width) || 0);
+    const ascent = Number(measured.actualBoundingBoxAscent) || terminalFontSize * 0.8;
+    const descent = Number(measured.actualBoundingBoxDescent) || terminalFontSize * 0.2;
+    const height = Math.ceil(ascent + descent) + 2;
+    const baseline = Math.ceil(ascent) + 1;
+    if (!width || !height || !baseline) {
+      return null;
+    }
+    return terminalAdjustedFontMetrics(
+      { fontSize: terminalFontSize, fontFamily: terminalOptionsBase.fontFamily },
+      { width, height, baseline },
+    );
   };
 
   const installRendererBaselinePatch = (session) => {
@@ -4303,8 +4589,30 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
 
   const currentTab = () => tabs.get(activeTabId) || null;
 
+  const pathBasenameLabel = (path) => {
+    const raw = String(path || "").trim();
+    if (!raw) {
+      return "";
+    }
+    if (raw === "/") {
+      return "ROOT";
+    }
+    const trimmed = raw.replace(/\/+$/g, "");
+    if (!trimmed || trimmed === "/") {
+      return "ROOT";
+    }
+    const parts = trimmed.split("/").filter(Boolean);
+    return parts.pop() || "";
+  };
+
+  const activePaneDirectoryLabel = () => {
+    const tab = currentTab();
+    const pane = tab?.panes.get(tab.activePaneId) || null;
+    return pathBasenameLabel(pane?.cwd);
+  };
+
   const shouldShowMobileKeyboardFocusPrompt = () => {
-    if (!mobileLayoutQuery?.matches) {
+    if (!mobileDoubleTapReminderEnabled || !mobileLayoutQuery?.matches) {
       return false;
     }
     const tab = currentTab();
@@ -4319,13 +4627,195 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     }
     const label = shouldShowMobileKeyboardFocusPrompt()
       ? mobileKeyboardFocusPrompt
-      : String(currentTab()?.label || "终端").trim() || "终端";
+      : activePaneDirectoryLabel() || String(currentTab()?.label || "终端").trim() || "终端";
     mobileActiveTabTitle.textContent = label;
     mobileActiveTabTitle.title = label;
   };
 
   const isMobileLayout = () => Boolean(mobileLayoutQuery?.matches);
   const isTouchShortcutLayout = () => Boolean(touchShortcutLayoutQuery?.matches);
+
+  const isMobileCustomSelectLayout = () => isMobileLayout() || isTouchShortcutLayout();
+
+  const mobileCustomSelectLabel = (select) =>
+    String(
+      select?.getAttribute?.("aria-label") ||
+      select?.closest?.("label")?.querySelector?.("span")?.textContent ||
+      "选择"
+    ).trim() || "选择";
+
+  const ensureMobileCustomSelectPopover = () => {
+    let popover = document.getElementById("mobileCustomSelectPopover");
+    if (popover) {
+      return popover;
+    }
+    popover = document.createElement("div");
+    popover.className = "mobile-custom-select-popover";
+    popover.id = "mobileCustomSelectPopover";
+    popover.hidden = true;
+
+    const scrim = document.createElement("button");
+    scrim.type = "button";
+    scrim.className = "mobile-custom-select-scrim";
+    scrim.setAttribute("aria-label", "关闭选择菜单");
+
+    const panel = document.createElement("section");
+    panel.className = "mobile-custom-select-panel";
+    panel.setAttribute("role", "listbox");
+    panel.setAttribute("aria-label", "选择");
+
+    const list = document.createElement("div");
+    list.className = "mobile-custom-select-options";
+    panel.appendChild(list);
+    popover.append(scrim, panel);
+    document.body.appendChild(popover);
+
+    scrim.addEventListener("click", () => closeMobileCustomSelect());
+    return popover;
+  };
+
+  const closeMobileCustomSelect = ({ focus = false } = {}) => {
+    const state = mobileCustomSelectState;
+    if (!state) {
+      return;
+    }
+    state.select?.classList?.remove("mobile-custom-select-open");
+    state.popover.hidden = true;
+    state.list.textContent = "";
+    mobileCustomSelectState = null;
+    if (focus) {
+      window.setTimeout(() => state.select?.focus?.({ preventScroll: true }), 0);
+    }
+  };
+
+  const positionMobileCustomSelect = (select, panel, list) => {
+    const viewport = window.visualViewport;
+    const viewportLeft = viewport?.offsetLeft || 0;
+    const viewportTop = viewport?.offsetTop || 0;
+    const viewportWidth = Math.max(1, viewport?.width || window.innerWidth || document.documentElement.clientWidth || 1);
+    const viewportHeight = Math.max(1, viewport?.height || window.innerHeight || document.documentElement.clientHeight || 1);
+    const rect = select.getBoundingClientRect();
+    const margin = 8;
+    const minWidth = Math.max(180, rect.width);
+    const width = Math.min(viewportWidth - margin * 2, minWidth);
+    const left = Math.max(viewportLeft + margin, Math.min(viewportLeft + viewportWidth - width - margin, rect.left));
+    const below = viewportTop + viewportHeight - rect.bottom - margin;
+    const above = rect.top - viewportTop - margin;
+    const maxHeight = Math.max(120, Math.min(360, Math.max(below, above) - 6));
+    const top = below >= Math.min(280, maxHeight)
+      ? rect.bottom + 6
+      : Math.max(viewportTop + margin, rect.top - maxHeight - 6);
+    panel.style.left = `${Math.round(left)}px`;
+    panel.style.top = `${Math.round(top)}px`;
+    panel.style.width = `${Math.round(width)}px`;
+    panel.style.maxHeight = `${Math.round(maxHeight)}px`;
+    list.style.maxHeight = `${Math.round(maxHeight)}px`;
+  };
+
+  const syncMobileCustomSelectPosition = () => {
+    const state = mobileCustomSelectState;
+    if (!state) {
+      return;
+    }
+    if (!isMobileCustomSelectLayout() || state.select.disabled || !document.body.contains(state.select)) {
+      closeMobileCustomSelect();
+      return;
+    }
+    positionMobileCustomSelect(state.select, state.panel, state.list);
+  };
+
+  const openMobileCustomSelect = (select) => {
+    if (!(select instanceof HTMLSelectElement) || select.disabled || !isMobileCustomSelectLayout()) {
+      return false;
+    }
+    const options = Array.from(select.options || []);
+    if (options.length === 0) {
+      return false;
+    }
+    closeMobileCustomSelect();
+    const popover = ensureMobileCustomSelectPopover();
+    const panel = popover.querySelector(".mobile-custom-select-panel");
+    const list = popover.querySelector(".mobile-custom-select-options");
+    if (!(panel instanceof HTMLElement) || !(list instanceof HTMLElement)) {
+      return false;
+    }
+    const label = mobileCustomSelectLabel(select);
+    panel.setAttribute("aria-label", label);
+    list.textContent = "";
+    const selectedIndex = select.selectedIndex;
+    options.forEach((option, index) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "mobile-custom-select-option";
+      button.dataset.optionIndex = String(index);
+      button.setAttribute("role", "option");
+      button.setAttribute("aria-selected", index === selectedIndex ? "true" : "false");
+      button.disabled = option.disabled;
+      button.textContent = option.textContent || option.label || option.value;
+      if (index === selectedIndex) {
+        button.classList.add("is-selected");
+      }
+      button.addEventListener("click", () => {
+        if (button.disabled) {
+          return;
+        }
+        const previousIndex = select.selectedIndex;
+        select.selectedIndex = index;
+        select.dispatchEvent(new Event("input", { bubbles: true }));
+        if (select.selectedIndex !== previousIndex) {
+          select.dispatchEvent(new Event("change", { bubbles: true }));
+        }
+        closeMobileCustomSelect({ focus: true });
+      });
+      list.appendChild(button);
+    });
+    popover.hidden = false;
+    select.classList.add("mobile-custom-select-open");
+    mobileCustomSelectState = { select, popover, panel, list };
+    positionMobileCustomSelect(select, panel, list);
+    window.requestAnimationFrame(() => {
+      list.querySelector(".mobile-custom-select-option.is-selected")?.scrollIntoView?.({ block: "nearest" });
+    });
+    return true;
+  };
+
+  const handleMobileCustomSelectOpenEvent = (event) => {
+    const select = event.currentTarget;
+    if (!(select instanceof HTMLSelectElement) || !isMobileCustomSelectLayout()) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    event.stopImmediatePropagation?.();
+    if (mobileCustomSelectState?.select === select) {
+      return;
+    }
+    openMobileCustomSelect(select);
+  };
+
+  const handleMobileCustomSelectKeyDown = (event) => {
+    if (
+      !(event.currentTarget instanceof HTMLSelectElement) ||
+      !isMobileCustomSelectLayout() ||
+      !["Enter", " ", "ArrowDown", "ArrowUp"].includes(event.key)
+    ) {
+      return;
+    }
+    handleMobileCustomSelectOpenEvent(event);
+  };
+
+  const installMobileCustomSelects = () => {
+    for (const select of document.querySelectorAll("select")) {
+      if (select.dataset.mobileCustomSelectInstalled === "true") {
+        continue;
+      }
+      select.dataset.mobileCustomSelectInstalled = "true";
+      select.addEventListener("touchstart", handleMobileCustomSelectOpenEvent, { capture: true, passive: false });
+      select.addEventListener("pointerdown", handleMobileCustomSelectOpenEvent, { capture: true, passive: false });
+      select.addEventListener("click", handleMobileCustomSelectOpenEvent, { capture: true });
+      select.addEventListener("keydown", handleMobileCustomSelectKeyDown, { capture: true });
+    }
+  };
 
   const syncTerminalMobilePixelScroll = (session) => {
     if (session?.term?.options) {
@@ -4437,6 +4927,97 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       }
     }
     return ordered;
+  };
+
+  const pruneRecentTabIds = () => {
+    const next = [];
+    for (const id of recentTabIds) {
+      if (id && tabs.has(id) && !next.includes(id)) {
+        next.push(id);
+      }
+      if (next.length >= 2) {
+        break;
+      }
+    }
+    return applyRecentTabIds(next);
+  };
+
+  const normalizeRecentTabIds = (ids) => {
+    const next = [];
+    for (const id of Array.isArray(ids) ? ids : []) {
+      const tabId = String(id || "").trim();
+      if (tabId && tabs.has(tabId) && !next.includes(tabId)) {
+        next.push(tabId);
+      }
+      if (next.length >= 2) {
+        break;
+      }
+    }
+    return next;
+  };
+
+  const persistRecentTabIds = (name = activeName) => {
+    const targetName = String(name || "").trim();
+    if (!targetName) {
+      return;
+    }
+    try {
+      const key = recentTabsStorageKey(targetName);
+      if (recentTabIds.length > 0) {
+        window.localStorage.setItem(key, JSON.stringify(recentTabIds));
+      } else {
+        window.localStorage.removeItem(key);
+      }
+    } catch (error) {
+    }
+  };
+
+  const loadStoredRecentTabIds = (name = activeName) => {
+    const targetName = String(name || "").trim();
+    if (!targetName) {
+      return [];
+    }
+    try {
+      return normalizeRecentTabIds(JSON.parse(window.localStorage.getItem(recentTabsStorageKey(targetName)) || "[]"));
+    } catch (error) {
+      return [];
+    }
+  };
+
+  const applyRecentTabIds = (ids, { persist = true, name = activeName } = {}) => {
+    recentTabIds = normalizeRecentTabIds(ids);
+    if (persist) {
+      persistRecentTabIds(name);
+    }
+    return recentTabIds;
+  };
+
+  const rememberRecentTab = (tabId, previousTabId = "") => {
+    const nextId = String(tabId || "").trim();
+    const previousId = String(previousTabId || "").trim();
+    const next = [];
+    if (nextId && tabs.has(nextId)) {
+      next.push(nextId);
+    }
+    for (const id of [previousId, ...recentTabIds]) {
+      if (id && id !== nextId && tabs.has(id) && !next.includes(id)) {
+        next.push(id);
+      }
+      if (next.length >= 2) {
+        break;
+      }
+    }
+    return applyRecentTabIds(next);
+  };
+
+  const swapRecentTabs = () => {
+    const targetId = pruneRecentTabIds().find((id) => id !== activeTabId);
+    if (!targetId) {
+      showToast("没有可切换的最近终端。");
+      return false;
+    }
+    setActiveTab(targetId);
+    return true;
   };
 
   const scrollTabButtonIntoView = (button) => {
@@ -4638,9 +5219,411 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     drawLayoutOverviewPreview(ctx, tab, tab.layout, 0, 0, size.width, size.height, colors);
   };
 
+  const stopTabOverviewDragTracking = () => {
+    document.removeEventListener("pointermove", handleTabOverviewDragMove, { capture: true });
+    document.removeEventListener("pointerup", handleTabOverviewDragEnd, { capture: true });
+    document.removeEventListener("pointercancel", handleTabOverviewDragCancel, { capture: true });
+    document.removeEventListener("touchmove", handleTabOverviewDragTouchMove, { capture: true });
+  };
+
+  const tabOverviewReorderAnimationTimers = new WeakMap();
+
+  const stopTabOverviewDragAutoScroll = (state) => {
+    if (state?.autoScrollFrame) {
+      window.cancelAnimationFrame(state.autoScrollFrame);
+      state.autoScrollFrame = 0;
+    }
+    if (state) {
+      state.autoScrollStep = 0;
+    }
+  };
+
+  const getTabOverviewReorderRects = () => {
+    if (!tabOverviewGrid) {
+      return new Map();
+    }
+    return new Map(
+      Array.from(tabOverviewGrid.querySelectorAll(".tab-overview-card:not(.is-dragging)"))
+        .map((card) => [card, card.getBoundingClientRect()]),
+    );
+  };
+
+  const cancelTabOverviewReorderAnimationTimer = (card) => {
+    const timer = tabOverviewReorderAnimationTimers.get(card);
+    if (timer) {
+      window.clearTimeout(timer);
+      tabOverviewReorderAnimationTimers.delete(card);
+    }
+  };
+
+  const clearTabOverviewReorderAnimation = (card) => {
+    cancelTabOverviewReorderAnimationTimer(card);
+    card.classList.remove("is-reordering");
+    card.style.removeProperty("transition");
+    card.style.removeProperty("transform");
+  };
+
+  const animateTabOverviewReorder = (beforeRects) => {
+    if (!tabOverviewGrid || !beforeRects.size) {
+      return;
+    }
+    for (const card of tabOverviewGrid.querySelectorAll(".tab-overview-card:not(.is-dragging)")) {
+      const before = beforeRects.get(card);
+      if (!before) {
+        continue;
+      }
+      const after = card.getBoundingClientRect();
+      const dx = before.left - after.left;
+      const dy = before.top - after.top;
+      if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) {
+        continue;
+      }
+      cancelTabOverviewReorderAnimationTimer(card);
+      card.classList.remove("is-reordering");
+      card.style.transition = "none";
+      card.style.transform = `translate3d(${Math.round(dx)}px, ${Math.round(dy)}px, 0)`;
+      card.getBoundingClientRect();
+      card.style.removeProperty("transition");
+      card.classList.add("is-reordering");
+      window.requestAnimationFrame(() => {
+        card.style.removeProperty("transform");
+      });
+      const cleanupTimer = window.setTimeout(() => {
+        if (tabOverviewReorderAnimationTimers.get(card) === cleanupTimer) {
+          tabOverviewReorderAnimationTimers.delete(card);
+          card.classList.remove("is-reordering");
+        }
+      }, 180);
+      tabOverviewReorderAnimationTimers.set(card, cleanupTimer);
+    }
+  };
+
+  const clearTabOverviewReorderAnimations = () => {
+    if (!tabOverviewGrid) {
+      return;
+    }
+    for (const card of tabOverviewGrid.querySelectorAll(".tab-overview-card.is-reordering")) {
+      clearTabOverviewReorderAnimation(card);
+    }
+  };
+
+  const resetTabOverviewDraggedCard = (state) => {
+    const card = state?.card;
+    const placeholder = state?.placeholder;
+    if (state?.longPressTimer) {
+      window.clearTimeout(state.longPressTimer);
+      state.longPressTimer = 0;
+    }
+    stopTabOverviewDragAutoScroll(state);
+    clearTabOverviewReorderAnimations();
+    if (!card) {
+      return;
+    }
+    try {
+      if (state?.pointerId != null && card.hasPointerCapture?.(state.pointerId)) {
+        card.releasePointerCapture(state.pointerId);
+      }
+    } catch (_) {
+      // The pointer may already be released by the browser.
+    }
+    card.classList.remove("is-dragging");
+    card.style.removeProperty("position");
+    card.style.removeProperty("left");
+    card.style.removeProperty("top");
+    card.style.removeProperty("width");
+    card.style.removeProperty("height");
+    card.style.removeProperty("z-index");
+    card.style.removeProperty("transform");
+    if (placeholder?.parentNode) {
+      placeholder.parentNode.insertBefore(card, placeholder);
+      placeholder.remove();
+    } else if (tabOverviewGrid && !tabOverviewGrid.contains(card)) {
+      tabOverviewGrid.appendChild(card);
+    }
+    tabOverviewGrid?.classList.remove("is-dragging");
+    document.body.classList.remove("is-tab-overview-dragging");
+  };
+
+  const moveTabToOverviewIndex = async (tabId, targetIndex, restoreActiveTabId = activeTabId) => {
+    const ordered = getOrderedTabs();
+    const currentIndex = ordered.findIndex((tab) => tab.id === tabId);
+    if (currentIndex < 0) {
+      return;
+    }
+    const safeTarget = Math.max(0, Math.min(targetIndex, ordered.length - 1));
+    if (safeTarget === currentIndex) {
+      return;
+    }
+    const moves = [];
+    if (safeTarget === 0) {
+      moves.push("first");
+    } else if (safeTarget === ordered.length - 1) {
+      moves.push("last");
+    } else if (safeTarget < currentIndex) {
+      for (let index = currentIndex; index > safeTarget; index -= 1) {
+        moves.push("left");
+      }
+    } else {
+      for (let index = currentIndex; index < safeTarget; index += 1) {
+        moves.push("right");
+      }
+    }
+    for (const position of moves) {
+      await postWorkspaceAction("move_tab", { tab_id: tabId, position });
+    }
+    if (restoreActiveTabId && restoreActiveTabId !== tabId && tabs.has(restoreActiveTabId)) {
+      await postWorkspaceAction("activate_tab", { tab_id: restoreActiveTabId });
+    }
+  };
+
+  function finishTabOverviewDrag({ cancel = false } = {}) {
+    const state = tabOverviewDragState;
+    if (!state) {
+      return;
+    }
+    stopTabOverviewDragTracking();
+    const placeholder = state.placeholder;
+    const orderedCards = Array.from(tabOverviewGrid?.children || [])
+      .filter((child) => child.classList?.contains("tab-overview-card") || child.classList?.contains("tab-overview-card-placeholder"));
+    const targetIndex = placeholder ? orderedCards.indexOf(placeholder) : state.originalIndex;
+    const shouldMove = state.dragging && !cancel && targetIndex >= 0 && targetIndex !== state.originalIndex;
+    resetTabOverviewDraggedCard(state);
+    tabOverviewDragState = null;
+    if (!state.dragging) {
+      return;
+    }
+    tabOverviewSuppressClickUntil = performance.now() + 350;
+    if (shouldMove) {
+      moveTabToOverviewIndex(state.tabId, targetIndex, state.previousActiveTabId)
+        .catch((error) => {
+          showToast(error.message || "标签排序失败。");
+          scheduleTabOverviewRender();
+        });
+    }
+  }
+
+  function handleTabOverviewDragEnd(event) {
+    if (tabOverviewDragState && event?.pointerId !== tabOverviewDragState.pointerId) {
+      return;
+    }
+    if (tabOverviewDragState?.dragging) {
+      event?.preventDefault?.();
+      event?.stopPropagation?.();
+    }
+    finishTabOverviewDrag();
+  }
+
+  function handleTabOverviewDragCancel(event) {
+    if (tabOverviewDragState && event?.pointerId !== tabOverviewDragState.pointerId) {
+      return;
+    }
+    finishTabOverviewDrag({ cancel: true });
+  }
+
+  function handleTabOverviewDragTouchMove(event) {
+    if (!tabOverviewDragState?.dragging) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+  }
+
+  const beginTabOverviewDrag = (state) => {
+    if (!tabOverviewGrid || state.dragging) {
+      return;
+    }
+    if (state.longPressTimer) {
+      window.clearTimeout(state.longPressTimer);
+      state.longPressTimer = 0;
+    }
+    const rect = state.card.getBoundingClientRect();
+    const placeholder = document.createElement("div");
+    placeholder.className = "tab-overview-card-placeholder";
+    placeholder.style.height = `${Math.round(rect.height)}px`;
+    tabOverviewGrid.insertBefore(placeholder, state.card);
+    document.body.appendChild(state.card);
+    state.card.classList.add("is-dragging");
+    state.card.style.position = "fixed";
+    state.card.style.left = `${Math.round(rect.left)}px`;
+    state.card.style.top = `${Math.round(rect.top)}px`;
+    state.card.style.width = `${Math.round(rect.width)}px`;
+    state.card.style.height = `${Math.round(rect.height)}px`;
+    state.card.style.zIndex = "110";
+    state.card.style.transform = "translate3d(0, 0, 0)";
+    state.dragging = true;
+    state.placeholder = placeholder;
+    tabOverviewGrid.classList.add("is-dragging");
+    document.body.classList.add("is-tab-overview-dragging");
+    if (state.pointerType !== "mouse") {
+      document.addEventListener("touchmove", handleTabOverviewDragTouchMove, { capture: true, passive: false });
+    }
+  };
+
+  const findTabOverviewPlaceholderTarget = (state) => {
+    if (!tabOverviewGrid) {
+      return null;
+    }
+    const cards = Array.from(tabOverviewGrid.querySelectorAll(".tab-overview-card:not(.is-dragging)"));
+    for (const card of cards) {
+      const rect = card.getBoundingClientRect();
+      if (
+        state.lastY < rect.top + rect.height / 2 ||
+        (state.lastY <= rect.bottom && state.lastX < rect.left + rect.width / 2)
+      ) {
+        return card;
+      }
+    }
+    return null;
+  };
+
+  const updateTabOverviewDragPlaceholder = (state) => {
+    if (!tabOverviewGrid || !state.placeholder) {
+      return;
+    }
+    const before = findTabOverviewPlaceholderTarget(state);
+    if (before === state.placeholder.nextElementSibling || (!before && state.placeholder === tabOverviewGrid.lastElementChild)) {
+      return;
+    }
+    const beforeRects = getTabOverviewReorderRects();
+    if (before) {
+      tabOverviewGrid.insertBefore(state.placeholder, before);
+    } else {
+      tabOverviewGrid.appendChild(state.placeholder);
+    }
+    animateTabOverviewReorder(beforeRects);
+  };
+
+  const updateTabOverviewDragAutoScroll = (state) => {
+    if (!tabOverviewGrid || !state.dragging) {
+      stopTabOverviewDragAutoScroll(state);
+      return;
+    }
+    const rect = tabOverviewGrid.getBoundingClientRect();
+    const topDistance = state.lastY - rect.top;
+    const bottomDistance = rect.bottom - state.lastY;
+    let step = 0;
+    if (topDistance >= 0 && topDistance < tabOverviewDragAutoScrollEdgePx) {
+      step = -Math.ceil((1 - topDistance / tabOverviewDragAutoScrollEdgePx) * tabOverviewDragAutoScrollMaxStepPx);
+    } else if (bottomDistance >= 0 && bottomDistance < tabOverviewDragAutoScrollEdgePx) {
+      step = Math.ceil((1 - bottomDistance / tabOverviewDragAutoScrollEdgePx) * tabOverviewDragAutoScrollMaxStepPx);
+    }
+    state.autoScrollStep = step;
+    if (!step) {
+      stopTabOverviewDragAutoScroll(state);
+      return;
+    }
+    if (state.autoScrollFrame) {
+      return;
+    }
+    const tick = () => {
+      if (tabOverviewDragState !== state || !state.dragging || !tabOverviewGrid || !state.autoScrollStep) {
+        stopTabOverviewDragAutoScroll(state);
+        return;
+      }
+      const beforeScrollTop = tabOverviewGrid.scrollTop;
+      tabOverviewGrid.scrollTop += state.autoScrollStep;
+      if (tabOverviewGrid.scrollTop !== beforeScrollTop) {
+        updateTabOverviewDragPlaceholder(state);
+      }
+      state.autoScrollFrame = window.requestAnimationFrame(tick);
+    };
+    state.autoScrollFrame = window.requestAnimationFrame(tick);
+  };
+
+  function handleTabOverviewDragMove(event) {
+    const state = tabOverviewDragState;
+    if (!state || event.pointerId !== state.pointerId) {
+      return;
+    }
+    state.lastX = event.clientX;
+    state.lastY = event.clientY;
+    const dx = state.lastX - state.startX;
+    const dy = state.lastY - state.startY;
+    if (!state.dragging) {
+      if (Math.hypot(dx, dy) < tabOverviewDragMoveThresholdPx) {
+        return;
+      }
+      if (state.pointerType !== "mouse" && !state.dragReady) {
+        finishTabOverviewDrag({ cancel: true });
+        return;
+      }
+      beginTabOverviewDrag(state);
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    state.card.style.transform = `translate3d(${Math.round(dx)}px, ${Math.round(dy)}px, 0)`;
+    updateTabOverviewDragPlaceholder(state);
+    updateTabOverviewDragAutoScroll(state);
+  }
+
+  function handleTabOverviewCardPointerDown(event) {
+    if (
+      !(event instanceof PointerEvent) ||
+      !event.isPrimary ||
+      !isTabOverviewOpen() ||
+      tabs.size <= 1 ||
+      (event.pointerType === "mouse" && event.button !== 0)
+    ) {
+      return;
+    }
+    const card = event.currentTarget;
+    const target = event.target;
+    if (!(card instanceof HTMLElement) || !(target instanceof Element) || target.closest("[data-tab-overview-close]")) {
+      return;
+    }
+    const ordered = getOrderedTabs();
+    const tabId = card.dataset.tabId || "";
+    const originalIndex = ordered.findIndex((tab) => tab.id === tabId);
+    if (originalIndex < 0) {
+      return;
+    }
+    finishTabOverviewDrag({ cancel: true });
+    tabOverviewDragState = {
+      pointerId: event.pointerId,
+      tabId,
+      card,
+      startX: event.clientX,
+      startY: event.clientY,
+      lastX: event.clientX,
+      lastY: event.clientY,
+      pointerType: event.pointerType,
+      originalIndex,
+      previousActiveTabId: activeTabId,
+      dragReady: event.pointerType === "mouse",
+      dragging: false,
+      placeholder: null,
+      longPressTimer: 0,
+      autoScrollFrame: 0,
+      autoScrollStep: 0,
+    };
+    if (event.pointerType !== "mouse") {
+      const state = tabOverviewDragState;
+      state.longPressTimer = window.setTimeout(() => {
+        if (tabOverviewDragState === state && !state.dragging) {
+          state.dragReady = true;
+          beginTabOverviewDrag(state);
+        }
+      }, tabOverviewDragHoldDelayMs);
+    }
+    card.setPointerCapture?.(event.pointerId);
+    document.addEventListener("pointermove", handleTabOverviewDragMove, { capture: true, passive: false });
+    document.addEventListener("pointerup", handleTabOverviewDragEnd, { capture: true, passive: false });
+    document.addEventListener("pointercancel", handleTabOverviewDragCancel, { capture: true });
+  }
+
+  const bindTabOverviewCardDrag = (card) => {
+    card.addEventListener("pointerdown", handleTabOverviewCardPointerDown);
+  };
+
   const renderTabOverview = () => {
     if (!tabOverviewGrid) {
       return;
+    }
+    if (tabOverviewDragState?.dragging) {
+      return;
+    }
+    if (tabOverviewDragState) {
+      finishTabOverviewDrag({ cancel: true });
     }
     tabOverviewGrid.classList.remove("is-scrollable");
     syncTabOverviewPreviewRatio();
@@ -4702,6 +5685,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
 
       main.append(preview, meta);
       card.append(main, close);
+      bindTabOverviewCardDrag(card);
       previewItems.push({ canvas, tab });
       fragment.appendChild(card);
     }
@@ -4729,6 +5713,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     if (!tabOverview) {
       return;
     }
+    finishTabOverviewDrag({ cancel: true });
     if (tabOverviewRenderFrame) {
       window.cancelAnimationFrame(tabOverviewRenderFrame);
       tabOverviewRenderFrame = 0;
@@ -4810,6 +5795,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     (mobileShortcutEditor && !mobileShortcutEditor.hidden) ||
     (desktopShortcutEditor && !desktopShortcutEditor.hidden) ||
     (attachmentBackdrop && !attachmentBackdrop.hidden) ||
+    (attachmentBrowserBackdrop && !attachmentBrowserBackdrop.hidden) ||
     (dialogBackdrop && !dialogBackdrop.hidden) ||
     (contextMenu && !contextMenu.hidden) ||
     (selectionSheet && !selectionSheet.hidden)
@@ -4939,9 +5925,15 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     refreshTabAutoLabel(tab);
     syncCursorBlinkState();
     updateMobileSelectionHandles(activePane);
+    if (activePane?.pendingConnect) {
+      connectPendingSession(activePane);
+    } else {
+      checkSessionConnectionHealth(activePane, { connect: true, force: true });
+    }
     if (focus) {
       window.requestAnimationFrame(() => {
         resizePane(activePane);
+        connectPendingSession(activePane);
         activePane?.term?.focus();
       });
     }
@@ -5270,11 +6262,14 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     const committed = pending.committed || "";
     let data = rawValue;
     let handled = false;
-    if (!rawValue || rawValue === preedit) {
+    if (!rawValue) {
       data = "";
       handled = true;
     } else if (pending.sent && (rawValue === committed || (preedit && rawValue === `${preedit}${committed}`))) {
       data = "";
+      handled = true;
+    } else if (!pending.sent && preedit && rawValue === preedit) {
+      data = rawValue;
       handled = true;
     } else if (!pending.sent && preedit && rawValue.startsWith(preedit)) {
       data = rawValue.slice(preedit.length);
@@ -5368,7 +6363,25 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     } else if (type === "insertText" || type === "insertReplacementText") {
       data = event.data || "";
     } else if (type === "insertFromPaste") {
-      data = event.dataTransfer?.getData("text/plain") || event.data || "";
+      const text = event.dataTransfer?.getData("text/plain") || event.data || "";
+      const recentlyHandledPaste = text
+        && session?.lastPasteText === text
+        && performance.now() - Number(session?.lastPasteAt || 0) < 150;
+      event.preventDefault();
+      event.stopPropagation();
+      setTerminalInputComposing(session, false);
+      if (textarea) {
+        textarea.value = terminalInputSentinel;
+        moveTerminalTextareaCaretToEnd(textarea);
+      }
+      if (text && !recentlyHandledPaste) {
+        session.lastPasteText = text;
+        session.lastPasteAt = performance.now();
+        pasteIntoSession(session, text).catch((error) => showToast(error.message));
+      }
+      resetTerminalHostViewport(session, { clean: true });
+      positionTerminalInput(session);
+      return;
     } else if (event.data) {
       data = event.data;
     }
@@ -5590,6 +6603,8 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       event.preventDefault();
       event.stopImmediatePropagation();
       reassertTerminalSize(session, { force: true });
+      session.lastPasteText = text;
+      session.lastPasteAt = performance.now();
       pasteIntoSession(session, text).catch((error) => showToast(error.message));
     }, { capture: true });
     host.addEventListener("pointerdown", (event) => {
@@ -5677,14 +6692,34 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     }
   };
 
-  const resizePane = (pane) => {
+  const isPaneMeasurable = (pane) => {
+    const host = pane?.terminalHost;
+    if (!(host instanceof HTMLElement) || !host.isConnected || host.clientWidth <= 0 || host.clientHeight <= 0) {
+      return false;
+    }
+    const rect = host.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0;
+  };
+
+  const isPaneVisibleForSizing = (pane) => {
+    return pane?.tabId === activeTabId && isPaneMeasurable(pane);
+  };
+
+  const resizePane = (pane, { visibleOnly = true } = {}) => {
     if (!pane || pane.closed) {
-      return;
+      return false;
+    }
+    if (visibleOnly && !isPaneVisibleForSizing(pane)) {
+      return false;
+    }
+    const dimensions = pane.fitAddon?.proposeDimensions?.();
+    if (!dimensions || dimensions.cols <= 0 || dimensions.rows <= 0) {
+      return false;
     }
     try {
       pane.fitAddon.fit();
     } catch (error) {
-      return;
+      return false;
     }
     resetTerminalHostViewport(pane, { clean: true });
     positionTerminalInput(pane);
@@ -5692,6 +6727,49 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       resetTerminalAfterInitialFit(pane);
     }
     sendTerminalSize(pane);
+    updateMobileSelectionHandles(pane);
+    return true;
+  };
+
+  const connectPendingSession = (session, { allowHidden = false } = {}) => {
+    if (!session || !session.pendingConnect || session.closed || session.name !== activeName) {
+      return;
+    }
+    const socketReadyState = session.socket?.readyState;
+    if (socketReadyState === WebSocket.OPEN || socketReadyState === WebSocket.CONNECTING) {
+      session.pendingConnect = false;
+      return;
+    }
+    if (isPaneMeasurable(session)) {
+      if (document.hidden && !allowHidden) {
+        return;
+      }
+      resizePane(session);
+      connectSession(session, { allowHidden }).catch((error) => {
+        showSessionStartupError(session, error.message || "WebSocket connection failed.");
+      });
+      return;
+    }
+    if (session.initialCols > 0 && session.initialRows > 0) {
+      connectSession(session, { allowHidden: true }).catch((error) => {
+        showSessionStartupError(session, error.message || "WebSocket connection failed.");
+      });
+    }
+  };
+
+  const connectPendingSessionsForTab = (tab, options = {}) => {
+    if (!tab) {
+      return;
+    }
+    for (const pane of tab.panes.values()) {
+      connectPendingSession(pane, options);
+    }
+  };
+
+  const connectPendingSessions = (options = {}) => {
+    for (const tab of tabs.values()) {
+      connectPendingSessionsForTab(tab, options);
+    }
   };
 
   const resizeTab = (tab) => {
@@ -5701,9 +6779,21 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     for (const pane of tab.panes.values()) {
       resizePane(pane);
     }
+    connectPendingSessionsForTab(tab);
   };
 
   const resizeActiveTab = () => resizeTab(currentTab());
+
+  const scheduleVisibleTabResize = (tab) => {
+    if (!tab) {
+      return;
+    }
+    window.requestAnimationFrame(() => {
+      resizeTabForCurrentDevice(tab);
+      window.requestAnimationFrame(() => resizeTabForCurrentDevice(tab));
+      window.setTimeout(() => resizeTabForCurrentDevice(tab), 80);
+    });
+  };
 
   const reassertTerminalSize = (session, { force = false } = {}) => {
     if (!session || session.closed) {
@@ -5734,6 +6824,91 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
 
   const resizeActiveTabForCurrentDevice = () => resizeTabForCurrentDevice(currentTab());
 
+  const currentMobileViewportOrientation = () => {
+    const type = String(window.screen?.orientation?.type || "").toLowerCase();
+    if (type.startsWith("landscape")) {
+      return "landscape";
+    }
+    if (type.startsWith("portrait")) {
+      return "portrait";
+    }
+    const rawAngle = window.screen?.orientation?.angle ?? window.orientation;
+    const angle = Number(rawAngle);
+    if (Number.isFinite(angle)) {
+      const normalized = ((Math.round(angle) % 360) + 360) % 360;
+      if (normalized === 90 || normalized === 270) {
+        return "landscape";
+      }
+      if (normalized === 0 || normalized === 180) {
+        return "portrait";
+      }
+    }
+    const screenWidth = Number(window.screen?.width) || 0;
+    const screenHeight = Number(window.screen?.height) || 0;
+    if (screenWidth > 0 && screenHeight > 0 && screenWidth !== screenHeight) {
+      return screenWidth > screenHeight ? "landscape" : "portrait";
+    }
+    const visualViewport = window.visualViewport;
+    const viewportWidth = Number(visualViewport?.width || window.innerWidth || document.documentElement.clientWidth || 0);
+    const viewportHeight = Number(visualViewport?.height || window.innerHeight || document.documentElement.clientHeight || 0);
+    if (viewportWidth > 0 && viewportHeight > 0 && viewportWidth !== viewportHeight) {
+      return viewportWidth > viewportHeight ? "landscape" : "portrait";
+    }
+    return "";
+  };
+
+  const rememberMobileViewportOrientationChange = () => {
+    if (!isTouchShortcutLayout()) {
+      return false;
+    }
+    const orientation = currentMobileViewportOrientation();
+    if (!orientation) {
+      return false;
+    }
+    if (!lastMobileViewportOrientation) {
+      lastMobileViewportOrientation = orientation;
+      return false;
+    }
+    if (lastMobileViewportOrientation === orientation) {
+      return false;
+    }
+    lastMobileViewportOrientation = orientation;
+    return true;
+  };
+
+  const runMobileOrientationViewportRecoveryPass = (seq) => {
+    if (seq !== mobileOrientationRecoverySeq) {
+      return;
+    }
+    syncMobileVisualViewport({ detectOrientation: false });
+    resizeActiveTabForCurrentDevice();
+    updateMobileActiveTabTitle();
+    updateSelectionSheet();
+  };
+
+  const scheduleMobileOrientationViewportRecovery = () => {
+    if (!isTouchShortcutLayout() || !currentTab()?.panes.size) {
+      return;
+    }
+    mobileOrientationRecoverySeq += 1;
+    const seq = mobileOrientationRecoverySeq;
+    if (mobileOrientationRecoveryTimer) {
+      window.clearTimeout(mobileOrientationRecoveryTimer);
+      mobileOrientationRecoveryTimer = 0;
+    }
+    for (const delay of mobileOrientationViewportRecoveryDelays) {
+      window.setTimeout(() => runMobileOrientationViewportRecoveryPass(seq), delay);
+    }
+    mobileOrientationRecoveryTimer = window.setTimeout(() => {
+      if (seq !== mobileOrientationRecoverySeq) {
+        return;
+      }
+      mobileOrientationRecoveryTimer = 0;
+      runMobileOrientationViewportRecoveryPass(seq);
+      replayActiveTabFromServerAfterViewportChange();
+    }, mobileOrientationHistoryReplayDelayMs);
+  };
+
   const handleMobileViewportResize = () => {
     mobileViewportResizeFrame = 0;
     resizeActiveTabForCurrentDevice();
@@ -5745,6 +6920,9 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       renderMobileActionSheet();
     }
     scheduleTabOverviewRender();
+    if (rememberMobileViewportOrientationChange() || mobileOrientationRecoveryTimer) {
+      scheduleMobileOrientationViewportRecovery();
+    }
   };
 
   const scheduleMobileViewportResize = () => {
@@ -5754,21 +6932,30 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     mobileViewportResizeFrame = window.requestAnimationFrame(handleMobileViewportResize);
   };
 
-  const syncMobileVisualViewport = () => {
+  const syncMobileVisualViewport = ({ detectOrientation = true } = {}) => {
     const useKeyboardInset = isIOSPlatform();
+    const visualViewport = window.visualViewport;
+    const nextHeight = Math.max(0, Math.round(visualViewport?.height || window.innerHeight || 0));
+    if (nextHeight > 0) {
+      document.documentElement.style.setProperty("--mobile-visual-viewport-height", `${nextHeight}px`);
+    }
+    const orientationChanged = detectOrientation && rememberMobileViewportOrientationChange();
+    const shouldRecoverOrientation = orientationChanged || (detectOrientation && mobileOrientationRecoveryTimer);
     if (!useKeyboardInset) {
       const insetChanged = mobileKeyboardInsetBottom !== 0;
+      const heightChanged = nextHeight !== mobileViewportHeight;
+      mobileViewportHeight = nextHeight;
       mobileKeyboardInsetBottom = 0;
-      document.documentElement.style.removeProperty("--mobile-visual-viewport-height");
       document.documentElement.style.setProperty("--mobile-keyboard-inset-bottom", "0px");
       document.body.classList.remove("mobile-keyboard-visible");
-      if (insetChanged) {
+      if (heightChanged || insetChanged) {
         scheduleMobileViewportResize();
+      }
+      if (shouldRecoverOrientation) {
+        scheduleMobileOrientationViewportRecovery();
       }
       return;
     }
-    const visualViewport = window.visualViewport;
-    const nextHeight = Math.max(0, Math.round(visualViewport?.height || window.innerHeight || 0));
     const measuredInset = visualViewport
       ? Math.max(0, Math.round((window.innerHeight || 0) - visualViewport.height - visualViewport.offsetTop))
       : 0;
@@ -5777,12 +6964,20 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     const insetChanged = nextInset !== mobileKeyboardInsetBottom;
     mobileViewportHeight = nextHeight;
     mobileKeyboardInsetBottom = nextInset;
-    document.documentElement.style.setProperty("--mobile-visual-viewport-height", `${nextHeight}px`);
     document.documentElement.style.setProperty("--mobile-keyboard-inset-bottom", `${nextInset}px`);
     document.body.classList.toggle("mobile-keyboard-visible", nextInset > mobileKeyboardInsetThresholdPx);
     if (heightChanged || insetChanged) {
       scheduleMobileViewportResize();
     }
+    if (shouldRecoverOrientation) {
+      scheduleMobileOrientationViewportRecovery();
+    }
+  };
+
+  const handleMobileOrientationChange = () => {
+    syncMobileVisualViewport();
+    rememberMobileViewportOrientationChange();
+    scheduleMobileOrientationViewportRecovery();
   };
 
   const activeSession = () => {
@@ -5790,7 +6985,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     return tab?.panes.get(tab.activePaneId) || null;
   };
 
-  const refreshTerminalMetrics = (session) => {
+  const refreshTerminalMetrics = (session, { deferFitRetry = false } = {}) => {
     if (!session?.term) {
       return;
     }
@@ -5803,6 +6998,9 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
         session.term.renderer.render(session.term.wasmTerm, true, session.term.viewportY || 0, session.term);
       }
       resizePane(session);
+      if (deferFitRetry) {
+        window.setTimeout(() => resizePane(session), 60);
+      }
     } catch (error) {
     }
   };
@@ -5815,7 +7013,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     for (const tab of tabs.values()) {
       for (const pane of tab.panes.values()) {
         pane.term.options.fontSize = terminalFontSize;
-        refreshTerminalMetrics(pane);
+        refreshTerminalMetrics(pane, { deferFitRetry: true });
       }
     }
     showToast(`字号 ${terminalFontSize}px`);
@@ -6085,16 +7283,20 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     return [new File([text], `clipboard-${new Date().toISOString().replace(/[:.]/g, "-")}.txt`, { type: "text/plain;charset=utf-8" })];
   };
 
+  const selectedTextFromSession = (session = activeSession()) => {
+    if (!session?.term) {
+      return "";
+    }
+    return session.selectAllBufferActive ? fullBufferText(session.term) : session.term.getSelection?.() || "";
+  };
+
   const copyFromSession = async (session = activeSession()) => {
     if (!session?.term) {
       return;
     }
-    let text = "";
+    const text = selectedTextFromSession(session);
     if (session.selectAllBufferActive) {
-      text = fullBufferText(session.term);
       session.selectAllBufferActive = false;
-    } else {
-      text = session.term.getSelection?.() || "";
     }
     if (!text) {
       showToast("没有可复制的选区。");
@@ -6478,6 +7680,20 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     selectSearchMatch();
   };
 
+  const openSearchFromSelection = (session = activeSession()) => {
+    const query = selectedTextFromSession(session).replace(/\s+/g, " ").trim().slice(0, 200);
+    if (!query) {
+      showToast("没有可搜索的选区。");
+      return;
+    }
+    openSearch();
+    setSearchQuery(query);
+    if (searchInput) {
+      searchInput.value = query;
+      searchInput.select();
+    }
+  };
+
   const logicalLineAt = (term, absoluteRow) => buildLogicalLines(term).find((line) => line.startRow <= absoluteRow && line.endRow >= absoluteRow) || null;
 
   const findURLAtPosition = (session, clientX, clientY) => {
@@ -6739,6 +7955,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
         message,
         okText: "关闭",
         cancelText: "取消",
+        actionsLayout: "vertical-ok-first",
       });
     }
     return confirmDialog(message, options);
@@ -6749,21 +7966,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     return result === null ? null : String(result || "").trim();
   };
 
-  const displayPathLabel = (path) => {
-    const raw = String(path || "").trim();
-    if (!raw) {
-      return "";
-    }
-    if (raw === "/") {
-      return "ROOT";
-    }
-    const trimmed = raw.replace(/\/+$/g, "");
-    if (!trimmed || trimmed === "/") {
-      return "ROOT";
-    }
-    const parts = trimmed.split("/").filter(Boolean);
-    return parts.pop() || "";
-  };
+  const displayPathLabel = pathBasenameLabel;
 
   const resolvePaneAutoLabel = (pane) => {
     const pathLabel = displayPathLabel(pane?.cwd);
@@ -6813,6 +8016,9 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       markSessionIdleNotification(pane, wasBusy, isBusy);
       if (tab.activePaneId === pane.id) {
         refreshTabAutoLabel(tab);
+        if (tab.id === activeTabId) {
+          updateMobileActiveTabTitle();
+        }
       }
       return;
     }
@@ -6987,16 +8193,28 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     networkBanner.hidden = !visible;
   };
 
-  const reconnectVisibleSessions = () => {
+  const reconnectVisibleSessions = ({ allowHidden = false, probe = false } = {}) => {
     if (disposed || navigator.onLine === false) {
       return;
     }
     const tab = currentTab();
     for (const pane of tab?.panes.values() || []) {
       if (pane.name === activeName) {
-        connectSession(pane).catch((error) => showToast(error.message));
+        const ready = checkSessionConnectionHealth(pane, { connect: true, force: true, allowHidden });
+        if (probe && ready) {
+          probeOpenSessionSocket(pane, { allowHidden });
+        }
       }
     }
+  };
+
+  const recoverVisibleSessionsFromUserGesture = () => {
+    const now = Date.now();
+    if (now - terminalUserRecoveryLastAt < terminalUserRecoveryThrottleMs) {
+      return;
+    }
+    terminalUserRecoveryLastAt = now;
+    reconnectVisibleSessions({ allowHidden: true, probe: true });
   };
 
   const hasActiveTerminalSelection = (session = activeSession()) => Boolean(session?.term?.hasSelection?.() || session?.selectAllBufferActive);
@@ -7011,12 +8229,74 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     }
   };
 
-  const updateSelectionSheet = () => {
-    if (selectionSheet) {
-      selectionSheet.hidden = true;
+  const hideSelectionSheet = () => {
+    if (!selectionSheet) {
+      return;
     }
+    selectionSheet.hidden = true;
+    selectionSheet.style.removeProperty("left");
+    selectionSheet.style.removeProperty("top");
+    selectionSheet.style.removeProperty("bottom");
+    selectionSheet.style.removeProperty("visibility");
+  };
+
+  const positionSelectionSheet = (session = activeSession()) => {
+    const term = session?.term;
+    const position = term?.getSelectionPosition?.();
+    const canvas = term?.canvas || term?.element?.querySelector?.("canvas");
+    const metrics = term?.renderer?.getMetrics?.();
+    if (!selectionSheet || !term?.hasSelection?.() || !position || !canvas || !metrics?.width || !metrics?.height) {
+      return false;
+    }
+    const viewport = window.visualViewport;
+    const viewportLeft = viewport?.offsetLeft || 0;
+    const viewportTop = viewport?.offsetTop || 0;
+    const viewportWidth = Math.max(1, viewport?.width || window.innerWidth || document.documentElement.clientWidth || 1);
+    const viewportHeight = Math.max(1, viewport?.height || window.innerHeight || document.documentElement.clientHeight || 1);
+    const canvasRect = canvas.getBoundingClientRect();
+    const startX = canvasRect.left + position.start.x * metrics.width;
+    const endX = canvasRect.left + (position.end.x + 1) * metrics.width;
+    const selectedTop = canvasRect.top + Math.min(position.start.y, position.end.y) * metrics.height;
+    const selectedBottom = canvasRect.top + (Math.max(position.start.y, position.end.y) + 1) * metrics.height;
+    selectionSheet.hidden = false;
+    selectionSheet.style.visibility = "hidden";
+    selectionSheet.style.left = "0px";
+    selectionSheet.style.top = "0px";
+    selectionSheet.style.bottom = "auto";
+    const rect = selectionSheet.getBoundingClientRect();
+    const margin = 8;
+    const preferredX = (startX + endX) / 2;
+    const minLeft = viewportLeft + margin;
+    const maxLeft = viewportLeft + viewportWidth - rect.width - margin;
+    const left = Math.max(minLeft, Math.min(maxLeft, preferredX - rect.width / 2));
+    const minTop = viewportTop + margin;
+    const maxTop = viewportTop + viewportHeight - rect.height - margin;
+    const verticalGap = 10;
+    let top = selectedBottom + verticalGap;
+    if (top > maxTop) {
+      top = selectedTop - rect.height - verticalGap;
+    }
+    top = Math.max(minTop, Math.min(maxTop, top));
+    selectionSheet.style.left = `${Math.round(left)}px`;
+    selectionSheet.style.top = `${Math.round(top)}px`;
+    selectionSheet.style.visibility = "";
+    return true;
+  };
+
+  const updateSelectionSheet = () => {
+    const session = activeSession();
     syncMobileMenuSelectionState();
-    updateMobileSelectionHandles();
+    updateMobileSelectionHandles(session);
+    if (
+      !isMobileLayout() ||
+      !hasActiveTerminalSelection(session) ||
+      isTabOverviewOpen() ||
+      (mobileActionSheet && !mobileActionSheet.hidden)
+    ) {
+      hideSelectionSheet();
+    } else if (!positionSelectionSheet(session)) {
+      hideSelectionSheet();
+    }
     if (mobileActionSheet && !mobileActionSheet.hidden) {
       renderMobileActionSheet();
     }
@@ -7648,6 +8928,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   };
 
   const runMobileAction = (action, session = activeSession()) => {
+    const tab = currentTab();
     switch (action) {
       case "sticky_ctrl":
       case "ctrl":
@@ -7663,6 +8944,59 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       case "shift":
         toggleMobileSticky("shift");
         focusMobileKeyboardFromShortcut(session);
+        return;
+      case "new_tab":
+        createUserTab().catch((error) => showToast(error.message));
+        return;
+      case "close_tab":
+        if (tab) {
+          closeTab(tab.id);
+        }
+        return;
+      case "rename_tab":
+        if (tab) {
+          renameTab(tab.id).catch((error) => showToast(error.message));
+        }
+        return;
+      case "swap_tab":
+      case "swap_recent_tab":
+      case "swap":
+        swapRecentTabs();
+        return;
+      case "next_tab":
+        setActiveTabByOffset(1);
+        return;
+      case "previous_tab":
+        setActiveTabByOffset(-1);
+        return;
+      case "vertical_split":
+        if (tab?.activePaneId) {
+          splitPane(tab.id, tab.activePaneId, "vertical");
+        }
+        return;
+      case "horizontal_split":
+        if (tab?.activePaneId) {
+          splitPane(tab.id, tab.activePaneId, "horizontal");
+        }
+        return;
+      case "tab_overview":
+      case "open_tab_overview":
+      case "overview":
+        openTabOverview();
+        return;
+      case "search_terminal":
+      case "search":
+        openSearch();
+        return;
+      case "attachment":
+      case "open_attachment":
+        openAttachmentDialog();
+        return;
+      case "attachment_clipboard":
+        importAttachmentFromClipboard().catch((error) => showToast(error.message));
+        return;
+      case "attachment_file":
+        selectAttachmentFiles();
         return;
       case "copy":
         copyFromSession(session).catch((error) => showToast(error.message));
@@ -8303,7 +9637,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     session.shellEl.addEventListener("touchcancel", finishTouchSelection, { capture: true, passive: false });
     addSessionCleanup(session, () => resetTouchSelectionState());
 
-    session.term.onScroll?.(() => updateMobileSelectionHandles(session));
+    session.term.onScroll?.(() => updateSelectionSheet());
   };
 
   const clearReconnectTimer = (session) => {
@@ -8311,6 +9645,36 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       window.clearTimeout(session.reconnectTimer);
       session.reconnectTimer = 0;
     }
+    if (session) {
+      session.reconnectPending = false;
+    }
+  };
+
+  const clearSocketHealthTimer = (session) => {
+    if (session?.socketHealthTimer) {
+      window.clearInterval(session.socketHealthTimer);
+      session.socketHealthTimer = 0;
+    }
+  };
+
+  const clearAttachReadyTimer = (session) => {
+    if (session?.attachReadyTimer) {
+      window.clearTimeout(session.attachReadyTimer);
+      session.attachReadyTimer = 0;
+    }
+  };
+
+  const clearSocketResumeProbeTimer = (session) => {
+    if (session?.resumeProbeTimer) {
+      window.clearTimeout(session.resumeProbeTimer);
+      session.resumeProbeTimer = 0;
+    }
+  };
+
+  const clearSessionConnectionTimers = (session) => {
+    clearSocketHealthTimer(session);
+    clearAttachReadyTimer(session);
+    clearSocketResumeProbeTimer(session);
   };
 
   const clearInputFlushTimer = (session) => {
@@ -8365,8 +9729,12 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     return { items, byteLength, exceeded: false };
   };
 
+  const isSessionInputReady = (session) => (
+    Boolean(session?.replayComplete && session.socket?.readyState === WebSocket.OPEN)
+  );
+
   const sendSessionInputChunk = (session, data, { generated = false } = {}) => {
-    if (!data || session?.socket?.readyState !== WebSocket.OPEN) {
+    if (!data || !isSessionInputReady(session)) {
       return false;
     }
     try {
@@ -8386,7 +9754,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       return;
     }
     clearInputFlushTimer(session);
-    if (!session.inputBuffer || session.socket?.readyState !== WebSocket.OPEN) {
+    if (!session.inputBuffer || !isSessionInputReady(session) || !checkSessionConnectionHealth(session, { connect: true })) {
       return;
     }
     const data = session.inputBuffer;
@@ -8395,6 +9763,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     if (!sendSessionInputChunk(session, data)) {
       session.inputBuffer = data + session.inputBuffer;
       session.inputBufferSize += textEncoder.encode(data).length;
+      checkSessionConnectionHealth(session, { connect: true, force: true });
     }
   };
 
@@ -8458,7 +9827,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
         }
       }
       let sent = 0;
-      while (session.inputQueue.length > 0 && session.socket?.readyState === WebSocket.OPEN) {
+      while (session.inputQueue.length > 0 && isSessionInputReady(session) && checkSessionConnectionHealth(session, { connect: true })) {
         const bufferedAmount = Number(session.socket.bufferedAmount || 0);
         if (bufferedAmount > terminalInputBackpressureBytes) {
           scheduleQueuedInputPump(session, terminalInputBackpressureDelayMs);
@@ -8481,7 +9850,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     } finally {
       session.inputPumpActive = false;
     }
-    if (session.inputQueue.length > 0 && session.socket?.readyState === WebSocket.OPEN) {
+    if (session.inputQueue.length > 0 && isSessionInputReady(session) && checkSessionConnectionHealth(session, { connect: true })) {
       scheduleQueuedInputPump(session, terminalInputBackpressureDelayMs);
     }
   };
@@ -8491,7 +9860,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       discardSessionInputBuffers(session);
       return;
     }
-    if (!data || session.socket?.readyState !== WebSocket.OPEN) {
+    if (!data || !isSessionInputReady(session) || !checkSessionConnectionHealth(session, { connect: true })) {
       return;
     }
     if (!generated && shouldSuppressGeneratedTerminalInput(session, data)) {
@@ -8527,6 +9896,9 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       discardSessionInputBuffers(session);
       return;
     }
+    if (!isSessionInputReady(session) || !checkSessionConnectionHealth(session, { connect: true })) {
+      return;
+    }
     for (const data of session.pendingInput || []) {
       sendSessionInput(session, data);
     }
@@ -8534,6 +9906,20 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     session.pendingInputSize = 0;
     flushInputBuffer(session);
     scheduleQueuedInputPump(session);
+  };
+
+  const enqueuePendingInput = (session, data) => {
+    const availablePendingBytes = Math.max(0, maxPendingInputBytes - session.pendingInputSize);
+    const { byteLength, exceeded } = buildTerminalInputQueueItems(data, { maxBytes: availablePendingBytes });
+    if (exceeded) {
+      return false;
+    }
+    if (session.pendingInputSize + byteLength > maxPendingInputBytes) {
+      return false;
+    }
+    session.pendingInput.push(data);
+    session.pendingInputSize += byteLength;
+    return true;
   };
 
   const sendOrQueueInput = (session, data, { userInput = true } = {}) => {
@@ -8554,33 +9940,12 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     if (/[\r\n]/.test(data)) {
       scheduleActivityRefresh(450);
     }
-    if (session.replayComplete) {
-      if (session.socket?.readyState === WebSocket.OPEN) {
-        sendSessionInput(session, data, { immediate: /[\r\n\x03\x04]/.test(data) });
-      } else {
-        const availablePendingBytes = Math.max(0, maxPendingInputBytes - session.pendingInputSize);
-        const { byteLength, exceeded } = buildTerminalInputQueueItems(data, { maxBytes: availablePendingBytes });
-        if (exceeded) {
-          return;
-        }
-        if (session.pendingInputSize + byteLength > maxPendingInputBytes) {
-          return;
-        }
-        session.pendingInput.push(data);
-        session.pendingInputSize += byteLength;
-      }
+    if (isSessionInputReady(session) && checkSessionConnectionHealth(session, { connect: true, force: userInput, allowHidden: userInput })) {
+      sendSessionInput(session, data, { immediate: /[\r\n\x03\x04]/.test(data) });
       return;
     }
-    const availablePendingBytes = Math.max(0, maxPendingInputBytes - session.pendingInputSize);
-    const { byteLength, exceeded } = buildTerminalInputQueueItems(data, { maxBytes: availablePendingBytes });
-    if (exceeded) {
-      return;
-    }
-    if (session.pendingInputSize + byteLength > maxPendingInputBytes) {
-      return;
-    }
-    session.pendingInput.push(data);
-    session.pendingInputSize += byteLength;
+    enqueuePendingInput(session, data);
+    checkSessionConnectionHealth(session, { connect: true });
   };
 
   const clearSessionOutputFlushSchedule = (session) => {
@@ -8788,6 +10153,15 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     writeSessionImmediateOutput(session, `\r\n[webshell error]\r\n${text}\r\n`);
   };
 
+  const genericWebSocketStartupFallbacks = new Set([
+    "WebSocket connection failed.",
+    "WebSocket closed before terminal attached.",
+    "WebSocket reconnect failed.",
+  ]);
+
+  const isGenericWebSocketStartupFallback = (message) =>
+    genericWebSocketStartupFallbacks.has(String(message || "").trim());
+
   const showSessionStartupError = async (session, fallback = "") => {
     if (!session || session.closed || session.name !== activeName) {
       return;
@@ -8797,42 +10171,265 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       message = await readAgentStartupError(session.name);
     } catch (error) {
     }
-    writeSessionWebShellError(session, message || fallback);
+    if (message) {
+      writeSessionWebShellError(session, message);
+      return;
+    }
+    if (isGenericWebSocketStartupFallback(fallback)) {
+      return;
+    }
+    writeSessionWebShellError(session, fallback);
   };
 
-  const scheduleReconnect = (session) => {
-    if (disposed || session.closed || session.reconnectPending || session.name !== activeName) {
+  const detachSessionSocket = (session, currentSocket, { connection = "" } = {}) => {
+    if (!session || session.socket !== currentSocket) {
+      return false;
+    }
+    session.socket = null;
+    session.replayComplete = false;
+    session.replayVerified = false;
+    session.allowGeneratedInputDuringReplay = false;
+    session.attachStartedAt = 0;
+    session.lastSocketHealthAt = 0;
+    clearSessionConnectionTimers(session);
+    if (connection) {
+      session.shellEl.dataset.connection = connection;
+    }
+    return true;
+  };
+
+  const resetTerminalForHistoryReplay = (session) => {
+    if (!session?.term || session.closed || session.name !== activeName) {
+      return false;
+    }
+    discardSessionOutputBuffers(session);
+    session.selectAllBufferActive = false;
+    session.term.clearSelection?.();
+    session.term.viewportY = 0;
+    session.term.targetViewportY = 0;
+    try {
+      session.term.reset();
+      if (session.term.selectionManager && session.term.wasmTerm) {
+        session.term.selectionManager.wasmTerm = session.term.wasmTerm;
+      }
+      session.term.linkDetector?.invalidateCache?.();
+    } catch (error) {
+      return false;
+    }
+    installRendererBaselinePatch(session);
+    installRendererThemeMapper(session);
+    installRendererCellSeamPatch(session);
+    resizePane(session);
+    resetTerminalHostViewport(session, { clean: true });
+    positionTerminalInput(session);
+    return true;
+  };
+
+  const requestSessionHistoryReplay = (session) => {
+    if (!session?.term || session.closed || session.name !== activeName) {
+      return;
+    }
+    session.resetOnNextReplay = true;
+    discardSessionOutputBuffers(session);
+    const socket = session.socket;
+    if (socket) {
+      detachSessionSocket(session, socket, { connection: "connecting" });
+      try {
+        socket.close(4000, "viewport changed");
+      } catch (error) {
+      }
+    } else {
+      session.replayComplete = false;
+      session.replayVerified = false;
+      session.shellEl.dataset.connection = "connecting";
+    }
+    session.reconnectAttempts = 0;
+    connectSession(session).catch((error) => {
+      showSessionStartupError(session, error.message || "WebSocket reconnect failed.");
+    });
+  };
+
+  const replayActiveTabFromServerAfterViewportChange = () => {
+    const tab = currentTab();
+    if (!tab) {
+      return;
+    }
+    for (const pane of tab.panes.values()) {
+      requestSessionHistoryReplay(pane);
+    }
+  };
+
+  const markSessionSocketHealth = (session, currentSocket) => {
+    if (session?.socket === currentSocket) {
+      session.lastSocketHealthAt = Date.now();
+      clearSocketResumeProbeTimer(session);
+      flushPendingInput(session);
+    }
+  };
+
+  const scheduleReconnect = (session, { immediate = false, allowHidden = false } = {}) => {
+    if (disposed || !session || session.closed || session.reconnectPending || session.reconnectTimer || session.name !== activeName) {
+      return;
+    }
+    if (document.hidden && !allowHidden) {
       return;
     }
     if (navigator.onLine === false) {
       setNetworkBanner(true);
       return;
     }
+    if (session.socket?.readyState === WebSocket.OPEN || session.socket?.readyState === WebSocket.CONNECTING) {
+      return;
+    }
+    const attempt = Math.max(0, Number(session.reconnectAttempts || 0));
+    const baseDelay = immediate ? 0 : Math.min(terminalReconnectMaxDelayMs, terminalReconnectBaseDelayMs * (2 ** Math.min(attempt, 8)));
+    const jitter = baseDelay * terminalReconnectJitterRatio * ((Math.random() * 2) - 1);
+    const delay = Math.max(0, Math.round(baseDelay + jitter));
     session.reconnectPending = true;
-    clearReconnectTimer(session);
-      session.reconnectTimer = window.setTimeout(() => {
-        session.reconnectTimer = 0;
-        session.reconnectPending = false;
-        if (session.name !== activeName) {
-          return;
-        }
-        connectSession(session).catch((error) => {
-          showSessionStartupError(session, error.message || "WebSocket reconnect failed.");
-        });
-      }, 240);
+    session.shellEl.dataset.connection = "connecting";
+    session.reconnectTimer = window.setTimeout(() => {
+      session.reconnectTimer = 0;
+      session.reconnectPending = false;
+      if (disposed || session.closed || session.name !== activeName || (document.hidden && !allowHidden)) {
+        return;
+      }
+      if (navigator.onLine === false) {
+        setNetworkBanner(true);
+        return;
+      }
+      session.reconnectAttempts = Math.min(20, Number(session.reconnectAttempts || 0) + 1);
+      connectSession(session, { allowHidden }).catch((error) => {
+        showSessionStartupError(session, error.message || "WebSocket reconnect failed.");
+      });
+    }, delay);
   };
 
-  const connectSession = async (session) => {
+  const closeSessionSocketForReconnect = (session, currentSocket, reason, { allowHidden = false } = {}) => {
+    if (!detachSessionSocket(session, currentSocket, { connection: "closed" })) {
+      return;
+    }
+    console.warn(reason);
+    try {
+      currentSocket.close();
+    } catch (error) {
+    }
+    scheduleReconnect(session, { immediate: true, allowHidden });
+  };
+
+  const probeOpenSessionSocket = (session, { allowHidden = false } = {}) => {
+    const socket = session?.socket;
+    if (!socket || socket.readyState !== WebSocket.OPEN || session.closed || session.name !== activeName) {
+      return false;
+    }
+    const probeStartedAt = Date.now();
+    clearSocketResumeProbeTimer(session);
+    try {
+      socket.send(JSON.stringify({ type: "ping" }));
+    } catch (error) {
+      closeSessionSocketForReconnect(session, socket, `Terminal WebSocket resume probe failed: ${session.name}/${session.id}`, { allowHidden });
+      return false;
+    }
+    session.resumeProbeTimer = window.setTimeout(() => {
+      session.resumeProbeTimer = 0;
+      if (session.socket !== socket || socket.readyState !== WebSocket.OPEN) {
+        return;
+      }
+      const lastHealth = Number(session.lastSocketHealthAt || 0);
+      if (lastHealth < probeStartedAt) {
+        closeSessionSocketForReconnect(session, socket, `Terminal WebSocket resume probe timed out: ${session.name}/${session.id}`, { allowHidden });
+      }
+    }, terminalResumeProbeTimeoutMs);
+    return true;
+  };
+
+  const startSocketHealthMonitor = (session, currentSocket) => {
+    clearSocketHealthTimer(session);
+    markSessionSocketHealth(session, currentSocket);
+    session.socketHealthTimer = window.setInterval(() => {
+      if (session.socket !== currentSocket) {
+        clearSocketHealthTimer(session);
+        return;
+      }
+      if (currentSocket.readyState !== WebSocket.OPEN) {
+        return;
+      }
+      const lastHealth = Number(session.lastSocketHealthAt || 0);
+      if (lastHealth > 0 && Date.now() - lastHealth > terminalWebSocketHealthTimeoutMs) {
+        closeSessionSocketForReconnect(session, currentSocket, `Terminal WebSocket health timeout: ${session.name}/${session.id}`);
+        return;
+      }
+      try {
+        currentSocket.send(JSON.stringify({ type: "ping" }));
+      } catch (error) {
+        closeSessionSocketForReconnect(session, currentSocket, `Terminal WebSocket ping failed: ${session.name}/${session.id}`);
+      }
+    }, terminalWebSocketPingIntervalMs);
+  };
+
+  const startAttachReadyTimer = (session, currentSocket) => {
+    clearAttachReadyTimer(session);
+    session.attachStartedAt = Date.now();
+    session.attachReadyTimer = window.setTimeout(() => {
+      session.attachReadyTimer = 0;
+      if (session.socket !== currentSocket || session.replayComplete) {
+        return;
+      }
+      closeSessionSocketForReconnect(session, currentSocket, `Terminal attach timed out before replay complete: ${session.name}/${session.id}`);
+    }, terminalAttachReadyTimeoutMs);
+  };
+
+  const checkSessionConnectionHealth = (session, { connect = true, force = false, allowHidden = false } = {}) => {
+    if (disposed || !session || session.closed || session.name !== activeName) {
+      return false;
+    }
+    if (navigator.onLine === false) {
+      setNetworkBanner(true);
+      return false;
+    }
+    if (session.pendingConnect) {
+      connectPendingSession(session, { allowHidden: allowHidden || force });
+      return false;
+    }
+    const socket = session.socket;
+    if (socket?.readyState === WebSocket.OPEN) {
+      const now = Date.now();
+      const lastHealth = Number(session.lastSocketHealthAt || 0);
+      if (lastHealth > 0 && now - lastHealth > terminalWebSocketHealthTimeoutMs) {
+        closeSessionSocketForReconnect(session, socket, `Terminal WebSocket health check failed: ${session.name}/${session.id}`, { allowHidden: allowHidden || force });
+        return false;
+      }
+      const attachStartedAt = Number(session.attachStartedAt || 0);
+      if (!session.replayComplete && attachStartedAt > 0 && now - attachStartedAt > terminalAttachReadyTimeoutMs) {
+        closeSessionSocketForReconnect(session, socket, `Terminal attach readiness check failed: ${session.name}/${session.id}`, { allowHidden: allowHidden || force });
+        return false;
+      }
+      if (session.resumeProbeTimer && force) {
+        return false;
+      }
+      return isSessionInputReady(session);
+    }
+    if (socket?.readyState === WebSocket.CONNECTING) {
+      return false;
+    }
+    if (connect) {
+      scheduleReconnect(session, { immediate: force, allowHidden: allowHidden || force });
+    }
+    return false;
+  };
+
+  const connectSession = async (session, { allowHidden = false } = {}) => {
     if (
       !session ||
       session.closed ||
       session.name !== activeName ||
+      (document.hidden && !allowHidden) ||
       navigator.onLine === false ||
       session.socket?.readyState === WebSocket.OPEN ||
       session.socket?.readyState === WebSocket.CONNECTING
     ) {
       return;
     }
+    session.pendingConnect = false;
     clearReconnectTimer(session);
     const socketUrl = webSocketURL("./ws");
     socketUrl.searchParams.set("name", session.name);
@@ -8846,6 +10443,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     session.replayVerified = false;
     session.allowGeneratedInputDuringReplay = false;
     session.startupErrorShown = false;
+    session.shellEl.dataset.connection = "connecting";
     currentSocket.binaryType = "arraybuffer";
 
     const replayMessageHasIdentity = (message) => {
@@ -8866,12 +10464,8 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     const rejectMismatchedReplay = (message) => {
       const selector = String(message?.selector || "").trim() || "unknown";
       const paneID = String(message?.pane_id || message?.paneId || "").trim() || "unknown";
-      session.replayVerified = false;
-      session.shellEl.dataset.connection = "error";
+      detachSessionSocket(session, currentSocket, { connection: "error" });
       console.warn(`Rejected terminal replay for ${selector}/${paneID}; expected ${session.name}/${session.id}.`);
-      if (session.socket === currentSocket) {
-        session.socket = null;
-      }
       currentSocket.close();
     };
 
@@ -8880,7 +10474,9 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
         return;
       }
       session.reconnectPending = false;
-      session.shellEl.dataset.connection = "open";
+      session.shellEl.dataset.connection = "connecting";
+      startSocketHealthMonitor(session, currentSocket);
+      startAttachReadyTimer(session, currentSocket);
       if (isTerminalInputBlocked() || session.inputLocked) {
         sendSessionInputLock(session, true);
         discardSessionInputBuffers(session);
@@ -8895,9 +10491,10 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       if (session.socket !== currentSocket) {
         return;
       }
+      markSessionSocketHealth(session, currentSocket);
       session.startupErrorShown = true;
       if (session.name !== activeName) {
-        session.socket = null;
+        detachSessionSocket(session, currentSocket);
         currentSocket.close();
         return;
       }
@@ -8911,10 +10508,15 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
                   rejectMismatchedReplay(message);
                   return;
                 }
+                if (session.resetOnNextReplay) {
+                  session.resetOnNextReplay = false;
+                  resetTerminalForHistoryReplay(session);
+                }
                 session.replayComplete = false;
                 session.replayVerified = replayMessageHasIdentity(message) ? "identified" : "legacy";
                 session.allowGeneratedInputDuringReplay = message.allow_generated_input === true || message.allowGeneratedInput === true;
                 session.suppressGeneratedTerminalInputUntil = 0;
+                session.shellEl.dataset.connection = "connecting";
                 return;
               case "history-replay-complete":
                 if (!session.replayVerified || (session.replayVerified === "identified" && !validateReplayMessage(message))) {
@@ -8925,15 +10527,23 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
                 session.replayComplete = true;
                 session.replayVerified = false;
                 session.allowGeneratedInputDuringReplay = false;
+                clearAttachReadyTimer(session);
+                session.reconnectAttempts = 0;
                 session.shellEl.dataset.connection = "open";
                 flushPendingInput(session);
                 return;
               case "pong":
                 return;
               case "process-exit":
+                if (message.retryable === true && !/pane not found/i.test(String(message.message || ""))) {
+                  detachSessionSocket(session, currentSocket, { connection: "closed" });
+                  currentSocket.close();
+                  scheduleReconnect(session, { immediate: true });
+                  return;
+                }
                 const shouldFocusAfterExit = session.tabId === activeTabId && currentTab()?.activePaneId === session.id;
                 session.exitExpected = true;
-                session.socket = null;
+                detachSessionSocket(session, currentSocket);
                 disposePane(session);
                 refreshWorkspace({ focus: shouldFocusAfterExit }).catch((error) => showToast(error.message));
                 return;
@@ -8956,8 +10566,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       if (session.socket !== currentSocket) {
         return;
       }
-      session.socket = null;
-      session.shellEl.dataset.connection = "closed";
+      detachSessionSocket(session, currentSocket, { connection: "closed" });
       flushSessionOutput(session);
       if (session.exitExpected) {
         return;
@@ -8973,13 +10582,17 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       if (session.socket !== currentSocket) {
         return;
       }
-      session.socket = null;
-      session.shellEl.dataset.connection = "error";
+      detachSessionSocket(session, currentSocket, { connection: "error" });
       flushSessionOutput(session);
       if (!session.startupErrorShown) {
         session.startupErrorShown = true;
         showSessionStartupError(session, "WebSocket connection failed.");
       }
+      try {
+        currentSocket.close();
+      } catch (closeError) {
+      }
+      scheduleReconnect(session, { immediate: true });
     });
   };
 
@@ -9007,12 +10620,20 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     });
   };
 
-  const createPaneSession = (tab, instanceName, { id = "", connect = true } = {}) => {
+  const normalizeTerminalInitialSize = (value, minValue) => {
+    const next = Math.floor(Number(value));
+    return Number.isFinite(next) && next >= minValue ? next : 0;
+  };
+
+  const createPaneSession = (tab, instanceName, { id = "", connect = true, cols = 0, rows = 0 } = {}) => {
     const normalizedID = String(id || `pane-${nextPaneSeq++}`).trim();
     const numeric = Number(normalizedID.replace(/^pane-/, ""));
     if (Number.isFinite(numeric) && numeric >= nextPaneSeq) {
       nextPaneSeq = numeric + 1;
     }
+    const initialCols = normalizeTerminalInitialSize(cols, 2);
+    const initialRows = normalizeTerminalInitialSize(rows, 1);
+    const initialTerminalOptions = initialCols > 0 && initialRows > 0 ? { cols: initialCols, rows: initialRows } : {};
     const shellEl = document.createElement("section");
     shellEl.className = "pane-shell";
     shellEl.dataset.paneId = normalizedID;
@@ -9023,7 +10644,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     terminalHost.className = "terminal-host";
     shellEl.appendChild(terminalHost);
 
-    const term = new Terminal(terminalOptions());
+    const term = new Terminal(terminalOptions(initialTerminalOptions));
     const fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
     if (term.options) {
@@ -9048,8 +10669,17 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       term,
       fitAddon,
       socket: null,
+      pendingConnect: Boolean(connect),
+      initialCols,
+      initialRows,
       reconnectTimer: 0,
       reconnectPending: false,
+      reconnectAttempts: 0,
+      socketHealthTimer: 0,
+      attachReadyTimer: 0,
+      resumeProbeTimer: 0,
+      attachStartedAt: 0,
+      lastSocketHealthAt: 0,
       replayComplete: false,
       replayVerified: false,
       pendingInput: [],
@@ -9067,6 +10697,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       outputFlushTimer: 0,
       replayOutputDepth: 0,
       allowGeneratedInputDuringReplay: false,
+      resetOnNextReplay: false,
       suppressGeneratedTerminalInputUntil: 0,
       inputLocked: false,
       composingIME: false,
@@ -9127,6 +10758,9 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       sendOrQueueInput(session, data, { userInput: !isGeneratedTerminalResponse(data) });
     });
     term.onResize(() => {
+      if (!isPaneVisibleForSizing(session)) {
+        return;
+      }
       resetTerminalHostViewport(session, { clean: true });
       positionTerminalInput(session);
       updateMobileSelectionHandles(session);
@@ -9192,9 +10826,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
 
     tab.panes.set(normalizedID, session);
     if (connect) {
-      connectSession(session).catch((error) => {
-        showSessionStartupError(session, error.message || "WebSocket connection failed.");
-      });
+      connectPendingSession(session, { allowHidden: true });
     }
     return session;
   };
@@ -9289,13 +10921,17 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     return tab;
   };
 
-  const setActiveTab = (tabId, { focus = true, remember = true } = {}) => {
+  const setActiveTab = (tabId, { focus = true, remember = true, rememberRecent = true } = {}) => {
     const tab = tabs.get(tabId);
     if (!tab) {
       return;
     }
-    const wasActive = activeTabId === tab.id;
+    const previousTabId = activeTabId;
+    const wasActive = previousTabId === tab.id;
     activeTabId = tab.id;
+    if (rememberRecent) {
+      rememberRecentTab(tab.id, previousTabId);
+    }
     for (const item of tabs.values()) {
       const isActive = item.id === activeTabId;
       item.paneEl.classList.toggle("active", isActive);
@@ -9311,12 +10947,10 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       rememberActiveTab();
     }
     renderAttachmentUploadsForActiveTab();
-    window.requestAnimationFrame(() => {
-      scrollTabButtonIntoView(tab.button);
-      resizeTabForCurrentDevice(tab);
-    });
+    scheduleVisibleTabResize(tab);
+    window.requestAnimationFrame(() => scrollTabButtonIntoView(tab.button));
     if (!applyingWorkspaceState && !wasActive) {
-      postWorkspaceAction("activate_tab", { tab_id: tab.id }).catch((error) => showToast(error.message));
+      postWorkspaceAction("activate_tab", { tab_id: tab.id, recent_tab_ids: recentTabIds }).catch((error) => showToast(error.message));
     }
     scheduleTabOverviewRender();
   };
@@ -9445,6 +11079,10 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     if (!targetName || !isCurrentInstanceRequest(targetName, generation)) {
       return false;
     }
+    const agentNotice = String(state?.agent_notice || "").trim();
+    if (agentNotice) {
+      showToast(agentNotice);
+    }
     const restartTab = readRestartTabForName(targetName);
     const requestedTab = (new URLSearchParams(window.location.search).get("tab") || "").trim();
     applyingWorkspaceState = true;
@@ -9486,7 +11124,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
         }
         for (const paneState of tabState.panes || []) {
           if (!tab.panes.has(paneState.id)) {
-            createPaneSession(tab, targetName, { id: paneState.id, connect: true });
+            createPaneSession(tab, targetName, { id: paneState.id, connect: true, cols: paneState.cols, rows: paneState.rows });
           }
           updatePaneActivity(paneState);
         }
@@ -9494,19 +11132,32 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
         renderTabLayout(tab);
       }
 
+      const stateRecentTabIds = Array.isArray(state?.recent_tab_ids) ? state.recent_tab_ids : null;
+      if (stateRecentTabIds) {
+        applyRecentTabIds(stateRecentTabIds, { name: targetName });
+      } else {
+        const storedRecentTabIds = loadStoredRecentTabIds(targetName);
+        applyRecentTabIds(storedRecentTabIds.length > 0 ? storedRecentTabIds : recentTabIds, { name: targetName });
+      }
       const savedTab = targetName ? window.localStorage.getItem(lastTabStorageKey(targetName)) : "";
       const stateActiveTab = state?.active_tab_id || "";
       const nextActiveTab = preferStateActiveTab
         ? tabs.get(restartTab) || tabs.get(stateActiveTab) || tabs.get(requestedTab) || tabs.get(savedTab) || tabs.values().next().value || null
         : tabs.get(restartTab) || tabs.get(requestedTab) || tabs.get(savedTab) || tabs.get(stateActiveTab) || tabs.values().next().value || null;
       if (nextActiveTab) {
-        setActiveTab(nextActiveTab.id, { focus });
+        setActiveTab(nextActiveTab.id, { focus, rememberRecent: !stateRecentTabIds });
+        if (stateRecentTabIds && recentTabIds[0] !== nextActiveTab.id) {
+          applyRecentTabIds([nextActiveTab.id, ...recentTabIds], { name: targetName });
+        }
       } else {
         activeTabId = null;
       }
       updateEmptyState();
       scheduleTabOverviewRender();
-      window.requestAnimationFrame(() => resizeActiveTabForCurrentDevice());
+      window.requestAnimationFrame(() => {
+        resizeActiveTabForCurrentDevice();
+        connectPendingSessions({ allowHidden: true });
+      });
       return true;
     } finally {
       clearRestartTabForReload();
@@ -9743,6 +11394,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     clearInputPumpTimer(pane);
     pane.inputPumpActive = false;
     clearReconnectTimer(pane);
+    clearSessionConnectionTimers(pane);
     discardSessionOutputBuffers(pane);
     runSessionCleanups(pane);
     if (pane.socket) {
@@ -10321,6 +11973,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   };
 
   const isAttachmentDialogOpen = () => attachmentDialogOpen && attachmentBackdrop && !attachmentBackdrop.hidden;
+  const isAttachmentBrowserOpen = () => attachmentBrowserOpen && attachmentBrowserBackdrop && !attachmentBrowserBackdrop.hidden;
 
   const openAttachmentDialog = () => {
     if (!attachmentBackdrop) {
@@ -10340,6 +11993,335 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     }
     if (focusTerminal) {
       window.setTimeout(() => activeSession()?.term?.focus(), 0);
+    }
+  };
+
+  const setAttachmentBrowserFeedback = (message, tone = "info") => {
+    if (!attachmentBrowserFeedback) {
+      return;
+    }
+    const text = String(message || "").trim();
+    attachmentBrowserFeedback.hidden = !text;
+    attachmentBrowserFeedback.textContent = text;
+    attachmentBrowserFeedback.dataset.tone = tone;
+  };
+
+  const setAttachmentBrowserBusy = (busy) => {
+    if (attachmentBrowserDownload) {
+      attachmentBrowserDownload.disabled = busy || attachmentBrowserSelectedPaths.size === 0;
+    }
+    attachmentBrowserCancel?.toggleAttribute("disabled", busy);
+  };
+
+  const attachmentBrowserDisplayName = (path) => {
+    const parts = String(path || "").split("/").filter(Boolean);
+    return parts.at(-1) || "/";
+  };
+
+  const normalizeAttachmentBrowserPath = (path) => {
+    const normalized = String(path || "/").trim().replace(/\/+$/g, "");
+    return normalized || "/";
+  };
+
+  const attachmentBrowserPathSegments = (path) => {
+    const normalized = normalizeAttachmentBrowserPath(path);
+    const segments = [{ label: "/", path: "/" }];
+    let accumulated = "";
+    for (const part of normalized.split("/").filter(Boolean)) {
+      accumulated += `/${part}`;
+      segments.push({ label: part, path: accumulated });
+    }
+    return segments;
+  };
+
+  const renderAttachmentBrowserBreadcrumbs = () => {
+    if (!attachmentBrowserBreadcrumbs) {
+      return;
+    }
+    const currentPath = normalizeAttachmentBrowserPath(attachmentBrowserCurrentPath);
+    if (attachmentBrowserBreadcrumbPath === currentPath && attachmentBrowserBreadcrumbs.childElementCount > 0) {
+      return;
+    }
+    attachmentBrowserBreadcrumbPath = currentPath;
+    attachmentBrowserBreadcrumbs.textContent = "";
+    const segments = attachmentBrowserPathSegments(attachmentBrowserCurrentPath);
+    const fragment = document.createDocumentFragment();
+    for (const [index, segment] of segments.entries()) {
+      if (index > 0) {
+        const separator = document.createElement("span");
+        separator.className = "attachment-browser-breadcrumb-separator";
+        separator.textContent = ">";
+        separator.setAttribute("aria-hidden", "true");
+        fragment.appendChild(separator);
+      }
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "attachment-browser-breadcrumb";
+      button.dataset.path = segment.path;
+      button.textContent = segment.label;
+      button.title = segment.path;
+      if (segment.path === currentPath) {
+        button.disabled = true;
+        button.setAttribute("aria-current", "page");
+      }
+      fragment.appendChild(button);
+    }
+    attachmentBrowserBreadcrumbs.appendChild(fragment);
+    requestAnimationFrame(() => {
+      if (attachmentBrowserBreadcrumbs) {
+        attachmentBrowserBreadcrumbs.scrollLeft = attachmentBrowserBreadcrumbs.scrollWidth;
+      }
+    });
+  };
+
+  const updateAttachmentBrowserControls = () => {
+    if (attachmentBrowserPath) {
+      attachmentBrowserPath.textContent = attachmentBrowserDisplayName(attachmentBrowserCurrentPath);
+      attachmentBrowserPath.title = attachmentBrowserCurrentPath || "/";
+    }
+    renderAttachmentBrowserBreadcrumbs();
+    if (attachmentBrowserDownload) {
+      const count = attachmentBrowserSelectedPaths.size;
+      attachmentBrowserDownload.disabled = count === 0;
+      attachmentBrowserDownload.textContent = count > 0 ? `下载选中 (${count})` : "下载选中";
+    }
+  };
+
+  const canNavigateAttachmentBrowserBack = () => Boolean(attachmentBrowserParentPath && attachmentBrowserParentPath !== attachmentBrowserCurrentPath);
+
+  const navigateAttachmentBrowserBack = () => {
+    if (!canNavigateAttachmentBrowserBack()) {
+      return false;
+    }
+    loadAttachmentBrowserPath(attachmentBrowserParentPath).catch((error) => setAttachmentBrowserFeedback(error.message || "文件列表读取失败。", "error"));
+    return true;
+  };
+
+  const normalizeAttachmentEntry = (entry) => ({
+    name: String(entry?.name || "").trim(),
+    path: String(entry?.path || "").trim(),
+    type: String(entry?.type || "file").trim() === "dir" ? "dir" : "file",
+    size: Number(entry?.size || 0),
+    modified: Number(entry?.modified || 0),
+  });
+
+  const attachmentBrowserDownloadFilename = (paths) => {
+    const selected = Array.from(paths || []).filter(Boolean);
+    if (selected.length !== 1) {
+      return "webshell-files.zip";
+    }
+    const path = selected[0];
+    const entry = attachmentBrowserEntriesByPath.get(path);
+    const name = String(entry?.name || path.split("/").filter(Boolean).pop() || "download").trim() || "download";
+    return entry?.type === "dir" && !name.toLowerCase().endsWith(".zip") ? `${name}.zip` : name;
+  };
+
+  const createAttachmentBrowserItem = (entry) => {
+    const item = document.createElement("div");
+    item.className = "attachment-browser-item";
+    item.dataset.path = entry.path;
+    item.dataset.type = entry.type;
+
+    const row = document.createElement("div");
+    row.className = "attachment-browser-file";
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.className = "attachment-browser-check";
+    checkbox.value = entry.path;
+    checkbox.checked = attachmentBrowserSelectedPaths.has(entry.path);
+    checkbox.setAttribute("aria-label", `选择 ${entry.name || entry.path}`);
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "attachment-browser-file-main";
+    button.dataset.path = entry.path;
+    button.setAttribute("aria-label", entry.type === "dir" ? `打开 ${entry.name || entry.path}` : `下载 ${entry.name || entry.path}`);
+    const name = document.createElement("span");
+    name.className = "attachment-browser-file-name";
+    name.textContent = entry.name || entry.path;
+    button.appendChild(name);
+    row.append(checkbox, button);
+    item.appendChild(row);
+    return item;
+  };
+
+  const renderAttachmentBrowserList = (entries) => {
+    if (!attachmentBrowserList) {
+      return;
+    }
+    attachmentBrowserList.textContent = "";
+    attachmentBrowserEntriesByPath.clear();
+    const normalized = Array.isArray(entries) ? entries.map(normalizeAttachmentEntry).filter((entry) => entry.name && entry.path) : [];
+    normalized.sort((left, right) => {
+      if (left.type === "dir" && right.type !== "dir") {
+        return -1;
+      }
+      if (left.type !== "dir" && right.type === "dir") {
+        return 1;
+      }
+      return left.name.localeCompare(right.name, undefined, { numeric: true, sensitivity: "base" });
+    });
+    if (normalized.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "attachment-browser-empty";
+      empty.textContent = "这个目录没有文件";
+      attachmentBrowserList.appendChild(empty);
+      return;
+    }
+    const fragment = document.createDocumentFragment();
+    for (const entry of normalized) {
+      attachmentBrowserEntriesByPath.set(entry.path, entry);
+      fragment.appendChild(createAttachmentBrowserItem(entry));
+    }
+    attachmentBrowserList.appendChild(fragment);
+  };
+
+  const loadAttachmentBrowserPath = async (path = attachmentBrowserCurrentPath) => {
+    if (!activeName) {
+      showToast("没有可用的当前终端。");
+      return;
+    }
+    const requestSeq = ++attachmentBrowserRequestSeq;
+    setAttachmentBrowserBusy(true);
+    setAttachmentBrowserFeedback("");
+    try {
+      const response = await fetch(attachmentFilesURL(path));
+      if (!response.ok) {
+        throw new Error(await readResponseText(response, `文件列表读取失败 (${response.status})`));
+      }
+      const payload = await response.json();
+      if (requestSeq !== attachmentBrowserRequestSeq) {
+        return;
+      }
+      attachmentBrowserCurrentPath = String(payload?.path || path || "/").trim() || "/";
+      attachmentBrowserParentPath = String(payload?.parent || "").trim();
+      attachmentBrowserSelectedPaths.clear();
+      renderAttachmentBrowserList(payload?.entries || []);
+      setAttachmentBrowserFeedback("");
+      updateAttachmentBrowserControls();
+    } catch (error) {
+      if (requestSeq === attachmentBrowserRequestSeq) {
+        setAttachmentBrowserFeedback(error.message || "文件列表读取失败。", "error");
+      }
+    } finally {
+      if (requestSeq === attachmentBrowserRequestSeq) {
+        setAttachmentBrowserBusy(false);
+        updateAttachmentBrowserControls();
+      }
+    }
+  };
+
+  const openAttachmentBrowser = () => {
+    if (!attachmentBrowserBackdrop) {
+      return;
+    }
+    closeAttachmentDialog({ focusTerminal: false });
+    closeContextMenu();
+    closeInstanceSwitcher();
+    const startPath = String(activeSession()?.cwd || "").trim() || "/";
+    attachmentBrowserOpen = true;
+    attachmentBrowserCurrentPath = startPath;
+    attachmentBrowserParentPath = "";
+    attachmentBrowserSelectedPaths.clear();
+    document.body?.classList.add("attachment-browser-open");
+    attachmentBrowserBackdrop.hidden = false;
+    renderAttachmentBrowserList([]);
+    updateAttachmentBrowserControls();
+    loadAttachmentBrowserPath(startPath).catch((error) => setAttachmentBrowserFeedback(error.message || "文件列表读取失败。", "error"));
+    window.setTimeout(() => attachmentBrowserBack?.focus(), 0);
+  };
+
+  const closeAttachmentBrowser = ({ focusTerminal = true } = {}) => {
+    attachmentBrowserOpen = false;
+    attachmentBrowserRequestSeq += 1;
+    attachmentBrowserSelectedPaths.clear();
+    attachmentBrowserEntriesByPath.clear();
+    attachmentBrowserBreadcrumbPath = "";
+    attachmentBrowserEdgeSwipe = null;
+    if (attachmentBrowserBackdrop) {
+      attachmentBrowserBackdrop.hidden = true;
+    }
+    document.body?.classList.remove("attachment-browser-open");
+    setAttachmentBrowserFeedback("");
+    if (focusTerminal) {
+      window.setTimeout(() => activeSession()?.term?.focus(), 0);
+    }
+  };
+
+  const triggerAttachmentDownload = (paths) => {
+    const selected = Array.from(paths || []).filter(Boolean);
+    if (selected.length === 0) {
+      return;
+    }
+    const link = document.createElement("a");
+    link.href = attachmentDownloadURL(selected).toString();
+    link.download = attachmentBrowserDownloadFilename(selected);
+    link.style.display = "none";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  };
+
+  const downloadSelectedAttachmentFiles = () => {
+    const selected = Array.from(attachmentBrowserSelectedPaths);
+    if (selected.length === 0) {
+      return;
+    }
+    triggerAttachmentDownload(selected);
+    closeAttachmentBrowser({ focusTerminal: true });
+  };
+
+  const resetAttachmentBrowserEdgeSwipe = () => {
+    attachmentBrowserEdgeSwipe = null;
+  };
+
+  const handleAttachmentBrowserTouchStart = (event) => {
+    if (!isAttachmentBrowserOpen() || !isMobileLayout() || event.touches.length !== 1 || !canNavigateAttachmentBrowserBack()) {
+      resetAttachmentBrowserEdgeSwipe();
+      return;
+    }
+    const touch = event.touches[0];
+    if (touch.clientX > attachmentBrowserSwipeEdgeWidth) {
+      resetAttachmentBrowserEdgeSwipe();
+      return;
+    }
+    attachmentBrowserEdgeSwipe = {
+      startX: touch.clientX,
+      startY: touch.clientY,
+      horizontal: false,
+      navigated: false,
+    };
+  };
+
+  const handleAttachmentBrowserTouchMove = (event) => {
+    if (!attachmentBrowserEdgeSwipe || event.touches.length !== 1) {
+      return;
+    }
+    const touch = event.touches[0];
+    const deltaX = touch.clientX - attachmentBrowserEdgeSwipe.startX;
+    const deltaY = touch.clientY - attachmentBrowserEdgeSwipe.startY;
+    const absX = Math.abs(deltaX);
+    const absY = Math.abs(deltaY);
+    if (deltaX < -attachmentBrowserSwipeAxisThreshold) {
+      resetAttachmentBrowserEdgeSwipe();
+      return;
+    }
+    if (!attachmentBrowserEdgeSwipe.horizontal) {
+      if (absY > attachmentBrowserSwipeAxisThreshold && absY > absX) {
+        resetAttachmentBrowserEdgeSwipe();
+        return;
+      }
+      if (deltaX > attachmentBrowserSwipeAxisThreshold && absX > absY * 1.2) {
+        attachmentBrowserEdgeSwipe.horizontal = true;
+      }
+    }
+    if (!attachmentBrowserEdgeSwipe?.horizontal) {
+      return;
+    }
+    event.preventDefault();
+    if (!attachmentBrowserEdgeSwipe.navigated && deltaX >= attachmentBrowserSwipeBackDistance && absY <= attachmentBrowserSwipeMaxVerticalTravel) {
+      attachmentBrowserEdgeSwipe.navigated = true;
+      navigateAttachmentBrowserBack();
+      resetAttachmentBrowserEdgeSwipe();
     }
   };
 
@@ -10699,6 +12681,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       for (const tab of [...tabs.values()]) {
         closeTab(tab.id, { remember: false });
       }
+      recentTabIds = [];
     } finally {
       applyingWorkspaceState = false;
     }
@@ -10772,6 +12755,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   }
 
   renderMobileShortcuts();
+  installMobileCustomSelects();
 
   newTabButton?.addEventListener("click", () => {
     createUserTab().catch((error) => showToast(error.message));
@@ -10905,6 +12889,36 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       }
     });
   }
+  const stepSettingsNumberInput = (button) => {
+    const targetID = String(button?.dataset?.numberTarget || "").trim();
+    const input = targetID ? document.getElementById(targetID) : null;
+    if (!(input instanceof HTMLInputElement) || input.disabled) {
+      return;
+    }
+    try {
+      if (button.dataset.numberStep === "down") {
+        input.stepDown();
+      } else {
+        input.stepUp();
+      }
+    } catch (error) {
+      const min = Number(input.min);
+      input.value = Number.isFinite(min) ? String(min) : "0";
+    }
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+    input.focus({ preventScroll: true });
+  };
+
+  settingsPanel?.addEventListener("click", (event) => {
+    const button = event.target instanceof Element ? event.target.closest("[data-number-step]") : null;
+    if (!(button instanceof HTMLButtonElement)) {
+      return;
+    }
+    event.preventDefault();
+    stepSettingsNumberInput(button);
+  });
+
   settingsFontCards?.addEventListener("click", (event) => {
     const card = event.target.closest(".settings-font-card");
     if (!card) {
@@ -10962,6 +12976,38 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
         settingsFontInput.disabled = false;
         if (settingsFontUploadButton) {
           settingsFontUploadButton.disabled = false;
+        }
+      });
+  });
+  settingsLineHeightInput?.addEventListener("input", scheduleTerminalLineHeightSave);
+  settingsLineHeightInput?.addEventListener("change", () => {
+    window.clearTimeout(settingsLineHeightSaveTimer);
+    try {
+      readSettingsLineHeightInput();
+    } catch (error) {
+      syncSettingsLineHeightInput();
+      setSettingsFeedback(error.message || "行间距设置无效。", "error");
+      return;
+    }
+    saveTerminalLineHeightFromInput();
+  });
+  settingsLineHeightResetButton?.addEventListener("click", () => {
+    window.clearTimeout(settingsLineHeightSaveTimer);
+    if (settingsLineHeightInput) {
+      settingsLineHeightInput.value = String(defaultTerminalLineHeightPercent);
+    }
+    const requestSeq = ++settingsLineHeightSaveRequestSeq;
+    setSettingsLineHeightSaving(true);
+    saveTerminalLineHeightPercent(defaultTerminalLineHeightPercent, { syncLineHeightInput: true })
+      .catch((error) => {
+        if (requestSeq === settingsLineHeightSaveRequestSeq) {
+          syncSettingsLineHeightInput();
+          setSettingsFeedback(error.message || "行间距恢复默认失败。", "error");
+        }
+      })
+      .finally(() => {
+        if (requestSeq === settingsLineHeightSaveRequestSeq) {
+          setSettingsLineHeightSaving(false);
         }
       });
   });
@@ -11026,6 +13072,26 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       .finally(() => {
         if (requestSeq === settingsMobilePixelScrollRequestSeq) {
           setSettingsMobilePixelScrollSaving(false);
+        }
+      });
+  });
+  settingsMobileDoubleTapReminderToggle?.addEventListener("change", () => {
+    const previous = mobileDoubleTapReminderEnabled;
+    const enabled = settingsMobileDoubleTapReminderToggle.checked;
+    const requestSeq = ++settingsMobileDoubleTapReminderRequestSeq;
+    setSettingsMobileDoubleTapReminderSaving(true);
+    saveMobileDoubleTapReminderEnabled(enabled)
+      .catch((error) => {
+        if (requestSeq === settingsMobileDoubleTapReminderRequestSeq) {
+          mobileDoubleTapReminderEnabled = previous;
+          syncSettingsMobileDoubleTapReminderToggle();
+          updateMobileActiveTabTitle();
+        }
+        setSettingsFeedback(error.message || "双击屏幕提醒设置保存失败。", "error");
+      })
+      .finally(() => {
+        if (requestSeq === settingsMobileDoubleTapReminderRequestSeq) {
+          setSettingsMobileDoubleTapReminderSaving(false);
         }
       });
   });
@@ -11243,6 +13309,54 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     importAttachmentFromClipboard();
   });
   attachmentFile?.addEventListener("click", selectAttachmentFiles);
+  attachmentDownload?.addEventListener("click", openAttachmentBrowser);
+  attachmentBrowserClose?.addEventListener("click", () => closeAttachmentBrowser());
+  attachmentBrowserCancel?.addEventListener("click", () => closeAttachmentBrowser());
+  attachmentBrowserBackdrop?.addEventListener("click", (event) => {
+    if (event.target === attachmentBrowserBackdrop) {
+      closeAttachmentBrowser();
+    }
+  });
+  attachmentBrowserBack?.addEventListener("click", () => {
+    closeAttachmentBrowser();
+  });
+  attachmentBrowserBreadcrumbs?.addEventListener("click", (event) => {
+    const button = event.target instanceof Element ? event.target.closest(".attachment-browser-breadcrumb[data-path]") : null;
+    if (!(button instanceof HTMLButtonElement) || button.disabled) {
+      return;
+    }
+    loadAttachmentBrowserPath(button.dataset.path || "/").catch((error) => setAttachmentBrowserFeedback(error.message || "文件列表读取失败。", "error"));
+  });
+  attachmentBrowserBackdrop?.addEventListener("touchstart", handleAttachmentBrowserTouchStart, { passive: true });
+  attachmentBrowserBackdrop?.addEventListener("touchmove", handleAttachmentBrowserTouchMove, { passive: false });
+  attachmentBrowserBackdrop?.addEventListener("touchend", resetAttachmentBrowserEdgeSwipe, { passive: true });
+  attachmentBrowserBackdrop?.addEventListener("touchcancel", resetAttachmentBrowserEdgeSwipe, { passive: true });
+  attachmentBrowserList?.addEventListener("click", (event) => {
+    const target = event.target;
+    const dirButton = target instanceof Element ? target.closest(".attachment-browser-file-main[data-path]") : null;
+    if (dirButton?.closest?.('.attachment-browser-item[data-type="dir"]')) {
+      loadAttachmentBrowserPath(dirButton.dataset.path || "").catch((error) => setAttachmentBrowserFeedback(error.message || "文件列表读取失败。", "error"));
+      return;
+    }
+    const fileButton = target instanceof Element ? target.closest(".attachment-browser-file-main[data-path]") : null;
+    if (fileButton?.closest?.('.attachment-browser-item[data-type="file"]')) {
+      triggerAttachmentDownload([fileButton.dataset.path || ""]);
+      closeAttachmentBrowser({ focusTerminal: true });
+    }
+  });
+  attachmentBrowserList?.addEventListener("change", (event) => {
+    const input = event.target instanceof Element ? event.target.closest(".attachment-browser-check") : null;
+    if (!(input instanceof HTMLInputElement)) {
+      return;
+    }
+    if (input.checked) {
+      attachmentBrowserSelectedPaths.add(input.value);
+    } else {
+      attachmentBrowserSelectedPaths.delete(input.value);
+    }
+    updateAttachmentBrowserControls();
+  });
+  attachmentBrowserDownload?.addEventListener("click", downloadSelectedAttachmentFiles);
   attachmentFileInput?.addEventListener("change", () => {
     const files = Array.from(attachmentFileInput.files || []);
     if (attachmentFileInput) {
@@ -11267,6 +13381,11 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     }
   });
   document.addEventListener("keydown", (event) => {
+    if (mobileCustomSelectState && event.key === "Escape") {
+      event.preventDefault();
+      closeMobileCustomSelect({ focus: true });
+      return;
+    }
     if (serviceForwardEditor && !serviceForwardEditor.hidden && event.key === "Escape") {
       event.preventDefault();
       resetServiceForwardForm();
@@ -11280,6 +13399,11 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     if (isAttachmentDialogOpen() && event.key === "Escape") {
       event.preventDefault();
       closeAttachmentDialog();
+      return;
+    }
+    if (isAttachmentBrowserOpen() && event.key === "Escape") {
+      event.preventDefault();
+      closeAttachmentBrowser();
       return;
     }
     if (dialogResolve && event.key === "Escape") {
@@ -11318,6 +13442,11 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   });
 
   tabOverview?.addEventListener("click", (event) => {
+    if (performance.now() < tabOverviewSuppressClickUntil) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
     const target = event.target;
     if (target === tabOverview || target === tabOverviewGrid) {
       closeTabOverview();
@@ -11350,6 +13479,8 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       copyFromSession().catch((error) => showToast(error.message));
     } else if (action === "paste") {
       pasteIntoSession().catch((error) => showToast(error.message));
+    } else if (action === "search") {
+      openSearchFromSelection();
     } else if (action === "clear") {
       const session = activeSession();
       session?.term?.clearSelection?.();
@@ -11388,6 +13519,8 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     runContextAction(item.dataset.action);
   });
 
+  document.addEventListener("pointerdown", recoverVisibleSessionsFromUserGesture, { capture: true, passive: true });
+  document.addEventListener("touchstart", recoverVisibleSessionsFromUserGesture, { capture: true, passive: true });
   document.addEventListener("pointerdown", (event) => {
     if (typeof PointerEvent === "undefined" || !(event instanceof PointerEvent) || !event.pointerType || event.pointerType === "mouse") {
       reassertTerminalSize(activeSession());
@@ -11407,12 +13540,14 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   });
 
   document.addEventListener("keydown", (event) => {
+    recoverVisibleSessionsFromUserGesture();
     if (event.key === "Escape") {
       closeContextMenu();
       closeMobileActionSheet();
       closeMobileCloseConfirm(false);
       closeInstanceSwitcher();
       closeAttachmentDialog({ focusTerminal: false });
+      closeAttachmentBrowser({ focusTerminal: false });
       closeThemePicker();
       closeSettings();
       closeTabOverview();
@@ -11430,6 +13565,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     } else if (mobileActionSheet && !mobileActionSheet.hidden) {
       renderMobileActionSheet();
     }
+    syncMobileCustomSelectPosition();
     if (!isMobileLayout()) {
       closeMobileCloseConfirm(false);
     }
@@ -11437,6 +13573,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     redrawThemePickerOptions();
     resizeActiveTabForCurrentDevice();
     updateMobileActiveTabTitle();
+    updateSelectionSheet();
     if (settingsBackdrop && !settingsBackdrop.hidden) {
       syncSettingsMobileNavigation();
     }
@@ -11446,8 +13583,11 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   if (isIOSPlatform()) {
     window.visualViewport?.addEventListener("resize", syncMobileVisualViewport);
     window.visualViewport?.addEventListener("scroll", syncMobileVisualViewport);
-    window.addEventListener("orientationchange", syncMobileVisualViewport);
   }
+  window.addEventListener("orientationchange", handleMobileOrientationChange);
+  window.screen?.orientation?.addEventListener?.("change", handleMobileOrientationChange);
+  window.visualViewport?.addEventListener("resize", syncMobileCustomSelectPosition);
+  window.visualViewport?.addEventListener("scroll", syncMobileCustomSelectPosition);
   syncMobileVisualViewport();
   ensureMobileOverviewHistoryGuard();
   document.fonts?.ready?.then(() => {
@@ -11481,7 +13621,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     setNetworkBanner(false);
     showToast("网络已恢复，正在重连。");
     refreshServerRevision().catch(() => {});
-    reconnectVisibleSessions();
+    reconnectVisibleSessions({ allowHidden: true, probe: true });
     refreshActivity({ silent: true }).catch(() => {});
   });
   window.addEventListener("offline", () => {
@@ -11492,7 +13632,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     if (!document.hidden) {
       resizeActiveTab();
       refreshServerRevision().catch(() => {});
-      reconnectVisibleSessions();
+      reconnectVisibleSessions({ allowHidden: true, probe: true });
       refreshActivity({ silent: true }).catch(() => {});
       updateSelectionSheet();
     }
@@ -11500,7 +13640,13 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   window.addEventListener("focus", () => {
     resizeActiveTab();
     refreshServerRevision().catch(() => {});
-    reconnectVisibleSessions();
+    reconnectVisibleSessions({ allowHidden: true, probe: true });
+    refreshActivity({ silent: true }).catch(() => {});
+  });
+  window.addEventListener("pageshow", () => {
+    resizeActiveTab();
+    refreshServerRevision().catch(() => {});
+    reconnectVisibleSessions({ allowHidden: true, probe: true });
     refreshActivity({ silent: true }).catch(() => {});
   });
   window.addEventListener("beforeunload", (event) => {
@@ -11515,6 +13661,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       for (const pane of tab.panes.values()) {
         pane.closed = true;
         clearReconnectTimer(pane);
+        clearSessionConnectionTimers(pane);
         pane.socket?.close();
       }
     }

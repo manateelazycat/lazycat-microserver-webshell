@@ -20,7 +20,7 @@
               <rect x="14" y="14" width="6" height="6" rx="1.5"></rect>
             </svg>
           </button>
-          <button class="attachment-toggle" id="attachmentToggle" type="button" aria-label="上传附件" title="上传附件">
+          <button class="attachment-toggle" id="attachmentToggle" type="button" aria-label="文件管理" title="文件管理">
             <svg t="1779115711937" class="topbar-icon attachment-toggle-icon icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" p-id="18708" width="200" height="200" aria-hidden="true" focusable="false">
               <path d="M895.408 221.28l-769.136 239.12 217.888 178.16c-0.784 1.968-1.184 4.112-1.104 6.336l5.536 167.488c0.304 8.832 7.68 15.744 16.512 15.472 0.128 0 0.24-0.080 0.352-0.096 4.288 0 8.544-1.616 11.68-4.992l83.84-88.688 143.024 116.944 291.408-629.744zM785.936 288.816l-423.904 323.040-169.456-138.544 593.36-184.496zM379.312 773.6l-3.616-109.232 60.416 49.408-56.8 59.824zM387.504 632.688l436.048-332.304-231.248 499.76-204.8-167.456z" fill="#231F20" p-id="18709"></path>
             </svg>
@@ -172,6 +172,29 @@
                   <div class="settings-font-cards" id="settingsFontCards" role="listbox" aria-label="终端字体"></div>
                 </div>
               </section>
+              <section class="settings-section" aria-labelledby="settingsLineHeightTitle">
+                <div class="settings-section-head">
+                  <h3 id="settingsLineHeightTitle">显示</h3>
+                </div>
+                <div class="settings-number-row">
+                  <label class="settings-number-label" for="settingsLineHeightInput">
+                    <span>行间距</span>
+                    <span>按百分比调整终端行高，100% 为默认，增大后同屏显示行数会减少。</span>
+                  </label>
+                  <div class="settings-number-control">
+                    <div class="settings-number-stepper">
+                      <input class="settings-number-input" id="settingsLineHeightInput" type="number" min="100" max="160" step="1" inputmode="numeric" />
+                      <div class="settings-number-stepper-buttons">
+                        <button class="settings-number-stepper-button up" type="button" data-number-step="up" data-number-target="settingsLineHeightInput" aria-label="增加行间距"></button>
+                        <button class="settings-number-stepper-button down" type="button" data-number-step="down" data-number-target="settingsLineHeightInput" aria-label="减少行间距"></button>
+                      </div>
+                    </div>
+                    <button class="settings-icon-button" id="settingsLineHeightResetButton" type="button" aria-label="恢复默认行间距" title="恢复默认">
+                      <svg t="1778915656350" class="icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" p-id="8293" width="200" height="200" aria-hidden="true"><path d="M566.4 80c-195.2 0-358.4 131.2-412.8 307.2l-41.6-60.8c-16-19.2-44.8-25.6-67.2-9.6-22.4 16-25.6 44.8-12.8 67.2l108.8 153.6c6.4 9.6 12.8 16 22.4 19.2 3.2 0 6.4 3.2 6.4 3.2h6.4c3.2 0 9.6 0 12.8-3.2H192c3.2 0 6.4-3.2 9.6-6.4l156.8-112c22.4-16 25.6-44.8 12.8-67.2-16-22.4-44.8-25.6-67.2-12.8l-64 44.8c44.8-134.4 169.6-230.4 320-230.4 185.6 0 336 150.4 336 336s-150.4 336-336 336c-83.2 0-166.4-32-227.2-89.6-19.2-19.2-51.2-16-67.2 3.2-19.2 19.2-16 51.2 3.2 67.2 80 73.6 182.4 115.2 291.2 115.2 236.8 0 432-195.2 432-432S806.4 80 566.4 80z" fill="currentColor" p-id="8294"></path></svg>
+                    </button>
+                  </div>
+                </div>
+              </section>
               <section class="settings-section" aria-labelledby="settingsScrollbackTitle">
                 <div class="settings-section-head">
                   <h3 id="settingsScrollbackTitle">滚动历史</h3>
@@ -182,7 +205,13 @@
                     <span>行数越大，新开或刷新终端时回放越慢；每 1000 行约 0.35MB，5000 行约 1.75MB，修改后刷新或新建终端生效。</span>
                   </label>
                   <div class="settings-number-control">
-                    <input class="settings-number-input" id="settingsScrollbackInput" type="number" min="100" max="100000" step="1" inputmode="numeric" />
+                    <div class="settings-number-stepper">
+                      <input class="settings-number-input" id="settingsScrollbackInput" type="number" min="100" max="100000" step="1" inputmode="numeric" />
+                      <div class="settings-number-stepper-buttons">
+                        <button class="settings-number-stepper-button up" type="button" data-number-step="up" data-number-target="settingsScrollbackInput" aria-label="增加滚动历史"></button>
+                        <button class="settings-number-stepper-button down" type="button" data-number-step="down" data-number-target="settingsScrollbackInput" aria-label="减少滚动历史"></button>
+                      </div>
+                    </div>
                     <button class="settings-icon-button" id="settingsScrollbackResetButton" type="button" aria-label="恢复默认滚动历史" title="恢复默认">
                       <svg t="1778915656350" class="icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" p-id="8293" width="200" height="200" aria-hidden="true"><path d="M566.4 80c-195.2 0-358.4 131.2-412.8 307.2l-41.6-60.8c-16-19.2-44.8-25.6-67.2-9.6-22.4 16-25.6 44.8-12.8 67.2l108.8 153.6c6.4 9.6 12.8 16 22.4 19.2 3.2 0 6.4 3.2 6.4 3.2h6.4c3.2 0 9.6 0 12.8-3.2H192c3.2 0 6.4-3.2 9.6-6.4l156.8-112c22.4-16 25.6-44.8 12.8-67.2-16-22.4-44.8-25.6-67.2-12.8l-64 44.8c44.8-134.4 169.6-230.4 320-230.4 185.6 0 336 150.4 336 336s-150.4 336-336 336c-83.2 0-166.4-32-227.2-89.6-19.2-19.2-51.2-16-67.2 3.2-19.2 19.2-16 51.2 3.2 67.2 80 73.6 182.4 115.2 291.2 115.2 236.8 0 432-195.2 432-432S806.4 80 566.4 80z" fill="currentColor" p-id="8294"></path></svg>
                     </button>
@@ -194,6 +223,19 @@
                     <span>仅移动端可用，滚动时按像素平滑移动终端内容</span>
                   </span>
                   <input class="settings-switch-input" id="settingsMobilePixelScrollToggle" type="checkbox" />
+                  <span class="settings-switch" aria-hidden="true"></span>
+                </label>
+              </section>
+              <section class="settings-section" aria-labelledby="settingsMobileInputTitle">
+                <div class="settings-section-head">
+                  <h3 id="settingsMobileInputTitle">手机端输入</h3>
+                </div>
+                <label class="settings-switch-row" for="settingsMobileDoubleTapReminderToggle">
+                  <span class="settings-switch-label">
+                    <span>双击屏幕提醒</span>
+                    <span>熟悉手机双击进入编辑的操作后,可以关闭这个选项</span>
+                  </span>
+                  <input class="settings-switch-input" id="settingsMobileDoubleTapReminderToggle" type="checkbox" checked />
                   <span class="settings-switch" aria-hidden="true"></span>
                 </label>
               </section>
@@ -436,16 +478,40 @@
     <div class="attachment-backdrop" id="attachmentBackdrop" hidden>
       <section class="attachment-panel" id="attachmentPanel" role="dialog" aria-modal="true" aria-labelledby="attachmentTitle">
         <div class="attachment-header">
-          <h2 class="attachment-title" id="attachmentTitle">上传附件</h2>
+          <h2 class="attachment-title" id="attachmentTitle">文件管理</h2>
           <button class="attachment-close" id="attachmentClose" type="button" aria-label="关闭">&times;</button>
         </div>
         <div class="attachment-actions">
           <button class="attachment-action" id="attachmentClipboard" type="button">
-            <span class="attachment-action-title">从粘贴板导入</span>
+            <span class="attachment-action-title">上传粘贴板内容</span>
           </button>
           <button class="attachment-action" id="attachmentFile" type="button">
             <span class="attachment-action-title">上传文件</span>
           </button>
+          <button class="attachment-action" id="attachmentDownload" type="button">
+            <span class="attachment-action-title">下载文件</span>
+          </button>
+        </div>
+      </section>
+    </div>
+    <div class="attachment-browser-backdrop" id="attachmentBrowserBackdrop" hidden>
+      <section class="attachment-browser-panel" id="attachmentBrowserPanel" role="dialog" aria-modal="true" aria-labelledby="attachmentBrowserTitle">
+        <div class="attachment-browser-header">
+          <button class="attachment-browser-back" id="attachmentBrowserBack" type="button" aria-label="隐藏文件管理" title="隐藏文件管理">
+            <svg class="icon" viewBox="0 0 1024 1024" aria-hidden="true" focusable="false"><path d="M810.666667 469.333333H334.08l208.213333-208.213333a43.008 43.008 0 0 0 0-60.586667 42.666667 42.666667 0 0 0-60.16 0l-281.173333 281.173334a42.666667 42.666667 0 0 0 0 60.16l281.173333 281.173333a42.666667 42.666667 0 0 0 60.16-60.16L334.08 554.666667H810.666667a42.666667 42.666667 0 0 0 0-85.333334z"></path></svg>
+          </button>
+          <div class="attachment-browser-title-wrap">
+            <h2 class="attachment-browser-title" id="attachmentBrowserTitle">下载文件</h2>
+            <div class="attachment-browser-path" id="attachmentBrowserPath">/</div>
+          </div>
+          <button class="attachment-browser-close" id="attachmentBrowserClose" type="button" aria-label="关闭">&times;</button>
+        </div>
+        <nav class="attachment-browser-breadcrumbs" id="attachmentBrowserBreadcrumbs" aria-label="路径导航"></nav>
+        <div class="attachment-browser-feedback" id="attachmentBrowserFeedback" hidden></div>
+        <div class="attachment-browser-list" id="attachmentBrowserList" role="listbox" aria-label="文件列表"></div>
+        <div class="attachment-browser-actions">
+          <button class="attachment-browser-cancel" id="attachmentBrowserCancel" type="button">取消</button>
+          <button class="attachment-browser-download" id="attachmentBrowserDownload" type="button" disabled>下载选中</button>
         </div>
       </section>
     </div>
@@ -478,9 +544,9 @@
       </section>
     </div>
     <div class="selection-sheet" id="selectionSheet" hidden>
-      <button type="button" data-selection-action="copy">Copy</button>
-      <button type="button" data-selection-action="paste">Paste</button>
-      <button type="button" data-selection-action="clear">Done</button>
+      <button type="button" data-selection-action="copy">复制</button>
+      <button type="button" data-selection-action="paste">粘贴</button>
+      <button type="button" data-selection-action="search">搜索</button>
     </div>
     <div class="network-banner" id="networkBanner" hidden>Offline. Reconnecting when network is back.</div>
     <div class="toast" id="toast" hidden></div>

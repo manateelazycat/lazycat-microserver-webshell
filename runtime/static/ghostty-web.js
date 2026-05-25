@@ -2253,7 +2253,7 @@ class IA {
       convertEol: A.convertEol ?? !1,
       disableStdin: A.disableStdin ?? !1,
       smoothScrollDuration: A.smoothScrollDuration ?? 100,
-      mobilePixelScroll: A.mobilePixelScroll ?? !1
+      mobilePixelScroll: A.mobilePixelScroll ?? !0
       // Default: 100ms smooth scroll
     };
     this.options = new Proxy(B, {

@@ -37,8 +37,14 @@ func TestStorePersistsUploadedFontSelectionAndDelete(t *testing.T) {
 	if state.TerminalScrollback != DefaultTerminalScrollback {
 		t.Fatalf("TerminalScrollback = %d, want %d", state.TerminalScrollback, DefaultTerminalScrollback)
 	}
+	if state.TerminalLineHeightPercent != DefaultTerminalLineHeightPercent {
+		t.Fatalf("TerminalLineHeightPercent = %d, want %d", state.TerminalLineHeightPercent, DefaultTerminalLineHeightPercent)
+	}
 	if !state.DesktopMouseClipboardEnabled {
 		t.Fatalf("DesktopMouseClipboardEnabled = false, want true")
+	}
+	if !state.MobileDoubleTapReminderEnabled {
+		t.Fatalf("MobileDoubleTapReminderEnabled = false, want true")
 	}
 
 	if err := store.Delete(font.ID); err != nil {
@@ -90,13 +96,23 @@ func TestStoreDefaultsInvalidAndPersistsScrollback(t *testing.T) {
 	if state.TerminalScrollback != DefaultTerminalScrollback {
 		t.Fatalf("default TerminalScrollback = %d, want %d", state.TerminalScrollback, DefaultTerminalScrollback)
 	}
+	if state.TerminalLineHeightPercent != DefaultTerminalLineHeightPercent {
+		t.Fatalf("default TerminalLineHeightPercent = %d, want %d", state.TerminalLineHeightPercent, DefaultTerminalLineHeightPercent)
+	}
 	if !state.DesktopMouseClipboardEnabled {
 		t.Fatalf("default DesktopMouseClipboardEnabled = false, want true")
 	}
+	if !state.MobilePixelScrollEnabled {
+		t.Fatalf("default MobilePixelScrollEnabled = false, want true")
+	}
+	if !state.MobileDoubleTapReminderEnabled {
+		t.Fatalf("default MobileDoubleTapReminderEnabled = false, want true")
+	}
 
 	writeSettingsJSON(t, store, map[string]any{
-		"terminal_font_id":    "",
-		"terminal_scrollback": 0,
+		"terminal_font_id":             "",
+		"terminal_scrollback":          0,
+		"terminal_line_height_percent": 99,
 	})
 	state, err = store.State()
 	if err != nil {
@@ -105,8 +121,17 @@ func TestStoreDefaultsInvalidAndPersistsScrollback(t *testing.T) {
 	if state.TerminalScrollback != DefaultTerminalScrollback {
 		t.Fatalf("invalid TerminalScrollback = %d, want default %d", state.TerminalScrollback, DefaultTerminalScrollback)
 	}
+	if state.TerminalLineHeightPercent != DefaultTerminalLineHeightPercent {
+		t.Fatalf("invalid TerminalLineHeightPercent = %d, want default %d", state.TerminalLineHeightPercent, DefaultTerminalLineHeightPercent)
+	}
 	if !state.DesktopMouseClipboardEnabled {
 		t.Fatalf("missing DesktopMouseClipboardEnabled = false, want true")
+	}
+	if !state.MobilePixelScrollEnabled {
+		t.Fatalf("missing MobilePixelScrollEnabled = false, want true")
+	}
+	if !state.MobileDoubleTapReminderEnabled {
+		t.Fatalf("missing MobileDoubleTapReminderEnabled = false, want true")
 	}
 
 	if err := store.SaveScrollback(12000); err != nil {
@@ -118,6 +143,49 @@ func TestStoreDefaultsInvalidAndPersistsScrollback(t *testing.T) {
 	}
 	if state.TerminalScrollback != 12000 {
 		t.Fatalf("TerminalScrollback = %d, want 12000", state.TerminalScrollback)
+	}
+	if state.TerminalLineHeightPercent != DefaultTerminalLineHeightPercent {
+		t.Fatalf("TerminalLineHeightPercent = %d, want default %d", state.TerminalLineHeightPercent, DefaultTerminalLineHeightPercent)
+	}
+}
+
+func TestStoreDefaultsAndValidatesLineHeightPercent(t *testing.T) {
+	store := Store{Dir: t.TempDir()}
+
+	settings := Settings{TerminalScrollback: DefaultTerminalScrollback}
+	if err := store.SaveSettings(settings); err != nil {
+		t.Fatalf("SaveSettings(default line height) error = %v", err)
+	}
+	state, err := store.State()
+	if err != nil {
+		t.Fatalf("State() error = %v", err)
+	}
+	if state.TerminalLineHeightPercent != DefaultTerminalLineHeightPercent {
+		t.Fatalf("TerminalLineHeightPercent = %d, want default %d", state.TerminalLineHeightPercent, DefaultTerminalLineHeightPercent)
+	}
+
+	settings.TerminalLineHeightPercent = 140
+	if err := store.SaveSettings(settings); err != nil {
+		t.Fatalf("SaveSettings(line height 140) error = %v", err)
+	}
+	state, err = store.State()
+	if err != nil {
+		t.Fatalf("State() after SaveSettings error = %v", err)
+	}
+	if state.TerminalLineHeightPercent != 140 {
+		t.Fatalf("TerminalLineHeightPercent = %d, want 140", state.TerminalLineHeightPercent)
+	}
+
+	settings.TerminalLineHeightPercent = 161
+	if err := store.SaveSettings(settings); !errors.Is(err, ErrBadRequest) {
+		t.Fatalf("SaveSettings(invalid line height) error = %v, want ErrBadRequest", err)
+	}
+	state, err = store.State()
+	if err != nil {
+		t.Fatalf("State() after invalid SaveSettings error = %v", err)
+	}
+	if state.TerminalLineHeightPercent != 140 {
+		t.Fatalf("TerminalLineHeightPercent after invalid save = %d, want preserved 140", state.TerminalLineHeightPercent)
 	}
 }
 
@@ -144,6 +212,7 @@ func TestStoreSettingsUpdatesPreserveOtherFields(t *testing.T) {
 		t.Fatalf("ReadSettings() error = %v", err)
 	}
 	settings.DesktopMouseClipboardEnabled = &disabled
+	settings.MobileDoubleTapReminderEnabled = &disabled
 	if err := store.SaveSettings(settings); err != nil {
 		t.Fatalf("SaveSettings(mouse disabled) error = %v", err)
 	}
@@ -154,8 +223,8 @@ func TestStoreSettingsUpdatesPreserveOtherFields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("State() error = %v", err)
 	}
-	if state.TerminalFontID != font.ID || state.TerminalScrollback != 22000 || state.DesktopMouseClipboardEnabled {
-		t.Fatalf("State() = %+v, want selected font, scrollback 22000, and disabled mouse clipboard", state)
+	if state.TerminalFontID != font.ID || state.TerminalScrollback != 22000 || state.DesktopMouseClipboardEnabled || state.MobileDoubleTapReminderEnabled {
+		t.Fatalf("State() = %+v, want selected font, scrollback 22000, disabled mouse clipboard, and disabled double tap reminder", state)
 	}
 
 	if err := store.SaveScrollback(33000); err != nil {
@@ -165,8 +234,8 @@ func TestStoreSettingsUpdatesPreserveOtherFields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("State() after second SaveScrollback error = %v", err)
 	}
-	if state.TerminalFontID != font.ID || state.TerminalScrollback != 33000 || state.DesktopMouseClipboardEnabled {
-		t.Fatalf("State() = %+v, want selected font preserved, scrollback 33000, and disabled mouse clipboard", state)
+	if state.TerminalFontID != font.ID || state.TerminalScrollback != 33000 || state.DesktopMouseClipboardEnabled || state.MobileDoubleTapReminderEnabled {
+		t.Fatalf("State() = %+v, want selected font preserved, scrollback 33000, disabled mouse clipboard, and disabled double tap reminder", state)
 	}
 
 	if err := store.Delete(font.ID); err != nil {
@@ -176,8 +245,8 @@ func TestStoreSettingsUpdatesPreserveOtherFields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("State() after Delete error = %v", err)
 	}
-	if state.TerminalFontID != "" || state.TerminalScrollback != 33000 || state.DesktopMouseClipboardEnabled {
-		t.Fatalf("State() after Delete = %+v, want default font, preserved scrollback, and disabled mouse clipboard", state)
+	if state.TerminalFontID != "" || state.TerminalScrollback != 33000 || state.DesktopMouseClipboardEnabled || state.MobileDoubleTapReminderEnabled {
+		t.Fatalf("State() after Delete = %+v, want default font, preserved scrollback, disabled mouse clipboard, and disabled double tap reminder", state)
 	}
 }
 
@@ -186,22 +255,24 @@ func TestStoreMergeSettingsDropsMissingSelectedFont(t *testing.T) {
 	missingID := strings.Repeat("a", 64)
 
 	settings, err := store.MergeSettings(Settings{
-		TerminalFontID:               missingID,
-		TerminalScrollback:           24000,
-		DesktopMouseClipboardEnabled: boolPtr(false),
+		TerminalFontID:                 missingID,
+		TerminalScrollback:             24000,
+		TerminalLineHeightPercent:      125,
+		DesktopMouseClipboardEnabled:   boolPtr(false),
+		MobileDoubleTapReminderEnabled: boolPtr(false),
 	}, true)
 	if err != nil {
 		t.Fatalf("MergeSettings() error = %v", err)
 	}
-	if settings.TerminalFontID != "" || settings.TerminalScrollback != 24000 || desktopMouseClipboardEnabled(settings) {
-		t.Fatalf("MergeSettings() = %+v, want missing font cleared, scrollback preserved, and mouse clipboard disabled", settings)
+	if settings.TerminalFontID != "" || settings.TerminalScrollback != 24000 || settings.TerminalLineHeightPercent != 125 || desktopMouseClipboardEnabled(settings) || mobileDoubleTapReminderEnabled(settings) {
+		t.Fatalf("MergeSettings() = %+v, want missing font cleared, scrollback and line height preserved, disabled mouse clipboard, and disabled double tap reminder", settings)
 	}
 	state, err := store.State()
 	if err != nil {
 		t.Fatalf("State() error = %v", err)
 	}
-	if state.TerminalFontID != "" || state.TerminalScrollback != 24000 || state.DesktopMouseClipboardEnabled {
-		t.Fatalf("State() = %+v, want missing font cleared, scrollback preserved, and mouse clipboard disabled", state)
+	if state.TerminalFontID != "" || state.TerminalScrollback != 24000 || state.TerminalLineHeightPercent != 125 || state.DesktopMouseClipboardEnabled || state.MobileDoubleTapReminderEnabled {
+		t.Fatalf("State() = %+v, want missing font cleared, scrollback and line height preserved, disabled mouse clipboard, and disabled double tap reminder", state)
 	}
 
 	if _, err := store.MergeSettings(Settings{
