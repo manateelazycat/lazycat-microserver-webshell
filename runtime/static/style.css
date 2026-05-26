@@ -686,6 +686,29 @@ body.split-resize-active * {
   caret-color: transparent !important;
 }
 
+.performance-meter {
+  position: absolute;
+  right: 5px;
+  top: 5px;
+  z-index: 8;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 5px 7px;
+  border: 1px solid color-mix(in srgb, var(--terminal-fg) 28%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--terminal-bg) 82%, transparent);
+  color: var(--terminal-fg);
+  font: 600 11px/1.2 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  letter-spacing: 0;
+  pointer-events: none;
+  user-select: none;
+}
+
+.performance-meter[hidden] {
+  display: none;
+}
+
 .terminal-composition-preview {
   position: absolute;
   z-index: 2;
@@ -1470,12 +1493,13 @@ body.split-resize-active * {
 .settings-switch::after {
   content: "";
   position: absolute;
-  top: 3px;
+  top: 50%;
   left: 3px;
   width: 16px;
   height: 16px;
   border-radius: 999px;
   background: var(--text);
+  transform: translateY(-50%);
   transition: transform 0.18s ease;
 }
 
@@ -1485,7 +1509,7 @@ body.split-resize-active * {
 }
 
 .settings-switch-input:checked + .settings-switch::after {
-  transform: translateX(18px);
+  transform: translate(18px, -50%);
   background: #ffffff;
 }
 

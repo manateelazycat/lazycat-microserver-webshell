@@ -18,6 +18,8 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   const terminalArea = document.getElementById("terminalArea");
   const emptyState = document.getElementById("emptyState");
   const emptyStateAction = document.getElementById("emptyStateAction");
+  const performanceMeterFps = document.getElementById("performanceMeterFps");
+  const performanceMeterRefresh = document.getElementById("performanceMeterRefresh");
   const startupErrorPanel = document.getElementById("startupErrorPanel");
   const startupErrorText = document.getElementById("startupErrorText");
   const instanceSwitcher = document.getElementById("instanceSwitcher");
@@ -49,6 +51,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   const settingsLineHeightResetButton = document.getElementById("settingsLineHeightResetButton");
   const settingsScrollbackInput = document.getElementById("settingsScrollbackInput");
   const settingsScrollbackResetButton = document.getElementById("settingsScrollbackResetButton");
+  const settingsPerformanceMeterToggle = document.getElementById("settingsPerformanceMeterToggle");
   const settingsDesktopMouseClipboardToggle = document.getElementById("settingsDesktopMouseClipboardToggle");
   const settingsMobilePixelScrollToggle = document.getElementById("settingsMobilePixelScrollToggle");
   const settingsMobileDoubleTapReminderToggle = document.getElementById("settingsMobileDoubleTapReminderToggle");
@@ -179,6 +182,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   const recentTabsStorageKey = (name) => `${storagePrefix}.recentTabs.${name || "default"}`;
   const restartTabStorageKey = `${storagePrefix}.restartTab`;
   const touchShortcutFeedbackStorageKey = `${storagePrefix}.touchShortcutFeedback`;
+  const performanceMeterStorageKey = `${storagePrefix}.performanceMeter`;
   const defaultFontSize = 16;
   const minFontSize = 10;
   const maxFontSize = 32;
@@ -221,6 +225,9 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   const terminalReconnectMaxDelayMs = 10 * 1000;
   const terminalReconnectJitterRatio = 0.2;
   const terminalOutputFlushFallbackMs = 32;
+  const performanceMeterSampleMs = 500;
+  const performanceMeterWarmupFrames = 12;
+  const terminalPixelScrollOffsetEpsilon = 0.001;
   const maxQueuedTerminalOutputBytes = 4 * 1024 * 1024;
   const activityPollIntervalMs = 4000;
   const maxAttachmentUploadBytes = 2 * 1024 * 1024 * 1024;
@@ -421,6 +428,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   let desktopMouseClipboardEnabled = true;
   let mobilePixelScrollEnabled = true;
   let mobileDoubleTapReminderEnabled = true;
+  let performanceMeterEnabled = window.localStorage.getItem(performanceMeterStorageKey) === "true";
   let fontEditMode = false;
   const selectedFontDeleteIDs = new Set();
   const registeredFontFaces = new Map();
@@ -628,6 +636,60 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     return nextTheme;
   };
   const terminalOptions = (overrides = {}) => ({ ...terminalOptionsBase, fontSize: terminalFontSize, theme: cloneTheme(activeTheme), ...overrides });
+
+  const startPerformanceMeter = () => {
+    if (!performanceMeterFps || !performanceMeterRefresh) {
+      return;
+    }
+    applyPerformanceMeterVisibility();
+    let frameCount = 0;
+    let sampleFrames = 0;
+    let sampleStart = 0;
+    let lastTime = 0;
+    let rafID = 0;
+    const frameIntervals = [];
+    const maxIntervals = 90;
+    const update = (time) => {
+      if (disposed) {
+        return;
+      }
+      frameCount += 1;
+      if (lastTime > 0) {
+        const interval = time - lastTime;
+        if (interval > 0 && interval < 1000) {
+          frameIntervals.push(interval);
+          if (frameIntervals.length > maxIntervals) {
+            frameIntervals.shift();
+          }
+        }
+      }
+      lastTime = time;
+      if (frameCount <= performanceMeterWarmupFrames) {
+        sampleStart = time;
+        sampleFrames = 0;
+        rafID = window.requestAnimationFrame(update);
+        return;
+      }
+      if (!sampleStart) {
+        sampleStart = time;
+      }
+      sampleFrames += 1;
+      const elapsed = time - sampleStart;
+      if (elapsed >= performanceMeterSampleMs) {
+        const fps = Math.round((sampleFrames * 1000) / elapsed);
+        const intervals = frameIntervals.slice().sort((left, right) => left - right);
+        const median = intervals.length > 0 ? intervals[Math.floor(intervals.length / 2)] : 0;
+        const refresh = median > 0 ? Math.round(1000 / median) : 0;
+        performanceMeterFps.textContent = `${fps} FPS`;
+        performanceMeterRefresh.textContent = refresh > 0 ? `${refresh} Hz` : "-- Hz";
+        sampleStart = time;
+        sampleFrames = 0;
+      }
+      rafID = window.requestAnimationFrame(update);
+    };
+    rafID = window.requestAnimationFrame(update);
+    window.addEventListener("beforeunload", () => window.cancelAnimationFrame(rafID), { once: true });
+  };
 
   const selectStoredTheme = () => {
     activeTheme = themes.find((theme) => theme.id === window.localStorage.getItem(themeStorageKey)) || themes[0];
@@ -915,6 +977,19 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   const syncSettingsScrollbackInput = () => {
     if (settingsScrollbackInput) {
       settingsScrollbackInput.value = String(terminalOptionsBase.scrollback || defaultTerminalScrollback);
+    }
+  };
+
+  const applyPerformanceMeterVisibility = () => {
+    const meter = performanceMeterFps?.closest?.(".performance-meter");
+    if (meter) {
+      meter.hidden = !performanceMeterEnabled;
+    }
+  };
+
+  const syncSettingsPerformanceMeterToggle = () => {
+    if (settingsPerformanceMeterToggle) {
+      settingsPerformanceMeterToggle.checked = performanceMeterEnabled;
     }
   };
 
@@ -2033,6 +2108,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     syncSettingsDesktopMouseClipboardToggle();
     syncSettingsMobilePixelScrollToggle();
     syncSettingsMobileDoubleTapReminderToggle();
+    syncSettingsPerformanceMeterToggle();
     resizeActiveTabForCurrentDevice();
     updateMobileActiveTabTitle();
     await registerTerminalSymbolFont(terminalSymbolFont);
@@ -2857,7 +2933,11 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     renderSettingsMobileShortcuts();
     renderServiceForwardSettings();
     syncSettingsScrollbackInput();
+    syncSettingsLineHeightInput();
+    syncSettingsPerformanceMeterToggle();
     syncSettingsDesktopMouseClipboardToggle();
+    syncSettingsMobilePixelScrollToggle();
+    syncSettingsMobileDoubleTapReminderToggle();
     setSettingsFeedback("");
     if (settingsBackdrop) {
       settingsBackdrop.hidden = false;
@@ -3950,6 +4030,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     }
     return Math.round(scaled) * pixel;
   };
+  const terminalIsPixelScrollRender = (offsetY = 0) => Math.abs(Number(offsetY) || 0) > terminalPixelScrollOffsetEpsilon;
   const terminalCellFlagInverse = 16;
   const terminalCellFlagInvisible = 32;
   const terminalCellFlagFaint = 128;
@@ -4274,6 +4355,9 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     renderer.webshellOriginalRenderCellBackground = renderer.renderCellBackground.bind(renderer);
     renderer.renderCellBackground = (cell, column, row, offsetY = 0) => {
       renderer.webshellOriginalRenderCellBackground(cell, column, row, offsetY);
+      if (terminalIsPixelScrollRender(offsetY)) {
+        return;
+      }
       const metrics = renderer.metrics || renderer.getMetrics?.();
       const width = Number(metrics?.width) || 0;
       const height = Number(metrics?.height) || 0;
@@ -4321,6 +4405,10 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     if (typeof renderer.renderCellText === "function") {
       renderer.webshellOriginalRenderCellText = renderer.renderCellText.bind(renderer);
       renderer.renderCellText = (cell, column, row, offsetY = 0) => {
+        if (terminalIsPixelScrollRender(offsetY)) {
+          renderer.webshellOriginalRenderCellText(cell, column, row, offsetY);
+          return;
+        }
         if (!(cell.flags & terminalCellFlagInvisible)) {
           const shape = terminalPowerlineShape(renderer, cell, column, row);
           if (shape && drawTerminalPowerlineShape(renderer, shape, cell, column, row, offsetY)) {
@@ -4333,6 +4421,19 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     if (typeof renderer.renderLine === "function") {
       renderer.webshellOriginalRenderLine = renderer.renderLine.bind(renderer);
       renderer.renderLine = (line, row, columns, offsetY = 0) => {
+        if (terminalIsPixelScrollRender(offsetY)) {
+          const patchedRenderCellBackground = renderer.renderCellBackground;
+          const patchedRenderCellText = renderer.renderCellText;
+          renderer.renderCellBackground = renderer.webshellOriginalRenderCellBackground || patchedRenderCellBackground;
+          renderer.renderCellText = renderer.webshellOriginalRenderCellText || patchedRenderCellText;
+          try {
+            renderer.webshellOriginalRenderLine(line, row, columns, offsetY);
+          } finally {
+            renderer.renderCellBackground = patchedRenderCellBackground;
+            renderer.renderCellText = patchedRenderCellText;
+          }
+          return;
+        }
         if (!renderTerminalMergedLineBackgrounds(renderer, line, row, columns, offsetY)) {
           renderer.webshellOriginalRenderLine(line, row, columns, offsetY);
           return;
@@ -12848,6 +12949,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   };
 
   const bootstrap = async () => {
+    startPerformanceMeter();
     await loadThemeCatalog();
     applyThemeDocumentState();
     renderThemePicker();
@@ -13170,6 +13272,12 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
           setSettingsDesktopMouseClipboardSaving(false);
         }
       });
+  });
+  settingsPerformanceMeterToggle?.addEventListener("change", () => {
+    performanceMeterEnabled = settingsPerformanceMeterToggle.checked;
+    window.localStorage.setItem(performanceMeterStorageKey, performanceMeterEnabled ? "true" : "false");
+    applyPerformanceMeterVisibility();
+    syncSettingsPerformanceMeterToggle();
   });
   settingsMobilePixelScrollToggle?.addEventListener("change", () => {
     const previous = mobilePixelScrollEnabled;
