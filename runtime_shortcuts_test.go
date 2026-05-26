@@ -554,7 +554,7 @@ func TestRuntimeMobileIMECompositionPreviewVisible(t *testing.T) {
 		"preview.style.left = `${x}px`;",
 		`preview.style.color = activeTheme.foreground;`,
 		`preview.style.background = activeTheme.background;`,
-		`textarea.style.opacity = "0";`,
+		`textarea.style.opacity = "0.01";`,
 		`textarea.style.outline = "0";`,
 		`textarea.style.boxShadow = "none";`,
 		`textarea.style.webkitAppearance = "none";`,
@@ -704,15 +704,77 @@ func TestRuntimeTouchShortcutLayoutKeepsDesktopPCHidden(t *testing.T) {
 	}
 }
 
-func TestRuntimeMobileBottomSafeAreaBleedsBehindControls(t *testing.T) {
+func TestRuntimeMobileViewportZoomDisabled(t *testing.T) {
+	indexData, err := os.ReadFile("runtime/static/index.html")
+	if err != nil {
+		t.Fatalf("ReadFile(runtime/static/index.html) error = %v", err)
+	}
+	indexSource := string(indexData)
+	for _, want := range []string{
+		`maximum-scale=1`,
+		`minimum-scale=1`,
+		`user-scalable=no`,
+	} {
+		if !strings.Contains(indexSource, want) {
+			t.Fatalf("runtime viewport zoom guard missing %q", want)
+		}
+	}
+
+	styleData, err := os.ReadFile("runtime/static/style.css")
+	if err != nil {
+		t.Fatalf("ReadFile(runtime/static/style.css) error = %v", err)
+	}
+	if !strings.Contains(string(styleData), `touch-action: pan-x pan-y;`) {
+		t.Fatal("runtime touch layout should disable browser pinch zoom while preserving panning")
+	}
+	if !strings.Contains(string(styleData), `.instance-switcher-panel {`) ||
+		!strings.Contains(string(styleData), `touch-action: pan-y;`) {
+		t.Fatal("runtime instance switcher panel should preserve scroll without allowing pinch zoom")
+	}
+
 	mainData, err := os.ReadFile("runtime/static/main.js")
 	if err != nil {
 		t.Fatalf("ReadFile(runtime/static/main.js) error = %v", err)
 	}
 	mainSource := string(mainData)
 	for _, want := range []string{
-		`const measuredInset = visualViewport`,
-		`const nextInset = measuredInset > mobileKeyboardInsetThresholdPx ? measuredInset : 0;`,
+		`const shouldPreventMobileViewportZoom = () => isMobileLayout() || isTouchShortcutLayout() || usesMobileViewportInsets();`,
+		`const preventMobileViewportZoom = (event) => {`,
+		`if (!shouldPreventMobileViewportZoom()) {`,
+		`String(event.type || "").startsWith("gesture") || touchCount > 1`,
+		`window.addEventListener("touchstart", preventMobileViewportZoom, { capture: true, passive: false });`,
+		`window.addEventListener("touchmove", preventMobileViewportZoom, { capture: true, passive: false });`,
+		`window.addEventListener("gesturestart", preventMobileViewportZoom, { capture: true, passive: false });`,
+		`window.addEventListener("gesturechange", preventMobileViewportZoom, { capture: true, passive: false });`,
+		`window.addEventListener("gestureend", preventMobileViewportZoom, { capture: true, passive: false });`,
+		`document.addEventListener("touchstart", preventMobileViewportZoom, { capture: true, passive: false });`,
+		`document.addEventListener("touchmove", preventMobileViewportZoom, { capture: true, passive: false });`,
+		`document.addEventListener("gesturestart", preventMobileViewportZoom, { capture: true, passive: false });`,
+		`document.addEventListener("gesturechange", preventMobileViewportZoom, { capture: true, passive: false });`,
+		`document.addEventListener("gestureend", preventMobileViewportZoom, { capture: true, passive: false });`,
+	} {
+		if !strings.Contains(mainSource, want) {
+			t.Fatalf("runtime mobile viewport zoom JS guard missing %q", want)
+		}
+	}
+}
+
+func TestRuntimeMobileBottomSafeAreaKeepsShortcutsAboveControls(t *testing.T) {
+	mainData, err := os.ReadFile("runtime/static/main.js")
+	if err != nil {
+		t.Fatalf("ReadFile(runtime/static/main.js) error = %v", err)
+	}
+	mainSource := string(mainData)
+	for _, want := range []string{
+		`const isAndroidPlatform = () => {`,
+		`const usesMobileViewportInsets = () => isIOSPlatform() || isAndroidPlatform();`,
+		`const supportsViewportInsets = usesMobileViewportInsets();`,
+		`const useKeyboardInset = isIOSPlatform();`,
+		`const measuredBottomInset = visualViewport`,
+		`const measuredInset = Math.max(measuredBottomInset, measuredReferenceInset);`,
+		`const nextInset = useKeyboardInset && measuredInset > mobileKeyboardInsetThresholdPx ? measuredInset : 0;`,
+		`document.documentElement.style.setProperty("--mobile-client-bottom-safe-offset", "0px");`,
+		`window.visualViewport?.addEventListener("resize", syncMobileVisualViewport);`,
 	} {
 		if !strings.Contains(mainSource, want) {
 			t.Fatalf("runtime mobile keyboard inset guard missing %q", want)
@@ -748,9 +810,11 @@ func TestRuntimeMobileBottomSafeAreaBleedsBehindControls(t *testing.T) {
 	styleSource := string(styleData)
 	wantSnippets := []string{
 		`--lzc-safe-area-inset-bottom: var(--lzc-safe-area-bottom, env(safe-area-inset-bottom, 0px));`,
+		`--mobile-client-bottom-safe-offset: 0px;`,
+		`--mobile-device-bottom-safe-offset: max(var(--lzc-safe-area-inset-bottom), var(--mobile-client-bottom-safe-offset));`,
 		`--mobile-shortcuts-total-height: var(--mobile-shortcuts-content-height);`,
 		`--mobile-shortcuts-bottom-padding: 8px;`,
-		`--mobile-bottom-dock-offset: 0px;`,
+		`--mobile-bottom-dock-offset: var(--mobile-device-bottom-safe-offset);`,
 		`--mobile-bottom-overlay-offset: calc(var(--mobile-shortcuts-total-height) + 12px + var(--mobile-bottom-dock-offset));`,
 		`body.mobile-keyboard-visible {`,
 		`  --mobile-bottom-dock-offset: var(--mobile-keyboard-inset-bottom);`,
