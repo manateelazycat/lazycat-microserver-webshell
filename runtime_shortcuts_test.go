@@ -20,6 +20,28 @@ func sourceBetween(t *testing.T, source, start, end string) string {
 	return source[bodyStart : bodyStart+endIndex]
 }
 
+func TestRuntimeFontURLsStayRelativeToProviderEntry(t *testing.T) {
+	data, err := os.ReadFile("runtime/static/main.js")
+	if err != nil {
+		t.Fatalf("ReadFile(runtime/static/main.js) error = %v", err)
+	}
+	source := string(data)
+
+	wantSnippets := []string{
+		"const fontFileURLPath = (id) => `api/settings/fonts/${encodeURIComponent(id)}/file`;",
+		"url: String(font?.url || fontFileURLPath(id)).trim(),",
+		"new URL(font.url || fontFileURLPath(font.id), window.location.href).toString();",
+	}
+	for _, want := range wantSnippets {
+		if !strings.Contains(source, want) {
+			t.Fatalf("runtime font URL guard missing %q", want)
+		}
+	}
+	if strings.Contains(source, "`/api/settings/fonts/") || strings.Contains(source, `"/api/settings/fonts/`) {
+		t.Fatalf("runtime font URLs must stay relative to provider entry, got source: %s", source)
+	}
+}
+
 func TestRuntimeShortcutDefaultsGuardMacAndAltMappings(t *testing.T) {
 	data, err := os.ReadFile("runtime/static/main.js")
 	if err != nil {

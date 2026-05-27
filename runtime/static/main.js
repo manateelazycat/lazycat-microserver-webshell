@@ -868,6 +868,8 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     renderSettingsDesktopShortcuts();
   };
 
+  const fontFileURLPath = (id) => `api/settings/fonts/${encodeURIComponent(id)}/file`;
+
   const normalizeUploadedFont = (font) => {
     const id = String(font?.id || "").trim();
     const family = String(font?.family || "").trim();
@@ -882,7 +884,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       mime: String(font?.mime || "").trim(),
       size: Number(font?.size || 0),
       uploadedAt: String(font?.uploaded_at || "").trim(),
-      url: String(font?.url || `/api/settings/fonts/${id}/file`).trim(),
+      url: String(font?.url || fontFileURLPath(id)).trim(),
       sourceName: String(font?.source_name || "").trim(),
       builtin: font?.builtin === true,
     };
@@ -899,7 +901,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     };
   };
 
-  const fontFileSource = (font) => new URL(font.url || `/api/settings/fonts/${font.id}/file`, window.location.href).toString();
+  const fontFileSource = (font) => new URL(font.url || fontFileURLPath(font.id), window.location.href).toString();
 
   const cssString = (value) => `"${String(value || "").replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
 
