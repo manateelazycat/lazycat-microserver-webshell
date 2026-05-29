@@ -322,9 +322,12 @@ func TestHandleSettingsFontsUploadsMultipleFonts(t *testing.T) {
 }
 
 func TestHandlePublishProxyForwardsListRequest(t *testing.T) {
+	t.Setenv(lightOSRequireCookieAuthEnv, "false")
+	t.Setenv(lazyCatAppDeployUIDEnv, "deploy-user")
 	var upstreamPath string
 	var upstreamQuery string
 	var upstreamAccept string
+	var upstreamUserID string
 	server := &pluginServer{
 		adminInfoResolver: func(context.Context) (adminInfo, error) {
 			return adminInfo{BaseURL: "https://admin.example/root/"}, nil
@@ -333,6 +336,7 @@ func TestHandlePublishProxyForwardsListRequest(t *testing.T) {
 			upstreamPath = request.URL.Path
 			upstreamQuery = request.URL.RawQuery
 			upstreamAccept = request.Header.Get("Accept")
+			upstreamUserID = request.Header.Get(lightOSUserIDHeader)
 			return &http.Response{
 				StatusCode: http.StatusOK,
 				Header:     http.Header{"Content-Type": []string{"application/json"}},
@@ -356,12 +360,59 @@ func TestHandlePublishProxyForwardsListRequest(t *testing.T) {
 	if upstreamAccept != "application/json" {
 		t.Fatalf("upstream Accept = %q, want application/json", upstreamAccept)
 	}
+	if upstreamUserID != "deploy-user" {
+		t.Fatalf("upstream %s = %q, want deploy-user", lightOSUserIDHeader, upstreamUserID)
+	}
 	if strings.TrimSpace(recorder.Body.String()) != `[{"id":"pub-1"}]` {
 		t.Fatalf("response body = %q", recorder.Body.String())
 	}
 }
 
+func TestHandlePublishProxyRequiresAccountForListByDefault(t *testing.T) {
+	server := &pluginServer{}
+	recorder := httptest.NewRecorder()
+
+	server.handlePublishProxy(recorder, httptest.NewRequest(http.MethodGet, "/api/publish/list", nil))
+
+	if recorder.Code != http.StatusUnauthorized {
+		t.Fatalf("handlePublishProxy() status = %d, want 401", recorder.Code)
+	}
+}
+
+func TestHandlePublishProxyUsesInternalLightOSAdminURLWhenBundled(t *testing.T) {
+	t.Setenv(lightOSRequireCookieAuthEnv, "false")
+	t.Setenv(lazyCatAppDeployUIDEnv, "deploy-user")
+	t.Setenv(lazyCatAppIDEnv, lightOSAdminAppID)
+	var upstreamURL string
+	server := &pluginServer{
+		adminInfoResolver: func(context.Context) (adminInfo, error) {
+			return adminInfo{BaseURL: "https://admin.example/root/"}, nil
+		},
+		publishHTTPClient: &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+			upstreamURL = request.URL.String()
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body:       io.NopCloser(strings.NewReader(`{"ready":true}`)),
+				Request:    request,
+			}, nil
+		})},
+	}
+
+	recorder := httptest.NewRecorder()
+	server.handlePublishProxy(recorder, httptest.NewRequest(http.MethodGet, "/api/publish/status", nil))
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("handlePublishProxy() status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	if upstreamURL != "http://127.0.0.1:18081/api/publish/status" {
+		t.Fatalf("upstream URL = %q, want internal lightos-admin URL", upstreamURL)
+	}
+}
+
 func TestHandlePublishProxyForwardsInstallMultipartRequest(t *testing.T) {
+	t.Setenv(lightOSRequireCookieAuthEnv, "false")
+	t.Setenv(lazyCatAppDeployUIDEnv, "deploy-user")
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
 	if err := writer.WriteField("id", "pub-1"); err != nil {
@@ -497,6 +548,8 @@ func TestHandlePublishProxyRejectsUnknownRouteAndMethod(t *testing.T) {
 }
 
 func TestHandlePublishProxyReturnsJSONBadGatewayOnUpstreamFailure(t *testing.T) {
+	t.Setenv(lightOSRequireCookieAuthEnv, "false")
+	t.Setenv(lazyCatAppDeployUIDEnv, "deploy-user")
 	server := &pluginServer{
 		adminInfoResolver: func(context.Context) (adminInfo, error) {
 			return adminInfo{BaseURL: "http://admin.local"}, nil

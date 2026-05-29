@@ -82,6 +82,9 @@ const lazyCatUserUIDEnv = "LAZYCAT_USER_UID"
 const lazyCatAppDeployIDEnv = "LAZYCAT_APP_DEPLOY_ID"
 const lazyCatDeployIDEnv = "LAZYCAT_DEPLOY_ID"
 const lazyCatAppIDEnv = "LAZYCAT_APP_ID"
+const lightOSAdminInternalBaseURLEnv = "LIGHTOS_ADMIN_INTERNAL_BASE_URL"
+const lightOSAdminAppID = "cloud.lazycat.lightos.entry"
+const defaultLightOSAdminInternalBaseURL = "http://127.0.0.1:18081"
 const serverRevisionInputLockTTL = 60 * time.Second
 
 var errInstanceForbidden = errors.New("instance is not accessible by current account")
@@ -302,6 +305,11 @@ func (s *pluginServer) handlePublishProxy(w http.ResponseWriter, r *http.Request
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
+	accountID := currentRequestAccountID(r)
+	if accountID == "" {
+		http.Error(w, "account id is required", http.StatusUnauthorized)
+		return
+	}
 	if err := s.authorizePublishProxyRequest(r); err != nil {
 		writeAuthorizationError(w, err)
 		return
@@ -312,7 +320,7 @@ func (s *pluginServer) handlePublishProxy(w http.ResponseWriter, r *http.Request
 		writeAPIError(w, http.StatusBadGateway, err)
 		return
 	}
-	targetURL, err := buildLightOSAdminURL(info.BaseURL, r.URL)
+	targetURL, err := buildLightOSAdminURL(resolvePublishProxyLightOSAdminBaseURL(info), r.URL)
 	if err != nil {
 		writeAPIError(w, http.StatusBadGateway, err)
 		return
@@ -324,6 +332,7 @@ func (s *pluginServer) handlePublishProxy(w http.ResponseWriter, r *http.Request
 	}
 	request.ContentLength = r.ContentLength
 	copyPublishProxyRequestHeaders(request.Header, r.Header)
+	setPublishProxyAuthHeaders(request.Header, r.Header, accountID)
 
 	response, err := s.publishClient().Do(request)
 	if err != nil {
@@ -910,6 +919,16 @@ func buildLightOSAdminURL(baseURL string, requestURL *url.URL) (string, error) {
 	return target.String(), nil
 }
 
+func resolvePublishProxyLightOSAdminBaseURL(info adminInfo) string {
+	if value := strings.TrimSpace(os.Getenv(lightOSAdminInternalBaseURLEnv)); value != "" {
+		return value
+	}
+	if strings.TrimSpace(os.Getenv(lazyCatAppIDEnv)) == lightOSAdminAppID {
+		return defaultLightOSAdminInternalBaseURL
+	}
+	return info.BaseURL
+}
+
 func joinURLPath(basePath, requestPath string) string {
 	basePath = strings.TrimRight(strings.TrimSpace(basePath), "/")
 	requestPath = "/" + strings.TrimLeft(strings.TrimSpace(requestPath), "/")
@@ -935,6 +954,39 @@ func copyPublishProxyRequestHeaders(dst, src http.Header) {
 			dst.Add(key, value)
 		}
 	}
+}
+
+func setPublishProxyAuthHeaders(dst, src http.Header, accountID string) {
+	if dst == nil {
+		return
+	}
+	accountID = strings.TrimSpace(accountID)
+	if accountID == "" {
+		return
+	}
+	for _, key := range []string{"X-HC-User-ID", "X-HC-USER-ID", "X-HC-User-Role", "X-HC-Device-ID", "X-HC-Login-Time"} {
+		dst.Del(key)
+	}
+	dst.Set(lightOSUserIDHeader, accountID)
+	for _, key := range []string{"X-HC-User-Role", "X-HC-Device-ID", "X-HC-Login-Time"} {
+		if value := firstHeaderValueAnyCase(src, key); value != "" {
+			dst.Set(key, value)
+		}
+	}
+}
+
+func firstHeaderValueAnyCase(header http.Header, key string) string {
+	for actualKey, values := range header {
+		if !strings.EqualFold(actualKey, key) {
+			continue
+		}
+		for _, value := range values {
+			if trimmed := strings.TrimSpace(value); trimmed != "" {
+				return trimmed
+			}
+		}
+	}
+	return ""
 }
 
 func isPublishProxyRequestHeaderAllowed(key string) bool {
