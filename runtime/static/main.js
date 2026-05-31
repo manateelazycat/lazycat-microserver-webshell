@@ -413,6 +413,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
 
   let activeName = (params.get("name") || "").trim();
   let activeTabId = null;
+  let inlineTabRenameState = null;
   let recentTabIds = [];
   let activeInstanceGeneration = 0;
   let currentInstances = [];
@@ -3522,7 +3523,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     return response.json();
   };
 
-  const postWorkspaceAction = async (action, payload = {}) => {
+  const postWorkspaceAction = async (action, payload = {}, { focus = true, preferStateActiveTab = true } = {}) => {
     const requestName = activeName;
     const generation = activeInstanceGeneration;
     if (!requestName) {
@@ -3543,7 +3544,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     }
     ensureResponseSelector(state, requestName);
     observeServerRevision(state);
-    applyWorkspaceState(state, { focus: true, instanceName: requestName, generation, preferStateActiveTab: true });
+    applyWorkspaceState(state, { focus, instanceName: requestName, generation, preferStateActiveTab });
     return state;
   };
 
@@ -10983,10 +10984,181 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     scheduleTabOverviewRender();
   };
 
+  const applyTabRenameLocally = (tab, label) => {
+    tab.label = label;
+    tab.customLabel = true;
+    renderTabLabel(tab);
+  };
+
+  const commitTabRename = async (tabId, label, { optimistic = false, force = false } = {}) => {
+    const tab = tabs.get(tabId);
+    if (!tab) {
+      return false;
+    }
+    const normalized = String(label || "").trim();
+    if (!normalized) {
+      return false;
+    }
+    if (!force && normalized === tab.label) {
+      return false;
+    }
+    if (!applyingWorkspaceState) {
+      const previousLabel = tab.label;
+      const previousCustomLabel = tab.customLabel;
+      if (optimistic) {
+        applyTabRenameLocally(tab, normalized);
+      }
+      try {
+        await postWorkspaceAction("rename_tab", { tab_id: tabId, label: normalized }, optimistic ? { focus: false, preferStateActiveTab: false } : {});
+      } catch (error) {
+        const current = tabs.get(tabId);
+        if (optimistic && current === tab && tab.label === normalized) {
+          tab.label = previousLabel;
+          tab.customLabel = previousCustomLabel;
+          renderTabLabel(tab);
+        }
+        throw error;
+      }
+      return true;
+    }
+    applyTabRenameLocally(tab, normalized);
+    return true;
+  };
+
+  const positionInlineTabRenameInput = () => {
+    const state = inlineTabRenameState;
+    if (!state?.input) {
+      return;
+    }
+    const tab = tabs.get(state.tabId);
+    const button = tab?.button;
+    const label = button?.querySelector(".tab-label");
+    if (!button?.isConnected || !label) {
+      state.input.hidden = true;
+      return;
+    }
+    const buttonRect = button.getBoundingClientRect();
+    const tabsRect = tabsEl.getBoundingClientRect();
+    const left = Math.max(buttonRect.left + 30, tabsRect.left + 6);
+    const right = Math.min(buttonRect.right - 30, tabsRect.right - 6);
+    if (right <= left || buttonRect.bottom <= tabsRect.top || buttonRect.top >= tabsRect.bottom) {
+      state.input.hidden = true;
+      return;
+    }
+    const width = Math.max(48, right - left);
+    const height = Math.min(26, Math.max(22, buttonRect.height - 10));
+    state.input.hidden = false;
+    state.input.style.left = `${left}px`;
+    state.input.style.top = `${buttonRect.top + (buttonRect.height - height) / 2}px`;
+    state.input.style.width = `${width}px`;
+    state.input.style.height = `${height}px`;
+  };
+
+  const finishInlineTabRename = ({ commit = true, restoreFocus = false } = {}) => {
+    const state = inlineTabRenameState;
+    if (!state || state.finishing) {
+      return Promise.resolve(false);
+    }
+    state.finishing = true;
+    inlineTabRenameState = null;
+    state.controller.abort();
+    const tab = tabs.get(state.tabId);
+    const nextLabel = String(state.input.value || "").trim();
+    tab?.button?.classList.remove("renaming");
+    state.input.remove();
+    if (restoreFocus) {
+      tab?.button?.focus?.();
+    }
+    if (!commit || !state.dirty || !nextLabel) {
+      return Promise.resolve(false);
+    }
+    return commitTabRename(state.tabId, nextLabel, { optimistic: true });
+  };
+
+  const beginInlineTabRename = (tabId) => {
+    if (isMobileLayout()) {
+      return;
+    }
+    const tab = tabs.get(tabId);
+    if (!tab?.button) {
+      return;
+    }
+    if (inlineTabRenameState?.tabId === tabId) {
+      inlineTabRenameState.input.focus();
+      inlineTabRenameState.input.select();
+      return;
+    }
+    finishInlineTabRename({ commit: true }).catch((error) => showToast(error.message));
+    closeContextMenu();
+    setActiveTab(tabId, { focus: false });
+
+    const input = document.createElement("input");
+    input.className = "tab-rename-input";
+    input.type = "text";
+    input.value = tab.label;
+    input.autocomplete = "off";
+    input.spellcheck = false;
+    input.setAttribute("aria-label", "重命名标签");
+
+    const controller = new AbortController();
+    const state = {
+      tabId,
+      input,
+      controller,
+      dirty: false,
+      finishing: false,
+    };
+    inlineTabRenameState = state;
+    tab.button.classList.add("renaming");
+    document.body.appendChild(input);
+    positionInlineTabRenameInput();
+
+    input.addEventListener("input", () => {
+      state.dirty = true;
+    }, { signal: controller.signal });
+    input.addEventListener("pointerdown", (event) => {
+      event.stopPropagation();
+    }, { signal: controller.signal });
+    input.addEventListener("click", (event) => {
+      event.stopPropagation();
+    }, { signal: controller.signal });
+    input.addEventListener("dblclick", (event) => {
+      event.stopPropagation();
+    }, { signal: controller.signal });
+    input.addEventListener("keydown", (event) => {
+      if (event.isComposing || event.key === "Process" || Number(event.keyCode || 0) === 229) {
+        return;
+      }
+      if (event.key === "Enter") {
+        event.preventDefault();
+        event.stopPropagation();
+        finishInlineTabRename({ commit: true, restoreFocus: true }).catch((error) => showToast(error.message));
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        finishInlineTabRename({ commit: false, restoreFocus: true }).catch((error) => showToast(error.message));
+      }
+    }, { signal: controller.signal });
+    input.addEventListener("blur", () => {
+      finishInlineTabRename({ commit: true }).catch((error) => showToast(error.message));
+    }, { signal: controller.signal });
+    tabsEl.addEventListener("scroll", positionInlineTabRenameInput, { passive: true, signal: controller.signal });
+    window.addEventListener("resize", positionInlineTabRenameInput, { signal: controller.signal });
+    window.requestAnimationFrame(() => {
+      positionInlineTabRenameInput();
+      input.focus();
+      input.select();
+    });
+  };
+
   const createTabButton = (tab) => {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "tab";
+    if (inlineTabRenameState?.tabId === tab.id) {
+      button.classList.add("renaming");
+      window.requestAnimationFrame(positionInlineTabRenameInput);
+    }
     button.dataset.tabId = tab.id;
     button.setAttribute("role", "tab");
     button.innerHTML = `
@@ -11001,6 +11173,14 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
         return;
       }
       setActiveTab(tab.id);
+    });
+    button.addEventListener("dblclick", (event) => {
+      if (event.target.closest(".tab-close")) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      beginInlineTabRename(tab.id);
     });
     button.addEventListener("contextmenu", (event) => {
       event.preventDefault();
@@ -11585,6 +11765,9 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       showToast("至少需要保留一个标签。");
       return;
     }
+    if (inlineTabRenameState?.tabId === tab.id) {
+      finishInlineTabRename({ commit: false });
+    }
     if (!applyingWorkspaceState) {
       refreshAndConfirmClose(targetPanesFromTab(tab), "关闭此标签并终止正在运行的命令？").then((confirmed) => {
         if (confirmed) {
@@ -11655,13 +11838,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     if (!normalized) {
       return;
     }
-    if (!applyingWorkspaceState) {
-      postWorkspaceAction("rename_tab", { tab_id: tabId, label: normalized }).catch((error) => showToast(error.message));
-      return;
-    }
-    tab.label = normalized;
-    tab.customLabel = true;
-    renderTabLabel(tab);
+    await commitTabRename(tabId, normalized, { force: true });
   };
 
   const movePaneToNewTab = (tabId, paneId) => {

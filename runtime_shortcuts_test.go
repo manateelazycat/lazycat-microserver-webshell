@@ -215,6 +215,50 @@ func TestRuntimePasteShortcutUsesNativePasteEvent(t *testing.T) {
 	}
 }
 
+func TestRuntimeDesktopDoubleClickInlineRenamesTab(t *testing.T) {
+	mainData, err := os.ReadFile("runtime/static/main.js")
+	if err != nil {
+		t.Fatalf("ReadFile(runtime/static/main.js) error = %v", err)
+	}
+	source := string(mainData)
+	styleData, err := os.ReadFile("runtime/static/style.css")
+	if err != nil {
+		t.Fatalf("ReadFile(runtime/static/style.css) error = %v", err)
+	}
+	styleSource := string(styleData)
+
+	wantMainSnippets := []string{
+		"let inlineTabRenameState = null;",
+		"const beginInlineTabRename = (tabId) => {",
+		"if (isMobileLayout()) {",
+		`input.className = "tab-rename-input";`,
+		`input.addEventListener("blur", () => {`,
+		`finishInlineTabRename({ commit: true }).catch((error) => showToast(error.message));`,
+		`button.addEventListener("dblclick", (event) => {`,
+		"beginInlineTabRename(tab.id);",
+		"commitTabRename(state.tabId, nextLabel, { optimistic: true });",
+		`postWorkspaceAction("rename_tab", { tab_id: tabId, label: normalized }, optimistic ? { focus: false, preferStateActiveTab: false } : {});`,
+		`if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement) {`,
+	}
+	for _, want := range wantMainSnippets {
+		if !strings.Contains(source, want) {
+			t.Fatalf("runtime inline tab rename guard missing %q", want)
+		}
+	}
+
+	wantStyleSnippets := []string{
+		".tab.renaming .tab-label",
+		".tab-rename-input",
+		"position: fixed;",
+		"border: 1px solid var(--input-focus-border);",
+	}
+	for _, want := range wantStyleSnippets {
+		if !strings.Contains(styleSource, want) {
+			t.Fatalf("runtime inline tab rename style missing %q", want)
+		}
+	}
+}
+
 func TestRuntimeShortcutSettingsGuardDesktopShortcutEditor(t *testing.T) {
 	for _, path := range []string{"runtime/static/index.html", "runtime/static/main.js"} {
 		data, err := os.ReadFile(path)

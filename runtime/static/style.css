@@ -198,6 +198,35 @@ button {
   font-weight: 600;
 }
 
+.tab.renaming .tab-label {
+  opacity: 0;
+}
+
+.tab.renaming .tab-close {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.tab-rename-input {
+  position: fixed;
+  z-index: 40;
+  box-sizing: border-box;
+  min-width: 48px;
+  margin: 0;
+  padding: 0 6px;
+  border: 1px solid var(--input-focus-border);
+  border-radius: 4px;
+  outline: none;
+  background: var(--chrome-bg);
+  color: var(--chrome-text-strong);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.2;
+  text-align: center;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.32);
+}
+
 .tab-close {
   position: absolute;
   top: 50%;
