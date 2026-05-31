@@ -4,7 +4,12 @@ buildscript: |
   CONTENT_DIR="./dist/content"
   rm -rf "$CONTENT_DIR"
   mkdir -p "$CONTENT_DIR/runtime"
-  printf 'LIGHTOS_REQUIRE_COOKIE_AUTH=%s\n' "${LIGHTOS_REQUIRE_COOKIE_AUTH:-true}" > "$CONTENT_DIR/.env"
+  {
+    printf 'LIGHTOS_REQUIRE_COOKIE_AUTH=%s\n' "${LIGHTOS_REQUIRE_COOKIE_AUTH:-true}"
+    if [ -n "${LIGHTOS_ADMIN_INTERNAL_BASE_URL:-}" ]; then
+      printf 'LIGHTOS_ADMIN_INTERNAL_BASE_URL=%s\n' "${LIGHTOS_ADMIN_INTERNAL_BASE_URL}"
+    fi
+  } > "$CONTENT_DIR/.env"
   CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -buildvcs=false -o "$CONTENT_DIR/lcmd-webshell" .
   cp -R ./runtime/. "$CONTENT_DIR/runtime/"
 contentdir: ./dist/content

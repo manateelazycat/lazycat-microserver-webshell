@@ -410,6 +410,54 @@ func TestHandlePublishProxyUsesInternalLightOSAdminURLWhenBundled(t *testing.T) 
 	}
 }
 
+func TestHandlePublishProxyUsesInternalLightOSAdminURLFromConfig(t *testing.T) {
+	t.Setenv(lightOSRequireCookieAuthEnv, "false")
+	t.Setenv(lazyCatAppDeployUIDEnv, "deploy-user")
+	t.Setenv(lazyCatAppIDEnv, "")
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, ".env"), []byte("LIGHTOS_ADMIN_INTERNAL_BASE_URL=http://127.0.0.1:18081\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile(.env) error = %v", err)
+	}
+	previousDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd() error = %v", err)
+	}
+	if err := os.Chdir(root); err != nil {
+		t.Fatalf("Chdir(%s) error = %v", root, err)
+	}
+	defer func() {
+		if err := os.Chdir(previousDir); err != nil {
+			t.Fatalf("restore cwd error = %v", err)
+		}
+	}()
+	var upstreamURL string
+	server := &pluginServer{
+		rootDir: root,
+		adminInfoResolver: func(context.Context) (adminInfo, error) {
+			return adminInfo{BaseURL: "https://admin.example/root/"}, nil
+		},
+		publishHTTPClient: &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+			upstreamURL = request.URL.String()
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body:       io.NopCloser(strings.NewReader(`{"ready":true}`)),
+				Request:    request,
+			}, nil
+		})},
+	}
+
+	recorder := httptest.NewRecorder()
+	server.handlePublishProxy(recorder, httptest.NewRequest(http.MethodGet, "/api/publish/status", nil))
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("handlePublishProxy() status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	if upstreamURL != "http://127.0.0.1:18081/api/publish/status" {
+		t.Fatalf("upstream URL = %q, want internal lightos-admin URL from config", upstreamURL)
+	}
+}
+
 func TestHandlePublishProxyForwardsInstallMultipartRequest(t *testing.T) {
 	t.Setenv(lightOSRequireCookieAuthEnv, "false")
 	t.Setenv(lazyCatAppDeployUIDEnv, "deploy-user")

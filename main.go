@@ -920,7 +920,7 @@ func buildLightOSAdminURL(baseURL string, requestURL *url.URL) (string, error) {
 }
 
 func resolvePublishProxyLightOSAdminBaseURL(info adminInfo) string {
-	if value := strings.TrimSpace(os.Getenv(lightOSAdminInternalBaseURLEnv)); value != "" {
+	if value := strings.TrimSpace(lightOSConfigValue(lightOSAdminInternalBaseURLEnv)); value != "" {
 		return value
 	}
 	if strings.TrimSpace(os.Getenv(lazyCatAppIDEnv)) == lightOSAdminAppID {
