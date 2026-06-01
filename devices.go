@@ -14,6 +14,7 @@ type webshellDeviceRecord struct {
 	DeviceName string    `json:"device_name"`
 	Platform   string    `json:"platform"`
 	AccountID  string    `json:"account_id"`
+	JoinedAt   time.Time `json:"joined_at"`
 	LastSeenAt time.Time `json:"last_seen_at"`
 }
 
@@ -55,6 +56,7 @@ func (s *pluginServer) handleDeviceHeartbeat(w http.ResponseWriter, r *http.Requ
 		AccountID:  accountID,
 		LastSeenAt: s.now(),
 	}
+	device.JoinedAt = device.LastSeenAt
 	if device.ClientID == "" {
 		http.Error(w, "client_id is required", http.StatusBadRequest)
 		return
@@ -124,8 +126,16 @@ func (s *pluginServer) upsertDevice(device webshellDeviceRecord) {
 		s.devices = make(map[string]webshellDeviceRecord)
 	}
 	key := webshellDeviceKey(device.ClientID, device.AccountID)
-	if existing, ok := s.devices[key]; ok && existing.LastSeenAt.After(device.LastSeenAt) {
-		return
+	if existing, ok := s.devices[key]; ok {
+		if existing.LastSeenAt.After(device.LastSeenAt) {
+			return
+		}
+		device.JoinedAt = existing.JoinedAt
+		if device.JoinedAt.IsZero() {
+			device.JoinedAt = existing.LastSeenAt
+		}
+	} else if device.JoinedAt.IsZero() {
+		device.JoinedAt = device.LastSeenAt
 	}
 	s.devices[key] = device
 }
@@ -160,7 +170,18 @@ func (s *pluginServer) listDevices(accountID string) []webshellDeviceRecord {
 		devices = append(devices, device)
 	}
 	sort.Slice(devices, func(left, right int) bool {
-		return devices[left].LastSeenAt.After(devices[right].LastSeenAt)
+		leftJoinedAt := devices[left].JoinedAt
+		if leftJoinedAt.IsZero() {
+			leftJoinedAt = devices[left].LastSeenAt
+		}
+		rightJoinedAt := devices[right].JoinedAt
+		if rightJoinedAt.IsZero() {
+			rightJoinedAt = devices[right].LastSeenAt
+		}
+		if !leftJoinedAt.Equal(rightJoinedAt) {
+			return leftJoinedAt.Before(rightJoinedAt)
+		}
+		return webshellDeviceKey(devices[left].ClientID, devices[left].AccountID) < webshellDeviceKey(devices[right].ClientID, devices[right].AccountID)
 	})
 	return devices
 }

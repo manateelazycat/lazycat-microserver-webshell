@@ -117,6 +117,7 @@ func TestRuntimeDeviceManagementStaticGuards(t *testing.T) {
 		"stopDeviceListRefresh();",
 		`deviceBack?.addEventListener("click", closeDevicePanel);`,
 		"const deviceListContentSignature = (devices) => JSON.stringify",
+		"joined_at: String(device?.joined_at || \"\").trim(),",
 		"if (nextSignature === deviceListSignature) {",
 		"暂无正在连接的设备",
 		`deviceMenuButton?.addEventListener("click", openDevicePanel);`,

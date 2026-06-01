@@ -3545,6 +3545,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     device_name: String(device?.device_name || "").trim(),
     platform: String(device?.platform || "").trim(),
     account_id: String(device?.account_id || "").trim(),
+    joined_at: String(device?.joined_at || "").trim(),
   })));
 
   const refreshDeviceList = async () => {
