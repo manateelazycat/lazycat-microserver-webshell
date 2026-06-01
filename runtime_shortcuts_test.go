@@ -102,13 +102,14 @@ func TestRuntimeDeviceManagementStaticGuards(t *testing.T) {
 	}
 	source := string(mainData)
 	for _, want := range []string{
-		"const deviceHeartbeatIntervalMs = 3000;",
-		"const deviceListRefreshIntervalMs = 3000;",
+		"const deviceHeartbeatIntervalMs = 500;",
+		"const deviceListRefreshIntervalMs = 500;",
 		"function loadStableClientID() {",
 		"const serverRevisionClientID = loadStableClientID();",
 		"const currentDeviceInfo = () => {",
 		"client_id: serverRevisionClientID,",
 		`new URL("./api/devices/heartbeat", window.location.href).toString();`,
+		`new URL("./api/devices/offline", window.location.href).toString();`,
 		"const startDeviceHeartbeat = () => {",
 		"const refreshDeviceList = async () => {",
 		"const stopDeviceListRefresh = () => {",
@@ -122,7 +123,7 @@ func TestRuntimeDeviceManagementStaticGuards(t *testing.T) {
 		`document.addEventListener("visibilitychange", () => {`,
 		`window.addEventListener("pageshow", () => {`,
 		`window.addEventListener("pagehide", () => {`,
-		"sendDeviceHeartbeatBeacon();",
+		"sendDeviceOfflineBeacon();",
 	} {
 		if !strings.Contains(source, want) {
 			t.Fatalf("runtime device management main guard missing %q", want)

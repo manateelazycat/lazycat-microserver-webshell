@@ -83,6 +83,30 @@ func TestDeviceListExcludesExpiredDevices(t *testing.T) {
 	}
 }
 
+func TestHandleDeviceOfflineRemovesDevice(t *testing.T) {
+	now := time.Date(2026, 6, 1, 10, 0, 0, 0, time.UTC)
+	server := &pluginServer{deviceNow: func() time.Time { return now }}
+	server.upsertDevice(webshellDeviceRecord{
+		ClientID:   "client-a",
+		DeviceName: "Mac Safari",
+		Platform:   "macOS",
+		AccountID:  "alice",
+		LastSeenAt: now,
+	})
+	request := httptest.NewRequest(http.MethodPost, "/api/devices/offline", strings.NewReader(`{"client_id":"client-a"}`))
+	request.Header.Set(lightOSUserIDHeader, "alice")
+	recorder := httptest.NewRecorder()
+
+	server.handleDeviceOffline(recorder, request)
+
+	if recorder.Code != http.StatusNoContent {
+		t.Fatalf("handleDeviceOffline status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	if devices := server.listDevices("alice"); len(devices) != 0 {
+		t.Fatalf("device count = %d, want 0: %+v", len(devices), devices)
+	}
+}
+
 func TestHandleDevicesRequiresAccountHeader(t *testing.T) {
 	t.Setenv(lightOSRequireCookieAuthEnv, "")
 	server := &pluginServer{}

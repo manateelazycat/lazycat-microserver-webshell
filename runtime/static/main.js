@@ -223,8 +223,8 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   const maxPendingInputBytes = 8 * 1024 * 1024;
   const maxQueuedInputBytes = 16 * 1024 * 1024;
   const terminalWebSocketPingIntervalMs = 10 * 1000;
-  const deviceHeartbeatIntervalMs = 3000;
-  const deviceListRefreshIntervalMs = 3000;
+  const deviceHeartbeatIntervalMs = 500;
+  const deviceListRefreshIntervalMs = 500;
   const terminalWebSocketHealthTimeoutMs = 25 * 1000;
   const terminalResumeProbeTimeoutMs = 1500;
   const terminalUserRecoveryThrottleMs = 1500;
@@ -3462,6 +3462,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
 
   const devicesAPIURL = () => new URL("./api/devices", window.location.href).toString();
   const deviceHeartbeatAPIURL = () => new URL("./api/devices/heartbeat", window.location.href).toString();
+  const deviceOfflineAPIURL = () => new URL("./api/devices/offline", window.location.href).toString();
 
   const postDeviceHeartbeat = async () => {
     if (disposed || navigator.onLine === false) {
@@ -3477,14 +3478,14 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     }
   };
 
-  const sendDeviceHeartbeatBeacon = () => {
+  const sendDeviceOfflineBeacon = () => {
     if (navigator.onLine === false || !navigator.sendBeacon) {
       return false;
     }
     try {
       return navigator.sendBeacon(
-        deviceHeartbeatAPIURL(),
-        new Blob([JSON.stringify(currentDeviceInfo())], { type: "application/json" }),
+        deviceOfflineAPIURL(),
+        new Blob([JSON.stringify({ client_id: serverRevisionClientID })], { type: "application/json" }),
       );
     } catch (error) {
       return false;
@@ -14317,7 +14318,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     refreshActivity({ silent: true }).catch(() => {});
   });
   window.addEventListener("pagehide", () => {
-    sendDeviceHeartbeatBeacon();
+    sendDeviceOfflineBeacon();
   });
   window.addEventListener("beforeunload", (event) => {
     if (!suppressBeforeUnloadOnce && hasCachedBusyPane()) {
@@ -14326,7 +14327,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       return "";
     }
     disposed = true;
-    sendDeviceHeartbeatBeacon();
+    sendDeviceOfflineBeacon();
     window.clearInterval(deviceHeartbeatTimer);
     stopDeviceListRefresh();
     window.clearInterval(serverRevisionRefreshTimer);

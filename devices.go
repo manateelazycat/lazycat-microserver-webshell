@@ -23,6 +23,10 @@ type webshellDeviceHeartbeatRequest struct {
 	Platform   string `json:"platform"`
 }
 
+type webshellDeviceOfflineRequest struct {
+	ClientID string `json:"client_id"`
+}
+
 func (s *pluginServer) handleDeviceHeartbeat(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.WriteHeader(http.StatusMethodNotAllowed)
@@ -65,6 +69,36 @@ func (s *pluginServer) handleDeviceHeartbeat(w http.ResponseWriter, r *http.Requ
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (s *pluginServer) handleDeviceOffline(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	accountID := currentRequestAccountID(r)
+	if accountID == "" {
+		http.Error(w, "account id is required", http.StatusUnauthorized)
+		return
+	}
+	var payload webshellDeviceOfflineRequest
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&payload); err != nil {
+		http.Error(w, "invalid device offline payload", http.StatusBadRequest)
+		return
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		http.Error(w, "invalid device offline payload", http.StatusBadRequest)
+		return
+	}
+	clientID := strings.TrimSpace(payload.ClientID)
+	if clientID == "" {
+		http.Error(w, "client_id is required", http.StatusBadRequest)
+		return
+	}
+	s.removeDevice(clientID, accountID)
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (s *pluginServer) handleDevices(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		w.WriteHeader(http.StatusMethodNotAllowed)
@@ -94,6 +128,19 @@ func (s *pluginServer) upsertDevice(device webshellDeviceRecord) {
 		return
 	}
 	s.devices[key] = device
+}
+
+func (s *pluginServer) removeDevice(clientID, accountID string) {
+	if s == nil {
+		return
+	}
+	s.devicesMu.Lock()
+	defer s.devicesMu.Unlock()
+	if len(s.devices) == 0 {
+		return
+	}
+	s.expireDevicesLocked(s.now())
+	delete(s.devices, webshellDeviceKey(clientID, accountID))
 }
 
 func (s *pluginServer) listDevices(accountID string) []webshellDeviceRecord {
