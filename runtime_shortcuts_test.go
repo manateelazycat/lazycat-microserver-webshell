@@ -102,7 +102,7 @@ func TestRuntimeDeviceManagementStaticGuards(t *testing.T) {
 	}
 	source := string(mainData)
 	for _, want := range []string{
-		"const deviceHeartbeatIntervalMs = 500;",
+		"const deviceHeartbeatIntervalMs = 1500;",
 		"const deviceListRefreshIntervalMs = 500;",
 		"function loadStableClientID() {",
 		"const serverRevisionClientID = loadStableClientID();",
@@ -1120,6 +1120,41 @@ func TestRuntimeWebSocketReconnectHealthGuard(t *testing.T) {
 	for _, want := range wantSnippets {
 		if !strings.Contains(source, want) {
 			t.Fatalf("runtime websocket reconnect health guard missing %q", want)
+		}
+	}
+}
+
+func TestRuntimeTerminalMouseTrackingSequences(t *testing.T) {
+	data, err := os.ReadFile("runtime/static/main.js")
+	if err != nil {
+		t.Fatalf("ReadFile(runtime/static/main.js) error = %v", err)
+	}
+	source := string(data)
+
+	wantSnippets := []string{
+		"const terminalMouseLegacyCoordinateLimit = 95;",
+		"const terminalMouseModeEnabled = (term, mode) => {",
+		"term.getMode(mode, false) === true",
+		"const terminalMouseTrackingState = (session) => {",
+		"const normal = terminalMouseModeEnabled(term, 1000);",
+		"const drag = terminalMouseModeEnabled(term, 1002);",
+		"const any = terminalMouseModeEnabled(term, 1003);",
+		"sgr: terminalMouseModeEnabled(term, 1006),",
+		"tracking = tracking || term.hasMouseTracking?.() === true;",
+		"const encodeTerminalMouseSequence = (session, event, action, button = -1) => {",
+		"return `\\x1b[<${buttonCode};${x};${y}${suffix}`;",
+		"return encodeTerminalLegacyMouseSequence(buttonCode, x, y);",
+		"const installTerminalMouseTracking = (session) => {",
+		"sendOrQueueInput(session, sequence);",
+		"shell.addEventListener(\"mousedown\", handleMouseDown, { capture: true, passive: false });",
+		"shell.addEventListener(\"wheel\", handleWheel, { capture: true, passive: false });",
+		"document.addEventListener(\"mouseup\", handleMouseUp, { capture: true, passive: false });",
+		"shell.addEventListener(\"contextmenu\", handleClickLike, { capture: true, passive: false });",
+		"installTerminalMouseTracking(session);",
+	}
+	for _, want := range wantSnippets {
+		if !strings.Contains(source, want) {
+			t.Fatalf("runtime terminal mouse tracking support missing %q", want)
 		}
 	}
 }

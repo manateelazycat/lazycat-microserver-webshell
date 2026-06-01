@@ -237,6 +237,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   const performanceMeterSampleMs = 500;
   const performanceMeterWarmupFrames = 12;
   const terminalPixelScrollOffsetEpsilon = 0.001;
+  const terminalMouseLegacyCoordinateLimit = 95;
   const maxQueuedTerminalOutputBytes = 4 * 1024 * 1024;
   const activityPollIntervalMs = 4000;
   const maxAttachmentUploadBytes = 2 * 1024 * 1024 * 1024;
@@ -8198,6 +8199,301 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     return { col, row, absoluteRow: scrollback + row - viewportY };
   };
 
+  const terminalMouseModeEnabled = (term, mode) => {
+    try {
+      return typeof term?.getMode === "function" && term.getMode(mode, false) === true;
+    } catch (error) {
+      return false;
+    }
+  };
+
+  const terminalMouseTrackingState = (session) => {
+    const term = session?.term;
+    if (!term || session?.closed) {
+      return null;
+    }
+    const x10 = terminalMouseModeEnabled(term, 9);
+    const normal = terminalMouseModeEnabled(term, 1000);
+    const drag = terminalMouseModeEnabled(term, 1002);
+    const any = terminalMouseModeEnabled(term, 1003);
+    let tracking = x10 || normal || drag || any;
+    try {
+      tracking = tracking || term.hasMouseTracking?.() === true;
+    } catch (error) {
+    }
+    if (!tracking) {
+      return null;
+    }
+    return {
+      x10,
+      normal,
+      drag,
+      any,
+      sgr: terminalMouseModeEnabled(term, 1006),
+    };
+  };
+
+  const terminalMouseButtonFromEvent = (event) => {
+    switch (event?.button) {
+      case 0:
+        return 0;
+      case 1:
+        return 1;
+      case 2:
+        return 2;
+      default:
+        return -1;
+    }
+  };
+
+  const terminalMouseButtonMask = (button) => {
+    switch (button) {
+      case 0:
+        return 1;
+      case 1:
+        return 4;
+      case 2:
+        return 2;
+      default:
+        return 0;
+    }
+  };
+
+  const terminalMouseButtonFromButtons = (buttons, preferred = -1) => {
+    const mask = Number(buttons || 0);
+    if (preferred >= 0 && (mask & terminalMouseButtonMask(preferred))) {
+      return preferred;
+    }
+    if (mask & 1) {
+      return 0;
+    }
+    if (mask & 4) {
+      return 1;
+    }
+    if (mask & 2) {
+      return 2;
+    }
+    return -1;
+  };
+
+  const terminalMouseModifierCode = (event) => (
+    (event?.shiftKey ? 4 : 0)
+    | (event?.altKey ? 8 : 0)
+    | (event?.ctrlKey ? 16 : 0)
+  );
+
+  const encodeTerminalLegacyMouseSequence = (buttonCode, x, y) => {
+    if (
+      buttonCode < 0
+      || buttonCode > terminalMouseLegacyCoordinateLimit
+      || x < 1
+      || y < 1
+      || x > terminalMouseLegacyCoordinateLimit
+      || y > terminalMouseLegacyCoordinateLimit
+    ) {
+      return "";
+    }
+    return `\x1b[M${String.fromCharCode(buttonCode + 32)}${String.fromCharCode(x + 32)}${String.fromCharCode(y + 32)}`;
+  };
+
+  const encodeTerminalMouseSequence = (session, event, action, button = -1) => {
+    const state = terminalMouseTrackingState(session);
+    if (!state) {
+      return "";
+    }
+    const cell = terminalCellFromPoint(session, event.clientX, event.clientY);
+    if (!cell) {
+      return "";
+    }
+    const x = cell.col + 1;
+    const y = cell.row + 1;
+    const modifiers = terminalMouseModifierCode(event);
+    let buttonCode = -1;
+    let suffix = "M";
+
+    if (action === "press") {
+      if (button < 0) {
+        return "";
+      }
+      buttonCode = button;
+    } else if (action === "release") {
+      if (state.x10 && !state.normal && !state.drag && !state.any) {
+        return "";
+      }
+      if (state.sgr) {
+        buttonCode = button >= 0 ? button : 0;
+        suffix = "m";
+      } else {
+        buttonCode = 3;
+      }
+    } else if (action === "move") {
+      if (button >= 0) {
+        if (!state.drag && !state.any) {
+          return "";
+        }
+        buttonCode = 32 + button;
+      } else {
+        if (!state.any) {
+          return "";
+        }
+        buttonCode = 35;
+      }
+    } else if (action === "wheel") {
+      const delta = Math.abs(event.deltaY || 0) >= Math.abs(event.deltaX || 0) ? event.deltaY : event.deltaX;
+      if (!delta) {
+        return "";
+      }
+      buttonCode = delta < 0 ? 64 : 65;
+    } else {
+      return "";
+    }
+
+    buttonCode += modifiers;
+    if (state.sgr) {
+      return `\x1b[<${buttonCode};${x};${y}${suffix}`;
+    }
+    return encodeTerminalLegacyMouseSequence(buttonCode, x, y);
+  };
+
+  const stopTerminalMouseEvent = (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    event.stopImmediatePropagation?.();
+  };
+
+  const installTerminalMouseTracking = (session) => {
+    const shell = session?.shellEl;
+    const host = session?.terminalHost;
+    if (!shell || !host || !session?.term) {
+      return;
+    }
+
+    const isTerminalMouseTarget = (target) => target instanceof Element && target.closest(".terminal-host") === host;
+    const activateSessionPane = () => {
+      const current = tabs.get(session.tabId);
+      setActivePane(current, session.id, { focus: false });
+    };
+    const mouseState = {
+      activeButton: -1,
+      lastMoveSequence: "",
+    };
+
+    const sendMouseSequence = (event, action, button = -1) => {
+      const sequence = encodeTerminalMouseSequence(session, event, action, button);
+      if (!sequence) {
+        return false;
+      }
+      if (action === "move") {
+        if (sequence === mouseState.lastMoveSequence) {
+          return true;
+        }
+        mouseState.lastMoveSequence = sequence;
+      } else {
+        mouseState.lastMoveSequence = "";
+      }
+      reassertTerminalSizeForMouse(session, event);
+      sendOrQueueInput(session, sequence);
+      return true;
+    };
+
+    const handleMouseDown = (event) => {
+      if (!isTerminalMouseTarget(event.target)) {
+        return;
+      }
+      const state = terminalMouseTrackingState(session);
+      if (!state) {
+        mouseState.activeButton = -1;
+        mouseState.lastMoveSequence = "";
+        return;
+      }
+      const button = terminalMouseButtonFromEvent(event);
+      if (button < 0) {
+        return;
+      }
+      stopTerminalMouseEvent(event);
+      activateSessionPane();
+      mouseState.activeButton = button;
+      sendMouseSequence(event, "press", button);
+    };
+
+    const handleMouseMove = (event) => {
+      const state = terminalMouseTrackingState(session);
+      if (!state) {
+        mouseState.lastMoveSequence = "";
+        return;
+      }
+      const button = terminalMouseButtonFromButtons(event.buttons, mouseState.activeButton);
+      const hasCapturedButton = mouseState.activeButton >= 0;
+      const isLocalTarget = isTerminalMouseTarget(event.target);
+      if (!hasCapturedButton && !isLocalTarget) {
+        return;
+      }
+      if (hasCapturedButton || (isLocalTarget && state.any)) {
+        stopTerminalMouseEvent(event);
+      }
+      sendMouseSequence(event, "move", hasCapturedButton ? button : -1);
+    };
+
+    const handleMouseUp = (event) => {
+      const hadActiveButton = mouseState.activeButton >= 0;
+      const state = terminalMouseTrackingState(session);
+      if (!state && !hadActiveButton) {
+        return;
+      }
+      const button = terminalMouseButtonFromEvent(event);
+      const releasedButton = mouseState.activeButton >= 0 ? mouseState.activeButton : button;
+      mouseState.activeButton = terminalMouseButtonFromButtons(event.buttons, mouseState.activeButton);
+      if (mouseState.activeButton === releasedButton) {
+        mouseState.activeButton = -1;
+      }
+      mouseState.lastMoveSequence = "";
+      if (!state) {
+        return;
+      }
+      if (hadActiveButton || isTerminalMouseTarget(event.target)) {
+        stopTerminalMouseEvent(event);
+        sendMouseSequence(event, "release", releasedButton);
+      }
+    };
+
+    const handleWheel = (event) => {
+      if (!isTerminalMouseTarget(event.target) || !terminalMouseTrackingState(session)) {
+        return;
+      }
+      const sent = sendMouseSequence(event, "wheel");
+      if (sent) {
+        stopTerminalMouseEvent(event);
+      }
+    };
+
+    const handleClickLike = (event) => {
+      if (isTerminalMouseTarget(event.target) && terminalMouseTrackingState(session)) {
+        stopTerminalMouseEvent(event);
+      }
+    };
+
+    shell.addEventListener("mousedown", handleMouseDown, { capture: true, passive: false });
+    shell.addEventListener("mousemove", handleMouseMove, { capture: true, passive: false });
+    shell.addEventListener("wheel", handleWheel, { capture: true, passive: false });
+    shell.addEventListener("click", handleClickLike, { capture: true, passive: false });
+    shell.addEventListener("dblclick", handleClickLike, { capture: true, passive: false });
+    shell.addEventListener("auxclick", handleClickLike, { capture: true, passive: false });
+    shell.addEventListener("contextmenu", handleClickLike, { capture: true, passive: false });
+    document.addEventListener("mousemove", handleMouseMove, { capture: true, passive: false });
+    document.addEventListener("mouseup", handleMouseUp, { capture: true, passive: false });
+    addSessionCleanup(session, () => {
+      shell.removeEventListener("mousedown", handleMouseDown, { capture: true });
+      shell.removeEventListener("mousemove", handleMouseMove, { capture: true });
+      shell.removeEventListener("wheel", handleWheel, { capture: true });
+      shell.removeEventListener("click", handleClickLike, { capture: true });
+      shell.removeEventListener("dblclick", handleClickLike, { capture: true });
+      shell.removeEventListener("auxclick", handleClickLike, { capture: true });
+      shell.removeEventListener("contextmenu", handleClickLike, { capture: true });
+      document.removeEventListener("mousemove", handleMouseMove, { capture: true });
+      document.removeEventListener("mouseup", handleMouseUp, { capture: true });
+    });
+  };
+
   const compareSelectionCells = (left, right) => {
     if (!left || !right) {
       return 0;
@@ -11209,6 +11505,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     installRendererThemeMapper(session);
     installRendererCellSeamPatch(session);
     installMobileTouchSelection(session);
+    installTerminalMouseTracking(session);
     installDesktopMouseClipboard(session);
 
     term.onData((data) => {
