@@ -20,6 +20,62 @@ func sourceBetween(t *testing.T, source, start, end string) string {
 	return source[bodyStart : bodyStart+endIndex]
 }
 
+func TestRuntimeFontURLsStayRelativeToProviderEntry(t *testing.T) {
+	data, err := os.ReadFile("runtime/static/main.js")
+	if err != nil {
+		t.Fatalf("ReadFile(runtime/static/main.js) error = %v", err)
+	}
+	source := string(data)
+
+	wantSnippets := []string{
+		"const fontFileURLPath = (id) => `api/settings/fonts/${encodeURIComponent(id)}/file`;",
+		"url: String(font?.url || fontFileURLPath(id)).trim(),",
+		"new URL(font.url || fontFileURLPath(font.id), window.location.href).toString();",
+	}
+	for _, want := range wantSnippets {
+		if !strings.Contains(source, want) {
+			t.Fatalf("runtime font URL guard missing %q", want)
+		}
+	}
+	if strings.Contains(source, "`/api/settings/fonts/") || strings.Contains(source, `"/api/settings/fonts/`) {
+		t.Fatalf("runtime font URLs must stay relative to provider entry, got source: %s", source)
+	}
+}
+
+func TestRuntimeHomeNavigationUsesCurrentOrigin(t *testing.T) {
+	data, err := os.ReadFile("runtime/static/main.js")
+	if err != nil {
+		t.Fatalf("ReadFile(runtime/static/main.js) error = %v", err)
+	}
+	source := string(data)
+
+	wantSnippets := []string{
+		"const buildCurrentOriginHomeURL = () => {",
+		`const targetURL = new URL("/", window.location.origin);`,
+		`targetURL.searchParams.set("view", "home");`,
+		"lightOSHomeURL = buildCurrentOriginHomeURL();",
+		"const targetURL = await loadLightOSHomeURL();",
+	}
+	for _, want := range wantSnippets {
+		if !strings.Contains(source, want) {
+			t.Fatalf("runtime home navigation guard missing %q", want)
+		}
+	}
+	for _, forbidden := range []string{
+		`fetch("./api/lightos-admin-info"`,
+		"buildExplicitHomeURL",
+		"resolveReferrerHomeURL",
+		"loadLightOSAdminBaseURL",
+		"loadLightOSAdminInfo",
+		"lightOSAdminInfo",
+		"lightOSAdminBaseURL",
+	} {
+		if strings.Contains(source, forbidden) {
+			t.Fatalf("runtime home navigation must not use %q", forbidden)
+		}
+	}
+}
+
 func TestRuntimeShortcutDefaultsGuardMacAndAltMappings(t *testing.T) {
 	data, err := os.ReadFile("runtime/static/main.js")
 	if err != nil {

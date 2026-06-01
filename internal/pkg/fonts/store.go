@@ -770,7 +770,7 @@ func (m Metadata) Descriptor() Descriptor {
 		MIME:       m.MIME,
 		Size:       m.Size,
 		UploadedAt: m.UploadedAt,
-		URL:        "/api/settings/fonts/" + m.ID + "/file",
+		URL:        "api/settings/fonts/" + m.ID + "/file",
 		SourceName: m.SourceName,
 	}
 }
@@ -791,7 +791,7 @@ func (s Store) bundledDescriptor(font bundledFont) (Descriptor, bool) {
 		Filename:   font.Filename,
 		MIME:       font.MIME,
 		Size:       info.Size(),
-		URL:        "/api/settings/fonts/" + font.ID + "/file?v=" + font.SHA256[:12],
+		URL:        "api/settings/fonts/" + font.ID + "/file?v=" + font.SHA256[:12],
 		SourceName: font.Label,
 		Builtin:    true,
 	}, true
@@ -812,7 +812,7 @@ func (s Store) terminalSymbolFontDescriptor() *SymbolDescriptor {
 		Filename: terminalSymbolFont.Filename,
 		MIME:     terminalSymbolFont.MIME,
 		Size:     info.Size(),
-		URL:      "/api/settings/fonts/" + terminalSymbolFont.ID + "/file?v=" + terminalSymbolFont.SHA256[:12],
+		URL:      "api/settings/fonts/" + terminalSymbolFont.ID + "/file?v=" + terminalSymbolFont.SHA256[:12],
 		SHA256:   terminalSymbolFont.SHA256,
 	}
 }
