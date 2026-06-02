@@ -205,6 +205,8 @@ func TestRuntimePasteShortcutUsesNativePasteEvent(t *testing.T) {
 		`const isNativePasteShortcutEvent = (event) => {`,
 		`const key = normalizeShortcutKeyToken(shortcutKeyFromEventCode(event) || event.key);`,
 		`const keyCode = Number(event.keyCode || event.which || 0);`,
+		`if ((key === "insert" || keyCode === 45) && event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey) {`,
+		`return true;`,
 		`if ((key !== "v" && keyCode !== 86) || event.altKey) {`,
 		`const ctrlShiftPaste = event.ctrlKey && event.shiftKey && !event.metaKey;`,
 		`return (event.metaKey && !event.ctrlKey) || ctrlShiftPaste;`,
@@ -223,6 +225,20 @@ func TestRuntimePasteShortcutUsesNativePasteEvent(t *testing.T) {
 	for _, want := range wantSnippets {
 		if !strings.Contains(source, want) {
 			t.Fatalf("runtime native paste shortcut guard missing %q", want)
+		}
+	}
+
+	ghosttyData, err := os.ReadFile("runtime/static/ghostty-web.js")
+	if err != nil {
+		t.Fatalf("ReadFile(runtime/static/ghostty-web.js) error = %v", err)
+	}
+	ghosttySource := string(ghosttyData)
+	for _, want := range []string{
+		`A.shiftKey && !A.ctrlKey && !A.altKey && !A.metaKey && (A.code === "Insert" || A.key === "Insert" || A.keyCode === 45)`,
+		`A.metaKey && A.code === "KeyC")`,
+	} {
+		if !strings.Contains(ghosttySource, want) {
+			t.Fatalf("ghostty native paste shortcut passthrough missing %q", want)
 		}
 	}
 
@@ -1292,6 +1308,42 @@ func TestRuntimeBeforeInputPasteUsesPastePath(t *testing.T) {
 		if strings.Contains(branch, forbidden) {
 			t.Fatalf("runtime beforeinput paste branch must not contain %q", forbidden)
 		}
+	}
+}
+
+func TestRuntimeUserInputHoldsCursorVisible(t *testing.T) {
+	data, err := os.ReadFile("runtime/static/main.js")
+	if err != nil {
+		t.Fatalf("ReadFile(runtime/static/main.js) error = %v", err)
+	}
+	source := string(data)
+
+	for _, want := range []string{
+		`const terminalCursorBlinkHoldMs = 700;`,
+		`const holdTerminalCursorVisible = (session) => {`,
+		`window.clearTimeout(session.cursorBlinkHoldTimer);`,
+		`renderer.cursorVisible = true;`,
+		`term.options.cursorBlink = false;`,
+		`term.requestRender?.();`,
+		`session.cursorBlinkHoldTimer = window.setTimeout(() => {`,
+		`syncCursorBlinkState();`,
+		`}, terminalCursorBlinkHoldMs);`,
+		`cursorBlinkHoldTimer: 0,`,
+		`holdTerminalCursorVisible(session);`,
+		`window.clearTimeout(pane.cursorBlinkHoldTimer);`,
+	} {
+		if !strings.Contains(source, want) {
+			t.Fatalf("runtime cursor blink hold guard missing %q", want)
+		}
+	}
+
+	inputBranch := sourceBetween(t, source,
+		`if (session.replayOutputDepth > 0) {`,
+		`    term.onResize(() => {`,
+	)
+	if !strings.Contains(inputBranch, `holdTerminalCursorVisible(session);`) ||
+		!strings.Contains(inputBranch, `sendOrQueueInput(session, data`) {
+		t.Fatal("runtime user input branch should hold cursor visible before sending input")
 	}
 }
 
