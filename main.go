@@ -275,7 +275,7 @@ func (s *pluginServer) handleInstances(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "account id is required", http.StatusUnauthorized)
 		return
 	}
-	items, err := s.listVisibleInstances(r.Context())
+	items, err := s.listRequestVisibleInstances(r.Context(), r.Header, accountID)
 	if err != nil {
 		writeAuthorizationError(w, err)
 		return
@@ -715,6 +715,54 @@ func (s *pluginServer) listInstances(ctx context.Context) ([]instanceSummary, er
 		return s.instancesResolver(ctx)
 	}
 	return listInstances(ctx)
+}
+
+func (s *pluginServer) listRequestVisibleInstances(ctx context.Context, header http.Header, accountID string) ([]instanceSummary, error) {
+	if s != nil && s.instancesResolver != nil {
+		return s.instancesResolver(ctx)
+	}
+	return s.listLightOSAdminWebshellInstances(ctx, header, accountID)
+}
+
+func (s *pluginServer) listLightOSAdminWebshellInstances(ctx context.Context, header http.Header, accountID string) ([]instanceSummary, error) {
+	accountID = strings.TrimSpace(accountID)
+	if accountID == "" {
+		return nil, errors.New("account id is required")
+	}
+	info, err := s.resolveLightOSAdminInfo(ctx)
+	if err != nil {
+		return nil, err
+	}
+	targetURL, err := buildLightOSAdminURL(resolvePublishProxyLightOSAdminBaseURL(info), &url.URL{Path: "/api/webshell/instances"})
+	if err != nil {
+		return nil, err
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, targetURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	copyPublishProxyRequestHeaders(request.Header, header)
+	setPublishProxyAuthHeaders(request.Header, header, accountID)
+	request.Header.Set("Accept", "application/json")
+
+	response, err := s.publishClient().Do(request)
+	if err != nil {
+		return nil, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(response.Body)
+		message := strings.TrimSpace(string(body))
+		if message == "" {
+			message = response.Status
+		}
+		return nil, errors.New(message)
+	}
+	var items []instanceSummary
+	if err := json.NewDecoder(response.Body).Decode(&items); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 func (s *pluginServer) currentDeployUID() string {

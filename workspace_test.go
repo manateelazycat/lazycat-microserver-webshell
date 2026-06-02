@@ -124,36 +124,31 @@ func TestLightOSManifestEnablesMultiInstance(t *testing.T) {
 	}
 }
 
-func TestHandleInstancesFiltersByDeployUID(t *testing.T) {
-	server := testPluginServerWithInstances()
-	request := httptest.NewRequest(http.MethodGet, "/api/instances", nil)
-	request.Header.Set(lightOSUserIDHeader, "login-user-a")
-	recorder := httptest.NewRecorder()
-
-	server.handleInstances(recorder, request)
-
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("handleInstances status = %d, body = %s", recorder.Code, recorder.Body.String())
-	}
-	var items []instanceSummary
-	if err := json.NewDecoder(recorder.Body).Decode(&items); err != nil {
-		t.Fatalf("decode instances error = %v", err)
-	}
-	if len(items) != len(testInstanceSummaries()) {
-		t.Fatalf("instances count = %d, want all visible instances: %+v", len(items), items)
-	}
-}
-
-func TestHandleInstancesUsesAdminInfoDeployIDWhenEnvDoesNotMatch(t *testing.T) {
+func TestHandleInstancesLoadsVisibleInstancesFromLightOSAdmin(t *testing.T) {
+	var upstreamPath string
+	var upstreamAccept string
+	var upstreamUserID string
+	var upstreamUserRole string
 	server := &pluginServer{
-		instancesResolver: testInstancesResolver(testInstanceSummaries()),
-		deployUIDResolver: func() string { return "missing-deploy" },
 		adminInfoResolver: func(context.Context) (adminInfo, error) {
-			return adminInfo{DeployID: "deploy-a", BaseURL: "http://admin.local"}, nil
+			return adminInfo{BaseURL: "https://admin.example/root/"}, nil
 		},
+		publishHTTPClient: &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+			upstreamPath = request.URL.Path
+			upstreamAccept = request.Header.Get("Accept")
+			upstreamUserID = request.Header.Get(lightOSUserIDHeader)
+			upstreamUserRole = request.Header.Get("X-HC-User-Role")
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body:       io.NopCloser(strings.NewReader(`[{"name":"alpha","owner_deploy_id":"deploy-a","status":"running","username":"alice"}]`)),
+				Request:    request,
+			}, nil
+		})},
 	}
 	request := httptest.NewRequest(http.MethodGet, "/api/instances", nil)
 	request.Header.Set(lightOSUserIDHeader, "login-user-a")
+	request.Header.Set("X-HC-User-Role", "NORMAL")
 	recorder := httptest.NewRecorder()
 
 	server.handleInstances(recorder, request)
@@ -165,34 +160,20 @@ func TestHandleInstancesUsesAdminInfoDeployIDWhenEnvDoesNotMatch(t *testing.T) {
 	if err := json.NewDecoder(recorder.Body).Decode(&items); err != nil {
 		t.Fatalf("decode instances error = %v", err)
 	}
-	if len(items) != len(testInstanceSummaries()) {
-		t.Fatalf("instances count = %d, want all visible instances: %+v", len(items), items)
+	if upstreamPath != "/root/api/webshell/instances" {
+		t.Fatalf("upstream path = %q, want /root/api/webshell/instances", upstreamPath)
 	}
-}
-
-func TestHandleInstancesFallsBackWhenOwnerIDDoesNotMatchAnyInstance(t *testing.T) {
-	server := &pluginServer{
-		instancesResolver: testInstancesResolver(testInstanceSummaries()),
-		deployUIDResolver: func() string { return "missing-deploy" },
-		adminInfoResolver: func(context.Context) (adminInfo, error) {
-			return adminInfo{DeployID: "also-missing", BaseURL: "http://admin.local"}, nil
-		},
+	if upstreamAccept != "application/json" {
+		t.Fatalf("upstream Accept = %q, want application/json", upstreamAccept)
 	}
-	request := httptest.NewRequest(http.MethodGet, "/api/instances", nil)
-	request.Header.Set(lightOSUserIDHeader, "login-user-a")
-	recorder := httptest.NewRecorder()
-
-	server.handleInstances(recorder, request)
-
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("handleInstances status = %d, body = %s", recorder.Code, recorder.Body.String())
+	if upstreamUserID != "login-user-a" {
+		t.Fatalf("upstream %s = %q, want login-user-a", lightOSUserIDHeader, upstreamUserID)
 	}
-	var items []instanceSummary
-	if err := json.NewDecoder(recorder.Body).Decode(&items); err != nil {
-		t.Fatalf("decode instances error = %v", err)
+	if upstreamUserRole != "NORMAL" {
+		t.Fatalf("upstream role = %q, want NORMAL", upstreamUserRole)
 	}
-	if len(items) != len(testInstanceSummaries()) {
-		t.Fatalf("instances count = %d, want fallback count %d: %+v", len(items), len(testInstanceSummaries()), items)
+	if len(items) != 1 || items[0].Name != "alpha" || items[0].OwnerDeployID != "deploy-a" {
+		t.Fatalf("instances = %+v, want alpha only", items)
 	}
 }
 
