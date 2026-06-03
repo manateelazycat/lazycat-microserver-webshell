@@ -3461,12 +3461,15 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     });
   };
 
+  const isShiftInsertPasteShortcutEvent = (event) => {
+    const key = normalizeShortcutKeyToken(shortcutKeyFromEventCode(event) || event.key);
+    const keyCode = Number(event.keyCode || event.which || 0);
+    return (key === "insert" || keyCode === 45) && event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey;
+  };
+
   const isNativePasteShortcutEvent = (event) => {
     const key = normalizeShortcutKeyToken(shortcutKeyFromEventCode(event) || event.key);
     const keyCode = Number(event.keyCode || event.which || 0);
-    if ((key === "insert" || keyCode === 45) && event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey) {
-      return true;
-    }
     if ((key !== "v" && keyCode !== 86) || event.altKey) {
       return false;
     }
@@ -13206,6 +13209,15 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       return;
     }
     if (isInteractiveShortcutTarget(event.target)) {
+      return;
+    }
+    if (isShiftInsertPasteShortcutEvent(event)) {
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation?.();
+      focusTerminalForNativePasteShortcut();
+      closeContextMenu();
+      pasteIntoSession().catch((error) => showToast(error.message));
       return;
     }
     if (isNativePasteShortcutEvent(event)) {

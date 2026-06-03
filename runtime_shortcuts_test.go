@@ -202,11 +202,11 @@ func TestRuntimePasteShortcutUsesNativePasteEvent(t *testing.T) {
 	source := string(data)
 
 	wantSnippets := []string{
+		`const isShiftInsertPasteShortcutEvent = (event) => {`,
+		`return (key === "insert" || keyCode === 45) && event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey;`,
 		`const isNativePasteShortcutEvent = (event) => {`,
 		`const key = normalizeShortcutKeyToken(shortcutKeyFromEventCode(event) || event.key);`,
 		`const keyCode = Number(event.keyCode || event.which || 0);`,
-		`if ((key === "insert" || keyCode === 45) && event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey) {`,
-		`return true;`,
 		`if ((key !== "v" && keyCode !== 86) || event.altKey) {`,
 		`const ctrlShiftPaste = event.ctrlKey && event.shiftKey && !event.metaKey;`,
 		`return (event.metaKey && !event.ctrlKey) || ctrlShiftPaste;`,
@@ -266,6 +266,24 @@ func TestRuntimePasteShortcutUsesNativePasteEvent(t *testing.T) {
 	} {
 		if strings.Contains(earlyNativePasteBranch, forbidden) {
 			t.Fatalf("runtime early native paste branch must not contain %q", forbidden)
+		}
+	}
+
+	shiftInsertPasteBranch := sourceBetween(t, source,
+		`if (isShiftInsertPasteShortcutEvent(event)) {`,
+		`    if (isNativePasteShortcutEvent(event)) {`,
+	)
+	for _, want := range []string{
+		`event.preventDefault();`,
+		`event.stopPropagation();`,
+		`event.stopImmediatePropagation?.();`,
+		`focusTerminalForNativePasteShortcut();`,
+		`closeContextMenu();`,
+		`pasteIntoSession().catch((error) => showToast(error.message));`,
+		`return;`,
+	} {
+		if !strings.Contains(shiftInsertPasteBranch, want) {
+			t.Fatalf("runtime Shift+Insert paste branch missing %q", want)
 		}
 	}
 
