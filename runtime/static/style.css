@@ -3075,7 +3075,7 @@ body.is-mobile-shortcut-dragging {
   flex-direction: column;
   border: 1px solid var(--panel-border);
   border-radius: 8px;
-  background: rgba(17, 24, 39, 0.72);
+  background: var(--panel-bg);
   color: var(--text);
   cursor: pointer;
   text-align: left;

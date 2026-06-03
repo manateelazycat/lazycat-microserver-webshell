@@ -855,7 +855,7 @@ class P {
       A.preventDefault();
       return;
     }
-    if ((A.ctrlKey || A.metaKey) && A.code === "KeyV" || A.metaKey && A.code === "KeyC")
+    if ((A.ctrlKey || A.metaKey) && A.code === "KeyV" || A.shiftKey && !A.ctrlKey && !A.altKey && !A.metaKey && (A.code === "Insert" || A.key === "Insert" || A.keyCode === 45) || A.metaKey && A.code === "KeyC")
       return;
     if (this.isPrintableCharacter(A)) {
       A.preventDefault(), this.onDataCallback(A.key);
