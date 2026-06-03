@@ -84,9 +84,13 @@
         <div class="empty-state" id="emptyState" hidden>
           <button class="empty-state-action" id="emptyStateAction" type="button" aria-label="新建终端">新建终端</button>
         </div>
-        <div class="performance-meter" id="performanceMeter" aria-live="off">
+        <div class="fps-meter" id="performanceMeter" aria-live="off">
           <span id="performanceMeterFps">-- FPS</span>
           <span id="performanceMeterRefresh">-- Hz</span>
+        </div>
+        <div class="performance-task-meter" id="performanceTaskMeter" aria-live="off" hidden>
+          <div class="performance-task-meter-title">性能监视器</div>
+          <div class="performance-task-meter-list" id="performanceTaskMeterList"></div>
         </div>
         <div class="startup-error-panel" id="startupErrorPanel" hidden>
           <pre class="startup-error-text" id="startupErrorText"></pre>
@@ -206,10 +210,18 @@
                 </div>
                 <label class="settings-switch-row" for="settingsPerformanceMeterToggle">
                   <span class="settings-switch-label">
-                    <span>性能监视器</span>
+                    <span>FPS监视器</span>
                     <span>在终端右上角显示实时 FPS 和刷新率</span>
                   </span>
                   <input class="settings-switch-input" id="settingsPerformanceMeterToggle" type="checkbox" />
+                  <span class="settings-switch" aria-hidden="true"></span>
+                </label>
+                <label class="settings-switch-row" for="settingsPerformanceTasksToggle">
+                  <span class="settings-switch-label">
+                    <span>性能监视器</span>
+                    <span>采集并显示前端任务耗时</span>
+                  </span>
+                  <input class="settings-switch-input" id="settingsPerformanceTasksToggle" type="checkbox" />
                   <span class="settings-switch" aria-hidden="true"></span>
                 </label>
               </section>

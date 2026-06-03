@@ -1,4 +1,5 @@
 import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
+import { createPerformanceTaskMonitor } from "./performance_tasks.js";
 
 const params = new URLSearchParams(window.location.search);
 const isEmbedMode = params.has("embed");
@@ -20,6 +21,8 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   const emptyStateAction = document.getElementById("emptyStateAction");
   const performanceMeterFps = document.getElementById("performanceMeterFps");
   const performanceMeterRefresh = document.getElementById("performanceMeterRefresh");
+  const performanceTaskMeter = document.getElementById("performanceTaskMeter");
+  const performanceTaskMeterList = document.getElementById("performanceTaskMeterList");
   const startupErrorPanel = document.getElementById("startupErrorPanel");
   const startupErrorText = document.getElementById("startupErrorText");
   const instanceSwitcher = document.getElementById("instanceSwitcher");
@@ -53,6 +56,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   const settingsScrollbackInput = document.getElementById("settingsScrollbackInput");
   const settingsScrollbackResetButton = document.getElementById("settingsScrollbackResetButton");
   const settingsPerformanceMeterToggle = document.getElementById("settingsPerformanceMeterToggle");
+  const settingsPerformanceTasksToggle = document.getElementById("settingsPerformanceTasksToggle");
   const settingsDesktopMouseClipboardToggle = document.getElementById("settingsDesktopMouseClipboardToggle");
   const settingsMobilePixelScrollToggle = document.getElementById("settingsMobilePixelScrollToggle");
   const settingsMobileDoubleTapReminderToggle = document.getElementById("settingsMobileDoubleTapReminderToggle");
@@ -189,6 +193,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   const restartTabStorageKey = `${storagePrefix}.restartTab`;
   const touchShortcutFeedbackStorageKey = `${storagePrefix}.touchShortcutFeedback`;
   const performanceMeterStorageKey = `${storagePrefix}.performanceMeter`;
+  const performanceTasksStorageKey = `${storagePrefix}.performanceTasks`;
   const defaultFontSize = 16;
   const minFontSize = 10;
   const maxFontSize = 32;
@@ -237,6 +242,22 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   const terminalOutputFlushBudgetBytes = 128 * 1024;
   const performanceMeterSampleMs = 500;
   const performanceMeterWarmupFrames = 12;
+  const performanceTaskPanelLimit = 10;
+  const performanceTaskAlertThresholds = {
+    count: 120,
+    avgMs: 16,
+    maxMs: 50,
+    totalMs: 200,
+  };
+  const performanceTaskAlertThresholdsByName = {
+    "device heartbeat": {
+      count: 10,
+      avgMs: 250,
+      maxMs: 1000,
+      totalMs: 2000,
+    },
+  };
+  const deviceHeartbeatTimeoutMs = 5000;
   const terminalPixelScrollOffsetEpsilon = 0.001;
   const terminalMouseLegacyCoordinateLimit = 95;
   const maxQueuedTerminalOutputBytes = 4 * 1024 * 1024;
@@ -441,6 +462,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   let mobilePixelScrollEnabled = true;
   let mobileDoubleTapReminderEnabled = true;
   let performanceMeterEnabled = window.localStorage.getItem(performanceMeterStorageKey) === "true";
+  let performanceTasksEnabled = window.localStorage.getItem(performanceTasksStorageKey) === "true";
   let fontEditMode = false;
   const selectedFontDeleteIDs = new Set();
   const registeredFontFaces = new Map();
@@ -452,6 +474,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   let serverRevisionReloadPrompted = false;
   let serverRevisionRefreshTimer = 0;
   let deviceHeartbeatTimer = 0;
+  let deviceHeartbeatInFlight = null;
   let deviceListRefreshTimer = 0;
   let deviceListRequestSeq = 0;
   let deviceListLoading = false;
@@ -651,6 +674,106 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     return nextTheme;
   };
   const terminalOptions = (overrides = {}) => ({ ...terminalOptionsBase, fontSize: terminalFontSize, theme: cloneTheme(activeTheme), ...overrides });
+
+  const formatPerformanceTaskMs = (value) => {
+    const ms = Number(value);
+    if (!Number.isFinite(ms)) {
+      return "--";
+    }
+    if (ms >= 100) {
+      return `${Math.round(ms)}ms`;
+    }
+    if (ms >= 10) {
+      return `${ms.toFixed(1)}ms`;
+    }
+    return `${ms.toFixed(2)}ms`;
+  };
+
+  const appendPerformanceTaskCell = (row, text, className = "performance-task-value", isAlert = false) => {
+    const cell = document.createElement("span");
+    cell.className = className;
+    if (isAlert) {
+      cell.classList.add("is-alert");
+    }
+    cell.textContent = text;
+    row.appendChild(cell);
+    return cell;
+  };
+
+  const getPerformanceTaskAlertThresholds = (name) => performanceTaskAlertThresholdsByName[name] || performanceTaskAlertThresholds;
+
+  const isPerformanceTaskValueAlert = (name, field, value) => {
+    const thresholds = getPerformanceTaskAlertThresholds(name);
+    const limit = thresholds?.[field];
+    return Number.isFinite(limit) && Number(value) >= limit;
+  };
+
+  const renderPerformanceTaskMeter = () => {
+    if (!performanceTaskMeterList) {
+      return;
+    }
+    performanceTaskMeterList.textContent = "";
+    const rows = performanceTaskMonitor.snapshot({ limit: performanceTaskPanelLimit });
+    if (rows.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "performance-task-empty";
+      empty.textContent = "暂无采样";
+      performanceTaskMeterList.appendChild(empty);
+      return;
+    }
+
+    const header = document.createElement("div");
+    header.className = "performance-task-row header";
+    appendPerformanceTaskCell(header, "任务", "performance-task-name");
+    appendPerformanceTaskCell(header, "次数");
+    appendPerformanceTaskCell(header, "平均");
+    appendPerformanceTaskCell(header, "最大");
+    appendPerformanceTaskCell(header, "总计");
+    performanceTaskMeterList.appendChild(header);
+
+    for (const item of rows) {
+      const row = document.createElement("div");
+      row.className = "performance-task-row";
+      appendPerformanceTaskCell(row, item.name, "performance-task-name");
+      appendPerformanceTaskCell(
+        row,
+        String(item.count),
+        "performance-task-value",
+        isPerformanceTaskValueAlert(item.name, "count", item.count),
+      );
+      appendPerformanceTaskCell(
+        row,
+        formatPerformanceTaskMs(item.avg),
+        "performance-task-value",
+        isPerformanceTaskValueAlert(item.name, "avgMs", item.avg),
+      );
+      appendPerformanceTaskCell(
+        row,
+        formatPerformanceTaskMs(item.max),
+        "performance-task-value",
+        isPerformanceTaskValueAlert(item.name, "maxMs", item.max),
+      );
+      appendPerformanceTaskCell(
+        row,
+        formatPerformanceTaskMs(item.total),
+        "performance-task-value",
+        isPerformanceTaskValueAlert(item.name, "totalMs", item.total),
+      );
+      performanceTaskMeterList.appendChild(row);
+    }
+  };
+
+  const performanceTaskMonitor = createPerformanceTaskMonitor({
+    onChange: () => renderPerformanceTaskMeter(),
+  });
+
+  const performanceTaskNow = () => (
+    window.performance && typeof window.performance.now === "function"
+      ? window.performance.now()
+      : Date.now()
+  );
+  const recordPerformanceTask = (name, ms) => performanceTaskMonitor.record(name, ms);
+  const measurePerformanceTask = (name, fn) => performanceTaskMonitor.measure(name, fn);
 
   const startPerformanceMeter = () => {
     if (!performanceMeterFps || !performanceMeterRefresh) {
@@ -1027,7 +1150,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   };
 
   const applyPerformanceMeterVisibility = () => {
-    const meter = performanceMeterFps?.closest?.(".performance-meter");
+    const meter = performanceMeterFps?.closest?.(".fps-meter");
     if (meter) {
       meter.hidden = !performanceMeterEnabled;
     }
@@ -1038,9 +1161,25 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     }
   };
 
+  const applyPerformanceTaskMeterVisibility = () => {
+    if (performanceTaskMeter) {
+      performanceTaskMeter.hidden = !performanceTasksEnabled;
+    }
+    performanceTaskMonitor.setEnabled(performanceTasksEnabled);
+    if (performanceTasksEnabled) {
+      renderPerformanceTaskMeter();
+    }
+  };
+
   const syncSettingsPerformanceMeterToggle = () => {
     if (settingsPerformanceMeterToggle) {
       settingsPerformanceMeterToggle.checked = performanceMeterEnabled;
+    }
+  };
+
+  const syncSettingsPerformanceTasksToggle = () => {
+    if (settingsPerformanceTasksToggle) {
+      settingsPerformanceTasksToggle.checked = performanceTasksEnabled;
     }
   };
 
@@ -2160,6 +2299,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     syncSettingsMobilePixelScrollToggle();
     syncSettingsMobileDoubleTapReminderToggle();
     syncSettingsPerformanceMeterToggle();
+    syncSettingsPerformanceTasksToggle();
     resizeActiveTabForCurrentDevice();
     updateMobileActiveTabTitle();
     await registerTerminalSymbolFont(terminalSymbolFont);
@@ -2176,7 +2316,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     await applySettingsState(await response.json());
   };
 
-  const saveTerminalFontSelection = async (fontID) => {
+  const saveTerminalFontSelection = async (fontID) => measurePerformanceTask("settings save", async () => {
     const response = await fetch("./api/settings", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
@@ -2186,9 +2326,9 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       throw new Error(await readResponseText(response, `字体设置保存失败 (${response.status})`));
     }
     await applySettingsState(await response.json());
-  };
+  });
 
-  const saveTerminalScrollback = async (scrollback, { syncScrollbackInput = false } = {}) => {
+  const saveTerminalScrollback = async (scrollback, { syncScrollbackInput = false } = {}) => measurePerformanceTask("settings save", async () => {
     const response = await fetch("./api/settings", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
@@ -2198,9 +2338,9 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       throw new Error(await readResponseText(response, `滚动历史设置保存失败 (${response.status})`));
     }
     await applySettingsState(await response.json(), { syncScrollbackInput, syncLineHeightInput: false });
-  };
+  });
 
-  const saveTerminalLineHeightPercent = async (percent, { syncLineHeightInput = false } = {}) => {
+  const saveTerminalLineHeightPercent = async (percent, { syncLineHeightInput = false } = {}) => measurePerformanceTask("settings save", async () => {
     const response = await fetch("./api/settings", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
@@ -2210,9 +2350,9 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       throw new Error(await readResponseText(response, `行间距设置保存失败 (${response.status})`));
     }
     await applySettingsState(await response.json(), { syncScrollbackInput: false, syncLineHeightInput });
-  };
+  });
 
-  const saveDesktopMouseClipboardEnabled = async (enabled) => {
+  const saveDesktopMouseClipboardEnabled = async (enabled) => measurePerformanceTask("settings save", async () => {
     desktopMouseClipboardEnabled = enabled;
     syncSettingsDesktopMouseClipboardToggle();
     const response = await fetch("./api/settings", {
@@ -2224,9 +2364,9 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       throw new Error(await readResponseText(response, `鼠标复制粘贴设置保存失败 (${response.status})`));
     }
     await applySettingsState(await response.json(), { syncScrollbackInput: false, syncLineHeightInput: false });
-  };
+  });
 
-  const saveMobilePixelScrollEnabled = async (enabled) => {
+  const saveMobilePixelScrollEnabled = async (enabled) => measurePerformanceTask("settings save", async () => {
     mobilePixelScrollEnabled = enabled;
     syncSettingsMobilePixelScrollToggle();
     resizeActiveTabForCurrentDevice();
@@ -2239,9 +2379,9 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       throw new Error(await readResponseText(response, `像素级滚动设置保存失败 (${response.status})`));
     }
     await applySettingsState(await response.json(), { syncScrollbackInput: false, syncLineHeightInput: false });
-  };
+  });
 
-  const saveMobileDoubleTapReminderEnabled = async (enabled) => {
+  const saveMobileDoubleTapReminderEnabled = async (enabled) => measurePerformanceTask("settings save", async () => {
     mobileDoubleTapReminderEnabled = enabled;
     syncSettingsMobileDoubleTapReminderToggle();
     updateMobileActiveTabTitle();
@@ -2254,12 +2394,12 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       throw new Error(await readResponseText(response, `双击屏幕提醒设置保存失败 (${response.status})`));
     }
     await applySettingsState(await response.json(), { syncScrollbackInput: false, syncLineHeightInput: false });
-  };
+  });
 
   const saveMobileShortcuts = (rows, { reset = false } = {}) => {
     const nextRows = cloneMobileShortcutRows(rows);
     const saveVersion = ++mobileShortcutsSaveVersion;
-    mobileShortcutsPersistChain = mobileShortcutsPersistChain.catch(() => {}).then(async () => {
+    mobileShortcutsPersistChain = mobileShortcutsPersistChain.catch(() => {}).then(() => measurePerformanceTask("settings save", async () => {
       const previousRows = cloneMobileShortcutRows(lastSavedMobileShortcutRowsConfig);
       const requestSeq = ++mobileShortcutsSaveRequestSeq;
       setMobileShortcutSaving(true);
@@ -2286,14 +2426,14 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
           setMobileShortcutSaving(false);
         }
       }
-    });
+    }));
     return mobileShortcutsPersistChain;
   };
 
   const saveDesktopShortcuts = (shortcuts, { reset = false } = {}) => {
     const nextShortcuts = cloneDesktopShortcuts(shortcuts);
     const saveVersion = ++desktopShortcutsSaveVersion;
-    desktopShortcutsPersistChain = desktopShortcutsPersistChain.catch(() => {}).then(async () => {
+    desktopShortcutsPersistChain = desktopShortcutsPersistChain.catch(() => {}).then(() => measurePerformanceTask("settings save", async () => {
       const previousShortcuts = cloneDesktopShortcuts(lastSavedDesktopShortcutsConfig);
       const requestSeq = ++desktopShortcutsSaveRequestSeq;
       setDesktopShortcutSaving(true);
@@ -2320,7 +2460,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
           setDesktopShortcutSaving(false);
         }
       }
-    });
+    }));
     return desktopShortcutsPersistChain;
   };
 
@@ -3491,14 +3631,33 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     if (disposed || navigator.onLine === false) {
       return;
     }
-    const response = await fetch(deviceHeartbeatAPIURL(), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(currentDeviceInfo()),
-    });
-    if (!response.ok) {
-      throw new Error(await readResponseText(response, `设备心跳失败 (${response.status})`));
+    if (deviceHeartbeatInFlight) {
+      return deviceHeartbeatInFlight;
     }
+    deviceHeartbeatInFlight = measurePerformanceTask("device heartbeat", async () => {
+      const controller = typeof AbortController === "function" ? new AbortController() : null;
+      const timeout = controller
+        ? window.setTimeout(() => controller.abort(), deviceHeartbeatTimeoutMs)
+        : 0;
+      try {
+        const response = await fetch(deviceHeartbeatAPIURL(), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(currentDeviceInfo()),
+          signal: controller?.signal,
+        });
+        if (!response.ok) {
+          throw new Error(await readResponseText(response, `设备心跳失败 (${response.status})`));
+        }
+      } finally {
+        if (timeout) {
+          window.clearTimeout(timeout);
+        }
+      }
+    }).finally(() => {
+      deviceHeartbeatInFlight = null;
+    });
+    return deviceHeartbeatInFlight;
   };
 
   const sendDeviceOfflineBeacon = () => {
@@ -3575,44 +3734,46 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     if (!deviceList || !deviceBackdrop || deviceBackdrop.hidden) {
       return [];
     }
-    const requestSeq = ++deviceListRequestSeq;
-    if (!deviceListLoaded) {
-      deviceListLoading = true;
-      renderDeviceList([]);
-    }
-    try {
-      const response = await fetch(devicesAPIURL(), { cache: "no-store" });
-      if (!response.ok) {
-        throw new Error(await readResponseText(response, `设备列表加载失败 (${response.status})`));
+    return measurePerformanceTask("device list refresh", async () => {
+      const requestSeq = ++deviceListRequestSeq;
+      if (!deviceListLoaded) {
+        deviceListLoading = true;
+        renderDeviceList([]);
       }
-      const devices = await response.json();
-      if (!Array.isArray(devices)) {
-        throw new Error("设备列表响应无效");
-      }
-      if (requestSeq !== deviceListRequestSeq) {
-        return devices;
-      }
-      deviceListLoaded = true;
-      deviceListLoading = false;
-      setDeviceFeedback("");
-      const nextSignature = deviceListContentSignature(devices);
-      if (nextSignature === deviceListSignature) {
-        return devices;
-      }
-      deviceListSignature = nextSignature;
-      renderDeviceList(devices);
-      return devices;
-    } catch (error) {
-      if (requestSeq === deviceListRequestSeq) {
-        deviceListLoading = false;
-        deviceListLoaded = true;
-        if (!deviceListSignature) {
-          renderDeviceList([]);
+      try {
+        const response = await fetch(devicesAPIURL(), { cache: "no-store" });
+        if (!response.ok) {
+          throw new Error(await readResponseText(response, `设备列表加载失败 (${response.status})`));
         }
-        setDeviceFeedback(error.message || "设备列表加载失败。", "error");
+        const devices = await response.json();
+        if (!Array.isArray(devices)) {
+          throw new Error("设备列表响应无效");
+        }
+        if (requestSeq !== deviceListRequestSeq) {
+          return devices;
+        }
+        deviceListLoaded = true;
+        deviceListLoading = false;
+        setDeviceFeedback("");
+        const nextSignature = deviceListContentSignature(devices);
+        if (nextSignature === deviceListSignature) {
+          return devices;
+        }
+        deviceListSignature = nextSignature;
+        renderDeviceList(devices);
+        return devices;
+      } catch (error) {
+        if (requestSeq === deviceListRequestSeq) {
+          deviceListLoading = false;
+          deviceListLoaded = true;
+          if (!deviceListSignature) {
+            renderDeviceList([]);
+          }
+          setDeviceFeedback(error.message || "设备列表加载失败。", "error");
+        }
+        throw error;
       }
-      throw error;
-    }
+    });
   };
 
   const startDeviceListRefresh = () => {
@@ -6094,7 +6255,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     card.addEventListener("pointerdown", handleTabOverviewCardPointerDown);
   };
 
-  const renderTabOverview = () => {
+  const renderTabOverview = () => measurePerformanceTask("tab overview render", () => {
     if (!tabOverviewGrid) {
       return;
     }
@@ -6176,7 +6337,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     for (const item of previewItems) {
       drawTabOverviewPreview(item.canvas, item.tab, colors);
     }
-  };
+  });
 
   const scheduleTabOverviewRender = () => {
     if (!isTabOverviewOpen() || tabOverviewRenderFrame) {
@@ -7196,24 +7357,26 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     if (visibleOnly && !isPaneVisibleForSizing(pane)) {
       return false;
     }
-    const dimensions = pane.fitAddon?.proposeDimensions?.();
-    if (!dimensions || dimensions.cols <= 0 || dimensions.rows <= 0) {
-      return false;
-    }
-    try {
-      pane.fitAddon.fit();
-    } catch (error) {
-      return false;
-    }
-    resetTerminalHostViewport(pane, { clean: true });
-    positionTerminalInput(pane);
-    if (!pane.initialFitResetDone && !pane.replayComplete) {
-      resetTerminalAfterInitialFit(pane);
-    }
-    requestPaneFullRender(pane);
-    sendTerminalSize(pane);
-    updateMobileSelectionHandles(pane);
-    return true;
+    return measurePerformanceTask("resize/fit", () => {
+      const dimensions = pane.fitAddon?.proposeDimensions?.();
+      if (!dimensions || dimensions.cols <= 0 || dimensions.rows <= 0) {
+        return false;
+      }
+      try {
+        pane.fitAddon.fit();
+      } catch (error) {
+        return false;
+      }
+      resetTerminalHostViewport(pane, { clean: true });
+      positionTerminalInput(pane);
+      if (!pane.initialFitResetDone && !pane.replayComplete) {
+        resetTerminalAfterInitialFit(pane);
+      }
+      requestPaneFullRender(pane);
+      sendTerminalSize(pane);
+      updateMobileSelectionHandles(pane);
+      return true;
+    });
   };
 
   const connectPendingSession = (session, { allowHidden = false } = {}) => {
@@ -10861,7 +11024,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       session.replayOutputDepth += 1;
     }
     try {
-      session.term.write(data);
+      measurePerformanceTask("terminal render", () => session.term.write(data));
       drainGeneratedTerminalResponses(session);
       return true;
     } finally {
@@ -10921,69 +11084,71 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       session.replayCompletionPending = false;
       return;
     }
-    const flushQueue = [];
-    const restQueue = [];
-    let flushBytes = 0;
-    let restBytes = 0;
-    if (force) {
-      flushQueue.push(...queue);
-    } else {
-      for (const entry of queue) {
-        if (restQueue.length > 0 || (flushQueue.length > 0 && flushBytes + entry.byteLength > terminalOutputFlushBudgetBytes)) {
-          restQueue.push(entry);
-          restBytes += entry.byteLength;
-        } else {
-          flushQueue.push(entry);
-          flushBytes += entry.byteLength;
+    measurePerformanceTask("output flush", () => {
+      const flushQueue = [];
+      const restQueue = [];
+      let flushBytes = 0;
+      let restBytes = 0;
+      if (force) {
+        flushQueue.push(...queue);
+      } else {
+        for (const entry of queue) {
+          if (restQueue.length > 0 || (flushQueue.length > 0 && flushBytes + entry.byteLength > terminalOutputFlushBudgetBytes)) {
+            restQueue.push(entry);
+            restBytes += entry.byteLength;
+          } else {
+            flushQueue.push(entry);
+            flushBytes += entry.byteLength;
+          }
         }
       }
-    }
-    session.outputQueue = restQueue;
-    session.outputQueueSize = restBytes;
+      session.outputQueue = restQueue;
+      session.outputQueueSize = restBytes;
 
-    let wrote = false;
-    let batch = null;
-    const flushBatch = () => {
-      if (!batch) {
-        return;
-      }
-      const data = coalesceTerminalOutputBatch(batch.chunks, batch.kind, batch.byteLength);
-      if (writeTerminalOutputBatch(session, data, batch.replayOutput, batch.allowGeneratedInput)) {
-        wrote = true;
-      }
-      batch = null;
-    };
+      let wrote = false;
+      let batch = null;
+      const flushBatch = () => {
+        if (!batch) {
+          return;
+        }
+        const data = coalesceTerminalOutputBatch(batch.chunks, batch.kind, batch.byteLength);
+        if (writeTerminalOutputBatch(session, data, batch.replayOutput, batch.allowGeneratedInput)) {
+          wrote = true;
+        }
+        batch = null;
+      };
 
-    for (const entry of flushQueue) {
-      if (
-        !batch ||
-        batch.kind !== entry.kind ||
-        batch.replayOutput !== entry.replayOutput ||
-        batch.allowGeneratedInput !== entry.allowGeneratedInput
-      ) {
-        flushBatch();
-        batch = {
-          kind: entry.kind,
-          replayOutput: entry.replayOutput,
-          allowGeneratedInput: entry.allowGeneratedInput,
-          chunks: [],
-          byteLength: 0,
-        };
+      for (const entry of flushQueue) {
+        if (
+          !batch ||
+          batch.kind !== entry.kind ||
+          batch.replayOutput !== entry.replayOutput ||
+          batch.allowGeneratedInput !== entry.allowGeneratedInput
+        ) {
+          flushBatch();
+          batch = {
+            kind: entry.kind,
+            replayOutput: entry.replayOutput,
+            allowGeneratedInput: entry.allowGeneratedInput,
+            chunks: [],
+            byteLength: 0,
+          };
+        }
+        batch.chunks.push(entry.data);
+        batch.byteLength += entry.byteLength;
       }
-      batch.chunks.push(entry.data);
-      batch.byteLength += entry.byteLength;
-    }
-    flushBatch();
+      flushBatch();
 
-    if (wrote) {
-      resetTerminalHostViewport(session, { clean: true });
-      positionTerminalInput(session);
-    }
-    if (session.outputQueueSize > 0) {
-      scheduleSessionOutputFlush(session);
-    } else {
-      finishSessionHistoryReplayIfReady(session);
-    }
+      if (wrote) {
+        resetTerminalHostViewport(session, { clean: true });
+        positionTerminalInput(session);
+      }
+      if (session.outputQueueSize > 0) {
+        scheduleSessionOutputFlush(session);
+      } else {
+        finishSessionHistoryReplayIfReady(session);
+      }
+    });
   };
 
   const scheduleSessionOutputFlush = (session) => {
@@ -11049,7 +11214,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     if (session.closed) {
       return;
     }
-    session.term.write(data);
+    measurePerformanceTask("terminal render", () => session.term.write(data));
     drainGeneratedTerminalResponses(session);
     resetTerminalHostViewport(session, { clean: true });
     positionTerminalInput(session);
@@ -11125,28 +11290,30 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     if (!session?.term || session.closed || session.name !== activeName) {
       return false;
     }
-    discardSessionOutputBuffers(session);
-    markPaneRenderPending(session);
-    session.selectAllBufferActive = false;
-    session.term.clearSelection?.();
-    session.term.viewportY = 0;
-    session.term.targetViewportY = 0;
-    try {
-      session.term.reset();
-      if (session.term.selectionManager && session.term.wasmTerm) {
-        session.term.selectionManager.wasmTerm = session.term.wasmTerm;
+    return measurePerformanceTask("history replay", () => {
+      discardSessionOutputBuffers(session);
+      markPaneRenderPending(session);
+      session.selectAllBufferActive = false;
+      session.term.clearSelection?.();
+      session.term.viewportY = 0;
+      session.term.targetViewportY = 0;
+      try {
+        session.term.reset();
+        if (session.term.selectionManager && session.term.wasmTerm) {
+          session.term.selectionManager.wasmTerm = session.term.wasmTerm;
+        }
+        session.term.linkDetector?.invalidateCache?.();
+      } catch (error) {
+        return false;
       }
-      session.term.linkDetector?.invalidateCache?.();
-    } catch (error) {
-      return false;
-    }
-    installRendererBaselinePatch(session);
-    installRendererThemeMapper(session);
-    installRendererCellSeamPatch(session);
-    resizePane(session);
-    resetTerminalHostViewport(session, { clean: true });
-    positionTerminalInput(session);
-    return true;
+      installRendererBaselinePatch(session);
+      installRendererThemeMapper(session);
+      installRendererCellSeamPatch(session);
+      resizePane(session);
+      resetTerminalHostViewport(session, { clean: true });
+      positionTerminalInput(session);
+      return true;
+    });
   };
 
   const requestSessionHistoryReplay = (session) => {
@@ -12071,35 +12238,37 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     if (!tab) {
       return;
     }
-    const previousTabId = activeTabId;
-    const wasActive = previousTabId === tab.id;
-    activeTabId = tab.id;
-    if (rememberRecent) {
-      rememberRecentTab(tab.id, previousTabId);
-    }
-    for (const item of tabs.values()) {
-      const isActive = item.id === activeTabId;
-      item.paneEl.classList.toggle("active", isActive);
-      item.button?.classList.toggle("active", isActive);
-      item.button?.setAttribute("aria-selected", isActive ? "true" : "false");
-      item.button?.setAttribute("tabindex", isActive ? "0" : "-1");
-    }
-    setActivePane(tab, tab.activePaneId, { focus });
-    const activePane = tab.panes.get(tab.activePaneId);
-    resetSessionUserInput(activePane);
-    requestPaneFullRender(activePane);
-    syncCursorBlinkState();
-    clearTabNotification(tab);
-    if (remember) {
-      rememberActiveTab();
-    }
-    renderAttachmentUploadsForActiveTab();
-    scheduleVisibleTabResize(tab);
-    window.requestAnimationFrame(() => scrollTabButtonIntoView(tab.button));
-    if (!applyingWorkspaceState && !wasActive) {
-      postWorkspaceAction("activate_tab", { tab_id: tab.id, recent_tab_ids: recentTabIds }).catch((error) => showToast(error.message));
-    }
-    scheduleTabOverviewRender();
+    return measurePerformanceTask("tab switch", () => {
+      const previousTabId = activeTabId;
+      const wasActive = previousTabId === tab.id;
+      activeTabId = tab.id;
+      if (rememberRecent) {
+        rememberRecentTab(tab.id, previousTabId);
+      }
+      for (const item of tabs.values()) {
+        const isActive = item.id === activeTabId;
+        item.paneEl.classList.toggle("active", isActive);
+        item.button?.classList.toggle("active", isActive);
+        item.button?.setAttribute("aria-selected", isActive ? "true" : "false");
+        item.button?.setAttribute("tabindex", isActive ? "0" : "-1");
+      }
+      setActivePane(tab, tab.activePaneId, { focus });
+      const activePane = tab.panes.get(tab.activePaneId);
+      resetSessionUserInput(activePane);
+      requestPaneFullRender(activePane);
+      syncCursorBlinkState();
+      clearTabNotification(tab);
+      if (remember) {
+        rememberActiveTab();
+      }
+      renderAttachmentUploadsForActiveTab();
+      scheduleVisibleTabResize(tab);
+      window.requestAnimationFrame(() => scrollTabButtonIntoView(tab.button));
+      if (!applyingWorkspaceState && !wasActive) {
+        postWorkspaceAction("activate_tab", { tab_id: tab.id, recent_tab_ids: recentTabIds }).catch((error) => showToast(error.message));
+      }
+      scheduleTabOverviewRender();
+    });
   };
 
   const renderLeaf = (tab, node) => {
@@ -12219,7 +12388,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     window.requestAnimationFrame(() => resizeTab(tab));
   };
 
-  const applyWorkspaceState = (state, { focus = false, instanceName = activeName, generation = activeInstanceGeneration, preferStateActiveTab = false } = {}) => {
+  const applyWorkspaceState = (state, { focus = false, instanceName = activeName, generation = activeInstanceGeneration, preferStateActiveTab = false } = {}) => measurePerformanceTask("workspace apply", () => {
     const expectedName = String(instanceName || "").trim();
     ensureResponseSelector(state, expectedName);
     const targetName = responseSelector(state) || expectedName;
@@ -12310,9 +12479,9 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       clearRestartTabForReload();
       applyingWorkspaceState = false;
     }
-  };
+  });
 
-  const refreshWorkspace = async ({ focus = false, instanceName = activeName, generation = activeInstanceGeneration } = {}) => {
+  const refreshWorkspace = async ({ focus = false, instanceName = activeName, generation = activeInstanceGeneration } = {}) => measurePerformanceTask("workspace refresh", async () => {
     const requestName = String(instanceName || "").trim();
     const state = await fetchWorkspaceState(requestName);
     if (!isCurrentInstanceRequest(requestName, generation)) {
@@ -12322,7 +12491,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     observeServerRevision(state);
     applyWorkspaceState(state, { focus, instanceName: requestName, generation });
     return state;
-  };
+  });
 
   const splitLayout = (node, targetPaneId, direction, newPaneId) => {
     if (!node) {
@@ -13309,7 +13478,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     attachmentBrowserList.appendChild(fragment);
   };
 
-  const loadAttachmentBrowserPath = async (path = attachmentBrowserCurrentPath) => {
+  const loadAttachmentBrowserPath = async (path = attachmentBrowserCurrentPath) => measurePerformanceTask("attachment list refresh", async () => {
     if (!activeName) {
       showToast("没有可用的当前终端。");
       return;
@@ -13342,7 +13511,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
         updateAttachmentBrowserControls();
       }
     }
-  };
+  });
 
   const openAttachmentBrowser = () => {
     if (!attachmentBrowserBackdrop) {
@@ -13722,6 +13891,15 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     };
     attachmentUploads.set(id, upload);
     renderAttachmentUpload(upload);
+    const uploadStartedAt = performanceTaskNow();
+    let uploadRecorded = false;
+    const recordAttachmentUpload = () => {
+      if (uploadRecorded) {
+        return;
+      }
+      uploadRecorded = true;
+      recordPerformanceTask("attachment upload", performanceTaskNow() - uploadStartedAt);
+    };
 
     const form = new FormData();
     for (const file of selectedFiles) {
@@ -13740,6 +13918,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       renderAttachmentUpload(upload);
     });
     xhr.addEventListener("load", async () => {
+      recordAttachmentUpload();
       upload.xhr = null;
       upload.loaded = upload.total || upload.loaded;
       if (xhr.status < 200 || xhr.status >= 300) {
@@ -13768,6 +13947,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       }
     });
     xhr.addEventListener("error", () => {
+      recordAttachmentUpload();
       upload.xhr = null;
       upload.status = "error";
       upload.error = "上传失败";
@@ -13780,6 +13960,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       renderAttachmentUpload(upload);
     });
     xhr.addEventListener("abort", () => {
+      recordAttachmentUpload();
       upload.xhr = null;
       upload.status = "canceled";
       upload.error = "";
@@ -13868,6 +14049,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
 
   const bootstrap = async () => {
     applyPerformanceMeterVisibility();
+    applyPerformanceTaskMeterVisibility();
     startDeviceHeartbeat();
     await loadThemeCatalog();
     applyThemeDocumentState();
@@ -14207,6 +14389,12 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     window.localStorage.setItem(performanceMeterStorageKey, performanceMeterEnabled ? "true" : "false");
     applyPerformanceMeterVisibility();
     syncSettingsPerformanceMeterToggle();
+  });
+  settingsPerformanceTasksToggle?.addEventListener("change", () => {
+    performanceTasksEnabled = settingsPerformanceTasksToggle.checked;
+    window.localStorage.setItem(performanceTasksStorageKey, performanceTasksEnabled ? "true" : "false");
+    applyPerformanceTaskMeterVisibility();
+    syncSettingsPerformanceTasksToggle();
   });
   settingsMobilePixelScrollToggle?.addEventListener("change", () => {
     const previous = mobilePixelScrollEnabled;
