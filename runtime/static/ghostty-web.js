@@ -316,7 +316,8 @@ const z = class K {
         flags: I[w + 10],
         width: I[w + 11],
         hyperlink_id: D.getUint16(w + 12, !0),
-        grapheme_len: I[w + 14]
+        grapheme_len: I[w + 14],
+        text: I[w + 14] > 0 && typeof this.getScrollbackGraphemeString == "function" ? this.getScrollbackGraphemeString(A, i) : String.fromCodePoint(D.getUint32(w, !0) || 32)
       });
     }
     return E;
@@ -1384,10 +1385,49 @@ class $ {
   /**
    * Resize canvas to fit terminal dimensions
    */
-  resize(A, B) {
+  canvasSize(A, B) {
     var C;
     const g = Math.max(A * this.metrics.width, ((C = this.canvas.parentElement) == null ? void 0 : C.clientWidth) || 0), E = B * this.metrics.height;
-    this.canvas.style.width = `${g}px`, this.canvas.style.height = `${E}px`, this.canvas.width = g * this.devicePixelRatio, this.canvas.height = E * this.devicePixelRatio, this.ctx.scale(this.devicePixelRatio, this.devicePixelRatio), this.ctx.textBaseline = "alphabetic", this.ctx.textAlign = "left", this.ctx.fillStyle = this.theme.background, this.ctx.fillRect(0, 0, g, E);
+    return {
+      cssWidth: g,
+      cssHeight: E,
+      pixelWidth: Math.round(g * this.devicePixelRatio),
+      pixelHeight: Math.round(E * this.devicePixelRatio)
+    };
+  }
+  resize(A, B) {
+    const C = this.canvasSize(A, B), I = `${C.cssWidth}px`, D = `${C.cssHeight}px`;
+    if (this.canvas.width === C.pixelWidth && this.canvas.height === C.pixelHeight && this.canvas.style.width === I && this.canvas.style.height === D)
+      return !1;
+    return this.canvas.style.width = I, this.canvas.style.height = D, this.canvas.width = C.pixelWidth, this.canvas.height = C.pixelHeight, this.ctx.setTransform(this.devicePixelRatio, 0, 0, this.devicePixelRatio, 0, 0), this.ctx.textBaseline = "alphabetic", this.ctx.textAlign = "left", this.ctx.fillStyle = this.theme.background, this.ctx.fillRect(0, 0, C.cssWidth, C.cssHeight), !0;
+  }
+  snapshotViewport(A, B) {
+    if (!A || typeof A.getViewport != "function")
+      return null;
+    const g = A.getViewport();
+    if (!g)
+      return null;
+    const E = B.cols * B.rows, C = this.viewportSnapshotCells || (this.viewportSnapshotCells = []);
+    for (let I = C.length; I < E; I++)
+      C.push({
+        codepoint: 0,
+        fg_r: 204,
+        fg_g: 204,
+        fg_b: 204,
+        bg_r: 0,
+        bg_g: 0,
+        bg_b: 0,
+        flags: 0,
+        width: 1,
+        hyperlink_id: 0,
+        grapheme_len: 0,
+        text: " "
+      });
+    for (let I = 0; I < E; I++) {
+      const D = g[I], i = C[I];
+      D ? (i.codepoint = D.codepoint, i.fg_r = D.fg_r, i.fg_g = D.fg_g, i.fg_b = D.fg_b, i.bg_r = D.bg_r, i.bg_g = D.bg_g, i.bg_b = D.bg_b, i.flags = D.flags, i.width = D.width, i.hyperlink_id = D.hyperlink_id, i.grapheme_len = D.grapheme_len, i.text = D.grapheme_len > 0 && typeof A.getGraphemeString == "function" ? A.getGraphemeString(Math.floor(I / B.cols), I % B.cols) : String.fromCodePoint(D.codepoint || 32)) : (i.codepoint = 0, i.fg_r = 204, i.fg_g = 204, i.fg_b = 204, i.bg_r = 0, i.bg_g = 0, i.bg_b = 0, i.flags = 0, i.width = 1, i.hyperlink_id = 0, i.grapheme_len = 0, i.text = " ");
+    }
+    return C;
   }
   // ==========================================================================
   // Main Rendering
@@ -1398,17 +1438,28 @@ class $ {
   render(A, B = !1, g = 0, E, C = 1) {
     var U;
     this.currentBuffer = A;
+    this.currentViewportSnapshot = null, this.currentViewportSnapshotCols = 0, this.currentViewportSnapshotRows = 0;
     const I = A.getCursor(), D = A.getDimensions(), i = E ? E.getScrollbackLength() : 0;
     const usePixelScroll = Boolean(E?.options?.mobilePixelScroll), viewportLine = Math.max(0, Math.floor(g)), viewportFraction = usePixelScroll ? Math.max(0, Math.min(1, g - viewportLine)) : 0, viewportOffsetY = viewportFraction * this.metrics.height, hasFractionalViewport = viewportFraction > 0.001;
-    (U = A.needsFullRedraw) != null && U.call(A) && (B = !0), (this.canvas.width !== D.cols * this.metrics.width * this.devicePixelRatio || this.canvas.height !== D.rows * this.metrics.height * this.devicePixelRatio) && (this.resize(D.cols, D.rows), B = !0), g !== this.lastViewportY && (B = !0, this.lastViewportY = g);
+    const S = this.canvasSize(D.cols, D.rows);
+    (U = A.needsFullRedraw) != null && U.call(A) && (B = !0), (this.canvas.width !== S.pixelWidth || this.canvas.height !== S.pixelHeight || this.canvas.style.width !== `${S.cssWidth}px` || this.canvas.style.height !== `${S.cssHeight}px`) && (this.resize(D.cols, D.rows), B = !0), g !== this.lastViewportY && (B = !0, this.lastViewportY = g);
+    B && (this.ctx.fillStyle = this.theme.background, this.ctx.fillRect(0, 0, this.canvas.width / this.devicePixelRatio, this.canvas.height / this.devicePixelRatio));
+    const W = g <= 0 ? this.snapshotViewport(A, D) : null, R = (t) => {
+      if (W && t >= 0 && t < D.rows) {
+        const c = t * D.cols;
+        return W.slice(c, c + D.cols);
+      }
+      return A.getLine(t);
+    };
+    W && (this.currentViewportSnapshot = W, this.currentViewportSnapshotCols = D.cols, this.currentViewportSnapshotRows = D.rows);
     const s = I.x !== this.lastCursorPosition.x || I.y !== this.lastCursorPosition.y;
     if (s || this.cursorBlink) {
       if (!B && !A.isRowDirty(I.y)) {
-        const t = A.getLine(I.y);
+        const t = R(I.y);
         t && this.renderLine(t, I.y, D.cols);
       }
       if (s && this.lastCursorPosition.y !== I.y && !B && !A.isRowDirty(this.lastCursorPosition.y)) {
-        const t = A.getLine(this.lastCursorPosition.y);
+        const t = R(this.lastCursorPosition.y);
         t && this.renderLine(t, this.lastCursorPosition.y, D.cols);
       }
     }
@@ -1439,7 +1490,7 @@ class $ {
             c = A.getLine(F);
           }
         else
-          c = A.getLine(t);
+          c = R(t);
         if (c) {
           for (const F of c)
             if (F.hyperlink_id === this.hoveredHyperlinkId || F.hyperlink_id === this.previousHoveredHyperlinkId) {
@@ -1476,10 +1527,10 @@ class $ {
           c = A.getLine(F);
         }
       else
-        c = A.getLine(t);
+        c = R(t);
       c && this.renderLine(c, t, D.cols, viewportOffsetY);
     }
-    g === 0 && I.visible && this.cursorVisible && this.renderCursor(I.x, I.y), E && C > 0 && this.renderScrollbar(g, i, D.rows, C), this.lastCursorPosition = { x: I.x, y: I.y }, A.clearDirty();
+    g === 0 && I.visible && this.cursorVisible && this.renderCursor(I.x, I.y), E && C > 0 && this.renderScrollbar(g, i, D.rows, C), this.lastCursorPosition = { x: I.x, y: I.y }, A.clearDirty(), this.currentViewportSnapshot = null, this.currentViewportSnapshotCols = 0, this.currentViewportSnapshotRows = 0;
   }
   /**
    * Render a single line using two-pass approach:
@@ -1494,7 +1545,7 @@ class $ {
    */
   renderLine(A, B, g, E = 0) {
     const C = B * this.metrics.height + E;
-    this.ctx.fillStyle = this.theme.background, this.ctx.fillRect(0, C, g * this.metrics.width, this.metrics.height);
+    this.ctx.fillStyle = this.theme.background, this.ctx.fillRect(0, C, this.canvas.width / this.devicePixelRatio, this.metrics.height);
     for (let C = 0; C < A.length; C++) {
       const I = A[C];
       I.width !== 0 && this.renderCellBackground(I, C, B, E);
@@ -1538,7 +1589,7 @@ class $ {
     A.flags & e.FAINT && (this.ctx.globalAlpha = 0.5);
     const w = C, s = I + this.metrics.baseline;
     let N;
-    if (A.grapheme_len > 0 && ((k = this.currentBuffer) != null && k.getGraphemeString) ? N = this.currentBuffer.getGraphemeString(g, B) : N = String.fromCodePoint(A.codepoint || 32), this.ctx.fillText(N, w, s), A.flags & e.FAINT && (this.ctx.globalAlpha = 1), A.flags & e.UNDERLINE) {
+    if (typeof A.text == "string" ? N = A.text : A.grapheme_len > 0 && ((k = this.currentBuffer) != null && k.getGraphemeString) ? N = this.currentBuffer.getGraphemeString(g, B) : N = String.fromCodePoint(A.codepoint || 32), this.ctx.fillText(N, w, s), A.flags & e.FAINT && (this.ctx.globalAlpha = 1), A.flags & e.UNDERLINE) {
       const M = I + this.metrics.baseline + 2;
       this.ctx.strokeStyle = this.ctx.fillStyle, this.ctx.lineWidth = 1, this.ctx.beginPath(), this.ctx.moveTo(C, M), this.ctx.lineTo(C + F, M), this.ctx.stroke();
     }
@@ -1587,7 +1638,7 @@ class $ {
   // ==========================================================================
   startCursorBlink() {
     this.cursorBlinkInterval = window.setInterval(() => {
-      this.cursorVisible = !this.cursorVisible;
+      this.cursorVisible = !this.cursorVisible, this.onCursorBlink?.();
     }, 530);
   }
   stopCursorBlink() {
@@ -1718,7 +1769,7 @@ class $ {
    * Clear entire canvas
    */
   clear() {
-    this.ctx.fillStyle = this.theme.background, this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+    this.ctx.fillStyle = this.theme.background, this.ctx.fillRect(0, 0, this.canvas.width / this.devicePixelRatio, this.canvas.height / this.devicePixelRatio);
   }
   /**
    * Cleanup resources
@@ -2096,6 +2147,7 @@ const L = class Y {
    * Request a render update (triggers selection overlay redraw)
    */
   requestRender() {
+    this.terminal?.requestRender?.();
   }
 };
 L.AUTO_SCROLL_EDGE_SIZE = 30;
@@ -2162,13 +2214,13 @@ class IA {
       const E = this.options.smoothScrollDuration ?? 100, C = typeof g == "number" ? g : performance.now(), I = this.scrollAnimationLastFrameTime ?? C, D = Math.max(0, C - I), i = this.targetViewportY - this.viewportY;
       this.scrollAnimationLastFrameTime = C;
       if (Math.abs(i) < 0.01) {
-        this.viewportY = this.targetViewportY, this.scrollEmitter.fire(Math.floor(this.viewportY)), this.getScrollbackLength() > 0 && this.showScrollbar(), this.scrollAnimationFrame = void 0, this.scrollAnimationStartTime = void 0, this.scrollAnimationStartY = void 0, this.scrollAnimationLastFrameTime = void 0;
+        this.viewportY = this.targetViewportY, this.scrollEmitter.fire(Math.floor(this.viewportY)), this.getScrollbackLength() > 0 && this.showScrollbar(), this.requestRender(), this.scrollAnimationFrame = void 0, this.scrollAnimationStartTime = void 0, this.scrollAnimationStartY = void 0, this.scrollAnimationLastFrameTime = void 0;
         return;
       }
       const w = this.options.mobilePixelScroll ? Math.max(0.08, Math.min(1, 1 - Math.exp(-D / Math.max(1, E / 20)))) : 1 - (1 / (E / 1e3 * 60)) ** 2;
       this.viewportY += i * w;
       const s = Math.floor(this.viewportY);
-      this.scrollEmitter.fire(s), this.getScrollbackLength() > 0 && this.showScrollbar(), this.scrollAnimationFrame = requestAnimationFrame(this.animateScroll);
+      this.scrollEmitter.fire(s), this.getScrollbackLength() > 0 && this.showScrollbar(), this.requestRender(), this.scrollAnimationFrame = requestAnimationFrame(this.animateScroll);
     }, this.handleMouseMove = (g) => {
       if (!(!this.canvas || !this.renderer || !this.wasmTerm)) {
         if (this.isDraggingScrollbar) {
@@ -2190,7 +2242,11 @@ class IA {
       }
     }, this.handleMouseLeave = () => {
       var g, E;
-      this.renderer && this.wasmTerm && ((this.renderer.hoveredHyperlinkId || 0) > 0 && this.renderer.setHoveredHyperlinkId(0), this.renderer.setHoveredLinkRange(null)), this.currentHoveredLink && ((E = (g = this.currentHoveredLink).hover) == null || E.call(g, !1), this.currentHoveredLink = void 0, this.element && (this.element.style.cursor = "text"));
+      if (this.renderer && this.wasmTerm) {
+        const C = (this.renderer.hoveredHyperlinkId || 0) > 0 || this.renderer.hoveredLinkRange;
+        (this.renderer.hoveredHyperlinkId || 0) > 0 && this.renderer.setHoveredHyperlinkId(0), this.renderer.setHoveredLinkRange(null), C && this.requestRender();
+      }
+      this.currentHoveredLink && ((E = (g = this.currentHoveredLink).hover) == null || E.call(g, !1), this.currentHoveredLink = void 0, this.element && (this.element.style.cursor = "text"));
     }, this.handleClick = async (g) => {
       if (!this.canvas || !this.renderer || !this.linkDetector || !this.wasmTerm)
         return;
@@ -2277,7 +2333,7 @@ class IA {
           break;
         case "cursorBlink":
         case "cursorStyle":
-          this.renderer && (this.renderer.setCursorStyle(this.options.cursorStyle), this.renderer.setCursorBlink(this.options.cursorBlink));
+          this.renderer && (this.renderer.setCursorStyle(this.options.cursorStyle), this.renderer.setCursorBlink(this.options.cursorBlink), this.requestRender());
           break;
         case "theme":
           this.renderer && console.warn("ghostty-web: theme changes after open() are not yet fully supported");
@@ -2301,7 +2357,7 @@ class IA {
   handleFontChange() {
     if (!this.renderer || !this.wasmTerm || !this.canvas)
       return;
-    this.selectionManager && this.selectionManager.clearSelection(), this.renderer.resize(this.cols, this.rows), this.renderer.render(this.wasmTerm, !0, this.viewportY, this);
+    this.selectionManager && this.selectionManager.clearSelection(), this.renderer.resize(this.cols, this.rows), this.requestRender({ full: !0 });
   }
   /**
    * Parse a CSS color string to 0xRRGGBB format.
@@ -2384,7 +2440,7 @@ class IA {
         cursorStyle: this.options.cursorStyle,
         cursorBlink: this.options.cursorBlink,
         theme: this.options.theme
-      }), this.renderer.resize(this.cols, this.rows), this.inputHandler = new P(
+      }), this.renderer.onCursorBlink = () => this.requestRender(), this.renderer.resize(this.cols, this.rows), this.inputHandler = new P(
         this.ghostty,
         A,
         (E) => {
@@ -2413,7 +2469,7 @@ class IA {
         E.preventDefault(), E.stopPropagation();
         const C = (I = E.clipboardData) == null ? void 0 : I.getData("text");
         C && this.paste(C);
-      }), this.linkDetector = new v(this), this.linkDetector.registerProvider(new X(this)), this.linkDetector.registerProvider(new _(this)), A.addEventListener("mousedown", this.handleMouseDown, { capture: !0 }), A.addEventListener("mousemove", this.handleMouseMove), A.addEventListener("mouseleave", this.handleMouseLeave), A.addEventListener("click", this.handleClick), document.addEventListener("mouseup", this.handleMouseUp), A.addEventListener("wheel", this.handleWheel, { passive: !1, capture: !0 }), this.renderer.render(this.wasmTerm, !0, this.viewportY, this, this.scrollbarOpacity), this.startRenderLoop(), this.focus();
+      }), this.linkDetector = new v(this), this.linkDetector.registerProvider(new X(this)), this.linkDetector.registerProvider(new _(this)), A.addEventListener("mousedown", this.handleMouseDown, { capture: !0 }), A.addEventListener("mousemove", this.handleMouseMove), A.addEventListener("mouseleave", this.handleMouseLeave), A.addEventListener("click", this.handleClick), document.addEventListener("mouseup", this.handleMouseUp), A.addEventListener("wheel", this.handleWheel, { passive: !1, capture: !0 }), this.renderNow(!0), this.focus();
     } catch (B) {
       throw this.isOpen = !1, this.cleanupComponents(), new Error(`Failed to open terminal: ${B}`);
     }
@@ -2437,7 +2493,7 @@ class IA {
       const i = this.getScrollbackLength(), w = Math.max(0, i - E), s = Math.max(0, Math.min(i, C + w)), N = Math.max(0, Math.min(i, I + w));
       (s !== this.viewportY || N !== this.targetViewportY) && (this.viewportY = s, this.targetViewportY = N, this.scrollEmitter.fire(Math.floor(this.viewportY))), i > 0 && this.showScrollbar();
     }
-    typeof A == "string" && A.includes("\x1B]") && this.checkForTitleChange(A), B && requestAnimationFrame(B);
+    this.requestRender(), typeof A == "string" && A.includes("\x1B]") && this.checkForTitleChange(A), B && requestAnimationFrame(B);
   }
   /**
    * Write data with newline
@@ -2471,14 +2527,14 @@ class IA {
    */
   resize(A, B) {
     if (this.assertOpen(), A === this.cols && B === this.rows)
-      return this.renderer.resize(A, B), this.renderer.render(this.wasmTerm, !0, this.viewportY, this);
-    this.cols = A, this.rows = B, this.wasmTerm.resize(A, B), this.renderer.resize(A, B), this.resizeEmitter.fire({ cols: A, rows: B }), this.renderer.render(this.wasmTerm, !0, this.viewportY, this);
+      return this.renderer.resize(A, B) && this.requestRender({ full: !0 });
+    this.cols = A, this.rows = B, this.wasmTerm.resize(A, B), this.renderer.resize(A, B), this.resizeEmitter.fire({ cols: A, rows: B }), this.requestRender({ full: !0 });
   }
   /**
    * Clear terminal screen
    */
   clear() {
-    this.assertOpen(), this.wasmTerm.write("\x1B[2J\x1B[H");
+    this.assertOpen(), this.wasmTerm.write("\x1B[2J\x1B[H"), this.requestRender({ full: !0 });
   }
   /**
    * Reset terminal state
@@ -2486,7 +2542,7 @@ class IA {
   reset() {
     this.assertOpen(), this.wasmTerm && this.wasmTerm.free();
     const A = this.buildWasmConfig();
-    this.wasmTerm = this.ghostty.createTerminal(this.cols, this.rows, A), this.renderer.clear(), this.currentTitle = "";
+    this.wasmTerm = this.ghostty.createTerminal(this.cols, this.rows, A), this.renderer.clear(), this.currentTitle = "", this.requestRender({ full: !0 });
   }
   /**
    * Focus terminal input
@@ -2620,7 +2676,7 @@ class IA {
     if (!this.wasmTerm)
       throw new Error("Terminal not open");
     const B = this.getScrollbackLength(), E = Math.max(0, Math.min(B, this.viewportY - A));
-    (E !== this.viewportY || E !== this.targetViewportY) && (this.viewportY = E, this.targetViewportY = E, this.scrollEmitter.fire(this.viewportY), B > 0 && this.showScrollbar());
+    (E !== this.viewportY || E !== this.targetViewportY) && (this.viewportY = E, this.targetViewportY = E, this.scrollEmitter.fire(this.viewportY), B > 0 && this.showScrollbar(), this.requestRender());
   }
   /**
    * Scroll viewport by a number of pages
@@ -2634,13 +2690,13 @@ class IA {
    */
   scrollToTop() {
     const A = this.getScrollbackLength();
-    A > 0 && (this.viewportY !== A || this.targetViewportY !== A) && (this.viewportY = A, this.targetViewportY = A, this.scrollEmitter.fire(this.viewportY), this.showScrollbar());
+    A > 0 && (this.viewportY !== A || this.targetViewportY !== A) && (this.viewportY = A, this.targetViewportY = A, this.scrollEmitter.fire(this.viewportY), this.showScrollbar(), this.requestRender());
   }
   /**
    * Scroll viewport to the bottom (current output)
    */
   scrollToBottom() {
-    (this.viewportY !== 0 || this.targetViewportY !== 0) && (this.viewportY = 0, this.targetViewportY = 0, this.scrollEmitter.fire(this.viewportY), this.getScrollbackLength() > 0 && this.showScrollbar());
+    (this.viewportY !== 0 || this.targetViewportY !== 0) && (this.viewportY = 0, this.targetViewportY = 0, this.scrollEmitter.fire(this.viewportY), this.getScrollbackLength() > 0 && this.showScrollbar(), this.requestRender());
   }
   /**
    * Scroll viewport to a specific line in the buffer
@@ -2648,7 +2704,7 @@ class IA {
    */
   scrollToLine(A) {
     const B = this.getScrollbackLength(), g = Math.max(0, Math.min(B, A));
-    (g !== this.viewportY || g !== this.targetViewportY) && (this.viewportY = g, this.targetViewportY = g, this.scrollEmitter.fire(this.viewportY), B > 0 && this.showScrollbar());
+    (g !== this.viewportY || g !== this.targetViewportY) && (this.viewportY = g, this.targetViewportY = g, this.scrollEmitter.fire(this.viewportY), B > 0 && this.showScrollbar(), this.requestRender());
   }
   /**
    * Smoothly scroll to a target viewport position
@@ -2659,7 +2715,7 @@ class IA {
       return;
     const B = this.getScrollbackLength(), E = Math.max(0, Math.min(B, A));
     if ((this.options.smoothScrollDuration ?? 100) === 0) {
-      this.viewportY = E, this.targetViewportY = E, this.scrollEmitter.fire(Math.floor(this.viewportY)), B > 0 && this.showScrollbar();
+      this.viewportY = E, this.targetViewportY = E, this.scrollEmitter.fire(Math.floor(this.viewportY)), B > 0 && this.showScrollbar(), this.requestRender();
       return;
     }
     this.targetViewportY = E, !this.scrollAnimationFrame && (this.scrollAnimationStartTime = performance.now(), this.scrollAnimationStartY = this.viewportY, this.scrollAnimationLastFrameTime = void 0, this.scrollAnimationFrame = requestAnimationFrame(this.animateScroll));
@@ -2682,17 +2738,25 @@ class IA {
   // Private Methods
   // ==========================================================================
   /**
-   * Start the render loop
+   * Schedule one render frame.
    */
-  startRenderLoop() {
-    const A = () => {
-      if (!this.isDisposed && this.isOpen) {
-        this.renderer.render(this.wasmTerm, !1, this.viewportY, this, this.scrollbarOpacity);
-        const B = this.wasmTerm.getCursor();
-        B.y !== this.lastCursorY && (this.lastCursorY = B.y, this.cursorMoveEmitter.fire()), this.animationFrameId = requestAnimationFrame(A);
-      }
-    };
-    A();
+  requestRender(A = {}) {
+    if (this.isDisposed || !this.isOpen)
+      return;
+    this.renderFullNextFrame = this.renderFullNextFrame || A.full === !0;
+    if (this.animationFrameId)
+      return;
+    this.animationFrameId = requestAnimationFrame(() => {
+      const B = this.renderFullNextFrame === !0;
+      this.animationFrameId = void 0, this.renderFullNextFrame = !1, this.renderNow(B);
+    });
+  }
+  renderNow(A = !1) {
+    if (this.isDisposed || !this.isOpen || !this.renderer || !this.wasmTerm)
+      return;
+    this.renderer.render(this.wasmTerm, A, this.viewportY, this, this.scrollbarOpacity), this.renderEmitter.fire();
+    const B = this.wasmTerm.getCursor();
+    B.y !== this.lastCursorY && (this.lastCursorY = B.y, this.cursorMoveEmitter.fire());
   }
   /**
    * Get a line from native WASM scrollback buffer
@@ -2745,7 +2809,7 @@ class IA {
       D = this.wasmTerm.getLine(C);
     D && g >= 0 && g < D.length && (I = D[g].hyperlink_id);
     const s = this.renderer.hoveredHyperlinkId || 0;
-    I !== s && this.renderer.setHoveredHyperlinkId(I);
+    I !== s && (this.renderer.setHoveredHyperlinkId(I), this.requestRender());
     const N = this.wasmTerm.getScrollbackLength();
     let k;
     const M = this.getViewportY(), a = Math.max(0, Math.floor(M));
@@ -2768,9 +2832,9 @@ class IA {
             startY: Math.max(0, p),
             endX: h.range.end.x,
             endY: Math.min(this.rows - 1, T)
-          }) : this.renderer.setHoveredLinkRange(null);
+          }) : this.renderer.setHoveredLinkRange(null), this.requestRender();
         } else
-          this.renderer.setHoveredLinkRange(null);
+          this.renderer.setHoveredLinkRange(null), this.requestRender();
     }).catch((h) => {
       console.warn("Link detection error:", h);
     });
@@ -2853,7 +2917,7 @@ class IA {
   fadeInScrollbar() {
     const A = Date.now(), B = () => {
       const g = Date.now() - A, E = Math.min(g / this.SCROLLBAR_FADE_DURATION_MS, 1);
-      this.scrollbarOpacity = E, this.renderer && this.wasmTerm && this.renderer.render(this.wasmTerm, !1, this.viewportY, this, this.scrollbarOpacity), E < 1 && requestAnimationFrame(B);
+      this.scrollbarOpacity = E, this.requestRender(), E < 1 && requestAnimationFrame(B);
     };
     B();
   }
@@ -2863,7 +2927,7 @@ class IA {
   fadeOutScrollbar() {
     const A = Date.now(), B = this.scrollbarOpacity, g = () => {
       const E = Date.now() - A, C = Math.min(E / this.SCROLLBAR_FADE_DURATION_MS, 1);
-      this.scrollbarOpacity = B * (1 - C), this.renderer && this.wasmTerm && this.renderer.render(this.wasmTerm, !1, this.viewportY, this, this.scrollbarOpacity), C < 1 ? requestAnimationFrame(g) : (this.scrollbarVisible = !1, this.scrollbarOpacity = 0, this.renderer && this.wasmTerm && this.renderer.render(this.wasmTerm, !1, this.viewportY, this, 0));
+      this.scrollbarOpacity = B * (1 - C), this.requestRender(), C < 1 ? requestAnimationFrame(g) : (this.scrollbarVisible = !1, this.scrollbarOpacity = 0, this.requestRender());
     };
     g();
   }
@@ -2959,7 +3023,7 @@ class DA {
       return;
     const B = this._terminal, g = B.cols, E = B.rows;
     if (A.cols === this._lastCols && A.rows === this._lastRows || A.cols === g && A.rows === E) {
-      this._lastCols = A.cols, this._lastRows = A.rows, B.resize && typeof B.resize == "function" && B.resize(A.cols, A.rows);
+      this._lastCols = A.cols, this._lastRows = A.rows;
       return;
     }
     this._lastCols = A.cols, this._lastRows = A.rows, this._isResizing = !0;

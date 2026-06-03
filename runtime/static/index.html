@@ -51,6 +51,12 @@
                     <span class="instance-switcher-item-meta">返回 LightOS 首页</span>
                   </span>
                 </button>
+                <button class="instance-switcher-action" id="deviceMenuButton" type="button">
+                  <span class="instance-switcher-item-body">
+                    <span class="instance-switcher-item-name">在线设备</span>
+                    <span class="instance-switcher-item-meta">当前正在连接的设备</span>
+                  </span>
+                </button>
                 <button class="instance-switcher-action" id="settingsMenuButton" type="button">
                   <span class="instance-switcher-item-body">
                     <span class="instance-switcher-item-name">设置</span>
@@ -78,9 +84,13 @@
         <div class="empty-state" id="emptyState" hidden>
           <button class="empty-state-action" id="emptyStateAction" type="button" aria-label="新建终端">新建终端</button>
         </div>
-        <div class="performance-meter" id="performanceMeter" aria-live="off">
+        <div class="fps-meter" id="performanceMeter" aria-live="off">
           <span id="performanceMeterFps">-- FPS</span>
           <span id="performanceMeterRefresh">-- Hz</span>
+        </div>
+        <div class="performance-task-meter" id="performanceTaskMeter" aria-live="off" hidden>
+          <div class="performance-task-meter-title">性能监视器</div>
+          <div class="performance-task-meter-list" id="performanceTaskMeterList"></div>
         </div>
         <div class="startup-error-panel" id="startupErrorPanel" hidden>
           <pre class="startup-error-text" id="startupErrorText"></pre>
@@ -200,10 +210,18 @@
                 </div>
                 <label class="settings-switch-row" for="settingsPerformanceMeterToggle">
                   <span class="settings-switch-label">
-                    <span>性能监视器</span>
+                    <span>FPS监视器</span>
                     <span>在终端右上角显示实时 FPS 和刷新率</span>
                   </span>
                   <input class="settings-switch-input" id="settingsPerformanceMeterToggle" type="checkbox" />
+                  <span class="settings-switch" aria-hidden="true"></span>
+                </label>
+                <label class="settings-switch-row" for="settingsPerformanceTasksToggle">
+                  <span class="settings-switch-label">
+                    <span>性能监视器</span>
+                    <span>采集并显示前端任务耗时</span>
+                  </span>
+                  <input class="settings-switch-input" id="settingsPerformanceTasksToggle" type="checkbox" />
                   <span class="settings-switch" aria-hidden="true"></span>
                 </label>
               </section>
@@ -328,6 +346,25 @@
           </div>
         </div>
       </div>
+    </div>
+    <div class="modal settings-modal device-modal" id="deviceBackdrop" hidden>
+      <section class="settings-panel device-panel" id="devicePanel" role="dialog" aria-modal="true" aria-labelledby="deviceTitle">
+        <div class="settings-header">
+          <button class="settings-back" id="deviceBack" type="button" aria-label="返回" title="返回">
+            <svg t="1778863118461" class="icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" p-id="17075" width="200" height="200" aria-hidden="true"><path d="M810.666667 469.333333H334.08l208.213333-208.213333a43.008 43.008 0 0 0 0-60.586667 42.666667 42.666667 0 0 0-60.16 0l-281.173333 281.173334a42.666667 42.666667 0 0 0 0 60.16l281.173333 281.173333a42.666667 42.666667 0 0 0 60.16-60.16L334.08 554.666667H810.666667a42.666667 42.666667 0 0 0 0-85.333334z" p-id="17076"></path></svg>
+          </button>
+          <h2 id="deviceTitle">在线设备</h2>
+          <button class="settings-close" id="deviceClose" type="button" aria-label="关闭在线设备">&times;</button>
+        </div>
+        <div class="settings-feedback device-feedback" id="deviceFeedback" aria-live="polite" hidden></div>
+        <div class="settings-main device-main">
+          <div class="settings-body">
+            <section class="settings-section device-section" aria-label="当前正在连接的设备">
+              <div class="device-list" id="deviceList" aria-label="当前正在连接的设备"></div>
+            </section>
+          </div>
+        </div>
+      </section>
     </div>
     <div class="service-forward-editor" id="serviceForwardEditor" hidden>
       <button class="service-forward-editor-scrim" id="serviceForwardEditorScrim" type="button" aria-label="关闭"></button>

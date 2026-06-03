@@ -20,6 +20,142 @@ func sourceBetween(t *testing.T, source, start, end string) string {
 	return source[bodyStart : bodyStart+endIndex]
 }
 
+func TestRuntimeFontURLsStayRelativeToProviderEntry(t *testing.T) {
+	data, err := os.ReadFile("runtime/static/main.js")
+	if err != nil {
+		t.Fatalf("ReadFile(runtime/static/main.js) error = %v", err)
+	}
+	source := string(data)
+
+	wantSnippets := []string{
+		"const fontFileURLPath = (id) => `api/settings/fonts/${encodeURIComponent(id)}/file`;",
+		"url: String(font?.url || fontFileURLPath(id)).trim(),",
+		"new URL(font.url || fontFileURLPath(font.id), window.location.href).toString();",
+	}
+	for _, want := range wantSnippets {
+		if !strings.Contains(source, want) {
+			t.Fatalf("runtime font URL guard missing %q", want)
+		}
+	}
+	if strings.Contains(source, "`/api/settings/fonts/") || strings.Contains(source, `"/api/settings/fonts/`) {
+		t.Fatalf("runtime font URLs must stay relative to provider entry, got source: %s", source)
+	}
+}
+
+func TestRuntimeHomeNavigationUsesCurrentOrigin(t *testing.T) {
+	data, err := os.ReadFile("runtime/static/main.js")
+	if err != nil {
+		t.Fatalf("ReadFile(runtime/static/main.js) error = %v", err)
+	}
+	source := string(data)
+
+	wantSnippets := []string{
+		"const buildCurrentOriginHomeURL = () => {",
+		`const targetURL = new URL("/", window.location.origin);`,
+		`targetURL.searchParams.set("view", "home");`,
+		"lightOSHomeURL = buildCurrentOriginHomeURL();",
+		"const targetURL = await loadLightOSHomeURL();",
+	}
+	for _, want := range wantSnippets {
+		if !strings.Contains(source, want) {
+			t.Fatalf("runtime home navigation guard missing %q", want)
+		}
+	}
+	for _, forbidden := range []string{
+		`fetch("./api/lightos-admin-info"`,
+		"buildExplicitHomeURL",
+		"resolveReferrerHomeURL",
+		"loadLightOSAdminBaseURL",
+		"loadLightOSAdminInfo",
+		"lightOSAdminInfo",
+		"lightOSAdminBaseURL",
+	} {
+		if strings.Contains(source, forbidden) {
+			t.Fatalf("runtime home navigation must not use %q", forbidden)
+		}
+	}
+}
+
+func TestRuntimeDeviceManagementStaticGuards(t *testing.T) {
+	indexData, err := os.ReadFile("runtime/static/index.html")
+	if err != nil {
+		t.Fatalf("ReadFile(runtime/static/index.html) error = %v", err)
+	}
+	index := string(indexData)
+	for _, want := range []string{
+		`id="deviceMenuButton"`,
+		"在线设备",
+		"当前正在连接的设备",
+		`id="deviceBackdrop"`,
+		`id="deviceBack"`,
+		`class="settings-back"`,
+		`id="deviceList"`,
+	} {
+		if !strings.Contains(index, want) {
+			t.Fatalf("runtime device management index guard missing %q", want)
+		}
+	}
+
+	mainData, err := os.ReadFile("runtime/static/main.js")
+	if err != nil {
+		t.Fatalf("ReadFile(runtime/static/main.js) error = %v", err)
+	}
+	source := string(mainData)
+	for _, want := range []string{
+		"const deviceHeartbeatIntervalMs = 1500;",
+		"const deviceListRefreshIntervalMs = 500;",
+		"function loadStableClientID() {",
+		"const serverRevisionClientID = loadStableClientID();",
+		"const currentDeviceInfo = () => {",
+		"client_id: serverRevisionClientID,",
+		`new URL("./api/devices/heartbeat", window.location.href).toString();`,
+		`new URL("./api/devices/offline", window.location.href).toString();`,
+		"const startDeviceHeartbeat = () => {",
+		"const refreshDeviceList = async () => {",
+		"const stopDeviceListRefresh = () => {",
+		"const closeDevicePanel = () => {",
+		"stopDeviceListRefresh();",
+		`deviceBack?.addEventListener("click", closeDevicePanel);`,
+		"const deviceListContentSignature = (devices) => JSON.stringify",
+		"joined_at: String(device?.joined_at || \"\").trim(),",
+		"if (nextSignature === deviceListSignature) {",
+		"暂无正在连接的设备",
+		`deviceMenuButton?.addEventListener("click", openDevicePanel);`,
+		`document.addEventListener("visibilitychange", () => {`,
+		`window.addEventListener("pageshow", () => {`,
+		`window.addEventListener("pagehide", () => {`,
+		"sendDeviceOfflineBeacon();",
+	} {
+		if !strings.Contains(source, want) {
+			t.Fatalf("runtime device management main guard missing %q", want)
+		}
+	}
+
+	styleData, err := os.ReadFile("runtime/static/style.css")
+	if err != nil {
+		t.Fatalf("ReadFile(runtime/static/style.css) error = %v", err)
+	}
+	style := string(styleData)
+	for _, want := range []string{
+		".device-panel",
+		".device-list",
+		"border: 1px dashed var(--panel-border);",
+		"background: var(--panel-subtle-bg);",
+		".device-item",
+		"background: var(--panel-bg);",
+	} {
+		if !strings.Contains(style, want) {
+			t.Fatalf("runtime device management style guard missing %q", want)
+		}
+	}
+	deviceStyle := sourceBetween(t, style, ".device-panel", ".settings-section-head")
+	for _, forbidden := range []string{"gradient", "animation:"} {
+		if strings.Contains(deviceStyle, forbidden) {
+			t.Fatalf("runtime device management style must not contain %q", forbidden)
+		}
+	}
+}
+
 func TestRuntimeShortcutDefaultsGuardMacAndAltMappings(t *testing.T) {
 	data, err := os.ReadFile("runtime/static/main.js")
 	if err != nil {
@@ -92,7 +228,7 @@ func TestRuntimePasteShortcutUsesNativePasteEvent(t *testing.T) {
 
 	earlyNativePasteBranch := sourceBetween(t, source,
 		`if (isNativePasteShortcutEvent(event)) {`,
-		`    if (event.ctrlKey && !event.altKey && !event.metaKey) {`,
+		`    if (runTerminalFontSizeShortcut(event)) {`,
 	)
 	for _, want := range []string{
 		`focusTerminalForNativePasteShortcut();`,
@@ -918,11 +1054,16 @@ func TestRuntimeTerminalOutputBatchingGuard(t *testing.T) {
 
 	wantSnippets := []string{
 		"const terminalOutputFlushFallbackMs = 32;",
+		"const terminalOutputFlushBudgetBytes = 128 * 1024;",
 		"const maxQueuedTerminalOutputBytes = 4 * 1024 * 1024;",
 		"const clearSessionOutputFlushSchedule = (session) => {",
+		"const terminalOutputByteChunkEnd = (data, start, maxBytes) => {",
+		"const finishSessionHistoryReplayIfReady = (session) => {",
 		"const flushSessionOutput = (session, { force = false } = {}) => {",
 		"window.requestAnimationFrame(flush);",
-		"session.outputQueue.push(entry);",
+		"session.outputQueue.push({",
+		"outputData.byteLength > terminalOutputFlushBudgetBytes",
+		"finishSessionHistoryReplayIfReady(session) || flushSessionOutput(session);",
 		"flushSessionOutput(session, { force: true });",
 		"const genericWebSocketStartupFallbacks = new Set([",
 		"const isGenericWebSocketStartupFallback = (message) =>",
@@ -939,6 +1080,66 @@ func TestRuntimeTerminalOutputBatchingGuard(t *testing.T) {
 	}
 }
 
+func TestRuntimeTerminalCanvasResidueGuard(t *testing.T) {
+	mainData, err := os.ReadFile("runtime/static/main.js")
+	if err != nil {
+		t.Fatalf("ReadFile(runtime/static/main.js) error = %v", err)
+	}
+	styleData, err := os.ReadFile("runtime/static/style.css")
+	if err != nil {
+		t.Fatalf("ReadFile(runtime/static/style.css) error = %v", err)
+	}
+	rendererData, err := os.ReadFile("runtime/static/ghostty-web.js")
+	if err != nil {
+		t.Fatalf("ReadFile(runtime/static/ghostty-web.js) error = %v", err)
+	}
+	mainSource := string(mainData)
+	styleSource := string(styleData)
+	rendererSource := string(rendererData)
+
+	mainSnippets := []string{
+		"const setPaneRenderReady = (session, ready) => {",
+		"session.shellEl.dataset.renderReady = session.renderReady ? \"true\" : \"false\";",
+		"const markPaneRenderPending = (session) => {",
+		"session.term?.renderer?.clear?.();",
+		"const markPaneRenderedIfMeasurable = (session) => {",
+		"session.replayCompletionPending",
+		"setPaneRenderReady(session, true);",
+		"shellEl.dataset.renderReady = \"false\";",
+		"term.onRender(() => markPaneRenderedIfMeasurable(session))",
+		"markPaneRenderPending(session);",
+		"requestPaneFullRender(session);",
+	}
+	for _, want := range mainSnippets {
+		if !strings.Contains(mainSource, want) {
+			t.Fatalf("runtime terminal canvas residue guard missing main snippet %q", want)
+		}
+	}
+
+	styleSnippets := []string{
+		`.pane-shell[data-render-ready="false"] .terminal-host canvas {`,
+		"visibility: hidden;",
+	}
+	for _, want := range styleSnippets {
+		if !strings.Contains(styleSource, want) {
+			t.Fatalf("runtime terminal canvas residue guard missing style snippet %q", want)
+		}
+	}
+
+	rendererSnippets := []string{
+		"this.ctx.fillRect(0, 0, this.canvas.width / this.devicePixelRatio, this.canvas.height / this.devicePixelRatio)",
+		"this.ctx.fillRect(0, C, this.canvas.width / this.devicePixelRatio, this.metrics.height)",
+		"i.text = D.grapheme_len > 0 && typeof A.getGraphemeString == \"function\" ? A.getGraphemeString(Math.floor(I / B.cols), I % B.cols) : String.fromCodePoint(D.codepoint || 32)",
+		"text: I[w + 14] > 0 && typeof this.getScrollbackGraphemeString == \"function\" ? this.getScrollbackGraphemeString(A, i) : String.fromCodePoint(D.getUint32(w, !0) || 32)",
+		"typeof A.text == \"string\" ? N = A.text",
+	}
+	for _, want := range rendererSnippets {
+		if !strings.Contains(rendererSource, want) {
+			t.Fatalf("runtime terminal canvas residue guard missing renderer snippet %q", want)
+		}
+	}
+}
+
 func TestRuntimeWebSocketReconnectHealthGuard(t *testing.T) {
 	data, err := os.ReadFile("runtime/static/main.js")
 	if err != nil {
@@ -952,7 +1153,10 @@ func TestRuntimeWebSocketReconnectHealthGuard(t *testing.T) {
 		"const terminalResumeProbeTimeoutMs = 1500;",
 		"const terminalUserRecoveryThrottleMs = 1500;",
 		"const terminalAttachReadyTimeoutMs = 8 * 1000;",
+		"const terminalAgentPrepareTimeoutMs = 45 * 1000;",
 		"const terminalReconnectBaseDelayMs = 500;",
+		"const healthTimeout = session.agentPreparing ? terminalAgentPrepareTimeoutMs : terminalWebSocketHealthTimeoutMs;",
+		"const attachReadyTimeout = Number(session.attachReadyTimeoutMs || 0) || terminalAttachReadyTimeoutMs;",
 		"const isSessionInputReady = (session) => (",
 		"const checkSessionConnectionHealth = (session, { connect = true, force = false, allowHidden = false } = {}) => {",
 		"const probeOpenSessionSocket = (session, { allowHidden = false } = {}) => {",
@@ -964,6 +1168,9 @@ func TestRuntimeWebSocketReconnectHealthGuard(t *testing.T) {
 		"if (session.resumeProbeTimer && force) {",
 		"startSocketHealthMonitor(session, currentSocket);",
 		"startAttachReadyTimer(session, currentSocket);",
+		"case \"agent-preparing\":",
+		"session.agentPreparing = true;",
+		"startAttachReadyTimer(session, currentSocket, terminalAgentPrepareTimeoutMs);",
 		"clearAttachReadyTimer(session);",
 		"clearSocketResumeProbeTimer(session);",
 		"session.shellEl.dataset.connection = \"open\";",
@@ -978,6 +1185,41 @@ func TestRuntimeWebSocketReconnectHealthGuard(t *testing.T) {
 	for _, want := range wantSnippets {
 		if !strings.Contains(source, want) {
 			t.Fatalf("runtime websocket reconnect health guard missing %q", want)
+		}
+	}
+}
+
+func TestRuntimeTerminalMouseTrackingSequences(t *testing.T) {
+	data, err := os.ReadFile("runtime/static/main.js")
+	if err != nil {
+		t.Fatalf("ReadFile(runtime/static/main.js) error = %v", err)
+	}
+	source := string(data)
+
+	wantSnippets := []string{
+		"const terminalMouseLegacyCoordinateLimit = 95;",
+		"const terminalMouseModeEnabled = (term, mode) => {",
+		"term.getMode(mode, false) === true",
+		"const terminalMouseTrackingState = (session) => {",
+		"const normal = terminalMouseModeEnabled(term, 1000);",
+		"const drag = terminalMouseModeEnabled(term, 1002);",
+		"const any = terminalMouseModeEnabled(term, 1003);",
+		"sgr: terminalMouseModeEnabled(term, 1006),",
+		"tracking = tracking || term.hasMouseTracking?.() === true;",
+		"const encodeTerminalMouseSequence = (session, event, action, button = -1) => {",
+		"return `\\x1b[<${buttonCode};${x};${y}${suffix}`;",
+		"return encodeTerminalLegacyMouseSequence(buttonCode, x, y);",
+		"const installTerminalMouseTracking = (session) => {",
+		"sendOrQueueInput(session, sequence);",
+		"shell.addEventListener(\"mousedown\", handleMouseDown, { capture: true, passive: false });",
+		"shell.addEventListener(\"wheel\", handleWheel, { capture: true, passive: false });",
+		"document.addEventListener(\"mouseup\", handleMouseUp, { capture: true, passive: false });",
+		"shell.addEventListener(\"contextmenu\", handleClickLike, { capture: true, passive: false });",
+		"installTerminalMouseTracking(session);",
+	}
+	for _, want := range wantSnippets {
+		if !strings.Contains(source, want) {
+			t.Fatalf("runtime terminal mouse tracking support missing %q", want)
 		}
 	}
 }
@@ -1238,6 +1480,11 @@ func TestRuntimeMobileDeployRestartUsesBottomSheet(t *testing.T) {
 		`? await confirmMobileSheet({ ...restartDialogOptions, actionsLayout: "vertical-ok-first" })`,
 		`: await openDialog(restartDialogOptions);`,
 		`discardAllTerminalInputBuffers();`,
+		`const clearStartupServerRevisionInputLock = async () => {`,
+		`await clearStartupServerRevisionInputLock().catch(() => {});`,
+		`const ensureInitialInteractiveTab = ({ focus = true } = {}) => {`,
+		`paneId: "pane-1",`,
+		`ensureInitialInteractiveTab({ focus: true });`,
 	}
 	for _, want := range wantMainSnippets {
 		if !strings.Contains(mainSource, want) {

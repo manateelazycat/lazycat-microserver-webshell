@@ -680,40 +680,9 @@ func (s *pluginServer) handleAgentStartupError(w http.ResponseWriter, r *http.Re
 
 func (s *pluginServer) attachAgentPane(w http.ResponseWriter, r *http.Request, scope agentScope, paneID string, cols, rows, terminalScrollback int) error {
 	scope = normalizeAgentScope(scope.Selector, scope.AccountID)
-	if _, err := ensurePersistentAgent(r.Context(), scope); err != nil {
-		if !websocket.IsWebSocketUpgrade(r) {
-			http.Error(w, err.Error(), http.StatusBadGateway)
-			return nil
-		}
-		conn, upgradeErr := upgrader.Upgrade(w, r, nil)
-		if upgradeErr != nil {
-			return upgradeErr
-		}
-		defer conn.Close()
-		_ = conn.WriteMessage(websocket.TextMessage, []byte("\r\n[webshell error]\r\n"+err.Error()+"\r\n"))
+	if !websocket.IsWebSocketUpgrade(r) {
+		http.Error(w, "websocket upgrade is required", http.StatusBadRequest)
 		return nil
-	}
-	if err := pingPersistentAgentError(r.Context(), scope); err != nil {
-		log.Printf("persistent webshell agent ping before attach failed: scope=%s account=%s err=%v", scope.Selector, scope.AccountID, err)
-		rememberIncompatiblePersistentAgentNotice(scope, err)
-		markPersistentAgentNotRunning(scope)
-		if _, ensureErr := ensurePersistentAgent(r.Context(), scope); ensureErr != nil {
-			if !websocket.IsWebSocketUpgrade(r) {
-				http.Error(w, ensureErr.Error(), http.StatusBadGateway)
-				return nil
-			}
-			conn, upgradeErr := upgrader.Upgrade(w, r, nil)
-			if upgradeErr != nil {
-				return upgradeErr
-			}
-			defer conn.Close()
-			_ = writeWebSocketJSON(conn, map[string]any{"type": "process-exit", "message": ensureErr.Error(), "exit_code": -1, "retryable": true})
-			return nil
-		}
-	}
-	clientID := strings.TrimSpace(r.URL.Query().Get("client_id"))
-	if clientID == "" {
-		clientID = strings.TrimSpace(r.URL.Query().Get("client"))
 	}
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -722,7 +691,27 @@ func (s *pluginServer) attachAgentPane(w http.ResponseWriter, r *http.Request, s
 	defer conn.Close()
 	conn.EnableWriteCompression(false)
 	conn.SetReadLimit(websocketReadLimit)
-	_ = conn.SetReadDeadline(time.Now().Add(websocketReadTimeout))
+
+	var writeMu sync.Mutex
+	_ = writeWebSocketJSONLocked(conn, &writeMu, map[string]any{"type": "agent-preparing"})
+
+	if _, err := ensurePersistentAgent(r.Context(), scope); err != nil {
+		_ = writeWebSocketMessageLocked(conn, &writeMu, websocket.TextMessage, []byte("\r\n[webshell error]\r\n"+err.Error()+"\r\n"))
+		return nil
+	}
+	if err := pingPersistentAgentError(r.Context(), scope); err != nil {
+		log.Printf("persistent webshell agent ping before attach failed: scope=%s account=%s err=%v", scope.Selector, scope.AccountID, err)
+		rememberIncompatiblePersistentAgentNotice(scope, err)
+		markPersistentAgentNotRunning(scope)
+		if _, ensureErr := ensurePersistentAgent(r.Context(), scope); ensureErr != nil {
+			_ = writeWebSocketJSONLocked(conn, &writeMu, map[string]any{"type": "process-exit", "message": ensureErr.Error(), "exit_code": -1, "retryable": true})
+			return nil
+		}
+	}
+	clientID := strings.TrimSpace(r.URL.Query().Get("client_id"))
+	if clientID == "" {
+		clientID = strings.TrimSpace(r.URL.Query().Get("client"))
+	}
 
 	attachCtx, cancelAttach := context.WithCancel(context.Background())
 	defer cancelAttach()
@@ -752,18 +741,18 @@ func (s *pluginServer) attachAgentPane(w http.ResponseWriter, r *http.Request, s
 	)
 	stdout, err := command.StdoutPipe()
 	if err != nil {
-		_ = writeWebSocketJSON(conn, map[string]any{"type": "process-exit", "message": err.Error(), "exit_code": -1})
+		_ = writeWebSocketJSONLocked(conn, &writeMu, map[string]any{"type": "process-exit", "message": err.Error(), "exit_code": -1})
 		return nil
 	}
 	stdin, err := command.StdinPipe()
 	if err != nil {
-		_ = writeWebSocketJSON(conn, map[string]any{"type": "process-exit", "message": err.Error(), "exit_code": -1})
+		_ = writeWebSocketJSONLocked(conn, &writeMu, map[string]any{"type": "process-exit", "message": err.Error(), "exit_code": -1})
 		return nil
 	}
 	var stderr bytes.Buffer
 	command.Stderr = &stderr
 	if err := command.Start(); err != nil {
-		_ = writeWebSocketJSON(conn, map[string]any{"type": "process-exit", "message": err.Error(), "exit_code": -1})
+		_ = writeWebSocketJSONLocked(conn, &writeMu, map[string]any{"type": "process-exit", "message": err.Error(), "exit_code": -1})
 		return nil
 	}
 	waitDone := make(chan error, 1)
@@ -788,7 +777,6 @@ func (s *pluginServer) attachAgentPane(w http.ResponseWriter, r *http.Request, s
 		}
 	}()
 
-	var writeMu sync.Mutex
 	writerDone := make(chan struct{})
 	go func() {
 		defer close(writerDone)
@@ -823,6 +811,7 @@ func (s *pluginServer) attachAgentPane(w http.ResponseWriter, r *http.Request, s
 		}
 	}()
 
+	_ = conn.SetReadDeadline(time.Now().Add(websocketReadTimeout))
 	localInputBlocked := false
 	for {
 		messageType, payload, err := conn.ReadMessage()

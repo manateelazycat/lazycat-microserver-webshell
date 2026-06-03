@@ -62,9 +62,20 @@ body {
   overflow: hidden;
   overscroll-behavior-x: none;
   touch-action: pan-x pan-y;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
   background: var(--terminal-bg);
   color: var(--text);
   font-family: "Avenir Next", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+
+input,
+textarea,
+[contenteditable="true"]:not(.terminal-host) {
+  -webkit-touch-callout: default;
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 button {
@@ -699,23 +710,36 @@ body.split-resize-active * {
   caret-color: transparent;
   line-height: 0;
   touch-action: none;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 .terminal-host canvas {
   display: block;
   touch-action: none;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.pane-shell[data-render-ready="false"] .terminal-host canvas {
+  visibility: hidden;
 }
 
 .terminal-host textarea {
   appearance: none !important;
   -webkit-appearance: none !important;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
   border: 0 !important;
   outline: 0 !important;
   box-shadow: none !important;
   caret-color: transparent !important;
 }
 
-.performance-meter {
+.fps-meter {
   position: absolute;
   right: 5px;
   top: 5px;
@@ -734,8 +758,77 @@ body.split-resize-active * {
   user-select: none;
 }
 
-.performance-meter[hidden] {
+.fps-meter[hidden] {
   display: none;
+}
+
+.performance-task-meter {
+  position: absolute;
+  right: 5px;
+  top: 34px;
+  z-index: 8;
+  width: min(360px, calc(100% - 10px));
+  max-width: 360px;
+  box-sizing: border-box;
+  display: grid;
+  gap: 5px;
+  padding: 6px 7px;
+  border: 1px solid color-mix(in srgb, var(--terminal-fg) 28%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--terminal-bg) 86%, transparent);
+  color: var(--terminal-fg);
+  font: 600 11px/1.2 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  letter-spacing: 0;
+  pointer-events: none;
+  user-select: none;
+}
+
+.performance-task-meter[hidden] {
+  display: none;
+}
+
+.performance-task-meter-title {
+  font-weight: 700;
+  opacity: 0.88;
+}
+
+.performance-task-meter-list {
+  display: grid;
+  gap: 3px;
+}
+
+.performance-task-row {
+  display: grid;
+  grid-template-columns: minmax(90px, 1fr) repeat(4, minmax(42px, max-content));
+  gap: 6px;
+  align-items: baseline;
+}
+
+.performance-task-row.header {
+  color: color-mix(in srgb, var(--terminal-fg) 62%, transparent);
+  font-size: 10px;
+}
+
+.performance-task-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.performance-task-value {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.performance-task-value.is-alert {
+  color: #f87171;
+  font-weight: 800;
+}
+
+.performance-task-empty {
+  color: color-mix(in srgb, var(--terminal-fg) 62%, transparent);
 }
 
 .terminal-composition-preview {
@@ -1272,6 +1365,75 @@ body.split-resize-active * {
 
 [data-settings-panel="terminal"] > .settings-section {
   border-bottom: 0;
+}
+
+.device-panel {
+  width: min(520px, calc(100vw - 48px));
+  height: auto;
+  min-width: min(420px, calc(100vw - 48px));
+  min-height: 0;
+  max-height: min(70dvh, calc(100dvh - 48px));
+  flex: 0 1 auto;
+}
+
+.device-main {
+  min-height: 0;
+}
+
+.device-section {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.device-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 46px;
+  padding: 8px;
+  border: 1px dashed var(--panel-border);
+  border-radius: 8px;
+  background: var(--panel-subtle-bg);
+  box-sizing: border-box;
+}
+
+.device-empty {
+  min-height: 30px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 30px;
+  text-align: center;
+}
+
+.device-item {
+  display: grid;
+  min-height: 48px;
+  align-items: center;
+  gap: 4px;
+  padding: 10px;
+  border: 1px solid var(--panel-border);
+  border-radius: 7px;
+  background: var(--panel-bg);
+  color: var(--text);
+  box-sizing: border-box;
+}
+
+.device-item-title,
+.device-item-meta {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.device-item-title {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.device-item-meta {
+  color: var(--muted);
+  font-size: 12px;
 }
 
 .settings-section-head {
@@ -4341,6 +4503,17 @@ body.is-tab-overview-dragging {
   }
 
   .settings-tab-panel[data-settings-panel="terminal"] > .settings-section {
+    width: 100%;
+  }
+
+  .device-panel {
+    width: 100vw;
+    height: var(--mobile-visual-viewport-height, 100dvh);
+    max-height: none;
+    min-width: 0;
+  }
+
+  .device-section {
     width: 100%;
   }
 

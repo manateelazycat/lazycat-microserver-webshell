@@ -20,6 +20,9 @@ func TestStorePersistsUploadedFontSelectionAndDelete(t *testing.T) {
 	if font.Label != "JetBrainsMono" {
 		t.Fatalf("StoreUpload() label = %q, want %q", font.Label, "JetBrainsMono")
 	}
+	if strings.HasPrefix(font.URL, "/") {
+		t.Fatalf("StoreUpload() URL = %q, want path relative to provider entry", font.URL)
+	}
 	if _, err := os.Stat(store.dataPath(Metadata{ID: font.ID, Filename: font.Filename, Extension: ".woff2"})); err != nil {
 		t.Fatalf("font data not persisted: %v", err)
 	}

@@ -124,36 +124,31 @@ func TestLightOSManifestEnablesMultiInstance(t *testing.T) {
 	}
 }
 
-func TestHandleInstancesFiltersByDeployUID(t *testing.T) {
-	server := testPluginServerWithInstances()
-	request := httptest.NewRequest(http.MethodGet, "/api/instances", nil)
-	request.Header.Set(lightOSUserIDHeader, "login-user-a")
-	recorder := httptest.NewRecorder()
-
-	server.handleInstances(recorder, request)
-
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("handleInstances status = %d, body = %s", recorder.Code, recorder.Body.String())
-	}
-	var items []instanceSummary
-	if err := json.NewDecoder(recorder.Body).Decode(&items); err != nil {
-		t.Fatalf("decode instances error = %v", err)
-	}
-	if len(items) != len(testInstanceSummaries()) {
-		t.Fatalf("instances count = %d, want all visible instances: %+v", len(items), items)
-	}
-}
-
-func TestHandleInstancesUsesAdminInfoDeployIDWhenEnvDoesNotMatch(t *testing.T) {
+func TestHandleInstancesLoadsVisibleInstancesFromLightOSAdmin(t *testing.T) {
+	var upstreamPath string
+	var upstreamAccept string
+	var upstreamUserID string
+	var upstreamUserRole string
 	server := &pluginServer{
-		instancesResolver: testInstancesResolver(testInstanceSummaries()),
-		deployUIDResolver: func() string { return "missing-deploy" },
 		adminInfoResolver: func(context.Context) (adminInfo, error) {
-			return adminInfo{DeployID: "deploy-a", BaseURL: "http://admin.local"}, nil
+			return adminInfo{BaseURL: "https://admin.example/root/"}, nil
 		},
+		publishHTTPClient: &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+			upstreamPath = request.URL.Path
+			upstreamAccept = request.Header.Get("Accept")
+			upstreamUserID = request.Header.Get(lightOSUserIDHeader)
+			upstreamUserRole = request.Header.Get("X-HC-User-Role")
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body:       io.NopCloser(strings.NewReader(`[{"name":"alpha","owner_deploy_id":"deploy-a","status":"running","username":"alice"}]`)),
+				Request:    request,
+			}, nil
+		})},
 	}
 	request := httptest.NewRequest(http.MethodGet, "/api/instances", nil)
 	request.Header.Set(lightOSUserIDHeader, "login-user-a")
+	request.Header.Set("X-HC-User-Role", "NORMAL")
 	recorder := httptest.NewRecorder()
 
 	server.handleInstances(recorder, request)
@@ -165,34 +160,20 @@ func TestHandleInstancesUsesAdminInfoDeployIDWhenEnvDoesNotMatch(t *testing.T) {
 	if err := json.NewDecoder(recorder.Body).Decode(&items); err != nil {
 		t.Fatalf("decode instances error = %v", err)
 	}
-	if len(items) != len(testInstanceSummaries()) {
-		t.Fatalf("instances count = %d, want all visible instances: %+v", len(items), items)
+	if upstreamPath != "/root/api/webshell/instances" {
+		t.Fatalf("upstream path = %q, want /root/api/webshell/instances", upstreamPath)
 	}
-}
-
-func TestHandleInstancesFallsBackWhenOwnerIDDoesNotMatchAnyInstance(t *testing.T) {
-	server := &pluginServer{
-		instancesResolver: testInstancesResolver(testInstanceSummaries()),
-		deployUIDResolver: func() string { return "missing-deploy" },
-		adminInfoResolver: func(context.Context) (adminInfo, error) {
-			return adminInfo{DeployID: "also-missing", BaseURL: "http://admin.local"}, nil
-		},
+	if upstreamAccept != "application/json" {
+		t.Fatalf("upstream Accept = %q, want application/json", upstreamAccept)
 	}
-	request := httptest.NewRequest(http.MethodGet, "/api/instances", nil)
-	request.Header.Set(lightOSUserIDHeader, "login-user-a")
-	recorder := httptest.NewRecorder()
-
-	server.handleInstances(recorder, request)
-
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("handleInstances status = %d, body = %s", recorder.Code, recorder.Body.String())
+	if upstreamUserID != "login-user-a" {
+		t.Fatalf("upstream %s = %q, want login-user-a", lightOSUserIDHeader, upstreamUserID)
 	}
-	var items []instanceSummary
-	if err := json.NewDecoder(recorder.Body).Decode(&items); err != nil {
-		t.Fatalf("decode instances error = %v", err)
+	if upstreamUserRole != "NORMAL" {
+		t.Fatalf("upstream role = %q, want NORMAL", upstreamUserRole)
 	}
-	if len(items) != len(testInstanceSummaries()) {
-		t.Fatalf("instances count = %d, want fallback count %d: %+v", len(items), len(testInstanceSummaries()), items)
+	if len(items) != 1 || items[0].Name != "alpha" || items[0].OwnerDeployID != "deploy-a" {
+		t.Fatalf("instances = %+v, want alpha only", items)
 	}
 }
 
@@ -322,9 +303,12 @@ func TestHandleSettingsFontsUploadsMultipleFonts(t *testing.T) {
 }
 
 func TestHandlePublishProxyForwardsListRequest(t *testing.T) {
+	t.Setenv(lightOSRequireCookieAuthEnv, "false")
+	t.Setenv(lazyCatAppDeployUIDEnv, "deploy-user")
 	var upstreamPath string
 	var upstreamQuery string
 	var upstreamAccept string
+	var upstreamUserID string
 	server := &pluginServer{
 		adminInfoResolver: func(context.Context) (adminInfo, error) {
 			return adminInfo{BaseURL: "https://admin.example/root/"}, nil
@@ -333,6 +317,7 @@ func TestHandlePublishProxyForwardsListRequest(t *testing.T) {
 			upstreamPath = request.URL.Path
 			upstreamQuery = request.URL.RawQuery
 			upstreamAccept = request.Header.Get("Accept")
+			upstreamUserID = request.Header.Get(lightOSUserIDHeader)
 			return &http.Response{
 				StatusCode: http.StatusOK,
 				Header:     http.Header{"Content-Type": []string{"application/json"}},
@@ -356,12 +341,107 @@ func TestHandlePublishProxyForwardsListRequest(t *testing.T) {
 	if upstreamAccept != "application/json" {
 		t.Fatalf("upstream Accept = %q, want application/json", upstreamAccept)
 	}
+	if upstreamUserID != "deploy-user" {
+		t.Fatalf("upstream %s = %q, want deploy-user", lightOSUserIDHeader, upstreamUserID)
+	}
 	if strings.TrimSpace(recorder.Body.String()) != `[{"id":"pub-1"}]` {
 		t.Fatalf("response body = %q", recorder.Body.String())
 	}
 }
 
+func TestHandlePublishProxyRequiresAccountForListByDefault(t *testing.T) {
+	server := &pluginServer{}
+	recorder := httptest.NewRecorder()
+
+	server.handlePublishProxy(recorder, httptest.NewRequest(http.MethodGet, "/api/publish/list", nil))
+
+	if recorder.Code != http.StatusUnauthorized {
+		t.Fatalf("handlePublishProxy() status = %d, want 401", recorder.Code)
+	}
+}
+
+func TestHandlePublishProxyUsesInternalLightOSAdminURLWhenBundled(t *testing.T) {
+	t.Setenv(lightOSRequireCookieAuthEnv, "false")
+	t.Setenv(lazyCatAppDeployUIDEnv, "deploy-user")
+	t.Setenv(lazyCatAppIDEnv, lightOSAdminAppID)
+	var upstreamURL string
+	server := &pluginServer{
+		adminInfoResolver: func(context.Context) (adminInfo, error) {
+			return adminInfo{BaseURL: "https://admin.example/root/"}, nil
+		},
+		publishHTTPClient: &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+			upstreamURL = request.URL.String()
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body:       io.NopCloser(strings.NewReader(`{"ready":true}`)),
+				Request:    request,
+			}, nil
+		})},
+	}
+
+	recorder := httptest.NewRecorder()
+	server.handlePublishProxy(recorder, httptest.NewRequest(http.MethodGet, "/api/publish/status", nil))
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("handlePublishProxy() status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	if upstreamURL != "http://127.0.0.1:18081/api/publish/status" {
+		t.Fatalf("upstream URL = %q, want internal lightos-admin URL", upstreamURL)
+	}
+}
+
+func TestHandlePublishProxyUsesInternalLightOSAdminURLFromConfig(t *testing.T) {
+	t.Setenv(lightOSRequireCookieAuthEnv, "false")
+	t.Setenv(lazyCatAppDeployUIDEnv, "deploy-user")
+	t.Setenv(lazyCatAppIDEnv, "")
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, ".env"), []byte("LIGHTOS_ADMIN_INTERNAL_BASE_URL=http://127.0.0.1:18081\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile(.env) error = %v", err)
+	}
+	previousDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd() error = %v", err)
+	}
+	if err := os.Chdir(root); err != nil {
+		t.Fatalf("Chdir(%s) error = %v", root, err)
+	}
+	defer func() {
+		if err := os.Chdir(previousDir); err != nil {
+			t.Fatalf("restore cwd error = %v", err)
+		}
+	}()
+	var upstreamURL string
+	server := &pluginServer{
+		rootDir: root,
+		adminInfoResolver: func(context.Context) (adminInfo, error) {
+			return adminInfo{BaseURL: "https://admin.example/root/"}, nil
+		},
+		publishHTTPClient: &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+			upstreamURL = request.URL.String()
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body:       io.NopCloser(strings.NewReader(`{"ready":true}`)),
+				Request:    request,
+			}, nil
+		})},
+	}
+
+	recorder := httptest.NewRecorder()
+	server.handlePublishProxy(recorder, httptest.NewRequest(http.MethodGet, "/api/publish/status", nil))
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("handlePublishProxy() status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	if upstreamURL != "http://127.0.0.1:18081/api/publish/status" {
+		t.Fatalf("upstream URL = %q, want internal lightos-admin URL from config", upstreamURL)
+	}
+}
+
 func TestHandlePublishProxyForwardsInstallMultipartRequest(t *testing.T) {
+	t.Setenv(lightOSRequireCookieAuthEnv, "false")
+	t.Setenv(lazyCatAppDeployUIDEnv, "deploy-user")
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
 	if err := writer.WriteField("id", "pub-1"); err != nil {
@@ -497,6 +577,8 @@ func TestHandlePublishProxyRejectsUnknownRouteAndMethod(t *testing.T) {
 }
 
 func TestHandlePublishProxyReturnsJSONBadGatewayOnUpstreamFailure(t *testing.T) {
+	t.Setenv(lightOSRequireCookieAuthEnv, "false")
+	t.Setenv(lazyCatAppDeployUIDEnv, "deploy-user")
 	server := &pluginServer{
 		adminInfoResolver: func(context.Context) (adminInfo, error) {
 			return adminInfo{BaseURL: "http://admin.local"}, nil
@@ -1870,6 +1952,32 @@ func TestHandleServerRevisionAllowsVisibleSelector(t *testing.T) {
 	server.handleServerRevision(recorder, request)
 	if recorder.Code == http.StatusForbidden {
 		t.Fatalf("handleServerRevision status = %d, should allow visible selector", recorder.Code)
+	}
+}
+
+func TestHandleServerRevisionInputLockOnlyRequestDoesNotProbeRevision(t *testing.T) {
+	server := testPluginServerWithInstances()
+	scope := normalizeAgentScope("beta@deploy-b", "login-user-a")
+	clientID := "client-one"
+	server.setTerminalInputBlocked(scope, serverRevisionInputLockOwner(clientID), true)
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/server-revision?name=beta@deploy-b&client_id=client-one&terminal_input_blocked=false", nil)
+	request.Header.Set(lightOSUserIDHeader, "login-user-a")
+	server.handleServerRevision(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("handleServerRevision status = %d, want 200; body=%q", recorder.Code, recorder.Body.String())
+	}
+	if server.terminalInputBlocked(scope, clientID) {
+		t.Fatal("expected explicit startup unlock to clear matching client input lock")
+	}
+	var info serverRevisionInfo
+	if err := json.Unmarshal(recorder.Body.Bytes(), &info); err != nil {
+		t.Fatalf("unmarshal server revision response: %v", err)
+	}
+	if info.ReloadRequired {
+		t.Fatal("input lock only request should not run revision observation or request reload")
 	}
 }
 

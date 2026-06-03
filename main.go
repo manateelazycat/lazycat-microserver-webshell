@@ -45,6 +45,9 @@ type pluginServer struct {
 	settingsMu   sync.Mutex
 	inputLocksMu sync.Mutex
 	inputLocks   map[string]map[string]time.Time
+	devicesMu    sync.Mutex
+	devices      map[string]webshellDeviceRecord
+	deviceNow    func() time.Time
 }
 
 type instanceSummary struct {
@@ -74,8 +77,19 @@ type apiErrorResponse struct {
 }
 
 const lightOSUserIDHeader = "X-HC-USER-ID"
+const lightOSRequireCookieAuthEnv = "LIGHTOS_REQUIRE_COOKIE_AUTH"
 const lazyCatAppDeployUIDEnv = "LAZYCAT_APP_DEPLOY_UID"
+const lazyCatDeployUIDEnv = "LAZYCAT_DEPLOY_UID"
+const lazyCatUserIDEnv = "LAZYCAT_USER_ID"
+const lazyCatUserUIDEnv = "LAZYCAT_USER_UID"
+const lazyCatAppDeployIDEnv = "LAZYCAT_APP_DEPLOY_ID"
+const lazyCatDeployIDEnv = "LAZYCAT_DEPLOY_ID"
+const lazyCatAppIDEnv = "LAZYCAT_APP_ID"
+const lightOSAdminInternalBaseURLEnv = "LIGHTOS_ADMIN_INTERNAL_BASE_URL"
+const lightOSAdminAppID = "cloud.lazycat.lightos.entry"
+const defaultLightOSAdminInternalBaseURL = "http://127.0.0.1:18081"
 const serverRevisionInputLockTTL = 60 * time.Second
+const webshellDeviceTTL = 1500 * time.Millisecond
 
 var errInstanceForbidden = errors.New("instance is not accessible by current account")
 var errInvalidPublishCreatePayload = errors.New("invalid publish create payload")
@@ -183,6 +197,9 @@ func (s *pluginServer) run(ctx context.Context) error {
 	mux.HandleFunc("/api/lightos-admin-info", s.handleLightOSAdminInfo)
 	mux.HandleFunc("/api/publish/", s.handlePublishProxy)
 	mux.HandleFunc("/api/server-revision", s.handleServerRevision)
+	mux.HandleFunc("/api/devices", s.handleDevices)
+	mux.HandleFunc("/api/devices/heartbeat", s.handleDeviceHeartbeat)
+	mux.HandleFunc("/api/devices/offline", s.handleDeviceOffline)
 	mux.HandleFunc("/api/settings", s.handleSettings)
 	mux.HandleFunc("/api/settings/fonts", s.handleSettingsFonts)
 	mux.HandleFunc("/api/settings/fonts/", s.handleSettingsFont)
@@ -258,7 +275,7 @@ func (s *pluginServer) handleInstances(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "account id is required", http.StatusUnauthorized)
 		return
 	}
-	items, err := s.listVisibleInstances(r.Context())
+	items, err := s.listRequestVisibleInstances(r.Context(), r.Header, accountID)
 	if err != nil {
 		writeAuthorizationError(w, err)
 		return
@@ -295,6 +312,11 @@ func (s *pluginServer) handlePublishProxy(w http.ResponseWriter, r *http.Request
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
+	accountID := currentRequestAccountID(r)
+	if accountID == "" {
+		http.Error(w, "account id is required", http.StatusUnauthorized)
+		return
+	}
 	if err := s.authorizePublishProxyRequest(r); err != nil {
 		writeAuthorizationError(w, err)
 		return
@@ -305,7 +327,7 @@ func (s *pluginServer) handlePublishProxy(w http.ResponseWriter, r *http.Request
 		writeAPIError(w, http.StatusBadGateway, err)
 		return
 	}
-	targetURL, err := buildLightOSAdminURL(info.BaseURL, r.URL)
+	targetURL, err := buildLightOSAdminURL(resolvePublishProxyLightOSAdminBaseURL(info), r.URL)
 	if err != nil {
 		writeAPIError(w, http.StatusBadGateway, err)
 		return
@@ -317,6 +339,7 @@ func (s *pluginServer) handlePublishProxy(w http.ResponseWriter, r *http.Request
 	}
 	request.ContentLength = r.ContentLength
 	copyPublishProxyRequestHeaders(request.Header, r.Header)
+	setPublishProxyAuthHeaders(request.Header, r.Header, accountID)
 
 	response, err := s.publishClient().Do(request)
 	if err != nil {
@@ -356,6 +379,9 @@ func (s *pluginServer) handleServerRevision(w http.ResponseWriter, r *http.Reque
 		scope := normalizeAgentScope(selector, accountID)
 		if blockedText := strings.TrimSpace(r.URL.Query().Get("terminal_input_blocked")); blockedText != "" {
 			s.setTerminalInputBlocked(scope, serverRevisionInputLockOwner(clientID), parseBoolQuery(blockedText))
+			w.Header().Set("Cache-Control", "no-store")
+			writeJSON(w, info)
+			return
 		}
 		changed, err := observeServerRevisionState(r.Context(), scope, clientID, s.serverRevision)
 		if err != nil {
@@ -389,7 +415,95 @@ func currentRequestAccountID(r *http.Request) string {
 	if r == nil {
 		return ""
 	}
-	return strings.TrimSpace(r.Header.Get(lightOSUserIDHeader))
+	if accountID := strings.TrimSpace(r.Header.Get(lightOSUserIDHeader)); accountID != "" {
+		return accountID
+	}
+	if lightOSCookieAuthRequired() {
+		return ""
+	}
+	return currentDeployUIDFromEnv()
+}
+
+func lightOSCookieAuthRequired() bool {
+	switch strings.ToLower(lightOSConfigValue(lightOSRequireCookieAuthEnv)) {
+	case "0", "false", "no", "off":
+		return false
+	default:
+		return true
+	}
+}
+
+func currentDeployUIDFromEnv() string {
+	for _, name := range []string{
+		lazyCatAppDeployUIDEnv,
+		lazyCatDeployUIDEnv,
+		lazyCatUserIDEnv,
+		lazyCatUserUIDEnv,
+		lazyCatAppDeployIDEnv,
+		lazyCatDeployIDEnv,
+		lazyCatAppIDEnv,
+	} {
+		if uid := strings.TrimSpace(os.Getenv(name)); uid != "" {
+			return uid
+		}
+	}
+	return ""
+}
+
+func lightOSConfigValue(name string) string {
+	if value, ok := os.LookupEnv(name); ok {
+		return strings.TrimSpace(value)
+	}
+	for _, filename := range lightOSConfigEnvFiles() {
+		if value, ok := readLightOSConfigFileValue(filename, name); ok {
+			return value
+		}
+	}
+	return ""
+}
+
+func lightOSConfigEnvFiles() []string {
+	files := []string{"/lzcapp/pkg/content/.env", "/lzcapp/run/.env"}
+	if exe, err := os.Executable(); err == nil {
+		files = append(files, filepath.Join(filepath.Dir(exe), ".env"))
+	}
+	if cwd, err := os.Getwd(); err == nil {
+		files = append(files, filepath.Join(cwd, ".env"))
+	}
+	return files
+}
+
+func readLightOSConfigFileValue(filename, name string) (string, bool) {
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		return "", false
+	}
+	prefix := name + "="
+	exportPrefix := "export " + prefix
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		switch {
+		case strings.HasPrefix(line, prefix):
+			return unquoteLightOSConfigValue(strings.TrimSpace(strings.TrimPrefix(line, prefix))), true
+		case strings.HasPrefix(line, exportPrefix):
+			return unquoteLightOSConfigValue(strings.TrimSpace(strings.TrimPrefix(line, exportPrefix))), true
+		}
+	}
+	return "", false
+}
+
+func unquoteLightOSConfigValue(value string) string {
+	value = strings.TrimSpace(value)
+	if len(value) >= 2 {
+		quote := value[0]
+		if (quote == '"' || quote == '\'') && value[len(value)-1] == quote {
+			return strings.TrimSpace(value[1 : len(value)-1])
+		}
+	}
+	return value
 }
 
 func writeAuthorizationError(w http.ResponseWriter, err error) {
@@ -603,11 +717,59 @@ func (s *pluginServer) listInstances(ctx context.Context) ([]instanceSummary, er
 	return listInstances(ctx)
 }
 
+func (s *pluginServer) listRequestVisibleInstances(ctx context.Context, header http.Header, accountID string) ([]instanceSummary, error) {
+	if s != nil && s.instancesResolver != nil {
+		return s.instancesResolver(ctx)
+	}
+	return s.listLightOSAdminWebshellInstances(ctx, header, accountID)
+}
+
+func (s *pluginServer) listLightOSAdminWebshellInstances(ctx context.Context, header http.Header, accountID string) ([]instanceSummary, error) {
+	accountID = strings.TrimSpace(accountID)
+	if accountID == "" {
+		return nil, errors.New("account id is required")
+	}
+	info, err := s.resolveLightOSAdminInfo(ctx)
+	if err != nil {
+		return nil, err
+	}
+	targetURL, err := buildLightOSAdminURL(resolvePublishProxyLightOSAdminBaseURL(info), &url.URL{Path: "/api/webshell/instances"})
+	if err != nil {
+		return nil, err
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, targetURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	copyPublishProxyRequestHeaders(request.Header, header)
+	setPublishProxyAuthHeaders(request.Header, header, accountID)
+	request.Header.Set("Accept", "application/json")
+
+	response, err := s.publishClient().Do(request)
+	if err != nil {
+		return nil, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(response.Body)
+		message := strings.TrimSpace(string(body))
+		if message == "" {
+			message = response.Status
+		}
+		return nil, errors.New(message)
+	}
+	var items []instanceSummary
+	if err := json.NewDecoder(response.Body).Decode(&items); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 func (s *pluginServer) currentDeployUID() string {
 	if s != nil && s.deployUIDResolver != nil {
 		return strings.TrimSpace(s.deployUIDResolver())
 	}
-	return strings.TrimSpace(os.Getenv(lazyCatAppDeployUIDEnv))
+	return currentDeployUIDFromEnv()
 }
 
 func (s *pluginServer) listOwnedInstances(ctx context.Context) ([]instanceSummary, error) {
@@ -815,6 +977,16 @@ func buildLightOSAdminURL(baseURL string, requestURL *url.URL) (string, error) {
 	return target.String(), nil
 }
 
+func resolvePublishProxyLightOSAdminBaseURL(info adminInfo) string {
+	if value := strings.TrimSpace(lightOSConfigValue(lightOSAdminInternalBaseURLEnv)); value != "" {
+		return value
+	}
+	if strings.TrimSpace(os.Getenv(lazyCatAppIDEnv)) == lightOSAdminAppID {
+		return defaultLightOSAdminInternalBaseURL
+	}
+	return info.BaseURL
+}
+
 func joinURLPath(basePath, requestPath string) string {
 	basePath = strings.TrimRight(strings.TrimSpace(basePath), "/")
 	requestPath = "/" + strings.TrimLeft(strings.TrimSpace(requestPath), "/")
@@ -840,6 +1012,39 @@ func copyPublishProxyRequestHeaders(dst, src http.Header) {
 			dst.Add(key, value)
 		}
 	}
+}
+
+func setPublishProxyAuthHeaders(dst, src http.Header, accountID string) {
+	if dst == nil {
+		return
+	}
+	accountID = strings.TrimSpace(accountID)
+	if accountID == "" {
+		return
+	}
+	for _, key := range []string{"X-HC-User-ID", "X-HC-USER-ID", "X-HC-User-Role", "X-HC-Device-ID", "X-HC-Login-Time"} {
+		dst.Del(key)
+	}
+	dst.Set(lightOSUserIDHeader, accountID)
+	for _, key := range []string{"X-HC-User-Role", "X-HC-Device-ID", "X-HC-Login-Time"} {
+		if value := firstHeaderValueAnyCase(src, key); value != "" {
+			dst.Set(key, value)
+		}
+	}
+}
+
+func firstHeaderValueAnyCase(header http.Header, key string) string {
+	for actualKey, values := range header {
+		if !strings.EqualFold(actualKey, key) {
+			continue
+		}
+		for _, value := range values {
+			if trimmed := strings.TrimSpace(value); trimmed != "" {
+				return trimmed
+			}
+		}
+	}
+	return ""
 }
 
 func isPublishProxyRequestHeaderAllowed(key string) bool {

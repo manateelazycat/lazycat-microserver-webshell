@@ -56,3 +56,73 @@ func TestStaticFileServerCacheHeaders(t *testing.T) {
 		})
 	}
 }
+
+func TestCurrentRequestAccountIDRequiresHeaderByDefault(t *testing.T) {
+	t.Setenv(lightOSRequireCookieAuthEnv, "")
+	t.Setenv(lazyCatAppDeployUIDEnv, "deploy-user")
+
+	req := httptest.NewRequest(http.MethodGet, "/api/instances", nil)
+
+	if got := currentRequestAccountID(req); got != "" {
+		t.Fatalf("currentRequestAccountID() = %q, want empty", got)
+	}
+}
+
+func TestCurrentRequestAccountIDUsesDeployUIDWhenCookieAuthDisabled(t *testing.T) {
+	t.Setenv(lightOSRequireCookieAuthEnv, "false")
+	t.Setenv(lazyCatAppDeployUIDEnv, "deploy-user")
+
+	req := httptest.NewRequest(http.MethodGet, "/api/instances", nil)
+
+	if got := currentRequestAccountID(req); got != "deploy-user" {
+		t.Fatalf("currentRequestAccountID() = %q, want deploy-user", got)
+	}
+}
+
+func TestCurrentRequestAccountIDKeepsHeaderWhenCookieAuthDisabled(t *testing.T) {
+	t.Setenv(lightOSRequireCookieAuthEnv, "false")
+	t.Setenv(lazyCatAppDeployUIDEnv, "deploy-user")
+
+	req := httptest.NewRequest(http.MethodGet, "/api/instances", nil)
+	req.Header.Set(lightOSUserIDHeader, "header-user")
+
+	if got := currentRequestAccountID(req); got != "header-user" {
+		t.Fatalf("currentRequestAccountID() = %q, want header-user", got)
+	}
+}
+
+func TestCurrentDeployUIDFromEnvUsesLegacyUserID(t *testing.T) {
+	t.Setenv(lazyCatAppDeployUIDEnv, "")
+	t.Setenv(lazyCatDeployUIDEnv, "")
+	t.Setenv(lazyCatUserIDEnv, "legacy-user")
+
+	if got := currentDeployUIDFromEnv(); got != "legacy-user" {
+		t.Fatalf("currentDeployUIDFromEnv() = %q, want legacy-user", got)
+	}
+}
+
+func TestCurrentDeployUIDFromEnvUsesAppID(t *testing.T) {
+	t.Setenv(lazyCatAppDeployUIDEnv, "")
+	t.Setenv(lazyCatDeployUIDEnv, "")
+	t.Setenv(lazyCatUserIDEnv, "")
+	t.Setenv(lazyCatUserUIDEnv, "")
+	t.Setenv(lazyCatAppDeployIDEnv, "")
+	t.Setenv(lazyCatDeployIDEnv, "")
+	t.Setenv(lazyCatAppIDEnv, "cloud.lazycat.lightos.entry")
+
+	if got := currentDeployUIDFromEnv(); got != "cloud.lazycat.lightos.entry" {
+		t.Fatalf("currentDeployUIDFromEnv() = %q, want cloud.lazycat.lightos.entry", got)
+	}
+}
+
+func TestLightOSConfigFileValueSupportsQuotedEnv(t *testing.T) {
+	filename := filepath.Join(t.TempDir(), ".env")
+	if err := os.WriteFile(filename, []byte("LIGHTOS_REQUIRE_COOKIE_AUTH=\"false\"\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile(.env) error = %v", err)
+	}
+
+	value, ok := readLightOSConfigFileValue(filename, lightOSRequireCookieAuthEnv)
+	if !ok || value != "false" {
+		t.Fatalf("readLightOSConfigFileValue() = %q, %v; want false, true", value, ok)
+	}
+}
