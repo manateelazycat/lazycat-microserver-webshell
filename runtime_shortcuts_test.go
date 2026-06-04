@@ -202,6 +202,8 @@ func TestRuntimePasteShortcutUsesNativePasteEvent(t *testing.T) {
 	source := string(data)
 
 	wantSnippets := []string{
+		`const isShiftInsertPasteShortcutEvent = (event) => {`,
+		`return (key === "insert" || keyCode === 45) && event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey;`,
 		`const isNativePasteShortcutEvent = (event) => {`,
 		`const key = normalizeShortcutKeyToken(shortcutKeyFromEventCode(event) || event.key);`,
 		`const keyCode = Number(event.keyCode || event.which || 0);`,
@@ -223,6 +225,20 @@ func TestRuntimePasteShortcutUsesNativePasteEvent(t *testing.T) {
 	for _, want := range wantSnippets {
 		if !strings.Contains(source, want) {
 			t.Fatalf("runtime native paste shortcut guard missing %q", want)
+		}
+	}
+
+	ghosttyData, err := os.ReadFile("runtime/static/ghostty-web.js")
+	if err != nil {
+		t.Fatalf("ReadFile(runtime/static/ghostty-web.js) error = %v", err)
+	}
+	ghosttySource := string(ghosttyData)
+	for _, want := range []string{
+		`A.shiftKey && !A.ctrlKey && !A.altKey && !A.metaKey && (A.code === "Insert" || A.key === "Insert" || A.keyCode === 45)`,
+		`A.metaKey && A.code === "KeyC")`,
+	} {
+		if !strings.Contains(ghosttySource, want) {
+			t.Fatalf("ghostty native paste shortcut passthrough missing %q", want)
 		}
 	}
 
@@ -250,6 +266,24 @@ func TestRuntimePasteShortcutUsesNativePasteEvent(t *testing.T) {
 	} {
 		if strings.Contains(earlyNativePasteBranch, forbidden) {
 			t.Fatalf("runtime early native paste branch must not contain %q", forbidden)
+		}
+	}
+
+	shiftInsertPasteBranch := sourceBetween(t, source,
+		`if (isShiftInsertPasteShortcutEvent(event)) {`,
+		`    if (isNativePasteShortcutEvent(event)) {`,
+	)
+	for _, want := range []string{
+		`event.preventDefault();`,
+		`event.stopPropagation();`,
+		`event.stopImmediatePropagation?.();`,
+		`focusTerminalForNativePasteShortcut();`,
+		`closeContextMenu();`,
+		`pasteIntoSession().catch((error) => showToast(error.message));`,
+		`return;`,
+	} {
+		if !strings.Contains(shiftInsertPasteBranch, want) {
+			t.Fatalf("runtime Shift+Insert paste branch missing %q", want)
 		}
 	}
 
@@ -1295,6 +1329,42 @@ func TestRuntimeBeforeInputPasteUsesPastePath(t *testing.T) {
 	}
 }
 
+func TestRuntimeUserInputHoldsCursorVisible(t *testing.T) {
+	data, err := os.ReadFile("runtime/static/main.js")
+	if err != nil {
+		t.Fatalf("ReadFile(runtime/static/main.js) error = %v", err)
+	}
+	source := string(data)
+
+	for _, want := range []string{
+		`const terminalCursorBlinkHoldMs = 700;`,
+		`const holdTerminalCursorVisible = (session) => {`,
+		`window.clearTimeout(session.cursorBlinkHoldTimer);`,
+		`renderer.cursorVisible = true;`,
+		`term.options.cursorBlink = false;`,
+		`term.requestRender?.();`,
+		`session.cursorBlinkHoldTimer = window.setTimeout(() => {`,
+		`syncCursorBlinkState();`,
+		`}, terminalCursorBlinkHoldMs);`,
+		`cursorBlinkHoldTimer: 0,`,
+		`holdTerminalCursorVisible(session);`,
+		`window.clearTimeout(pane.cursorBlinkHoldTimer);`,
+	} {
+		if !strings.Contains(source, want) {
+			t.Fatalf("runtime cursor blink hold guard missing %q", want)
+		}
+	}
+
+	inputBranch := sourceBetween(t, source,
+		`if (session.replayOutputDepth > 0) {`,
+		`    term.onResize(() => {`,
+	)
+	if !strings.Contains(inputBranch, `holdTerminalCursorVisible(session);`) ||
+		!strings.Contains(inputBranch, `sendOrQueueInput(session, data`) {
+		t.Fatal("runtime user input branch should hold cursor visible before sending input")
+	}
+}
+
 func TestRuntimeGeneratedTerminalResponsesAreMarked(t *testing.T) {
 	data, err := os.ReadFile("runtime/static/main.js")
 	if err != nil {
@@ -1451,6 +1521,21 @@ func TestRuntimeTabOverviewRerendersAndFallsBackToWorkspaceTabs(t *testing.T) {
 	scheduleIndex := strings.Index(source[openTabOverviewIndex:], "scheduleTabOverviewRender();")
 	if renderIndex < 0 || scheduleIndex < 0 || renderIndex > scheduleIndex {
 		t.Fatalf("openTabOverview should schedule a follow-up overview render after the initial render")
+	}
+
+	clickBranch := sourceBetween(t, source,
+		`tabOverview?.addEventListener("click", (event) => {`,
+		`  });`,
+	)
+	for _, want := range []string{
+		`const cardButton = target instanceof Element ? target.closest(".tab-overview-card-main") : null;`,
+		`selectTabFromOverview(cardButton.dataset.tabId);`,
+		`const card = target instanceof Element ? target.closest(".tab-overview-card") : null;`,
+		`selectTabFromOverview(card.dataset.tabId);`,
+	} {
+		if !strings.Contains(clickBranch, want) {
+			t.Fatalf("runtime tab overview click guard missing %q", want)
+		}
 	}
 }
 

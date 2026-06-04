@@ -221,6 +221,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   const terminalInputChunkChars = 16 * 1024;
   const terminalInputFlushDelayMs = 8;
   const terminalInteractiveInputImmediateMaxBytes = 256;
+  const terminalCursorBlinkHoldMs = 700;
   const terminalInputPumpChunkBudget = 4;
   const terminalInputBackpressureBytes = 512 * 1024;
   const terminalInputBackpressureDelayMs = 16;
@@ -3460,6 +3461,12 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     });
   };
 
+  const isShiftInsertPasteShortcutEvent = (event) => {
+    const key = normalizeShortcutKeyToken(shortcutKeyFromEventCode(event) || event.key);
+    const keyCode = Number(event.keyCode || event.which || 0);
+    return (key === "insert" || keyCode === 45) && event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey;
+  };
+
   const isNativePasteShortcutEvent = (event) => {
     const key = normalizeShortcutKeyToken(shortcutKeyFromEventCode(event) || event.key);
     const keyCode = Number(event.keyCode || event.which || 0);
@@ -4372,6 +4379,27 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     };
   };
 
+  const holdTerminalCursorVisible = (session) => {
+    const term = session?.term;
+    const renderer = term?.renderer;
+    if (!term || !renderer || term.isDisposed || !term.isOpen) {
+      return;
+    }
+    if (session.cursorBlinkHoldTimer) {
+      window.clearTimeout(session.cursorBlinkHoldTimer);
+      session.cursorBlinkHoldTimer = 0;
+    }
+    renderer.cursorVisible = true;
+    if (term.options?.cursorBlink) {
+      term.options.cursorBlink = false;
+    }
+    term.requestRender?.();
+    session.cursorBlinkHoldTimer = window.setTimeout(() => {
+      session.cursorBlinkHoldTimer = 0;
+      syncCursorBlinkState();
+      term.requestRender?.();
+    }, terminalCursorBlinkHoldMs);
+  };
   const terminalViewportValue = (value) => {
     const number = Number(value || 0);
     return Number.isFinite(number) ? number : 0;
@@ -11814,6 +11842,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       title: "",
       hasUserInputSinceFocus: false,
       notifyWhenIdle: false,
+      cursorBlinkHoldTimer: 0,
       tty: "",
       busy: false,
       command: "",
@@ -11866,6 +11895,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
         }
         return;
       }
+      holdTerminalCursorVisible(session);
       reassertTerminalSize(session);
       sendOrQueueInput(session, data, { userInput: !isGeneratedTerminalResponse(data) });
     });
@@ -12709,6 +12739,10 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     pane.inputQueueSize = 0;
     clearInputPumpTimer(pane);
     pane.inputPumpActive = false;
+    if (pane.cursorBlinkHoldTimer) {
+      window.clearTimeout(pane.cursorBlinkHoldTimer);
+      pane.cursorBlinkHoldTimer = 0;
+    }
     clearReconnectTimer(pane);
     clearSessionConnectionTimers(pane);
     discardSessionOutputBuffers(pane);
@@ -13175,6 +13209,15 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       return;
     }
     if (isInteractiveShortcutTarget(event.target)) {
+      return;
+    }
+    if (isShiftInsertPasteShortcutEvent(event)) {
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation?.();
+      focusTerminalForNativePasteShortcut();
+      closeContextMenu();
+      pasteIntoSession().catch((error) => showToast(error.message));
       return;
     }
     if (isNativePasteShortcutEvent(event)) {
@@ -14808,6 +14851,11 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     const cardButton = target instanceof Element ? target.closest(".tab-overview-card-main") : null;
     if (cardButton) {
       selectTabFromOverview(cardButton.dataset.tabId);
+      return;
+    }
+    const card = target instanceof Element ? target.closest(".tab-overview-card") : null;
+    if (card) {
+      selectTabFromOverview(card.dataset.tabId);
       return;
     }
     if (target instanceof Element && !target.closest(".tab-overview-header")) {
