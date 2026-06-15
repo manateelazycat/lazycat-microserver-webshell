@@ -1213,22 +1213,63 @@ func TestRuntimeTerminalCanvasResidueGuard(t *testing.T) {
 	rendererSource := string(rendererData)
 
 	mainSnippets := []string{
+		"const terminalRuntimeClearSequence = \"\\x1b[2J\\x1b[3J\\x1b[H\";",
+		"const clearTerminalCanvasPixels = (session) => {",
+		"const canvas = term?.canvas || term?.renderer?.getCanvas?.();",
+		"ctx.fillStyle = activeTheme?.background || terminalOptionsBase.theme?.background || \"#000000\";",
+		"ctx.fillRect(0, 0, canvas.width / ratio, canvas.height / ratio);",
+		"const clearTerminalRuntimeBuffer = (session) => {",
+		"term.wasmTerm.write(terminalRuntimeClearSequence);",
+		"term.viewportY = 0;",
+		"term.targetViewportY = 0;",
+		"const resetTerminalAfterInitialFit = (session) => {",
+		"resetTerminalRuntimeState(session);",
+		"const syncTerminalRuntimeReferences = (session) => {",
+		"term.selectionManager.wasmTerm = term.wasmTerm;",
+		"term.linkDetector?.invalidateCache?.();",
+		"const resetTerminalRuntimeState = (session) => {",
+		"term.reset();",
+		"syncTerminalRuntimeReferences(session);",
+		"clearTerminalRuntimeBuffer(session);",
+		"clearTerminalCanvasPixels(session);",
 		"const setPaneRenderReady = (session, ready) => {",
 		"session.shellEl.dataset.renderReady = session.renderReady ? \"true\" : \"false\";",
 		"const markPaneRenderPending = (session) => {",
 		"session.term?.renderer?.clear?.();",
+		"clearTerminalCanvasPixels(session);",
 		"const markPaneRenderedIfMeasurable = (session) => {",
 		"session.replayCompletionPending",
 		"setPaneRenderReady(session, true);",
+		"session.shellEl.dataset.connection = \"open\";",
+		"clearTerminalCanvasPixels(session);",
 		"shellEl.dataset.renderReady = \"false\";",
+		"initialFitResetDone: false,",
+		"cleanupCallbacks: [],",
+		"clearTerminalRuntimeBuffer(session);",
+		"clearTerminalCanvasPixels(session);",
 		"term.onRender(() => markPaneRenderedIfMeasurable(session))",
+		"const resetTerminalForHistoryReplay = (session) => {",
 		"markPaneRenderPending(session);",
+		"session.resetOnNextReplay = false;",
+		"if (!resetTerminalRuntimeState(session)) {",
+		"const disposePane = (pane) => {",
+		"clearTerminalCanvasPixels(pane);",
 		"requestPaneFullRender(session);",
 	}
 	for _, want := range mainSnippets {
 		if !strings.Contains(mainSource, want) {
 			t.Fatalf("runtime terminal canvas residue guard missing main snippet %q", want)
 		}
+	}
+	replayStartSnippet := `case "history-replay-start":
+                if (!validateReplayMessage(message)) {
+                  rejectMismatchedReplay(message);
+                  return;
+                }
+                session.agentPreparing = false;
+                if (!resetTerminalForHistoryReplay(session)) {`
+	if !strings.Contains(mainSource, replayStartSnippet) {
+		t.Fatal("runtime terminal replay start must reset Ghostty state before accepting replay output")
 	}
 
 	styleSnippets := []string{
@@ -1555,14 +1596,13 @@ func TestRuntimeMobileOrientationReplaysVisibleTerminalAfterViewportSettle(t *te
 		"syncMobileVisualViewport({ detectOrientation: false });",
 		"replayActiveTabFromServerAfterViewportChange();",
 		"const resetTerminalForHistoryReplay = (session) => {",
-		"session.term.reset();",
-		"session.term.selectionManager.wasmTerm = session.term.wasmTerm;",
+		"resetTerminalRuntimeState(session)",
+		"session.initialFitResetDone = true;",
 		"const requestSessionHistoryReplay = (session) => {",
 		"session.resetOnNextReplay = true;",
 		"socket.close(4000, \"viewport changed\");",
 		"const replayActiveTabFromServerAfterViewportChange = () => {",
-		"if (session.resetOnNextReplay) {",
-		"resetTerminalForHistoryReplay(session);",
+		"resetTerminalForHistoryReplay(session)",
 		"window.addEventListener(\"orientationchange\", handleMobileOrientationChange);",
 		"window.screen?.orientation?.addEventListener?.(\"change\", handleMobileOrientationChange);",
 	}

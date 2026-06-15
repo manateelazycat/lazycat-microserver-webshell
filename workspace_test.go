@@ -2641,6 +2641,36 @@ func TestCloseActiveTabSelectsRightThenLeftNeighbor(t *testing.T) {
 	}
 }
 
+func TestCloseTabDropsPaneHistoryBeforeNewTab(t *testing.T) {
+	workspace := testWorkspaceWithTabs("tab-1", "tab-2")
+	closedPaneID := workspace.tabs[1].ActivePaneID
+	workspace.panes[closedPaneID].history = newTestPaneHistory("old closed tab output")
+	workspace.activeTab = "tab-2"
+
+	if err := workspace.closeTabLocked("tab-2"); err != nil {
+		t.Fatalf("close tab-2 returned error: %v", err)
+	}
+	if _, ok := workspace.panes[closedPaneID]; ok {
+		t.Fatalf("closed pane %s should be removed from workspace", closedPaneID)
+	}
+
+	pane := &terminalPane{id: "pane-new", clients: make(map[*paneClient]struct{}), done: make(chan struct{})}
+	workspace.panes[pane.id] = pane
+	tab := &terminalTab{
+		ID:           "tab-new",
+		Label:        "tab-new",
+		ActivePaneID: pane.id,
+		Layout:       &layoutNode{Type: "leaf", PaneID: pane.id},
+		PaneIDs:      []string{pane.id},
+	}
+	workspace.insertTabAfterSourceLocked(tab, "")
+	workspace.setActiveTabLocked(tab.ID)
+
+	if got := string(pane.history.snapshot().bytes()); got != "" {
+		t.Fatalf("new pane history = %q, want empty", got)
+	}
+}
+
 func TestClosePaneSelectsAdjacentSiblingWhenActivePaneExits(t *testing.T) {
 	workspace := &terminalWorkspace{
 		panes: map[string]*terminalPane{

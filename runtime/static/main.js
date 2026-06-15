@@ -5496,15 +5496,77 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     }
   };
 
+  const terminalRuntimeClearSequence = "\x1b[2J\x1b[3J\x1b[H";
+
+  const clearTerminalCanvasPixels = (session) => {
+    const term = session?.term;
+    const canvas = term?.canvas || term?.renderer?.getCanvas?.();
+    if (!(canvas instanceof HTMLCanvasElement)) {
+      return false;
+    }
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      return false;
+    }
+    const ratio = Number(term?.renderer?.devicePixelRatio || window.devicePixelRatio || 1) || 1;
+    ctx.save();
+    ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+    ctx.fillStyle = activeTheme?.background || terminalOptionsBase.theme?.background || "#000000";
+    ctx.fillRect(0, 0, canvas.width / ratio, canvas.height / ratio);
+    ctx.restore();
+    return true;
+  };
+
+  const clearTerminalRuntimeBuffer = (session) => {
+    const term = session?.term;
+    if (!term || !term.wasmTerm) {
+      return false;
+    }
+    try {
+      term.wasmTerm.write(terminalRuntimeClearSequence);
+      term.viewportY = 0;
+      term.targetViewportY = 0;
+      term.linkDetector?.invalidateCache?.();
+      term.requestRender?.({ full: true });
+      return true;
+    } catch (error) {
+      return false;
+    }
+  };
+
   const resetTerminalAfterInitialFit = (session) => {
     const term = session?.term;
     if (!term || session.initialFitResetDone) {
       return;
     }
     session.initialFitResetDone = true;
-    if (typeof term.reset === "function") {
-      term.reset();
+    resetTerminalRuntimeState(session);
+  };
+
+  const syncTerminalRuntimeReferences = (session) => {
+    const term = session?.term;
+    if (!term) {
+      return;
     }
+    if (term.selectionManager && term.wasmTerm) {
+      term.selectionManager.wasmTerm = term.wasmTerm;
+    }
+    term.linkDetector?.invalidateCache?.();
+    installRendererBaselinePatch(session);
+    installRendererThemeMapper(session);
+    installRendererCellSeamPatch(session);
+  };
+
+  const resetTerminalRuntimeState = (session) => {
+    const term = session?.term;
+    if (!term || typeof term.reset !== "function") {
+      return false;
+    }
+    term.reset();
+    syncTerminalRuntimeReferences(session);
+    clearTerminalRuntimeBuffer(session);
+    clearTerminalCanvasPixels(session);
+    return true;
   };
 
   const setPaneRenderReady = (session, ready) => {
@@ -5521,6 +5583,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     }
     setPaneRenderReady(session, false);
     session.term?.renderer?.clear?.();
+    clearTerminalCanvasPixels(session);
   };
 
   const markPaneRenderedIfMeasurable = (session) => {
@@ -11117,6 +11180,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     clearAttachReadyTimer(session);
     session.reconnectAttempts = 0;
     session.shellEl.dataset.connection = "open";
+    clearTerminalCanvasPixels(session);
     requestPaneFullRender(session);
     flushPendingInput(session);
     return true;
@@ -11360,22 +11424,22 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     return measurePerformanceTask("history replay", () => {
       discardSessionOutputBuffers(session);
       markPaneRenderPending(session);
+      session.replayComplete = false;
+      session.replayVerified = false;
+      session.replayCompletionPending = false;
+      session.resetOnNextReplay = false;
       session.selectAllBufferActive = false;
       session.term.clearSelection?.();
       session.term.viewportY = 0;
       session.term.targetViewportY = 0;
       try {
-        session.term.reset();
-        if (session.term.selectionManager && session.term.wasmTerm) {
-          session.term.selectionManager.wasmTerm = session.term.wasmTerm;
+        if (!resetTerminalRuntimeState(session)) {
+          return false;
         }
-        session.term.linkDetector?.invalidateCache?.();
+        session.initialFitResetDone = true;
       } catch (error) {
         return false;
       }
-      installRendererBaselinePatch(session);
-      installRendererThemeMapper(session);
-      installRendererCellSeamPatch(session);
       resizePane(session);
       resetTerminalHostViewport(session, { clean: true });
       positionTerminalInput(session);
@@ -11672,13 +11736,12 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
                   return;
                 }
                 session.agentPreparing = false;
-                markPaneRenderPending(session);
-                if (session.resetOnNextReplay) {
-                  session.resetOnNextReplay = false;
-                  resetTerminalForHistoryReplay(session);
+                if (!resetTerminalForHistoryReplay(session)) {
+                  detachSessionSocket(session, currentSocket, { connection: "error" });
+                  currentSocket.close();
+                  scheduleReconnect(session, { immediate: true });
+                  return;
                 }
-                session.replayComplete = false;
-                session.replayCompletionPending = false;
                 session.replayVerified = replayMessageHasIdentity(message) ? "identified" : "legacy";
                 session.allowGeneratedInputDuringReplay = message.allow_generated_input === true || message.allowGeneratedInput === true;
                 session.suppressGeneratedTerminalInputUntil = 0;
@@ -11875,6 +11938,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       composingIME: false,
       exitExpected: false,
       closed: false,
+      initialFitResetDone: false,
       renderReady: false,
       baseTheme: activeTheme,
       selectAllBufferActive: false,
@@ -11891,6 +11955,8 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       lastSizeReassertAt: 0,
       cleanupCallbacks: [],
     };
+    clearTerminalRuntimeBuffer(session);
+    clearTerminalCanvasPixels(session);
 
     installTerminalHostInputIsolation(session);
     installTerminalInputFocus(session);
@@ -12791,6 +12857,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       pane.socket = null;
       socket.close();
     }
+    clearTerminalCanvasPixels(pane);
     try {
       pane.term.dispose();
     } catch (error) {
