@@ -31,7 +31,6 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   const instanceSwitcherList = document.getElementById("instanceSwitcherList");
   const instanceSwitcherFeedback = document.getElementById("instanceSwitcherFeedback");
   const homeMenuButton = document.getElementById("homeMenuButton");
-  const deviceMenuButton = document.getElementById("deviceMenuButton");
   const settingsMenuButton = document.getElementById("settingsMenuButton");
   const themePickerBackdrop = document.getElementById("themePickerBackdrop");
   const themePickerClose = document.getElementById("themePickerClose");
@@ -55,6 +54,9 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   const settingsLineHeightResetButton = document.getElementById("settingsLineHeightResetButton");
   const settingsScrollbackInput = document.getElementById("settingsScrollbackInput");
   const settingsScrollbackResetButton = document.getElementById("settingsScrollbackResetButton");
+  const settingsDebugModeToggle = document.getElementById("settingsDebugModeToggle");
+  const settingsDebugOptions = document.getElementById("settingsDebugOptions");
+  const settingsOnlineDevicesButton = document.getElementById("settingsOnlineDevicesButton");
   const settingsPerformanceMeterToggle = document.getElementById("settingsPerformanceMeterToggle");
   const settingsPerformanceTasksToggle = document.getElementById("settingsPerformanceTasksToggle");
   const settingsDesktopMouseClipboardToggle = document.getElementById("settingsDesktopMouseClipboardToggle");
@@ -192,6 +194,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   const recentTabsStorageKey = (name) => `${storagePrefix}.recentTabs.${name || "default"}`;
   const restartTabStorageKey = `${storagePrefix}.restartTab`;
   const touchShortcutFeedbackStorageKey = `${storagePrefix}.touchShortcutFeedback`;
+  const debugModeStorageKey = `${storagePrefix}.debugMode`;
   const performanceMeterStorageKey = `${storagePrefix}.performanceMeter`;
   const performanceTasksStorageKey = `${storagePrefix}.performanceTasks`;
   const defaultFontSize = 16;
@@ -444,7 +447,8 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     },
   ];
 
-  let activeName = (params.get("name") || "").trim();
+  const readTargetNameParam = (sourceParams) => (sourceParams.get("target") || sourceParams.get("name") || "").trim();
+  let activeName = readTargetNameParam(params);
   let activeTabId = null;
   let inlineTabRenameState = null;
   let recentTabIds = [];
@@ -462,6 +466,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   let desktopMouseClipboardEnabled = true;
   let mobilePixelScrollEnabled = true;
   let mobileDoubleTapReminderEnabled = true;
+  let debugModeEnabled = window.localStorage.getItem(debugModeStorageKey) === "true";
   let performanceMeterEnabled = window.localStorage.getItem(performanceMeterStorageKey) === "true";
   let performanceTasksEnabled = window.localStorage.getItem(performanceTasksStorageKey) === "true";
   let fontEditMode = false;
@@ -1172,6 +1177,15 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     }
   };
 
+  const syncSettingsDebugModeControls = () => {
+    if (settingsDebugModeToggle) {
+      settingsDebugModeToggle.checked = debugModeEnabled;
+    }
+    if (settingsDebugOptions) {
+      settingsDebugOptions.hidden = !debugModeEnabled;
+    }
+  };
+
   const syncSettingsPerformanceMeterToggle = () => {
     if (settingsPerformanceMeterToggle) {
       settingsPerformanceMeterToggle.checked = performanceMeterEnabled;
@@ -1182,6 +1196,16 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     if (settingsPerformanceTasksToggle) {
       settingsPerformanceTasksToggle.checked = performanceTasksEnabled;
     }
+  };
+
+  const syncSettingsDebugOptions = () => {
+    syncSettingsDebugModeControls();
+    syncSettingsPerformanceMeterToggle();
+    syncSettingsPerformanceTasksToggle();
+  };
+
+  const syncDebugModeState = () => {
+    syncSettingsDebugOptions();
   };
 
   const syncSettingsDesktopMouseClipboardToggle = () => {
@@ -2299,8 +2323,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     syncSettingsDesktopMouseClipboardToggle();
     syncSettingsMobilePixelScrollToggle();
     syncSettingsMobileDoubleTapReminderToggle();
-    syncSettingsPerformanceMeterToggle();
-    syncSettingsPerformanceTasksToggle();
+    syncSettingsDebugOptions();
     resizeActiveTabForCurrentDevice();
     updateMobileActiveTabTitle();
     await registerTerminalSymbolFont(terminalSymbolFont);
@@ -3127,7 +3150,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     renderServiceForwardSettings();
     syncSettingsScrollbackInput();
     syncSettingsLineHeightInput();
-    syncSettingsPerformanceMeterToggle();
+    syncSettingsDebugOptions();
     syncSettingsDesktopMouseClipboardToggle();
     syncSettingsMobilePixelScrollToggle();
     syncSettingsMobileDoubleTapReminderToggle();
@@ -3170,6 +3193,14 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   };
 
   const instanceSelector = (item) => {
+    const explicitSelector = String(item?.selector || item?.target || "").trim();
+    if (explicitSelector) {
+      return explicitSelector;
+    }
+    const clientInstanceID = String(item?.client_instance_id || "").trim();
+    if (clientInstanceID) {
+      return `client:${clientInstanceID}`;
+    }
     const name = String(item?.name || "").trim();
     const ownerDeployID = String(item?.owner_deploy_id || "").trim();
     if (!name || !ownerDeployID) {
@@ -3180,6 +3211,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
 
   const instanceDisplayName = (item) => String(item?.name || "").trim() || instanceSelector(item).split("@", 1)[0];
   const getActiveInstance = () => currentInstances.find((item) => instanceSelector(item) === activeName) || null;
+  const isClientInstanceName = (name = activeName) => String(name || "").trim().startsWith("client:");
   const isRunningInstance = (item) => item?.status === "running";
   const setActiveInstanceName = (name) => {
     const normalized = String(name || "").trim();
@@ -5465,15 +5497,77 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     }
   };
 
+  const terminalRuntimeClearSequence = "\x1b[2J\x1b[3J\x1b[H";
+
+  const clearTerminalCanvasPixels = (session) => {
+    const term = session?.term;
+    const canvas = term?.canvas || term?.renderer?.getCanvas?.();
+    if (!(canvas instanceof HTMLCanvasElement)) {
+      return false;
+    }
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      return false;
+    }
+    const ratio = Number(term?.renderer?.devicePixelRatio || window.devicePixelRatio || 1) || 1;
+    ctx.save();
+    ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+    ctx.fillStyle = activeTheme?.background || terminalOptionsBase.theme?.background || "#000000";
+    ctx.fillRect(0, 0, canvas.width / ratio, canvas.height / ratio);
+    ctx.restore();
+    return true;
+  };
+
+  const clearTerminalRuntimeBuffer = (session) => {
+    const term = session?.term;
+    if (!term || !term.wasmTerm) {
+      return false;
+    }
+    try {
+      term.wasmTerm.write(terminalRuntimeClearSequence);
+      term.viewportY = 0;
+      term.targetViewportY = 0;
+      term.linkDetector?.invalidateCache?.();
+      term.requestRender?.({ full: true });
+      return true;
+    } catch (error) {
+      return false;
+    }
+  };
+
   const resetTerminalAfterInitialFit = (session) => {
     const term = session?.term;
     if (!term || session.initialFitResetDone) {
       return;
     }
     session.initialFitResetDone = true;
-    if (typeof term.reset === "function") {
-      term.reset();
+    resetTerminalRuntimeState(session);
+  };
+
+  const syncTerminalRuntimeReferences = (session) => {
+    const term = session?.term;
+    if (!term) {
+      return;
     }
+    if (term.selectionManager && term.wasmTerm) {
+      term.selectionManager.wasmTerm = term.wasmTerm;
+    }
+    term.linkDetector?.invalidateCache?.();
+    installRendererBaselinePatch(session);
+    installRendererThemeMapper(session);
+    installRendererCellSeamPatch(session);
+  };
+
+  const resetTerminalRuntimeState = (session) => {
+    const term = session?.term;
+    if (!term || typeof term.reset !== "function") {
+      return false;
+    }
+    term.reset();
+    syncTerminalRuntimeReferences(session);
+    clearTerminalRuntimeBuffer(session);
+    clearTerminalCanvasPixels(session);
+    return true;
   };
 
   const setPaneRenderReady = (session, ready) => {
@@ -5490,6 +5584,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     }
     setPaneRenderReady(session, false);
     session.term?.renderer?.clear?.();
+    clearTerminalCanvasPixels(session);
   };
 
   const markPaneRenderedIfMeasurable = (session) => {
@@ -11086,6 +11181,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     clearAttachReadyTimer(session);
     session.reconnectAttempts = 0;
     session.shellEl.dataset.connection = "open";
+    clearTerminalCanvasPixels(session);
     requestPaneFullRender(session);
     flushPendingInput(session);
     return true;
@@ -11329,22 +11425,22 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     return measurePerformanceTask("history replay", () => {
       discardSessionOutputBuffers(session);
       markPaneRenderPending(session);
+      session.replayComplete = false;
+      session.replayVerified = false;
+      session.replayCompletionPending = false;
+      session.resetOnNextReplay = false;
       session.selectAllBufferActive = false;
       session.term.clearSelection?.();
       session.term.viewportY = 0;
       session.term.targetViewportY = 0;
       try {
-        session.term.reset();
-        if (session.term.selectionManager && session.term.wasmTerm) {
-          session.term.selectionManager.wasmTerm = session.term.wasmTerm;
+        if (!resetTerminalRuntimeState(session)) {
+          return false;
         }
-        session.term.linkDetector?.invalidateCache?.();
+        session.initialFitResetDone = true;
       } catch (error) {
         return false;
       }
-      installRendererBaselinePatch(session);
-      installRendererThemeMapper(session);
-      installRendererCellSeamPatch(session);
       resizePane(session);
       resetTerminalHostViewport(session, { clean: true });
       positionTerminalInput(session);
@@ -11568,6 +11664,24 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     socketUrl.searchParams.set("client_id", serverRevisionClientID);
     socketUrl.searchParams.set("cols", String(session.term.cols || 120));
     socketUrl.searchParams.set("rows", String(session.term.rows || 32));
+    const logSocketUrl = new URL(socketUrl.toString());
+    logSocketUrl.searchParams.delete("client_id");
+    const socketDebug = {
+      textMessages: 0,
+      binaryMessages: 0,
+      binaryBytes: 0,
+      openedAt: 0,
+    };
+    console.info("[client-terminal] websocket connecting", {
+      name: session.name,
+      pane: session.id,
+      cols: session.term.cols || 120,
+      rows: session.term.rows || 32,
+      url: logSocketUrl.toString(),
+      allowHidden,
+      documentHidden: document.hidden,
+      reconnectAttempts: session.reconnectAttempts || 0,
+    });
     const currentSocket = new WebSocket(socketUrl.toString());
     session.socket = currentSocket;
     session.replayComplete = false;
@@ -11597,6 +11711,13 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       const selector = String(message?.selector || "").trim() || "unknown";
       const paneID = String(message?.pane_id || message?.paneId || "").trim() || "unknown";
       detachSessionSocket(session, currentSocket, { connection: "error" });
+      console.warn("[client-terminal] rejected terminal replay", {
+        selector,
+        pane: paneID,
+        expectedName: session.name,
+        expectedPane: session.id,
+        messageType: message?.type,
+      });
       console.warn(`Rejected terminal replay for ${selector}/${paneID}; expected ${session.name}/${session.id}.`);
       currentSocket.close();
     };
@@ -11605,6 +11726,14 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       if (session.socket !== currentSocket) {
         return;
       }
+      socketDebug.openedAt = Date.now();
+      console.info("[client-terminal] websocket open", {
+        name: session.name,
+        pane: session.id,
+        cols: session.term.cols || 120,
+        rows: session.term.rows || 32,
+        reconnectAttempts: session.reconnectAttempts || 0,
+      });
       session.reconnectPending = false;
       session.shellEl.dataset.connection = "connecting";
       startSocketHealthMonitor(session, currentSocket);
@@ -11631,9 +11760,28 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
         return;
       }
       if (typeof event.data === "string") {
+        socketDebug.textMessages += 1;
         try {
           const message = JSON.parse(event.data);
           if (message && typeof message.type === "string") {
+            if (
+              socketDebug.textMessages <= 8
+              || message.type === "history-replay-start"
+              || message.type === "history-replay-complete"
+              || message.type === "process-exit"
+              || message.type === "agent-preparing"
+            ) {
+              console.info("[client-terminal] websocket control message", {
+                name: session.name,
+                pane: session.id,
+                type: message.type,
+                selector: message.selector || "",
+                paneID: message.pane_id || message.paneId || "",
+                replayVerified: session.replayVerified || false,
+                replayComplete: session.replayComplete,
+                textMessages: socketDebug.textMessages,
+              });
+            }
             switch (message.type) {
               case "history-replay-start":
                 if (!validateReplayMessage(message)) {
@@ -11641,13 +11789,12 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
                   return;
                 }
                 session.agentPreparing = false;
-                markPaneRenderPending(session);
-                if (session.resetOnNextReplay) {
-                  session.resetOnNextReplay = false;
-                  resetTerminalForHistoryReplay(session);
+                if (!resetTerminalForHistoryReplay(session)) {
+                  detachSessionSocket(session, currentSocket, { connection: "error" });
+                  currentSocket.close();
+                  scheduleReconnect(session, { immediate: true });
+                  return;
                 }
-                session.replayComplete = false;
-                session.replayCompletionPending = false;
                 session.replayVerified = replayMessageHasIdentity(message) ? "identified" : "legacy";
                 session.allowGeneratedInputDuringReplay = message.allow_generated_input === true || message.allowGeneratedInput === true;
                 session.suppressGeneratedTerminalInputUntil = 0;
@@ -11669,6 +11816,13 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
               case "pong":
                 return;
               case "process-exit":
+                console.warn("[client-terminal] process exit message", {
+                  name: session.name,
+                  pane: session.id,
+                  retryable: message.retryable === true,
+                  exitCode: message.exit_code,
+                  message: message.message || "",
+                });
                 if (message.retryable === true && !/pane not found/i.test(String(message.message || ""))) {
                   detachSessionSocket(session, currentSocket, { connection: "closed" });
                   currentSocket.close();
@@ -11684,22 +11838,67 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
             }
           }
         } catch (error) {
+          if (socketDebug.textMessages <= 8) {
+            console.warn("[client-terminal] websocket text message parse failed", {
+              name: session.name,
+              pane: session.id,
+              bytes: event.data.length,
+              textMessages: socketDebug.textMessages,
+              error: error?.message || String(error),
+            });
+          }
         }
         writeSessionOutput(session, event.data);
         return;
       }
       if (event.data instanceof ArrayBuffer) {
+        socketDebug.binaryMessages += 1;
+        socketDebug.binaryBytes += event.data.byteLength;
+        if (socketDebug.binaryMessages <= 8) {
+          console.info("[client-terminal] websocket binary message", {
+            name: session.name,
+            pane: session.id,
+            bytes: event.data.byteLength,
+            binaryMessages: socketDebug.binaryMessages,
+            binaryBytes: socketDebug.binaryBytes,
+            replayVerified: session.replayVerified || false,
+            replayComplete: session.replayComplete,
+          });
+        }
         if (!session.replayVerified && !session.replayComplete) {
+          if (socketDebug.binaryMessages <= 8) {
+            console.warn("[client-terminal] dropped binary before replay verification", {
+              name: session.name,
+              pane: session.id,
+              bytes: event.data.byteLength,
+              binaryMessages: socketDebug.binaryMessages,
+            });
+          }
           return;
         }
         writeSessionOutput(session, new Uint8Array(event.data));
       }
     });
 
-    currentSocket.addEventListener("close", () => {
+    currentSocket.addEventListener("close", (event) => {
       if (session.socket !== currentSocket) {
         return;
       }
+      console.warn("[client-terminal] websocket close", {
+        name: session.name,
+        pane: session.id,
+        code: event.code,
+        reason: event.reason || "",
+        wasClean: event.wasClean,
+        openDurationMs: socketDebug.openedAt ? Date.now() - socketDebug.openedAt : 0,
+        textMessages: socketDebug.textMessages,
+        binaryMessages: socketDebug.binaryMessages,
+        binaryBytes: socketDebug.binaryBytes,
+        replayVerified: session.replayVerified || false,
+        replayComplete: session.replayComplete,
+        startupErrorShown: session.startupErrorShown,
+        exitExpected: session.exitExpected === true,
+      });
       detachSessionSocket(session, currentSocket, { connection: "closed" });
       flushSessionOutput(session);
       if (session.exitExpected) {
@@ -11712,10 +11911,22 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       scheduleReconnect(session);
     });
 
-    currentSocket.addEventListener("error", () => {
+    currentSocket.addEventListener("error", (event) => {
       if (session.socket !== currentSocket) {
         return;
       }
+      console.warn("[client-terminal] websocket error", {
+        name: session.name,
+        pane: session.id,
+        readyState: currentSocket.readyState,
+        openDurationMs: socketDebug.openedAt ? Date.now() - socketDebug.openedAt : 0,
+        textMessages: socketDebug.textMessages,
+        binaryMessages: socketDebug.binaryMessages,
+        binaryBytes: socketDebug.binaryBytes,
+        replayVerified: session.replayVerified || false,
+        replayComplete: session.replayComplete,
+        eventType: event.type,
+      });
       detachSessionSocket(session, currentSocket, { connection: "error" });
       flushSessionOutput(session);
       if (!session.startupErrorShown) {
@@ -11844,6 +12055,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       composingIME: false,
       exitExpected: false,
       closed: false,
+      initialFitResetDone: false,
       renderReady: false,
       baseTheme: activeTheme,
       selectAllBufferActive: false,
@@ -11860,6 +12072,8 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       lastSizeReassertAt: 0,
       cleanupCallbacks: [],
     };
+    clearTerminalRuntimeBuffer(session);
+    clearTerminalCanvasPixels(session);
 
     installTerminalHostInputIsolation(session);
     installTerminalInputFocus(session);
@@ -12760,6 +12974,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       pane.socket = null;
       socket.close();
     }
+    clearTerminalCanvasPixels(pane);
     try {
       pane.term.dispose();
     } catch (error) {
@@ -13572,7 +13787,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     closeContextMenu();
     closeInstanceSwitcher();
     closeDevicePanel();
-    const startPath = String(activeSession()?.cwd || "").trim() || "/";
+    const startPath = isClientInstanceName() ? "/" : String(activeSession()?.cwd || "").trim() || "/";
     attachmentBrowserOpen = true;
     attachmentBrowserCurrentPath = startPath;
     attachmentBrowserParentPath = "";
@@ -14099,6 +14314,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   };
 
   const bootstrap = async () => {
+    syncDebugModeState();
     applyPerformanceMeterVisibility();
     applyPerformanceTaskMeterVisibility();
     startDeviceHeartbeat();
@@ -14160,7 +14376,6 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   homeMenuButton?.addEventListener("click", () => {
     navigateHome().catch((error) => showToast(error.message || "无法返回首页"));
   });
-  deviceMenuButton?.addEventListener("click", openDevicePanel);
   settingsMenuButton?.addEventListener("click", () => openSettings());
   themePickerClose?.addEventListener("click", closeThemePicker);
   themePickerBackdrop?.addEventListener("click", (event) => {
@@ -14435,6 +14650,12 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
         }
       });
   });
+  settingsDebugModeToggle?.addEventListener("change", () => {
+    debugModeEnabled = settingsDebugModeToggle.checked;
+    window.localStorage.setItem(debugModeStorageKey, debugModeEnabled ? "true" : "false");
+    syncDebugModeState();
+  });
+  settingsOnlineDevicesButton?.addEventListener("click", openDevicePanel);
   settingsPerformanceMeterToggle?.addEventListener("change", () => {
     performanceMeterEnabled = settingsPerformanceMeterToggle.checked;
     window.localStorage.setItem(performanceMeterStorageKey, performanceMeterEnabled ? "true" : "false");
@@ -15018,7 +15239,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       return;
     }
     const nextParams = new URLSearchParams(window.location.search);
-    const nextName = (nextParams.get("name") || "").trim();
+    const nextName = readTargetNameParam(nextParams);
     const nextTab = (nextParams.get("tab") || "").trim();
     if (!nextName) {
       return;

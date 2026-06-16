@@ -124,24 +124,38 @@ func TestLightOSManifestEnablesMultiInstance(t *testing.T) {
 	}
 }
 
+func TestRuntimeInstanceSelectorSupportsClientInstances(t *testing.T) {
+	data, err := os.ReadFile("runtime/static/main.js")
+	if err != nil {
+		t.Fatalf("ReadFile(runtime/static/main.js) error = %v", err)
+	}
+	if !containsAll(string(data), "item?.selector", "item?.target", "item?.client_instance_id", "client:${clientInstanceID}") {
+		t.Fatalf("expected runtime instanceSelector to support client instance selectors")
+	}
+}
+
 func TestHandleInstancesLoadsVisibleInstancesFromLightOSAdmin(t *testing.T) {
-	var upstreamPath string
-	var upstreamAccept string
-	var upstreamUserID string
-	var upstreamUserRole string
+	var upstreamPaths []string
+	var upstreamAccepts []string
+	var upstreamUserIDs []string
+	var upstreamUserRoles []string
 	server := &pluginServer{
 		adminInfoResolver: func(context.Context) (adminInfo, error) {
 			return adminInfo{BaseURL: "https://admin.example/root/"}, nil
 		},
 		publishHTTPClient: &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
-			upstreamPath = request.URL.Path
-			upstreamAccept = request.Header.Get("Accept")
-			upstreamUserID = request.Header.Get(lightOSUserIDHeader)
-			upstreamUserRole = request.Header.Get("X-HC-User-Role")
+			upstreamPaths = append(upstreamPaths, request.URL.Path)
+			upstreamAccepts = append(upstreamAccepts, request.Header.Get("Accept"))
+			upstreamUserIDs = append(upstreamUserIDs, request.Header.Get(lightOSUserIDHeader))
+			upstreamUserRoles = append(upstreamUserRoles, request.Header.Get("X-HC-User-Role"))
+			body := `[{"name":"alpha","owner_deploy_id":"deploy-a","status":"running","username":"alice"}]`
+			if request.URL.Path == "/root/api/client-instances" {
+				body = `[{"id":"client-a","name":"Alice PC","platform":"darwin","status":"running","owner_user_id":"alice"}]`
+			}
 			return &http.Response{
 				StatusCode: http.StatusOK,
 				Header:     http.Header{"Content-Type": []string{"application/json"}},
-				Body:       io.NopCloser(strings.NewReader(`[{"name":"alpha","owner_deploy_id":"deploy-a","status":"running","username":"alice"}]`)),
+				Body:       io.NopCloser(strings.NewReader(body)),
 				Request:    request,
 			}, nil
 		})},
@@ -160,20 +174,31 @@ func TestHandleInstancesLoadsVisibleInstancesFromLightOSAdmin(t *testing.T) {
 	if err := json.NewDecoder(recorder.Body).Decode(&items); err != nil {
 		t.Fatalf("decode instances error = %v", err)
 	}
-	if upstreamPath != "/root/api/webshell/instances" {
-		t.Fatalf("upstream path = %q, want /root/api/webshell/instances", upstreamPath)
+	for _, want := range []string{"/root/api/webshell/instances", "/root/api/client-instances"} {
+		if !slices.Contains(upstreamPaths, want) {
+			t.Fatalf("upstream paths = %v, missing %q", upstreamPaths, want)
+		}
 	}
-	if upstreamAccept != "application/json" {
-		t.Fatalf("upstream Accept = %q, want application/json", upstreamAccept)
+	for _, got := range upstreamAccepts {
+		if got != "application/json" {
+			t.Fatalf("upstream Accepts = %q, want application/json", upstreamAccepts)
+		}
 	}
-	if upstreamUserID != "login-user-a" {
-		t.Fatalf("upstream %s = %q, want login-user-a", lightOSUserIDHeader, upstreamUserID)
+	for _, got := range upstreamUserIDs {
+		if got != "login-user-a" {
+			t.Fatalf("upstream %s values = %q, want login-user-a", lightOSUserIDHeader, upstreamUserIDs)
+		}
 	}
-	if upstreamUserRole != "NORMAL" {
-		t.Fatalf("upstream role = %q, want NORMAL", upstreamUserRole)
+	for _, got := range upstreamUserRoles {
+		if got != "NORMAL" {
+			t.Fatalf("upstream roles = %q, want NORMAL", upstreamUserRoles)
+		}
 	}
-	if len(items) != 1 || items[0].Name != "alpha" || items[0].OwnerDeployID != "deploy-a" {
-		t.Fatalf("instances = %+v, want alpha only", items)
+	if len(items) != 2 || items[0].Name != "alpha" || items[0].OwnerDeployID != "deploy-a" || instanceSelector(items[0]) != "alpha@deploy-a" {
+		t.Fatalf("instances = %+v, want alpha container first", items)
+	}
+	if items[1].Name != "Alice PC" || items[1].Selector != "client:client-a" || instanceSelector(items[1]) != "client:client-a" {
+		t.Fatalf("instances = %+v, want client instance selector", items)
 	}
 }
 
@@ -199,6 +224,94 @@ func TestAuthorizeInstanceSelectorAllowsVisibleSelector(t *testing.T) {
 	}
 	if err := server.authorizeInstanceSelector(context.Background(), "invalid"); err == nil || !strings.Contains(err.Error(), "invalid instance selector") {
 		t.Fatalf("authorize invalid selector error = %v, want invalid selector", err)
+	}
+}
+
+func TestHandleWorkspaceClientTargetProxiesRemoteWorkspaceAfterVisibilityCheck(t *testing.T) {
+	var requestedPaths []string
+	oldHTTPClient := newClientTerminalHTTPClient
+	oldAuthToken := resolveClientDeviceAPIAuthToken
+	defer func() {
+		newClientTerminalHTTPClient = oldHTTPClient
+		resolveClientDeviceAPIAuthToken = oldAuthToken
+	}()
+	resolveClientDeviceAPIAuthToken = func(context.Context, string) (string, error) {
+		return "device-auth-token", nil
+	}
+	newClientTerminalHTTPClient = func() *http.Client {
+		return &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+			requestedPaths = append(requestedPaths, request.URL.Path)
+			if request.Header.Get("lzc_dapi_auth_token") != "device-auth-token" {
+				t.Fatalf("device api auth token header = %q", request.Header.Get("lzc_dapi_auth_token"))
+			}
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     make(http.Header),
+				Body: io.NopCloser(strings.NewReader(`{
+					"selector":"client:client-a",
+					"active_tab_id":"tab-1",
+					"tabs":[{"id":"tab-1","label":"Shell 1","active_pane_id":"pane-1","layout":{"type":"leaf","paneId":"pane-1"},"panes":[{"id":"pane-1","cols":120,"rows":32,"busy":false,"exited":false,"exit_code":0}]}]
+				}`)),
+				Request: request,
+			}, nil
+		})}
+	}
+	server := &pluginServer{
+		adminInfoResolver: func(context.Context) (adminInfo, error) {
+			return adminInfo{BaseURL: "http://lightos-admin.local"}, nil
+		},
+		publishHTTPClient: &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+			requestedPaths = append(requestedPaths, request.URL.Path)
+			body := `[{"id":"client-a","name":"Alice PC","platform":"darwin","status":"running","owner_user_id":"alice"}]`
+			if request.URL.Path == "/api/client-instances/terminal-ticket" {
+				body = `{"client_instance_id":"client-a","device_api_url":"https://device.example.com","terminal_service_name":"cloud.lazycat.lightos.client-terminal.client-a","ticket":"ticket","expires_at":"2026-06-11T08:01:00Z"}`
+			}
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     make(http.Header),
+				Body:       io.NopCloser(strings.NewReader(body)),
+				Request:    request,
+			}, nil
+		})},
+	}
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/workspace?name=client:client-a", nil)
+	request.Header.Set(lightOSUserIDHeader, "alice")
+	server.handleWorkspace(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("handleWorkspace status = %d, want 200; body=%q", recorder.Code, recorder.Body.String())
+	}
+	for _, want := range []string{"/api/client-instances", "/api/client-instances/terminal-ticket", "/s/cloud.lazycat.lightos.client-terminal.client-a/workspace"} {
+		if !slices.Contains(requestedPaths, want) {
+			t.Fatalf("requested paths = %v, missing %q", requestedPaths, want)
+		}
+	}
+}
+
+func TestHandleWorkspaceClientTargetRejectsInvisibleClient(t *testing.T) {
+	server := &pluginServer{
+		adminInfoResolver: func(context.Context) (adminInfo, error) {
+			return adminInfo{BaseURL: "http://lightos-admin.local"}, nil
+		},
+		publishHTTPClient: &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     make(http.Header),
+				Body:       io.NopCloser(strings.NewReader(`[{"id":"client-b","name":"Bob PC","platform":"linux","status":"running","owner_user_id":"bob"}]`)),
+				Request:    request,
+			}, nil
+		})},
+	}
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/workspace?name=client:client-a", nil)
+	request.Header.Set(lightOSUserIDHeader, "alice")
+	server.handleWorkspace(recorder, request)
+
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("handleWorkspace status = %d, want 403; body=%q", recorder.Code, recorder.Body.String())
 	}
 }
 
@@ -2525,6 +2638,36 @@ func TestCloseActiveTabSelectsRightThenLeftNeighbor(t *testing.T) {
 	assertTabOrder(t, workspace.tabs, "tab-1")
 	if workspace.activeTab != "tab-1" {
 		t.Fatalf("expected left neighbor tab-1 to become active, got %q", workspace.activeTab)
+	}
+}
+
+func TestCloseTabDropsPaneHistoryBeforeNewTab(t *testing.T) {
+	workspace := testWorkspaceWithTabs("tab-1", "tab-2")
+	closedPaneID := workspace.tabs[1].ActivePaneID
+	workspace.panes[closedPaneID].history = newTestPaneHistory("old closed tab output")
+	workspace.activeTab = "tab-2"
+
+	if err := workspace.closeTabLocked("tab-2"); err != nil {
+		t.Fatalf("close tab-2 returned error: %v", err)
+	}
+	if _, ok := workspace.panes[closedPaneID]; ok {
+		t.Fatalf("closed pane %s should be removed from workspace", closedPaneID)
+	}
+
+	pane := &terminalPane{id: "pane-new", clients: make(map[*paneClient]struct{}), done: make(chan struct{})}
+	workspace.panes[pane.id] = pane
+	tab := &terminalTab{
+		ID:           "tab-new",
+		Label:        "tab-new",
+		ActivePaneID: pane.id,
+		Layout:       &layoutNode{Type: "leaf", PaneID: pane.id},
+		PaneIDs:      []string{pane.id},
+	}
+	workspace.insertTabAfterSourceLocked(tab, "")
+	workspace.setActiveTabLocked(tab.ID)
+
+	if got := string(pane.history.snapshot().bytes()); got != "" {
+		t.Fatalf("new pane history = %q, want empty", got)
 	}
 }
 

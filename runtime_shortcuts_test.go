@@ -83,9 +83,12 @@ func TestRuntimeDeviceManagementStaticGuards(t *testing.T) {
 	}
 	index := string(indexData)
 	for _, want := range []string{
-		`id="deviceMenuButton"`,
+		`id="settingsDebugModeToggle"`,
+		`id="settingsDebugOptions" hidden`,
+		`id="settingsOnlineDevicesButton"`,
+		`class="settings-debug-action"`,
 		"在线设备",
-		"当前正在连接的设备",
+		"查看当前正在连接的设备",
 		`id="deviceBackdrop"`,
 		`id="deviceBack"`,
 		`class="settings-back"`,
@@ -94,6 +97,12 @@ func TestRuntimeDeviceManagementStaticGuards(t *testing.T) {
 		if !strings.Contains(index, want) {
 			t.Fatalf("runtime device management index guard missing %q", want)
 		}
+	}
+	if strings.Contains(index, `id="deviceMenuButton"`) {
+		t.Fatalf("runtime device management must not expose online devices in the top-right menu")
+	}
+	if strings.Contains(index, `id="settingsOnlineDevicesToggle"`) {
+		t.Fatalf("runtime device management must not render online devices as a checkbox toggle")
 	}
 
 	mainData, err := os.ReadFile("runtime/static/main.js")
@@ -115,12 +124,13 @@ func TestRuntimeDeviceManagementStaticGuards(t *testing.T) {
 		"const stopDeviceListRefresh = () => {",
 		"const closeDevicePanel = () => {",
 		"stopDeviceListRefresh();",
+		`const settingsOnlineDevicesButton = document.getElementById("settingsOnlineDevicesButton");`,
 		`deviceBack?.addEventListener("click", closeDevicePanel);`,
 		"const deviceListContentSignature = (devices) => JSON.stringify",
 		"joined_at: String(device?.joined_at || \"\").trim(),",
 		"if (nextSignature === deviceListSignature) {",
 		"暂无正在连接的设备",
-		`deviceMenuButton?.addEventListener("click", openDevicePanel);`,
+		`settingsOnlineDevicesButton?.addEventListener("click", openDevicePanel);`,
 		`document.addEventListener("visibilitychange", () => {`,
 		`window.addEventListener("pageshow", () => {`,
 		`window.addEventListener("pagehide", () => {`,
@@ -128,6 +138,18 @@ func TestRuntimeDeviceManagementStaticGuards(t *testing.T) {
 	} {
 		if !strings.Contains(source, want) {
 			t.Fatalf("runtime device management main guard missing %q", want)
+		}
+	}
+	if strings.Contains(source, "deviceMenuButton") {
+		t.Fatalf("runtime device management must not keep deviceMenuButton wiring")
+	}
+	for _, forbidden := range []string{
+		"settingsOnlineDevicesToggle",
+		"onlineDevicesDebugEnabled",
+		"syncSettingsOnlineDevicesToggle",
+	} {
+		if strings.Contains(source, forbidden) {
+			t.Fatalf("runtime device management must not keep online devices checkbox state %q", forbidden)
 		}
 	}
 
@@ -143,6 +165,8 @@ func TestRuntimeDeviceManagementStaticGuards(t *testing.T) {
 		"background: var(--panel-subtle-bg);",
 		".device-item",
 		"background: var(--panel-bg);",
+		".settings-debug-options",
+		".settings-debug-action",
 	} {
 		if !strings.Contains(style, want) {
 			t.Fatalf("runtime device management style guard missing %q", want)
@@ -152,6 +176,63 @@ func TestRuntimeDeviceManagementStaticGuards(t *testing.T) {
 	for _, forbidden := range []string{"gradient", "animation:"} {
 		if strings.Contains(deviceStyle, forbidden) {
 			t.Fatalf("runtime device management style must not contain %q", forbidden)
+		}
+	}
+}
+
+func TestRuntimeInstanceSwitcherListScrollsWhenManyInstances(t *testing.T) {
+	styleData, err := os.ReadFile("runtime/static/style.css")
+	if err != nil {
+		t.Fatalf("ReadFile(runtime/static/style.css) error = %v", err)
+	}
+	style := string(styleData)
+	listStyle := sourceBetween(t, style, ".instance-switcher-list {", ".instance-switcher-list::-webkit-scrollbar")
+	for _, want := range []string{
+		"max-height: clamp(160px, calc(100dvh - 220px), 340px);",
+		"overflow-y: auto;",
+		"overscroll-behavior: contain;",
+		"scrollbar-width: thin;",
+		"-webkit-overflow-scrolling: touch;",
+	} {
+		if !strings.Contains(listStyle, want) {
+			t.Fatalf("runtime instance switcher list scroll guard missing %q", want)
+		}
+	}
+}
+
+func TestRuntimeDebugModeOnlyTogglesOptionsList(t *testing.T) {
+	data, err := os.ReadFile("runtime/static/main.js")
+	if err != nil {
+		t.Fatalf("ReadFile(runtime/static/main.js) error = %v", err)
+	}
+	source := string(data)
+	for _, want := range []string{
+		"const debugModeStorageKey = `${storagePrefix}.debugMode`;",
+		`const settingsDebugOptions = document.getElementById("settingsDebugOptions");`,
+		"settingsDebugOptions.hidden = !debugModeEnabled;",
+		`let performanceMeterEnabled = window.localStorage.getItem(performanceMeterStorageKey) === "true";`,
+		`let performanceTasksEnabled = window.localStorage.getItem(performanceTasksStorageKey) === "true";`,
+		"meter.hidden = !performanceMeterEnabled;",
+		"performanceTaskMonitor.setEnabled(performanceTasksEnabled);",
+		"performanceMeterEnabled = settingsPerformanceMeterToggle.checked;",
+		"performanceTasksEnabled = settingsPerformanceTasksToggle.checked;",
+	} {
+		if !strings.Contains(source, want) {
+			t.Fatalf("runtime debug mode guard missing %q", want)
+		}
+	}
+	for _, forbidden := range []string{
+		"debugModeEnabled && window.localStorage.getItem(performanceMeterStorageKey)",
+		"debugModeEnabled && window.localStorage.getItem(performanceTasksStorageKey)",
+		"debugModeEnabled && performanceMeterEnabled",
+		"debugModeEnabled && performanceTasksEnabled",
+		"debugModeEnabled && settingsPerformanceMeterToggle.checked",
+		"debugModeEnabled && settingsPerformanceTasksToggle.checked",
+		"performanceMeterEnabled = false;",
+		"performanceTasksEnabled = false;",
+	} {
+		if strings.Contains(source, forbidden) {
+			t.Fatalf("runtime debug mode must not gate feature state with %q", forbidden)
 		}
 	}
 }
@@ -410,6 +491,24 @@ func TestRuntimeShortcutSettingsGuardDesktopShortcutEditor(t *testing.T) {
 			if !strings.Contains(source, want) {
 				t.Fatalf("%s desktop shortcut guard missing %q", path, want)
 			}
+		}
+	}
+}
+
+func TestRuntimeAttachmentBrowserStartsAtRootForClientInstances(t *testing.T) {
+	data, err := os.ReadFile("runtime/static/main.js")
+	if err != nil {
+		t.Fatalf("ReadFile(runtime/static/main.js) error = %v", err)
+	}
+	source := string(data)
+
+	wantSnippets := []string{
+		`const isClientInstanceName = (name = activeName) => String(name || "").trim().startsWith("client:");`,
+		`const startPath = isClientInstanceName() ? "/" : String(activeSession()?.cwd || "").trim() || "/";`,
+	}
+	for _, want := range wantSnippets {
+		if !strings.Contains(source, want) {
+			t.Fatalf("runtime attachment browser client root guard missing %q", want)
 		}
 	}
 }
@@ -1132,22 +1231,63 @@ func TestRuntimeTerminalCanvasResidueGuard(t *testing.T) {
 	rendererSource := string(rendererData)
 
 	mainSnippets := []string{
+		"const terminalRuntimeClearSequence = \"\\x1b[2J\\x1b[3J\\x1b[H\";",
+		"const clearTerminalCanvasPixels = (session) => {",
+		"const canvas = term?.canvas || term?.renderer?.getCanvas?.();",
+		"ctx.fillStyle = activeTheme?.background || terminalOptionsBase.theme?.background || \"#000000\";",
+		"ctx.fillRect(0, 0, canvas.width / ratio, canvas.height / ratio);",
+		"const clearTerminalRuntimeBuffer = (session) => {",
+		"term.wasmTerm.write(terminalRuntimeClearSequence);",
+		"term.viewportY = 0;",
+		"term.targetViewportY = 0;",
+		"const resetTerminalAfterInitialFit = (session) => {",
+		"resetTerminalRuntimeState(session);",
+		"const syncTerminalRuntimeReferences = (session) => {",
+		"term.selectionManager.wasmTerm = term.wasmTerm;",
+		"term.linkDetector?.invalidateCache?.();",
+		"const resetTerminalRuntimeState = (session) => {",
+		"term.reset();",
+		"syncTerminalRuntimeReferences(session);",
+		"clearTerminalRuntimeBuffer(session);",
+		"clearTerminalCanvasPixels(session);",
 		"const setPaneRenderReady = (session, ready) => {",
 		"session.shellEl.dataset.renderReady = session.renderReady ? \"true\" : \"false\";",
 		"const markPaneRenderPending = (session) => {",
 		"session.term?.renderer?.clear?.();",
+		"clearTerminalCanvasPixels(session);",
 		"const markPaneRenderedIfMeasurable = (session) => {",
 		"session.replayCompletionPending",
 		"setPaneRenderReady(session, true);",
+		"session.shellEl.dataset.connection = \"open\";",
+		"clearTerminalCanvasPixels(session);",
 		"shellEl.dataset.renderReady = \"false\";",
+		"initialFitResetDone: false,",
+		"cleanupCallbacks: [],",
+		"clearTerminalRuntimeBuffer(session);",
+		"clearTerminalCanvasPixels(session);",
 		"term.onRender(() => markPaneRenderedIfMeasurable(session))",
+		"const resetTerminalForHistoryReplay = (session) => {",
 		"markPaneRenderPending(session);",
+		"session.resetOnNextReplay = false;",
+		"if (!resetTerminalRuntimeState(session)) {",
+		"const disposePane = (pane) => {",
+		"clearTerminalCanvasPixels(pane);",
 		"requestPaneFullRender(session);",
 	}
 	for _, want := range mainSnippets {
 		if !strings.Contains(mainSource, want) {
 			t.Fatalf("runtime terminal canvas residue guard missing main snippet %q", want)
 		}
+	}
+	replayStartSnippet := `case "history-replay-start":
+                if (!validateReplayMessage(message)) {
+                  rejectMismatchedReplay(message);
+                  return;
+                }
+                session.agentPreparing = false;
+                if (!resetTerminalForHistoryReplay(session)) {`
+	if !strings.Contains(mainSource, replayStartSnippet) {
+		t.Fatal("runtime terminal replay start must reset Ghostty state before accepting replay output")
 	}
 
 	styleSnippets := []string{
@@ -1474,14 +1614,13 @@ func TestRuntimeMobileOrientationReplaysVisibleTerminalAfterViewportSettle(t *te
 		"syncMobileVisualViewport({ detectOrientation: false });",
 		"replayActiveTabFromServerAfterViewportChange();",
 		"const resetTerminalForHistoryReplay = (session) => {",
-		"session.term.reset();",
-		"session.term.selectionManager.wasmTerm = session.term.wasmTerm;",
+		"resetTerminalRuntimeState(session)",
+		"session.initialFitResetDone = true;",
 		"const requestSessionHistoryReplay = (session) => {",
 		"session.resetOnNextReplay = true;",
 		"socket.close(4000, \"viewport changed\");",
 		"const replayActiveTabFromServerAfterViewportChange = () => {",
-		"if (session.resetOnNextReplay) {",
-		"resetTerminalForHistoryReplay(session);",
+		"resetTerminalForHistoryReplay(session)",
 		"window.addEventListener(\"orientationchange\", handleMobileOrientationChange);",
 		"window.screen?.orientation?.addEventListener?.(\"change\", handleMobileOrientationChange);",
 	}

@@ -51,6 +51,7 @@ type pluginServer struct {
 }
 
 type instanceSummary struct {
+	Selector      string `json:"selector,omitempty"`
 	Name          string `json:"name"`
 	OwnerDeployID string `json:"owner_deploy_id"`
 	Status        string `json:"status"`
@@ -76,6 +77,15 @@ type apiErrorResponse struct {
 	Error string `json:"error"`
 }
 
+type clientInstanceSummary struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Platform    string `json:"platform"`
+	Status      string `json:"status"`
+	OwnerUserID string `json:"owner_user_id"`
+	WebshellURL string `json:"webshell_url"`
+}
+
 const lightOSUserIDHeader = "X-HC-USER-ID"
 const lightOSRequireCookieAuthEnv = "LIGHTOS_REQUIRE_COOKIE_AUTH"
 const lazyCatAppDeployUIDEnv = "LAZYCAT_APP_DEPLOY_UID"
@@ -93,6 +103,7 @@ const webshellDeviceTTL = 1500 * time.Millisecond
 
 var errInstanceForbidden = errors.New("instance is not accessible by current account")
 var errInvalidPublishCreatePayload = errors.New("invalid publish create payload")
+var errClientTerminalProxyUnavailable = errors.New("client terminal proxy is not available yet")
 
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool { return true },
@@ -372,6 +383,15 @@ func (s *pluginServer) handleServerRevision(w http.ResponseWriter, r *http.Reque
 			http.Error(w, "account id is required", http.StatusUnauthorized)
 			return
 		}
+		if isClientTarget(selector) {
+			if err := s.authorizeClientTarget(r.Context(), r.Header, accountID, selector); err != nil {
+				writeAuthorizationError(w, err)
+				return
+			}
+			w.Header().Set("Cache-Control", "no-store")
+			writeJSON(w, info)
+			return
+		}
 		if err := s.authorizeInstanceSelector(r.Context(), selector); err != nil {
 			writeAuthorizationError(w, err)
 			return
@@ -512,11 +532,15 @@ func writeAuthorizationError(w http.ResponseWriter, err error) {
 		return
 	case errors.Is(err, errInstanceForbidden):
 		http.Error(w, err.Error(), http.StatusForbidden)
+	case errors.Is(err, errClientTerminalProxyUnavailable):
+		http.Error(w, err.Error(), http.StatusNotImplemented)
 	case strings.Contains(err.Error(), "account id is required"):
 		http.Error(w, err.Error(), http.StatusUnauthorized)
 	case strings.Contains(err.Error(), "deploy uid is required"):
 		http.Error(w, err.Error(), http.StatusUnauthorized)
 	case strings.Contains(err.Error(), "invalid instance selector"):
+		http.Error(w, err.Error(), http.StatusBadRequest)
+	case strings.Contains(err.Error(), "invalid client target"):
 		http.Error(w, err.Error(), http.StatusBadRequest)
 	case errors.Is(err, errInvalidPublishCreatePayload):
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -721,7 +745,16 @@ func (s *pluginServer) listRequestVisibleInstances(ctx context.Context, header h
 	if s != nil && s.instancesResolver != nil {
 		return s.instancesResolver(ctx)
 	}
-	return s.listLightOSAdminWebshellInstances(ctx, header, accountID)
+	items, err := s.listLightOSAdminWebshellInstances(ctx, header, accountID)
+	if err != nil {
+		return nil, err
+	}
+	clientItems, err := s.listLightOSAdminClientInstances(ctx, header, accountID)
+	if err != nil {
+		return nil, err
+	}
+	items = append(items, clientInstanceSummariesToInstances(clientItems)...)
+	return items, nil
 }
 
 func (s *pluginServer) listLightOSAdminWebshellInstances(ctx context.Context, header http.Header, accountID string) ([]instanceSummary, error) {
@@ -763,6 +796,71 @@ func (s *pluginServer) listLightOSAdminWebshellInstances(ctx context.Context, he
 		return nil, err
 	}
 	return items, nil
+}
+
+func (s *pluginServer) listLightOSAdminClientInstances(ctx context.Context, header http.Header, accountID string) ([]clientInstanceSummary, error) {
+	accountID = strings.TrimSpace(accountID)
+	if accountID == "" {
+		return nil, errors.New("account id is required")
+	}
+	info, err := s.resolveLightOSAdminInfo(ctx)
+	if err != nil {
+		return nil, err
+	}
+	targetURL, err := buildLightOSAdminURL(resolvePublishProxyLightOSAdminBaseURL(info), &url.URL{Path: "/api/client-instances"})
+	if err != nil {
+		return nil, err
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, targetURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	copyPublishProxyRequestHeaders(request.Header, header)
+	setPublishProxyAuthHeaders(request.Header, header, accountID)
+	request.Header.Set("Accept", "application/json")
+
+	response, err := s.publishClient().Do(request)
+	if err != nil {
+		return nil, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(response.Body)
+		message := strings.TrimSpace(string(body))
+		if message == "" {
+			message = response.Status
+		}
+		return nil, errors.New(message)
+	}
+	var items []clientInstanceSummary
+	if err := json.NewDecoder(response.Body).Decode(&items); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+func clientInstanceSummariesToInstances(items []clientInstanceSummary) []instanceSummary {
+	result := make([]instanceSummary, 0, len(items))
+	for _, item := range items {
+		id := strings.TrimSpace(item.ID)
+		if id == "" {
+			continue
+		}
+		name := strings.TrimSpace(item.Name)
+		if name == "" {
+			name = "PC Client"
+		}
+		status := strings.TrimSpace(item.Status)
+		if status == "" {
+			status = "running"
+		}
+		result = append(result, instanceSummary{
+			Selector: "client:" + id,
+			Name:     name,
+			Status:   status,
+		})
+	}
+	return result
 }
 
 func (s *pluginServer) currentDeployUID() string {
@@ -842,6 +940,23 @@ func (s *pluginServer) authorizeInstanceSelector(ctx context.Context, selector s
 	return errInstanceForbidden
 }
 
+func (s *pluginServer) authorizeClientTarget(ctx context.Context, header http.Header, accountID, target string) error {
+	id, err := parseClientTargetID(target)
+	if err != nil {
+		return err
+	}
+	items, err := s.listLightOSAdminClientInstances(ctx, header, accountID)
+	if err != nil {
+		return err
+	}
+	for _, item := range items {
+		if strings.TrimSpace(item.ID) == id {
+			return nil
+		}
+	}
+	return errInstanceForbidden
+}
+
 func (s *pluginServer) authorizeOwnedInstanceSelector(ctx context.Context, selector string) error {
 	selector = strings.TrimSpace(selector)
 	if err := validateInstanceSelector(selector); err != nil {
@@ -894,7 +1009,24 @@ func validateInstanceSelector(value string) error {
 	return nil
 }
 
+func isClientTarget(value string) bool {
+	return strings.HasPrefix(strings.TrimSpace(value), "client:")
+}
+
+func parseClientTargetID(value string) (string, error) {
+	value = strings.TrimSpace(value)
+	id, ok := strings.CutPrefix(value, "client:")
+	id = strings.TrimSpace(id)
+	if !ok || id == "" {
+		return "", errors.New("invalid client target")
+	}
+	return id, nil
+}
+
 func instanceSelector(item instanceSummary) string {
+	if selector := strings.TrimSpace(item.Selector); selector != "" {
+		return selector
+	}
 	name := strings.TrimSpace(item.Name)
 	ownerDeployID := strings.TrimSpace(item.OwnerDeployID)
 	if name == "" || ownerDeployID == "" {

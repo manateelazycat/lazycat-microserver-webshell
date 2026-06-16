@@ -31,6 +31,7 @@ const (
 	agentLogPath            = "/tmp/lcmd-webshell-agent.log"
 	agentReadyMarker        = "__LCMD_WEBSHELL_AGENT_READY__"
 	agentInstallCachePrefix = agentProtocolVersion + "\t"
+	commandOutputSnippetMax = 1024
 	websocketReadTimeout    = 30 * time.Second
 	websocketWriteTimeout   = 5 * time.Second
 )
@@ -130,6 +131,18 @@ func (t *persistentAgentStartupTrace) addCommandResult(stage string, output []by
 		return
 	}
 	t.add("%s succeeded: output=%s", stage, text)
+}
+
+func commandOutputSnippet(output []byte) string {
+	text := strings.TrimSpace(string(output))
+	if text == "" {
+		return "<empty>"
+	}
+	runes := []rune(text)
+	if len(runes) <= commandOutputSnippetMax {
+		return text
+	}
+	return string(runes[:commandOutputSnippetMax]) + "..."
 }
 
 func (t *persistentAgentStartupTrace) String() string {
@@ -324,7 +337,7 @@ func runPersistentAgentRequest(ctx context.Context, scope agentScope, request ag
 	}
 	var response agentResponse
 	if err := json.Unmarshal(bytes.TrimSpace(output), &response); err != nil {
-		return agentResponse{}, err
+		return agentResponse{}, fmt.Errorf("invalid agent response: %w: output=%s", err, commandOutputSnippet(output))
 	}
 	if !response.OK {
 		if response.Error == "" {
@@ -464,12 +477,11 @@ func ensureAgentBinaryInstalled(ctx context.Context, scope agentScope, trace *pe
 	trace.add("agent archive ready: manifest=%s payload_bytes=%d", manifest, len(payload))
 	cacheKey := scope.cacheKey()
 	persistentAgentCache.Lock()
-	if persistentAgentCache.installed[cacheKey] == manifest {
-		persistentAgentCache.Unlock()
-		trace.add("install cache hit")
-		return manifest, nil
-	}
+	cacheHit := persistentAgentCache.installed[cacheKey] == manifest
 	persistentAgentCache.Unlock()
+	if cacheHit {
+		trace.add("install cache hit, verifying installed binary")
+	}
 
 	checkCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
@@ -489,6 +501,9 @@ func ensureAgentBinaryInstalled(ctx context.Context, scope agentScope, trace *pe
 		persistentAgentCache.Unlock()
 		trace.add("installed binary already matches manifest")
 		return manifest, nil
+	}
+	if cacheHit {
+		trace.add("install cache stale, reinstalling")
 	}
 
 	installCtx, installCancel := context.WithTimeout(ctx, 30*time.Second)
@@ -602,6 +617,10 @@ agent=%s
 socket=%s
 log=%s
 legacy_socket=%s
+if [ ! -x "$agent" ]; then
+  printf 'agent executable is missing: %%s\n' "$agent" >&2
+  exit 127
+fi
 rm -f "$socket"
 if [ "$legacy_socket" != "$socket" ]; then
   rm -f "$legacy_socket" 2>/dev/null || true
@@ -667,6 +686,14 @@ func (s *pluginServer) handleAgentStartupError(w http.ResponseWriter, r *http.Re
 	accountID := currentRequestAccountID(r)
 	if accountID == "" {
 		http.Error(w, "account id is required", http.StatusUnauthorized)
+		return
+	}
+	if isClientTarget(selector) {
+		if err := s.authorizeClientTarget(r.Context(), r.Header, accountID, selector); err != nil {
+			writeAuthorizationError(w, err)
+			return
+		}
+		writeAuthorizationError(w, errClientTerminalProxyUnavailable)
 		return
 	}
 	if err := s.authorizeInstanceSelector(r.Context(), selector); err != nil {

@@ -51,12 +51,6 @@
                     <span class="instance-switcher-item-meta">返回 LightOS 首页</span>
                   </span>
                 </button>
-                <button class="instance-switcher-action" id="deviceMenuButton" type="button">
-                  <span class="instance-switcher-item-body">
-                    <span class="instance-switcher-item-name">在线设备</span>
-                    <span class="instance-switcher-item-meta">当前正在连接的设备</span>
-                  </span>
-                </button>
                 <button class="instance-switcher-action" id="settingsMenuButton" type="button">
                   <span class="instance-switcher-item-body">
                     <span class="instance-switcher-item-name">设置</span>
@@ -208,22 +202,6 @@
                     </button>
                   </div>
                 </div>
-                <label class="settings-switch-row" for="settingsPerformanceMeterToggle">
-                  <span class="settings-switch-label">
-                    <span>FPS监视器</span>
-                    <span>在终端右上角显示实时 FPS 和刷新率</span>
-                  </span>
-                  <input class="settings-switch-input" id="settingsPerformanceMeterToggle" type="checkbox" />
-                  <span class="settings-switch" aria-hidden="true"></span>
-                </label>
-                <label class="settings-switch-row" for="settingsPerformanceTasksToggle">
-                  <span class="settings-switch-label">
-                    <span>性能监视器</span>
-                    <span>采集并显示前端任务耗时</span>
-                  </span>
-                  <input class="settings-switch-input" id="settingsPerformanceTasksToggle" type="checkbox" />
-                  <span class="settings-switch" aria-hidden="true"></span>
-                </label>
               </section>
               <section class="settings-section" aria-labelledby="settingsScrollbackTitle">
                 <div class="settings-section-head">
@@ -287,6 +265,38 @@
                   <h3 id="settingsMultiScreenOutputTitle">多屏输出说明</h3>
                 </div>
                 <p class="settings-info-text">PTY 是内核输出，内核无法同时输出不同分辨率的 Shell 结果，所以多设备同时用时，PTY 的输出分辨率会按照正在交互的设备的分辨率输出，其他没有交互的设备分辨率会发生变化，这个不是 bug，是技术限制。当你切换到不同终端时，WebShell 会自动用当前交互设备的分辨率重新布局终端界面。</p>
+                <label class="settings-switch-row" for="settingsDebugModeToggle">
+                  <span class="settings-switch-label">
+                    <span>调试模式</span>
+                    <span>显示调试相关工具，默认关闭</span>
+                  </span>
+                  <input class="settings-switch-input" id="settingsDebugModeToggle" type="checkbox" />
+                  <span class="settings-switch" aria-hidden="true"></span>
+                </label>
+                <div class="settings-debug-options" id="settingsDebugOptions" hidden>
+                  <button class="settings-debug-action" id="settingsOnlineDevicesButton" type="button">
+                    <span class="settings-switch-label">
+                      <span>在线设备</span>
+                      <span>查看当前正在连接的设备</span>
+                    </span>
+                  </button>
+                  <label class="settings-switch-row" for="settingsPerformanceMeterToggle">
+                    <span class="settings-switch-label">
+                      <span>FPS监视器</span>
+                      <span>在终端右上角显示实时 FPS 和刷新率</span>
+                    </span>
+                    <input class="settings-switch-input" id="settingsPerformanceMeterToggle" type="checkbox" />
+                    <span class="settings-switch" aria-hidden="true"></span>
+                  </label>
+                  <label class="settings-switch-row" for="settingsPerformanceTasksToggle">
+                    <span class="settings-switch-label">
+                      <span>性能监视器</span>
+                      <span>采集并显示前端任务耗时</span>
+                    </span>
+                    <input class="settings-switch-input" id="settingsPerformanceTasksToggle" type="checkbox" />
+                    <span class="settings-switch" aria-hidden="true"></span>
+                  </label>
+                </div>
               </section>
             </div>
             <div class="settings-tab-panel" id="settingsPanelTheme" role="tabpanel" aria-labelledby="settingsTabTheme" data-settings-panel="theme" hidden>

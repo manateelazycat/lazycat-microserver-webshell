@@ -87,6 +87,79 @@ func TestEnsurePersistentAgentPingsBeforeInstalling(t *testing.T) {
 	}
 }
 
+func TestEnsureAgentBinaryInstalledVerifiesCacheHit(t *testing.T) {
+	data, err := os.ReadFile("agent_runtime.go")
+	if err != nil {
+		t.Fatalf("ReadFile(agent_runtime.go) error = %v", err)
+	}
+	source := string(data)
+	start := strings.Index(source, "func ensureAgentBinaryInstalled(ctx context.Context, scope agentScope, trace *persistentAgentStartupTrace) (string, error) {")
+	end := strings.Index(source, "func cachedAgentRuntimeArchive() ([]byte, string, error) {")
+	if start < 0 || end < 0 || end <= start {
+		t.Fatal("ensureAgentBinaryInstalled source block not found")
+	}
+	block := source[start:end]
+	for _, want := range []string{
+		"cacheHit := persistentAgentCache.installed[cacheKey] == manifest",
+		`trace.add("install cache hit, verifying installed binary")`,
+		`trace.addCommandResult("install check", output, err)`,
+		`trace.add("install cache stale, reinstalling")`,
+	} {
+		if !strings.Contains(block, want) {
+			t.Fatalf("ensureAgentBinaryInstalled cache verification missing %q", want)
+		}
+	}
+	staleReturn := strings.Join([]string{
+		"if persistentAgentCache.installed[cacheKey] == manifest {",
+		"\t\tpersistentAgentCache.Unlock()",
+		"\t\ttrace.add(\"install cache hit\")",
+		"\t\treturn manifest, nil",
+		"\t}",
+	}, "\n")
+	if strings.Contains(block, staleReturn) {
+		t.Fatal("ensureAgentBinaryInstalled must not return before verifying cached installs")
+	}
+}
+
+func TestStartPersistentAgentChecksExecutableBeforeReadyMarker(t *testing.T) {
+	data, err := os.ReadFile("agent_runtime.go")
+	if err != nil {
+		t.Fatalf("ReadFile(agent_runtime.go) error = %v", err)
+	}
+	source := string(data)
+	start := strings.Index(source, "func startPersistentAgent(ctx context.Context, scope agentScope, username string, trace *persistentAgentStartupTrace) error {")
+	end := strings.Index(source, "func persistentAgentStartupTimeoutError(ctx context.Context, scope agentScope, trace *persistentAgentStartupTrace) error {")
+	if start < 0 || end < 0 || end <= start {
+		t.Fatal("startPersistentAgent source block not found")
+	}
+	block := source[start:end]
+	checkIndex := strings.Index(block, `[ ! -x "$agent" ]`)
+	setsidIndex := strings.Index(block, `setsid "$agent" agent daemon`)
+	readyIndex := strings.Index(block, `printf '%%s\n'`)
+	if checkIndex < 0 {
+		t.Fatal("startPersistentAgent should check agent executable before starting")
+	}
+	if setsidIndex < 0 || checkIndex > setsidIndex {
+		t.Fatal("startPersistentAgent should check agent executable before setsid")
+	}
+	if readyIndex < 0 || checkIndex > readyIndex {
+		t.Fatal("startPersistentAgent should check agent executable before printing ready marker")
+	}
+}
+
+func TestCommandOutputSnippetIncludesInvalidAgentResponse(t *testing.T) {
+	output := []byte("time=\"2026-06-15\" level=error msg=\"missing agent\"\n")
+	got := commandOutputSnippet(output)
+	if !strings.Contains(got, "missing agent") {
+		t.Fatalf("commandOutputSnippet() = %q, want output details", got)
+	}
+
+	empty := commandOutputSnippet([]byte(" \n\t"))
+	if empty != "<empty>" {
+		t.Fatalf("commandOutputSnippet(empty) = %q, want <empty>", empty)
+	}
+}
+
 func TestPersistentAgentNoticeIsConsumedOnce(t *testing.T) {
 	scope := normalizeAgentScope("demo@owner", "account-a")
 	key := scope.cacheKey()

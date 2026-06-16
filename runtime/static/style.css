@@ -459,6 +459,30 @@ button {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  max-height: clamp(160px, calc(100dvh - 220px), 340px);
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 2px;
+  scrollbar-color: rgba(148, 163, 184, 0.5) transparent;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  -webkit-overflow-scrolling: touch;
+}
+
+.instance-switcher-list::-webkit-scrollbar {
+  width: 8px;
+}
+
+.instance-switcher-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.instance-switcher-list::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.52);
+  background-clip: padding-box;
 }
 
 .instance-switcher-actions {
@@ -1462,6 +1486,43 @@ body.split-resize-active * {
   font-size: 12px;
   font-weight: 500;
   line-height: 1.5;
+}
+
+.settings-debug-options {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  background: var(--panel-subtle-bg);
+  box-sizing: border-box;
+}
+
+.settings-debug-options[hidden] {
+  display: none;
+}
+
+.settings-debug-action {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.settings-debug-action:hover,
+.settings-debug-action:focus-visible {
+  color: var(--chrome-text-strong);
+  outline: none;
 }
 
 .settings-font-actions {
