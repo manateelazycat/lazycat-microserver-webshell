@@ -495,6 +495,24 @@ func TestRuntimeShortcutSettingsGuardDesktopShortcutEditor(t *testing.T) {
 	}
 }
 
+func TestRuntimeAttachmentBrowserStartsAtRootForClientInstances(t *testing.T) {
+	data, err := os.ReadFile("runtime/static/main.js")
+	if err != nil {
+		t.Fatalf("ReadFile(runtime/static/main.js) error = %v", err)
+	}
+	source := string(data)
+
+	wantSnippets := []string{
+		`const isClientInstanceName = (name = activeName) => String(name || "").trim().startsWith("client:");`,
+		`const startPath = isClientInstanceName() ? "/" : String(activeSession()?.cwd || "").trim() || "/";`,
+	}
+	for _, want := range wantSnippets {
+		if !strings.Contains(source, want) {
+			t.Fatalf("runtime attachment browser client root guard missing %q", want)
+		}
+	}
+}
+
 func TestRuntimeMobileSettingsUsesListNavigation(t *testing.T) {
 	wantSnippets := map[string][]string{
 		"runtime/static/index.html": {

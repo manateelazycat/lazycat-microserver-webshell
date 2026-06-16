@@ -3211,6 +3211,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
 
   const instanceDisplayName = (item) => String(item?.name || "").trim() || instanceSelector(item).split("@", 1)[0];
   const getActiveInstance = () => currentInstances.find((item) => instanceSelector(item) === activeName) || null;
+  const isClientInstanceName = (name = activeName) => String(name || "").trim().startsWith("client:");
   const isRunningInstance = (item) => item?.status === "running";
   const setActiveInstanceName = (name) => {
     const normalized = String(name || "").trim();
@@ -13786,7 +13787,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     closeContextMenu();
     closeInstanceSwitcher();
     closeDevicePanel();
-    const startPath = String(activeSession()?.cwd || "").trim() || "/";
+    const startPath = isClientInstanceName() ? "/" : String(activeSession()?.cwd || "").trim() || "/";
     attachmentBrowserOpen = true;
     attachmentBrowserCurrentPath = startPath;
     attachmentBrowserParentPath = "";
