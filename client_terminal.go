@@ -182,53 +182,33 @@ func (s *pluginServer) clientWorkspaceAction(ctx context.Context, header http.He
 
 func (s *pluginServer) clientTerminalJSON(ctx context.Context, header http.Header, selector, method, path string, query map[string]string, body any, out any) error {
 	log.Printf("client terminal json request start: selector=%s method=%s path=%s", selector, method, path)
-	ticket, authToken, err := s.clientTerminalDialInfo(ctx, header, selector)
-	if err != nil {
-		log.Printf("client terminal json dial info failed: selector=%s method=%s path=%s err=%v", selector, method, path, err)
-		return err
-	}
-	targetURL, err := clientTerminalURL(ticket, path)
-	if err != nil {
-		log.Printf("client terminal json target url failed: selector=%s method=%s path=%s err=%v", selector, method, path, err)
-		return err
-	}
-	values := targetURL.Query()
+	values := make(map[string][]string, len(query))
 	for key, value := range query {
 		if value != "" && value != "0" {
-			values.Set(key, value)
+			values[key] = []string{value}
 		}
 	}
-	values.Set("ticket", ticket.Ticket)
-	targetURL.RawQuery = values.Encode()
-	log.Printf("client terminal json target ready: selector=%s method=%s path=%s target=%s auth_token_present=%t", selector, method, path, sanitizeClientTerminalURL(targetURL.String()), authToken != "")
-
 	var reader io.Reader
+	contentType := ""
 	if body != nil {
 		data, err := json.Marshal(body)
 		if err != nil {
 			return err
 		}
 		reader = bytes.NewReader(data)
+		contentType = "application/json"
 	}
-	req, err := http.NewRequestWithContext(ctx, method, targetURL.String(), reader)
+	resp, err := s.clientTerminalRequest(ctx, header, selector, method, path, values, reader, contentType)
 	if err != nil {
-		return err
-	}
-	req.Header.Set("lzc_dapi_auth_token", authToken)
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
-	resp, err := newClientTerminalHTTPClient().Do(req)
-	if err != nil {
-		log.Printf("client terminal json request failed: selector=%s method=%s path=%s target=%s err=%v", selector, method, path, sanitizeClientTerminalURL(targetURL.String()), err)
+		log.Printf("client terminal json request failed: selector=%s method=%s path=%s err=%v", selector, method, path, err)
 		return err
 	}
 	defer resp.Body.Close()
 	log.Printf("client terminal json response: selector=%s method=%s path=%s status=%d", selector, method, path, resp.StatusCode)
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		data, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		log.Printf("client terminal json non-2xx: selector=%s method=%s path=%s status=%d body=%s", selector, method, path, resp.StatusCode, strings.TrimSpace(string(data)))
-		return fmt.Errorf("client terminal returned %d: %s", resp.StatusCode, strings.TrimSpace(string(data)))
+		err := clientTerminalResponseError(resp, "client terminal")
+		log.Printf("client terminal json non-2xx: selector=%s method=%s path=%s err=%v", selector, method, path, err)
+		return err
 	}
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 10<<20)).Decode(out); err != nil {
 		log.Printf("client terminal json decode failed: selector=%s method=%s path=%s err=%v", selector, method, path, err)
@@ -236,6 +216,54 @@ func (s *pluginServer) clientTerminalJSON(ctx context.Context, header http.Heade
 	}
 	log.Printf("client terminal json decoded: selector=%s method=%s path=%s", selector, method, path)
 	return nil
+}
+
+func (s *pluginServer) clientTerminalRequest(ctx context.Context, header http.Header, selector, method, path string, query map[string][]string, body io.Reader, contentType string) (*http.Response, error) {
+	log.Printf("client terminal request start: selector=%s method=%s path=%s", selector, method, path)
+	ticket, authToken, err := s.clientTerminalDialInfo(ctx, header, selector)
+	if err != nil {
+		log.Printf("client terminal request dial info failed: selector=%s method=%s path=%s err=%v", selector, method, path, err)
+		return nil, err
+	}
+	targetURL, err := clientTerminalURL(ticket, path)
+	if err != nil {
+		log.Printf("client terminal request target url failed: selector=%s method=%s path=%s err=%v", selector, method, path, err)
+		return nil, err
+	}
+	values := targetURL.Query()
+	for key, items := range query {
+		for _, value := range items {
+			if strings.TrimSpace(value) != "" {
+				values.Add(key, value)
+			}
+		}
+	}
+	values.Set("ticket", ticket.Ticket)
+	targetURL.RawQuery = values.Encode()
+	log.Printf("client terminal request target ready: selector=%s method=%s path=%s target=%s auth_token_present=%t", selector, method, path, sanitizeClientTerminalURL(targetURL.String()), authToken != "")
+
+	req, err := http.NewRequestWithContext(ctx, method, targetURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("lzc_dapi_auth_token", authToken)
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
+	}
+	resp, err := newClientTerminalHTTPClient().Do(req)
+	if err != nil {
+		log.Printf("client terminal request failed: selector=%s method=%s path=%s target=%s err=%v", selector, method, path, sanitizeClientTerminalURL(targetURL.String()), err)
+		return nil, err
+	}
+	return resp, nil
+}
+
+func clientTerminalResponseError(resp *http.Response, label string) error {
+	if resp == nil {
+		return fmt.Errorf("%s returned no response", label)
+	}
+	data, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	return fmt.Errorf("%s returned %d: %s", label, resp.StatusCode, strings.TrimSpace(string(data)))
 }
 
 func (s *pluginServer) clientTerminalDialInfo(ctx context.Context, header http.Header, selector string) (clientTerminalTicket, string, error) {

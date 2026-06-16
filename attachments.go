@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"mime"
+	"mime/multipart"
 	"net/http"
 	"os/exec"
 	"path/filepath"
@@ -41,6 +42,14 @@ type attachmentFileBackend interface {
 
 type lightOSAttachmentUploadBackend struct{}
 type lightOSAttachmentFileBackend struct{}
+type clientAttachmentUploadBackend struct {
+	server *pluginServer
+	header http.Header
+}
+type clientAttachmentFileBackend struct {
+	server *pluginServer
+	header http.Header
+}
 
 type attachmentUploadResult struct {
 	Name string `json:"name"`
@@ -73,6 +82,130 @@ type attachmentArchiveSource struct {
 	Modified int64
 }
 
+func (b clientAttachmentUploadBackend) UploadAttachment(ctx context.Context, scope agentScope, username string, filename string, content io.Reader) (attachmentUploadResult, error) {
+	if b.server == nil {
+		return attachmentUploadResult{}, errors.New("client attachment proxy is unavailable")
+	}
+	reader, writer := io.Pipe()
+	multipartWriter := multipart.NewWriter(writer)
+	errCh := make(chan error, 1)
+	doneCh := make(chan struct{})
+	go func() {
+		defer close(doneCh)
+		part, err := multipartWriter.CreateFormFile("file", sanitizeAttachmentFilename(filename))
+		if err == nil {
+			_, err = io.Copy(part, content)
+		}
+		if closeErr := multipartWriter.Close(); err == nil {
+			err = closeErr
+		}
+		if err != nil {
+			_ = writer.CloseWithError(err)
+			errCh <- err
+			return
+		}
+		errCh <- writer.Close()
+	}()
+	resp, err := b.server.clientTerminalRequest(ctx, b.header, scope.Selector, http.MethodPost, "/attachments", nil, reader, multipartWriter.FormDataContentType())
+	if err != nil {
+		_ = reader.Close()
+		select {
+		case pipeErr := <-errCh:
+			if pipeErr != nil && !errors.Is(pipeErr, io.ErrClosedPipe) {
+				return attachmentUploadResult{}, pipeErr
+			}
+		case <-doneCh:
+		case <-ctx.Done():
+			return attachmentUploadResult{}, ctx.Err()
+		}
+		return attachmentUploadResult{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		_ = reader.Close()
+		return attachmentUploadResult{}, clientTerminalResponseError(resp, "client attachment upload")
+	}
+	var response attachmentUploadResponse
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 10<<20)).Decode(&response); err != nil {
+		_ = reader.Close()
+		return attachmentUploadResult{}, err
+	}
+	_ = reader.Close()
+	if pipeErr := <-errCh; pipeErr != nil && !errors.Is(pipeErr, io.ErrClosedPipe) {
+		return attachmentUploadResult{}, pipeErr
+	}
+	if len(response.Files) != 1 {
+		return attachmentUploadResult{}, errors.New("client attachment upload returned invalid response")
+	}
+	return response.Files[0], nil
+}
+
+func (b clientAttachmentFileBackend) ListAttachmentFiles(ctx context.Context, scope agentScope, username string, path string) (attachmentFileListResponse, error) {
+	var response attachmentFileListResponse
+	err := b.clientAttachmentJSON(ctx, scope.Selector, http.MethodGet, "/attachments/files", map[string]string{"path": path}, nil, &response)
+	return response, err
+}
+
+func (b clientAttachmentFileBackend) StatAttachmentFiles(ctx context.Context, scope agentScope, username string, paths []string) ([]attachmentFileEntry, error) {
+	var response []attachmentFileEntry
+	query := make(map[string][]string, 1)
+	for _, path := range paths {
+		query["path"] = append(query["path"], path)
+	}
+	err := b.clientAttachmentJSONWithValues(ctx, scope.Selector, http.MethodGet, "/attachments/stat", query, nil, &response)
+	return response, err
+}
+
+func (b clientAttachmentFileBackend) OpenAttachmentFile(ctx context.Context, scope agentScope, username string, path string) (io.ReadCloser, error) {
+	if b.server == nil {
+		return nil, errors.New("client attachment proxy is unavailable")
+	}
+	resp, err := b.server.clientTerminalRequest(ctx, b.header, scope.Selector, http.MethodGet, "/attachments/open", map[string][]string{"path": []string{path}}, nil, "")
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		defer resp.Body.Close()
+		return nil, clientTerminalResponseError(resp, "client attachment open")
+	}
+	return resp.Body, nil
+}
+
+func (b clientAttachmentFileBackend) clientAttachmentJSON(ctx context.Context, selector, method, path string, query map[string]string, body any, out any) error {
+	values := make(map[string][]string, len(query))
+	for key, value := range query {
+		if strings.TrimSpace(value) != "" {
+			values[key] = []string{value}
+		}
+	}
+	return b.clientAttachmentJSONWithValues(ctx, selector, method, path, values, body, out)
+}
+
+func (b clientAttachmentFileBackend) clientAttachmentJSONWithValues(ctx context.Context, selector, method, path string, query map[string][]string, body any, out any) error {
+	if b.server == nil {
+		return errors.New("client attachment proxy is unavailable")
+	}
+	var reader io.Reader
+	contentType := ""
+	if body != nil {
+		data, err := json.Marshal(body)
+		if err != nil {
+			return err
+		}
+		reader = bytes.NewReader(data)
+		contentType = "application/json"
+	}
+	resp, err := b.server.clientTerminalRequest(ctx, b.header, selector, method, path, query, reader, contentType)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return clientTerminalResponseError(resp, "client attachment request")
+	}
+	return json.NewDecoder(io.LimitReader(resp.Body, 10<<20)).Decode(out)
+}
+
 func (s *pluginServer) handleAttachments(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.WriteHeader(http.StatusMethodNotAllowed)
@@ -93,7 +226,7 @@ func (s *pluginServer) handleAttachments(w http.ResponseWriter, r *http.Request)
 			writeAuthorizationError(w, err)
 			return
 		}
-		writeAuthorizationError(w, errClientTerminalProxyUnavailable)
+		s.handleAttachmentUploadWithBackend(w, r, normalizeAgentScope(selector, accountID), "", clientAttachmentUploadBackend{server: s, header: r.Header})
 		return
 	}
 	if err := s.authorizeInstanceSelector(r.Context(), selector); err != nil {
@@ -105,14 +238,16 @@ func (s *pluginServer) handleAttachments(w http.ResponseWriter, r *http.Request)
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
+	s.handleAttachmentUploadWithBackend(w, r, normalizeAgentScope(selector, accountID), username, s.attachmentUploadBackend())
+}
+
+func (s *pluginServer) handleAttachmentUploadWithBackend(w http.ResponseWriter, r *http.Request, scope agentScope, username string, backend attachmentUploadBackend) {
 	reader, err := r.MultipartReader()
 	if err != nil {
 		http.Error(w, "invalid upload", http.StatusBadRequest)
 		return
 	}
 
-	scope := normalizeAgentScope(selector, accountID)
-	backend := s.attachmentUploadBackend()
 	var response attachmentUploadResponse
 	for {
 		part, err := reader.NextPart()
@@ -165,7 +300,7 @@ func (s *pluginServer) handleAttachmentFiles(w http.ResponseWriter, r *http.Requ
 	if !ok {
 		return
 	}
-	state, err := s.attachmentFileBackend().ListAttachmentFiles(r.Context(), scope, username, r.URL.Query().Get("path"))
+	state, err := s.attachmentFileBackendForRequest(r, scope).ListAttachmentFiles(r.Context(), scope, username, r.URL.Query().Get("path"))
 	if err != nil {
 		writeAttachmentFileError(w, err)
 		return
@@ -191,7 +326,7 @@ func (s *pluginServer) handleAttachmentDownload(w http.ResponseWriter, r *http.R
 		http.Error(w, "too many files", http.StatusBadRequest)
 		return
 	}
-	backend := s.attachmentFileBackend()
+	backend := s.attachmentFileBackendForRequest(r, scope)
 	entries, err := backend.StatAttachmentFiles(r.Context(), scope, username, paths)
 	if err != nil {
 		writeAttachmentFileError(w, err)
@@ -224,8 +359,7 @@ func (s *pluginServer) resolveAttachmentRequestScope(w http.ResponseWriter, r *h
 			writeAuthorizationError(w, err)
 			return agentScope{}, "", false
 		}
-		writeAuthorizationError(w, errClientTerminalProxyUnavailable)
-		return agentScope{}, "", false
+		return normalizeAgentScope(selector, accountID), "", true
 	}
 	if err := s.authorizeInstanceSelector(r.Context(), selector); err != nil {
 		writeAuthorizationError(w, err)
@@ -237,6 +371,20 @@ func (s *pluginServer) resolveAttachmentRequestScope(w http.ResponseWriter, r *h
 		return agentScope{}, "", false
 	}
 	return normalizeAgentScope(selector, accountID), username, true
+}
+
+func (s *pluginServer) attachmentUploadBackendForRequest(r *http.Request, scope agentScope) attachmentUploadBackend {
+	if isClientTarget(scope.Selector) {
+		return clientAttachmentUploadBackend{server: s, header: r.Header}
+	}
+	return s.attachmentUploadBackend()
+}
+
+func (s *pluginServer) attachmentFileBackendForRequest(r *http.Request, scope agentScope) attachmentFileBackend {
+	if isClientTarget(scope.Selector) {
+		return clientAttachmentFileBackend{server: s, header: r.Header}
+	}
+	return s.attachmentFileBackend()
 }
 
 func (s *pluginServer) serveSingleAttachmentDownload(w http.ResponseWriter, r *http.Request, backend attachmentFileBackend, scope agentScope, username string, entry attachmentFileEntry) {
