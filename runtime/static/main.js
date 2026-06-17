@@ -217,6 +217,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   const mobileKeyboardFocusAllowWindowMs = 600;
   const mobileKeyboardFocusPrompt = "双击屏幕开启键盘输入";
   const mobileKeyboardInsetThresholdPx = 80;
+  const mobileKeyboardDockMoveSettleMs = 260;
   const mobileOrientationViewportRecoveryDelays = [0, 80, 180, 360, 720];
   const mobileOrientationHistoryReplayDelayMs = 900;
   const desktopSelectionCopyMoveThresholdPx = 4;
@@ -504,6 +505,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   let mobileViewportReferenceHeight = mobileViewportHeight;
   let mobileKeyboardInsetBottom = 0;
   let mobileClientBottomSafeOffset = 0;
+  let mobileKeyboardDockMoveTimer = 0;
   let themePickerEdgeSwipe = null;
   let mobileOverviewEdgeSwipe = null;
   let resolvedThemeCardWidth = themeCardWidth;
@@ -7707,6 +7709,51 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     mobileViewportResizeFrame = window.requestAnimationFrame(handleMobileViewportResize);
   };
 
+  const markMobileKeyboardDockMoving = () => {
+    if (!document.body) {
+      return;
+    }
+    document.body.classList.add("mobile-keyboard-dock-moving");
+    if (mobileKeyboardDockMoveTimer) {
+      window.clearTimeout(mobileKeyboardDockMoveTimer);
+    }
+    mobileKeyboardDockMoveTimer = window.setTimeout(() => {
+      mobileKeyboardDockMoveTimer = 0;
+      document.body?.classList.remove("mobile-keyboard-dock-moving");
+    }, mobileKeyboardDockMoveSettleMs);
+  };
+
+  const syncMobileKeyboardDockTransform = (inset, safeOffset) => {
+    if (!(mobileShortcuts instanceof HTMLElement)) {
+      return;
+    }
+    if (inset > mobileKeyboardInsetThresholdPx) {
+      mobileShortcuts.style.transform = `translate3d(0, -${inset}px, 0)`;
+      return;
+    }
+    if (safeOffset > 0) {
+      mobileShortcuts.style.transform = `translate3d(0, -${safeOffset}px, 0)`;
+      return;
+    }
+    mobileShortcuts.style.transform = "";
+  };
+
+  const applyMobileViewportInsets = (nextInset, nextSafeOffset, { animateDock = true } = {}) => {
+    const inset = Math.max(0, Math.round(Number(nextInset) || 0));
+    const safeOffset = Math.max(0, Math.round(Number(nextSafeOffset) || 0));
+    const dockChanged = inset !== mobileKeyboardInsetBottom || safeOffset !== mobileClientBottomSafeOffset;
+    mobileKeyboardInsetBottom = inset;
+    mobileClientBottomSafeOffset = safeOffset;
+    document.documentElement.style.setProperty("--mobile-keyboard-inset-bottom", `${inset}px`);
+    document.documentElement.style.setProperty("--mobile-client-bottom-safe-offset", `${safeOffset}px`);
+    document.body.classList.toggle("mobile-keyboard-visible", inset > mobileKeyboardInsetThresholdPx);
+    syncMobileKeyboardDockTransform(inset, safeOffset);
+    if (dockChanged && animateDock) {
+      markMobileKeyboardDockMoving();
+    }
+    return dockChanged;
+  };
+
   const syncMobileVisualViewport = ({ detectOrientation = true } = {}) => {
     const supportsViewportInsets = usesMobileViewportInsets();
     const useKeyboardInset = isIOSPlatform();
@@ -7726,11 +7773,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       const heightChanged = nextHeight !== mobileViewportHeight;
       mobileViewportHeight = nextHeight;
       mobileViewportReferenceHeight = nextHeight;
-      mobileKeyboardInsetBottom = 0;
-      mobileClientBottomSafeOffset = 0;
-      document.documentElement.style.setProperty("--mobile-keyboard-inset-bottom", "0px");
-      document.documentElement.style.setProperty("--mobile-client-bottom-safe-offset", "0px");
-      document.body.classList.remove("mobile-keyboard-visible");
+      applyMobileViewportInsets(0, 0, { animateDock: false });
       if (heightChanged || insetChanged || safeOffsetChanged) {
         scheduleMobileViewportResize();
       }
@@ -7758,11 +7801,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       mobileViewportReferenceHeight = nextHeight;
     }
     mobileViewportHeight = nextHeight;
-    mobileKeyboardInsetBottom = nextInset;
-    mobileClientBottomSafeOffset = nextSafeOffset;
-    document.documentElement.style.setProperty("--mobile-keyboard-inset-bottom", `${nextInset}px`);
-    document.documentElement.style.setProperty("--mobile-client-bottom-safe-offset", `${nextSafeOffset}px`);
-    document.body.classList.toggle("mobile-keyboard-visible", nextInset > mobileKeyboardInsetThresholdPx);
+    applyMobileViewportInsets(nextInset, nextSafeOffset);
     if (heightChanged || insetChanged || safeOffsetChanged) {
       scheduleMobileViewportResize();
     }

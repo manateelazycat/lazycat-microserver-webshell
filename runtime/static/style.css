@@ -4817,7 +4817,7 @@ body.is-tab-overview-dragging {
   .mobile-shortcuts {
     position: fixed;
     right: 0;
-    bottom: var(--mobile-bottom-dock-offset);
+    bottom: 0;
     left: 0;
     z-index: 80;
     display: flex;
@@ -4829,6 +4829,8 @@ body.is-tab-overview-dragging {
     background: var(--terminal-bg);
     color: var(--terminal-fg);
     box-sizing: border-box;
+    transform: translate3d(0, calc(0px - var(--mobile-bottom-dock-offset)), 0);
+    transition: transform 0.18s ease-out;
   }
 
   .mobile-shortcuts.is-empty {
@@ -5382,7 +5384,7 @@ body.attachment-browser-open .mobile-shortcuts {
   .mobile-shortcuts {
     position: fixed;
     right: 0;
-    bottom: var(--mobile-bottom-dock-offset);
+    bottom: 0;
     left: 0;
     z-index: 80;
     display: flex;
@@ -5394,6 +5396,8 @@ body.attachment-browser-open .mobile-shortcuts {
     background: var(--terminal-bg);
     color: var(--terminal-fg);
     box-sizing: border-box;
+    transform: translate3d(0, calc(0px - var(--mobile-bottom-dock-offset)), 0);
+    transition: transform 0.18s ease-out;
   }
 
   .mobile-shortcuts.is-empty {
@@ -5647,6 +5651,16 @@ body.attachment-browser-open .mobile-shortcuts {
 @media (hover: none) and (min-width: 641px), (pointer: coarse) and (min-width: 641px) {
   .mobile-shortcut-row {
     justify-content: center;
+  }
+}
+
+body.mobile-keyboard-dock-moving .mobile-shortcuts {
+  will-change: transform;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mobile-shortcuts {
+    transition: none;
   }
 }
 
