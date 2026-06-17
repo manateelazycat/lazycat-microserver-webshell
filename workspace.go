@@ -1945,6 +1945,10 @@ func (p *terminalPane) resize(cols, rows int) error {
 	cols = normalizeCols(cols)
 	rows = normalizeRows(rows)
 	p.mu.Lock()
+	if p.cols == cols && p.rows == rows {
+		p.mu.Unlock()
+		return nil
+	}
 	p.cols = cols
 	p.rows = rows
 	ptyFile := p.ptyFile

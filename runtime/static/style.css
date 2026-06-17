@@ -745,6 +745,7 @@ body.split-resize-active * {
   -webkit-touch-callout: none;
   -webkit-user-select: none;
   user-select: none;
+  will-change: transform;
 }
 
 .pane-shell[data-render-ready="false"] .terminal-host canvas {
@@ -761,6 +762,7 @@ body.split-resize-active * {
   outline: 0 !important;
   box-shadow: none !important;
   caret-color: transparent !important;
+  will-change: transform;
 }
 
 .fps-meter {
@@ -864,6 +866,7 @@ body.split-resize-active * {
   overflow: hidden;
   white-space: pre;
   pointer-events: none;
+  will-change: transform;
 }
 
 .terminal-composition-preview[hidden] {
