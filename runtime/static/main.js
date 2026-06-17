@@ -218,6 +218,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   const mobileKeyboardFocusPrompt = "双击屏幕开启键盘输入";
   const mobileKeyboardInsetThresholdPx = 80;
   const mobileKeyboardDockMoveSettleMs = 260;
+  const mobileKeyboardResizeSettleMs = mobileKeyboardDockMoveSettleMs + 140;
   const mobileOrientationViewportRecoveryDelays = [0, 80, 180, 360, 720];
   const mobileOrientationHistoryReplayDelayMs = 900;
   const desktopSelectionCopyMoveThresholdPx = 4;
@@ -505,6 +506,9 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   let mobileViewportReferenceHeight = mobileViewportHeight;
   let mobileKeyboardInsetBottom = 0;
   let mobileClientBottomSafeOffset = 0;
+  let mobileKeyboardViewportActive = false;
+  let mobileKeyboardResizeSuppressedUntil = 0;
+  let mobileKeyboardResizeReleaseTimer = 0;
   let mobileKeyboardDockMoveTimer = 0;
   let themePickerEdgeSwipe = null;
   let mobileOverviewEdgeSwipe = null;
@@ -6765,6 +6769,107 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     window.requestAnimationFrame(() => resetTerminalHostViewport(session, options));
   };
 
+  const isMobileKeyboardResizeSuppressed = () => (
+    isTouchShortcutLayout() &&
+    (mobileKeyboardViewportActive || performance.now() < mobileKeyboardResizeSuppressedUntil)
+  );
+
+  const terminalViewportPanY = (session) => {
+    if (!isMobileKeyboardResizeSuppressed()) {
+      return 0;
+    }
+    const term = session?.term;
+    const host = session?.terminalHost;
+    const metrics = term?.renderer?.getMetrics?.();
+    const cursor = term?.wasmTerm?.getCursor?.();
+    if (!term || !(host instanceof HTMLElement) || !metrics?.height || !cursor) {
+      return 0;
+    }
+    const cellHeight = Math.max(1, Number(metrics.height) || 0);
+    const logicalHeight = Math.ceil((Number(term.rows) || 0) * cellHeight);
+    const visibleHeight = Math.max(0, host.clientHeight || 0);
+    if (logicalHeight <= 0 || visibleHeight <= 0 || logicalHeight <= visibleHeight) {
+      return 0;
+    }
+    const cursorRow = Math.max(0, Math.min(Math.max(0, (Number(term.rows) || 1) - 1), Number(cursor.y) || 0));
+    const cursorBottom = Math.ceil((cursorRow + 1) * cellHeight);
+    const keyboardPanLimit = Math.max(0, mobileViewportReferenceHeight - mobileViewportHeight);
+    const overflowPastViewport = Math.max(0, cursorBottom + cellHeight - visibleHeight);
+    return Math.min(logicalHeight - visibleHeight, keyboardPanLimit, overflowPastViewport);
+  };
+
+  const syncTerminalViewportPan = (session) => {
+    const panY = terminalViewportPanY(session);
+    const transform = panY > 0 ? `translate3d(0, -${panY}px, 0)` : "";
+    const term = session?.term;
+    const canvas = term?.canvas || term?.renderer?.getCanvas?.();
+    const textarea = term?.textarea;
+    const preview = session?.compositionPreview;
+    for (const node of [canvas, textarea, preview]) {
+      if (node instanceof HTMLElement) {
+        node.style.transform = transform;
+      }
+    }
+  };
+
+  const isKeyboardLikeViewportHeightChange = (previousHeight, nextHeight, { orientationChanged = false } = {}) => {
+    if (!isTouchShortcutLayout() || orientationChanged) {
+      return false;
+    }
+    const fromHeight = Math.max(0, Math.round(Number(previousHeight) || 0));
+    const toHeight = Math.max(0, Math.round(Number(nextHeight) || 0));
+    if (fromHeight <= 0 || toHeight <= 0) {
+      return false;
+    }
+    return Math.abs(toHeight - fromHeight) > mobileKeyboardInsetThresholdPx;
+  };
+
+  const syncActiveTerminalViewportForKeyboard = () => {
+    const tab = tabs.get(activeTabId);
+    const session = tab?.panes.get(tab.activePaneId) || null;
+    resetTerminalHostViewport(session, { clean: true });
+    positionTerminalInput(session);
+    syncTerminalViewportPan(session);
+    updateMobileSelectionHandles(session);
+    updateSelectionSheet();
+    if (mobileActionSheet && !mobileActionSheet.hidden) {
+      renderMobileActionSheet();
+    }
+    scheduleTabOverviewRender();
+  };
+
+  const clearMobileKeyboardResizeReleaseTimer = () => {
+    if (mobileKeyboardResizeReleaseTimer) {
+      window.clearTimeout(mobileKeyboardResizeReleaseTimer);
+      mobileKeyboardResizeReleaseTimer = 0;
+    }
+  };
+
+  const releaseMobileKeyboardResizeSuppression = () => {
+    mobileKeyboardResizeReleaseTimer = 0;
+    const remaining = mobileKeyboardResizeSuppressedUntil - performance.now();
+    if (remaining > 0) {
+      mobileKeyboardResizeReleaseTimer = window.setTimeout(releaseMobileKeyboardResizeSuppression, Math.ceil(remaining));
+      return;
+    }
+    if (mobileKeyboardViewportActive) {
+      syncActiveTerminalViewportForKeyboard();
+      return;
+    }
+    const tab = tabs.get(activeTabId);
+    syncTerminalViewportPan(tab?.panes.get(tab.activePaneId) || null);
+    resizeActiveTabForCurrentDevice();
+  };
+
+  const armMobileKeyboardResizeSuppression = () => {
+    mobileKeyboardResizeSuppressedUntil = Math.max(
+      mobileKeyboardResizeSuppressedUntil,
+      performance.now() + mobileKeyboardResizeSettleMs,
+    );
+    clearMobileKeyboardResizeReleaseTimer();
+    mobileKeyboardResizeReleaseTimer = window.setTimeout(releaseMobileKeyboardResizeSuppression, mobileKeyboardResizeSettleMs);
+  };
+
   const stripTerminalInputSentinel = (value) => String(value || "").split(terminalInputSentinel).join("");
 
   const moveTerminalTextareaCaretToEnd = (textarea) => {
@@ -7460,10 +7565,35 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     resetTerminalHostViewport(session, { clean: true });
   };
 
-  const sendTerminalSize = (pane) => {
-    if (pane?.socket?.readyState === WebSocket.OPEN) {
-      pane.socket.send(JSON.stringify({ type: "resize", cols: pane.term.cols, rows: pane.term.rows }));
+  const terminalSize = (pane) => {
+    const cols = Math.max(0, Math.floor(Number(pane?.term?.cols) || 0));
+    const rows = Math.max(0, Math.floor(Number(pane?.term?.rows) || 0));
+    return { cols, rows };
+  };
+
+  const dimensionsEqualTerminalSize = (pane, dimensions) => {
+    if (!dimensions) {
+      return false;
     }
+    const { cols, rows } = terminalSize(pane);
+    return Math.floor(Number(dimensions.cols) || 0) === cols && Math.floor(Number(dimensions.rows) || 0) === rows;
+  };
+
+  const sendTerminalSize = (pane) => {
+    if (pane?.socket?.readyState !== WebSocket.OPEN) {
+      return false;
+    }
+    const { cols, rows } = terminalSize(pane);
+    if (cols <= 0 || rows <= 0) {
+      return false;
+    }
+    if (pane.lastSentCols === cols && pane.lastSentRows === rows) {
+      return false;
+    }
+    pane.lastSentCols = cols;
+    pane.lastSentRows = rows;
+    pane.socket.send(JSON.stringify({ type: "resize", cols, rows }));
+    return true;
   };
 
   const isPaneMeasurable = (pane) => {
@@ -7486,25 +7616,38 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     if (visibleOnly && !isPaneVisibleForSizing(pane)) {
       return false;
     }
+    if (isMobileKeyboardResizeSuppressed()) {
+      resetTerminalHostViewport(pane, { clean: true });
+      positionTerminalInput(pane);
+      syncTerminalViewportPan(pane);
+      updateMobileSelectionHandles(pane);
+      return false;
+    }
     return measurePerformanceTask("resize/fit", () => {
       const dimensions = pane.fitAddon?.proposeDimensions?.();
       if (!dimensions || dimensions.cols <= 0 || dimensions.rows <= 0) {
         return false;
       }
+      const sizeChanged = !dimensionsEqualTerminalSize(pane, dimensions);
       try {
-        pane.fitAddon.fit();
+        if (sizeChanged) {
+          pane.fitAddon.fit();
+        }
       } catch (error) {
         return false;
       }
       resetTerminalHostViewport(pane, { clean: true });
       positionTerminalInput(pane);
+      syncTerminalViewportPan(pane);
       if (!pane.initialFitResetDone && !pane.replayComplete) {
         resetTerminalAfterInitialFit(pane);
       }
-      requestPaneFullRender(pane);
+      if (sizeChanged) {
+        requestPaneFullRender(pane);
+      }
       sendTerminalSize(pane);
       updateMobileSelectionHandles(pane);
-      return true;
+      return sizeChanged;
     });
   };
 
@@ -7688,9 +7831,17 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
 
   const handleMobileViewportResize = () => {
     mobileViewportResizeFrame = 0;
+    if (isMobileKeyboardResizeSuppressed()) {
+      syncActiveTerminalViewportForKeyboard();
+      if (rememberMobileViewportOrientationChange() || mobileOrientationRecoveryTimer) {
+        scheduleMobileOrientationViewportRecovery();
+      }
+      return;
+    }
     resizeActiveTabForCurrentDevice();
     const session = activeSession();
     positionTerminalInput(session);
+    syncTerminalViewportPan(session);
     updateMobileSelectionHandles(session);
     updateSelectionSheet();
     if (mobileActionSheet && !mobileActionSheet.hidden) {
@@ -7738,12 +7889,18 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     mobileShortcuts.style.transform = "";
   };
 
-  const applyMobileViewportInsets = (nextInset, nextSafeOffset, { animateDock = true } = {}) => {
+  const applyMobileViewportInsets = (nextInset, nextSafeOffset, { animateDock = true, keyboardActive = null } = {}) => {
     const inset = Math.max(0, Math.round(Number(nextInset) || 0));
     const safeOffset = Math.max(0, Math.round(Number(nextSafeOffset) || 0));
     const dockChanged = inset !== mobileKeyboardInsetBottom || safeOffset !== mobileClientBottomSafeOffset;
+    const keyboardWasActive = mobileKeyboardViewportActive;
+    const keyboardIsActive = keyboardActive === null ? inset > mobileKeyboardInsetThresholdPx : keyboardActive === true;
+    if (keyboardWasActive || keyboardIsActive || dockChanged) {
+      armMobileKeyboardResizeSuppression();
+    }
     mobileKeyboardInsetBottom = inset;
     mobileClientBottomSafeOffset = safeOffset;
+    mobileKeyboardViewportActive = keyboardIsActive;
     document.documentElement.style.setProperty("--mobile-keyboard-inset-bottom", `${inset}px`);
     document.documentElement.style.setProperty("--mobile-client-bottom-safe-offset", `${safeOffset}px`);
     document.body.classList.toggle("mobile-keyboard-visible", inset > mobileKeyboardInsetThresholdPx);
@@ -7768,12 +7925,17 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       mobileViewportReferenceHeight = nextHeight;
     }
     if (!supportsViewportInsets) {
+      const previousHeight = mobileViewportHeight;
       const insetChanged = mobileKeyboardInsetBottom !== 0;
       const safeOffsetChanged = mobileClientBottomSafeOffset !== 0;
       const heightChanged = nextHeight !== mobileViewportHeight;
+      const keyboardLikeHeightChange = isKeyboardLikeViewportHeightChange(previousHeight, nextHeight, { orientationChanged });
       mobileViewportHeight = nextHeight;
       mobileViewportReferenceHeight = nextHeight;
-      applyMobileViewportInsets(0, 0, { animateDock: false });
+      applyMobileViewportInsets(0, 0, { animateDock: false, keyboardActive: keyboardLikeHeightChange && nextHeight < previousHeight });
+      if (keyboardLikeHeightChange) {
+        armMobileKeyboardResizeSuppression();
+      }
       if (heightChanged || insetChanged || safeOffsetChanged) {
         scheduleMobileViewportResize();
       }
@@ -7790,6 +7952,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       ? Math.max(0, Math.round((mobileViewportReferenceHeight || nextHeight) - visualViewport.height - viewportOffsetTop))
       : 0;
     const measuredInset = Math.max(measuredBottomInset, measuredReferenceInset);
+    const nextKeyboardActive = measuredInset > mobileKeyboardInsetThresholdPx && !orientationChanged && isTouchShortcutLayout();
     const nextInset = useKeyboardInset && measuredInset > mobileKeyboardInsetThresholdPx ? measuredInset : 0;
     const nextSafeOffset = nextInset === 0 && measuredBottomInset > 0 && measuredBottomInset <= mobileKeyboardInsetThresholdPx
       ? measuredBottomInset
@@ -7801,7 +7964,10 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       mobileViewportReferenceHeight = nextHeight;
     }
     mobileViewportHeight = nextHeight;
-    applyMobileViewportInsets(nextInset, nextSafeOffset);
+    applyMobileViewportInsets(nextInset, nextSafeOffset, { keyboardActive: nextKeyboardActive });
+    if (heightChanged && !orientationChanged && isTouchShortcutLayout() && (nextKeyboardActive || mobileKeyboardViewportActive)) {
+      armMobileKeyboardResizeSuppression();
+    }
     if (heightChanged || insetChanged || safeOffsetChanged) {
       scheduleMobileViewportResize();
     }
@@ -12043,10 +12209,6 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     compositionPreview.className = "terminal-composition-preview";
     compositionPreview.hidden = true;
     terminalHost.appendChild(compositionPreview);
-    if (typeof fitAddon.observeResize === "function") {
-      fitAddon.observeResize();
-    }
-
     const session = {
       id: normalizedID,
       tabId: tab.id,
