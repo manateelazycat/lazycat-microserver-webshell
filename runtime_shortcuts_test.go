@@ -1169,6 +1169,49 @@ func TestRuntimeMobileBottomSafeAreaKeepsShortcutsAboveControls(t *testing.T) {
 	}
 }
 
+func TestRuntimeMobileShortcutsPreserveKeyboardExceptMenu(t *testing.T) {
+	data, err := os.ReadFile("runtime/static/main.js")
+	if err != nil {
+		t.Fatalf("ReadFile(runtime/static/main.js) error = %v", err)
+	}
+	source := string(data)
+	for _, want := range []string{
+		`const shouldPreserveMobileKeyboardForShortcut = (shortcut) => String(shortcut?.action || "") !== "open_mobile_menu";`,
+		`const isMobileTerminalKeyboardActive = (session = activeSession()) => {`,
+	} {
+		if !strings.Contains(source, want) {
+			t.Fatalf("runtime mobile shortcut keyboard guard missing %q", want)
+		}
+	}
+
+	bindBody := sourceBetween(t, source, `  const bindMobileShortcutButton = (button, shortcut) => {`, `  const renderMobileShortcuts = () => {`)
+	for _, want := range []string{
+		`const preserveMobileKeyboardOnTouchStart = (event) => {`,
+		`!shouldPreserveMobileKeyboardForShortcut(shortcut)`,
+		`if (event.cancelable) {`,
+		`event.preventDefault();`,
+		`button.addEventListener("touchstart", preserveMobileKeyboardOnTouchStart, { capture: true, passive: false });`,
+	} {
+		if !strings.Contains(bindBody, want) {
+			t.Fatalf("runtime mobile shortcut bind should preserve keyboard, missing %q", want)
+		}
+	}
+	for _, forbidden := range []string{
+		`restoreMobileKeyboardAfterShortcut`,
+		`requestAnimationFrame(() => {`,
+		`button.addEventListener("focus"`,
+	} {
+		if strings.Contains(bindBody, forbidden) {
+			t.Fatalf("runtime mobile shortcut bind should not restore keyboard after blur, found %q", forbidden)
+		}
+	}
+
+	menuBody := sourceBetween(t, source, `  const openMobileActionSheet = () => {`, `  const runMobileContextAction = (action) => {`)
+	if !strings.Contains(menuBody, `blurMobileKeyboard();`) {
+		t.Fatal("runtime mobile Menu shortcut should still hide the keyboard before opening the action sheet")
+	}
+}
+
 func TestRuntimeWebSocketURLUsesWebSocketProtocols(t *testing.T) {
 	data, err := os.ReadFile("runtime/static/main.js")
 	if err != nil {
@@ -1398,10 +1441,19 @@ func TestRuntimeTerminalMouseTrackingSequences(t *testing.T) {
 		"return encodeTerminalLegacyMouseSequence(buttonCode, x, y);",
 		"const installTerminalMouseTracking = (session) => {",
 		"sendOrQueueInput(session, sequence);",
+		"const terminalMouseEventFromTouch = (event, touch = null) => ({",
+		"const handleTouchStart = (event) => {",
+		"sendMouseSequence(terminalMouseEventFromTouch(event, touch), \"press\", 0);",
+		"sendMouseSequence(terminalMouseEventFromTouch(event, touch), \"move\", 0);",
+		"sendMouseSequence(terminalMouseEventFromTouch(event, touch), \"release\", 0);",
 		"shell.addEventListener(\"mousedown\", handleMouseDown, { capture: true, passive: false });",
+		"shell.addEventListener(\"touchstart\", handleTouchStart, { capture: true, passive: false });",
+		"shell.addEventListener(\"touchmove\", handleTouchMove, { capture: true, passive: false });",
+		"shell.addEventListener(\"touchend\", finishTouchMouse, { capture: true, passive: false });",
 		"shell.addEventListener(\"wheel\", handleWheel, { capture: true, passive: false });",
 		"document.addEventListener(\"mouseup\", handleMouseUp, { capture: true, passive: false });",
 		"shell.addEventListener(\"contextmenu\", handleClickLike, { capture: true, passive: false });",
+		"|| terminalMouseTrackingState(session)",
 		"installTerminalMouseTracking(session);",
 	}
 	for _, want := range wantSnippets {

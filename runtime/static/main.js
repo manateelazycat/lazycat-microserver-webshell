@@ -7079,6 +7079,16 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     focusTerminalInput(targetSession);
   };
 
+  const shouldPreserveMobileKeyboardForShortcut = (shortcut) => String(shortcut?.action || "") !== "open_mobile_menu";
+
+  const isMobileTerminalKeyboardActive = (session = activeSession()) => {
+    if (!isTouchShortcutLayout()) {
+      return false;
+    }
+    const textarea = session?.term?.textarea;
+    return Boolean(textarea && (document.activeElement === textarea || mobileKeyboardViewportActive));
+  };
+
   const focusTerminalForNativePasteShortcut = (session = activeSession()) => {
     if (!session?.term || session.closed) {
       return;
@@ -8928,6 +8938,12 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       activeButton: -1,
       lastMoveSequence: "",
     };
+    const touchMouseState = {
+      identifier: -1,
+      active: false,
+      lastX: 0,
+      lastY: 0,
+    };
 
     const sendMouseSequence = (event, action, button = -1) => {
       const sequence = encodeTerminalMouseSequence(session, event, action, button);
@@ -8945,6 +8961,26 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       reassertTerminalSizeForMouse(session, event);
       sendOrQueueInput(session, sequence);
       return true;
+    };
+
+    const terminalMouseEventFromTouch = (event, touch = null) => ({
+      clientX: Number(touch?.clientX ?? touchMouseState.lastX) || 0,
+      clientY: Number(touch?.clientY ?? touchMouseState.lastY) || 0,
+      shiftKey: Boolean(event?.shiftKey),
+      altKey: Boolean(event?.altKey),
+      ctrlKey: Boolean(event?.ctrlKey),
+    });
+
+    const changedTouchForActiveMouse = (event) => {
+      const touches = Array.from(event?.changedTouches || []);
+      return touches.find((touch) => touch.identifier === touchMouseState.identifier) || null;
+    };
+
+    const resetTouchMouseState = () => {
+      touchMouseState.identifier = -1;
+      touchMouseState.active = false;
+      touchMouseState.lastX = 0;
+      touchMouseState.lastY = 0;
     };
 
     const handleMouseDown = (event) => {
@@ -9023,6 +9059,56 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       }
     };
 
+    const handleTouchStart = (event) => {
+      if (
+        !isTouchShortcutLayout()
+        || event.touches.length !== 1
+        || !isTerminalMouseTarget(event.target)
+        || !terminalMouseTrackingState(session)
+      ) {
+        resetTouchMouseState();
+        return;
+      }
+      const touch = event.touches[0];
+      stopTerminalMouseEvent(event);
+      activateSessionPane();
+      session.selectAllBufferActive = false;
+      session.term?.clearSelection?.();
+      touchMouseState.identifier = touch.identifier;
+      touchMouseState.active = true;
+      touchMouseState.lastX = touch.clientX;
+      touchMouseState.lastY = touch.clientY;
+      sendMouseSequence(terminalMouseEventFromTouch(event, touch), "press", 0);
+    };
+
+    const handleTouchMove = (event) => {
+      if (!touchMouseState.active || !terminalMouseTrackingState(session)) {
+        return;
+      }
+      const touch = Array.from(event.touches || []).find((item) => item.identifier === touchMouseState.identifier) || null;
+      if (!touch) {
+        return;
+      }
+      stopTerminalMouseEvent(event);
+      touchMouseState.lastX = touch.clientX;
+      touchMouseState.lastY = touch.clientY;
+      sendMouseSequence(terminalMouseEventFromTouch(event, touch), "move", 0);
+    };
+
+    const finishTouchMouse = (event) => {
+      if (!touchMouseState.active) {
+        return;
+      }
+      const touch = changedTouchForActiveMouse(event);
+      stopTerminalMouseEvent(event);
+      if (touch) {
+        touchMouseState.lastX = touch.clientX;
+        touchMouseState.lastY = touch.clientY;
+      }
+      sendMouseSequence(terminalMouseEventFromTouch(event, touch), "release", 0);
+      resetTouchMouseState();
+    };
+
     shell.addEventListener("mousedown", handleMouseDown, { capture: true, passive: false });
     shell.addEventListener("mousemove", handleMouseMove, { capture: true, passive: false });
     shell.addEventListener("wheel", handleWheel, { capture: true, passive: false });
@@ -9030,6 +9116,10 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     shell.addEventListener("dblclick", handleClickLike, { capture: true, passive: false });
     shell.addEventListener("auxclick", handleClickLike, { capture: true, passive: false });
     shell.addEventListener("contextmenu", handleClickLike, { capture: true, passive: false });
+    shell.addEventListener("touchstart", handleTouchStart, { capture: true, passive: false });
+    shell.addEventListener("touchmove", handleTouchMove, { capture: true, passive: false });
+    shell.addEventListener("touchend", finishTouchMouse, { capture: true, passive: false });
+    shell.addEventListener("touchcancel", finishTouchMouse, { capture: true, passive: false });
     document.addEventListener("mousemove", handleMouseMove, { capture: true, passive: false });
     document.addEventListener("mouseup", handleMouseUp, { capture: true, passive: false });
     addSessionCleanup(session, () => {
@@ -9040,6 +9130,10 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       shell.removeEventListener("dblclick", handleClickLike, { capture: true });
       shell.removeEventListener("auxclick", handleClickLike, { capture: true });
       shell.removeEventListener("contextmenu", handleClickLike, { capture: true });
+      shell.removeEventListener("touchstart", handleTouchStart, { capture: true });
+      shell.removeEventListener("touchmove", handleTouchMove, { capture: true });
+      shell.removeEventListener("touchend", finishTouchMouse, { capture: true });
+      shell.removeEventListener("touchcancel", finishTouchMouse, { capture: true });
       document.removeEventListener("mousemove", handleMouseMove, { capture: true });
       document.removeEventListener("mouseup", handleMouseUp, { capture: true });
     });
@@ -10387,6 +10481,30 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     let repeatTimer = 0;
     let repeatTriggered = false;
 
+    const rememberShortcutSession = () => {
+      shortcutSession = activeSession();
+      if (shouldPreserveMobileKeyboardForShortcut(shortcut) && isMobileTerminalKeyboardActive(shortcutSession)) {
+        shortcutSession.allowMobileKeyboardFocusUntil = performance.now() + mobileKeyboardFocusAllowWindowMs;
+      }
+    };
+
+    const preserveMobileKeyboardOnTouchStart = (event) => {
+      if (
+        !shouldPreserveMobileKeyboardForShortcut(shortcut)
+        || Number(event?.touches?.length || 0) !== 1
+      ) {
+        return;
+      }
+      rememberShortcutSession();
+      if (!isMobileTerminalKeyboardActive(shortcutSession)) {
+        return;
+      }
+      if (event.cancelable) {
+        event.preventDefault();
+      }
+      event.stopPropagation();
+    };
+
     const stopRepeat = () => {
       if (repeatDelayTimer) {
         window.clearTimeout(repeatDelayTimer);
@@ -10446,6 +10564,8 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       }, touchShortcutRepeatInitialDelayMs);
     };
 
+    button.addEventListener("touchstart", preserveMobileKeyboardOnTouchStart, { capture: true, passive: false });
+
     button.addEventListener("pointerdown", (event) => {
       if (!(event instanceof PointerEvent) || !event.isPrimary) {
         return;
@@ -10459,7 +10579,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       touchStartY = event.clientY;
       touchMoved = false;
       repeatTriggered = false;
-      shortcutSession = activeSession();
+      rememberShortcutSession();
       startRepeat();
     }, { passive: false });
 
@@ -10866,7 +10986,12 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     };
     session.shellEl.addEventListener("touchstart", (event) => {
       resetTouchSelectionState();
-      if (!isMobileLayout() || event.touches.length !== 1 || (mobileActionSheet && !mobileActionSheet.hidden)) {
+      if (
+        !isMobileLayout()
+        || event.touches.length !== 1
+        || terminalMouseTrackingState(session)
+        || (mobileActionSheet && !mobileActionSheet.hidden)
+      ) {
         return;
       }
       const target = event.target;
