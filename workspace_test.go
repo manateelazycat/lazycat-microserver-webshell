@@ -202,6 +202,39 @@ func TestHandleInstancesLoadsVisibleInstancesFromLightOSAdmin(t *testing.T) {
 	}
 }
 
+func TestHandleInstancesDedupesSwitchInstanceListBySelector(t *testing.T) {
+	server := &pluginServer{
+		instancesResolver: testInstancesResolver([]instanceSummary{
+			{Name: "alpha", OwnerDeployID: "deploy-a", Status: "running"},
+			{Name: "alpha", OwnerDeployID: "deploy-a", Status: "running", Username: "alice"},
+			{Name: "beta", OwnerDeployID: "deploy-b", Status: "running", Username: "bob"},
+			{Selector: "client:client-a", Name: "Alice PC", Status: "running"},
+		}),
+	}
+	request := httptest.NewRequest(http.MethodGet, "/api/instances", nil)
+	request.Header.Set(lightOSUserIDHeader, "login-user-a")
+	recorder := httptest.NewRecorder()
+
+	server.handleInstances(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("handleInstances status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	var items []instanceSummary
+	if err := json.NewDecoder(recorder.Body).Decode(&items); err != nil {
+		t.Fatalf("decode instances error = %v", err)
+	}
+	if len(items) != 3 {
+		t.Fatalf("instances = %+v, want duplicate selector removed", items)
+	}
+	if items[0].Name != "alpha" || items[0].OwnerDeployID != "deploy-a" || items[0].Username != "alice" {
+		t.Fatalf("first instance = %+v, want merged alpha details", items[0])
+	}
+	if instanceSelector(items[1]) != "beta@deploy-b" || instanceSelector(items[2]) != "client:client-a" {
+		t.Fatalf("instances = %+v, want beta and client entries preserved", items)
+	}
+}
+
 func TestHandleInstancesRequiresAccountHeader(t *testing.T) {
 	server := testPluginServerWithInstances()
 	recorder := httptest.NewRecorder()

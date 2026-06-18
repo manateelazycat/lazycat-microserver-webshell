@@ -291,6 +291,7 @@ func (s *pluginServer) handleInstances(w http.ResponseWriter, r *http.Request) {
 		writeAuthorizationError(w, err)
 		return
 	}
+	items = dedupeInstanceSummaries(items)
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	if err := json.NewEncoder(w).Encode(items); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -755,6 +756,71 @@ func (s *pluginServer) listRequestVisibleInstances(ctx context.Context, header h
 	}
 	items = append(items, clientInstanceSummariesToInstances(clientItems)...)
 	return items, nil
+}
+
+func dedupeInstanceSummaries(items []instanceSummary) []instanceSummary {
+	if len(items) == 0 {
+		return items
+	}
+	result := make([]instanceSummary, 0, len(items))
+	indexBySelector := make(map[string]int, len(items))
+	for _, item := range items {
+		selector := instanceSelector(item)
+		if selector == "" {
+			result = append(result, item)
+			continue
+		}
+		index, ok := indexBySelector[selector]
+		if !ok {
+			indexBySelector[selector] = len(result)
+			result = append(result, item)
+			continue
+		}
+		result[index] = mergeDuplicateInstanceSummary(result[index], item)
+	}
+	return result
+}
+
+func mergeDuplicateInstanceSummary(current, next instanceSummary) instanceSummary {
+	if instanceSummaryCompletenessScore(next) > instanceSummaryCompletenessScore(current) {
+		current, next = next, current
+	}
+	if strings.TrimSpace(current.Selector) == "" {
+		current.Selector = strings.TrimSpace(next.Selector)
+	}
+	if strings.TrimSpace(current.Name) == "" {
+		current.Name = strings.TrimSpace(next.Name)
+	}
+	if strings.TrimSpace(current.OwnerDeployID) == "" {
+		current.OwnerDeployID = strings.TrimSpace(next.OwnerDeployID)
+	}
+	if strings.TrimSpace(current.Status) == "" {
+		current.Status = strings.TrimSpace(next.Status)
+	}
+	if strings.TrimSpace(current.Username) == "" {
+		current.Username = strings.TrimSpace(next.Username)
+	}
+	return current
+}
+
+func instanceSummaryCompletenessScore(item instanceSummary) int {
+	score := 0
+	if strings.TrimSpace(item.Selector) != "" {
+		score += 8
+	}
+	if strings.TrimSpace(item.Name) != "" {
+		score += 4
+	}
+	if strings.TrimSpace(item.OwnerDeployID) != "" {
+		score += 4
+	}
+	if strings.TrimSpace(item.Username) != "" {
+		score += 2
+	}
+	if strings.TrimSpace(item.Status) != "" {
+		score++
+	}
+	return score
 }
 
 func (s *pluginServer) listLightOSAdminWebshellInstances(ctx context.Context, header http.Header, accountID string) ([]instanceSummary, error) {
