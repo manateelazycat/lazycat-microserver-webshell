@@ -4807,6 +4807,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
 
   const isMobileLayout = () => Boolean(mobileLayoutQuery?.matches);
   const isTouchShortcutLayout = () => Boolean(touchShortcutLayoutQuery?.matches);
+  const requiresTouchKeyboardDoubleTap = () => isMobileLayout() || isTouchShortcutLayout();
 
   const isMobileCustomSelectLayout = () => isMobileLayout() || isTouchShortcutLayout();
   const shouldPreventMobileViewportZoom = () => isMobileLayout() || isTouchShortcutLayout() || usesMobileViewportInsets();
@@ -6328,7 +6329,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     if (!textarea) {
       return;
     }
-    if (isMobileLayout() && performance.now() > Number(session?.allowMobileKeyboardFocusUntil || 0)) {
+    if (requiresTouchKeyboardDoubleTap() && performance.now() > Number(session?.allowMobileKeyboardFocusUntil || 0)) {
       blurTerminalInput(session);
       return;
     }
@@ -6389,7 +6390,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     if (!session?.term || session.closed) {
       return;
     }
-    if (isMobileLayout()) {
+    if (requiresTouchKeyboardDoubleTap()) {
       session.allowMobileKeyboardFocusUntil = performance.now() + mobileKeyboardFocusAllowWindowMs;
     }
     focusTerminalInput(session);
@@ -6799,7 +6800,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       window.requestAnimationFrame(() => focusTerminalInput(session));
     });
     host.addEventListener("touchstart", (event) => {
-      if (!isMobileLayout() || event.touches.length !== 1) {
+      if (!requiresTouchKeyboardDoubleTap() || event.touches.length !== 1) {
         mobileTapTouchState = null;
         return;
       }
@@ -6824,7 +6825,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       }
     }, { passive: true });
     const finishMobileTap = (event) => {
-      if (!isMobileLayout() || !mobileTapTouchState) {
+      if (!requiresTouchKeyboardDoubleTap() || !mobileTapTouchState) {
         mobileTapTouchState = null;
         return;
       }
