@@ -583,6 +583,27 @@ func TestRuntimeMobileDoubleTapReminderSetting(t *testing.T) {
 	}
 }
 
+func TestRuntimeTouchKeyboardRequiresDoubleTapOnWideTouchScreens(t *testing.T) {
+	data, err := os.ReadFile("runtime/static/main.js")
+	if err != nil {
+		t.Fatalf("ReadFile(runtime/static/main.js) error = %v", err)
+	}
+	source := string(data)
+
+	wantSnippets := []string{
+		`const requiresTouchKeyboardDoubleTap = () => isMobileLayout() || isTouchShortcutLayout();`,
+		`if (requiresTouchKeyboardDoubleTap() && performance.now() > Number(session?.allowMobileKeyboardFocusUntil || 0)) {`,
+		`if (requiresTouchKeyboardDoubleTap()) {`,
+		`if (!requiresTouchKeyboardDoubleTap() || event.touches.length !== 1) {`,
+		`if (!requiresTouchKeyboardDoubleTap() || !mobileTapTouchState) {`,
+	}
+	for _, want := range wantSnippets {
+		if !strings.Contains(source, want) {
+			t.Fatalf("runtime wide touch keyboard double-tap guard missing %q", want)
+		}
+	}
+}
+
 func TestRuntimeDefaultMobileShortcutOrder(t *testing.T) {
 	data, err := os.ReadFile("runtime/static/main.js")
 	if err != nil {
