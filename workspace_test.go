@@ -114,6 +114,26 @@ func TestBuildInstanceShellBootstrapScriptUsesConfiguredUser(t *testing.T) {
 	}
 }
 
+func TestBuildInstanceShellBootstrapScriptConfiguresClaudeTUIDefault(t *testing.T) {
+	for _, script := range []string{
+		buildInstanceShellBootstrapScript("root", ""),
+		buildInstanceShellBootstrapScript("admin", ""),
+	} {
+		if !containsAll(script,
+			`__webshell_claude_settings_file="$__webshell_claude_config_dir/settings.json"`,
+			`command -v claude >/dev/null 2>&1`,
+			`Object.prototype.hasOwnProperty.call(settings, "tui")`,
+			`settings.tui = "default";`,
+			`printf '%s\n' '{"tui":"default"}' > "$__webshell_claude_settings_file"`,
+		) {
+			t.Fatalf("expected Claude TUI default bootstrap, got:\n%s", script)
+		}
+		if strings.Contains(script, "/tui default") {
+			t.Fatalf("bootstrap should configure Claude settings, not inject slash commands:\n%s", script)
+		}
+	}
+}
+
 func TestLightOSManifestEnablesMultiInstance(t *testing.T) {
 	data, err := os.ReadFile("lzc-manifest.yml")
 	if err != nil {

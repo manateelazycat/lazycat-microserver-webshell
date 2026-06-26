@@ -715,8 +715,64 @@ func buildTerminalSessionBootstrapScript(initialCWD string) string {
 		`unset __webshell_tty`,
 		"if [ -f /run/catlink/shell-env.sh ]; then . /run/catlink/shell-env.sh; fi",
 		`export SHELL="$__webshell_shell"`,
+		buildClaudeTUIDefaultBootstrapScript(),
 		buildInitialCWDChangeScript(initialCWD),
 	}, "\n")
+}
+
+func buildClaudeTUIDefaultBootstrapScript() string {
+	return `__webshell_claude_user="${user:-}"
+__webshell_claude_uid="${uid:-}"
+__webshell_claude_gid="${gid:-}"
+__webshell_claude_home="${home:-}"
+if [ -z "$__webshell_claude_user" ]; then
+  __webshell_claude_user="$(id -un 2>/dev/null || true)"
+fi
+__webshell_claude_entry="$(getent passwd "$__webshell_claude_user" 2>/dev/null || true)"
+if [ -z "$__webshell_claude_uid" ]; then
+  __webshell_claude_uid="$(printf '%s\n' "$__webshell_claude_entry" | cut -d: -f3)"
+fi
+if [ -z "$__webshell_claude_gid" ]; then
+  __webshell_claude_gid="$(printf '%s\n' "$__webshell_claude_entry" | cut -d: -f4)"
+fi
+if [ -z "$__webshell_claude_home" ]; then
+  __webshell_claude_home="$(printf '%s\n' "$__webshell_claude_entry" | cut -d: -f6)"
+fi
+if [ -z "$__webshell_claude_home" ]; then
+  __webshell_claude_home="${HOME:-}"
+fi
+if [ -n "$__webshell_claude_uid" ] && [ -n "$__webshell_claude_gid" ] && [ -n "$__webshell_claude_home" ] && [ "$__webshell_claude_home" != "/" ]; then
+  __webshell_claude_config_dir="$__webshell_claude_home/.claude"
+  __webshell_claude_settings_file="$__webshell_claude_config_dir/settings.json"
+  if command -v claude >/dev/null 2>&1 || [ -d "$__webshell_claude_config_dir" ] || [ -f "$__webshell_claude_settings_file" ]; then
+    mkdir -p "$__webshell_claude_config_dir" 2>/dev/null || true
+    if [ -f "$__webshell_claude_settings_file" ]; then
+      if command -v node >/dev/null 2>&1; then
+        SETTINGS_FILE="$__webshell_claude_settings_file" node <<'NODE' || true
+const fs = require("fs");
+const file = process.env.SETTINGS_FILE;
+let settings;
+try {
+  settings = JSON.parse(fs.readFileSync(file, "utf8"));
+} catch (error) {
+  process.exit(0);
+}
+if (!settings || Array.isArray(settings) || typeof settings !== "object" || Object.prototype.hasOwnProperty.call(settings, "tui")) {
+  process.exit(0);
+}
+settings.tui = "default";
+fs.writeFileSync(file, JSON.stringify(settings, null, 2) + "\n");
+NODE
+      fi
+    else
+      printf '%s\n' '{"tui":"default"}' > "$__webshell_claude_settings_file" 2>/dev/null || true
+    fi
+    chown -R "$__webshell_claude_uid:$__webshell_claude_gid" "$__webshell_claude_config_dir" 2>/dev/null || true
+    chmod 700 "$__webshell_claude_config_dir" 2>/dev/null || true
+    chmod 600 "$__webshell_claude_settings_file" 2>/dev/null || true
+  fi
+fi
+unset __webshell_claude_user __webshell_claude_uid __webshell_claude_gid __webshell_claude_home __webshell_claude_entry __webshell_claude_config_dir __webshell_claude_settings_file`
 }
 
 func listInstances(ctx context.Context) ([]instanceSummary, error) {

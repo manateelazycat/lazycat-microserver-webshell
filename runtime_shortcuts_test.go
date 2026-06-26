@@ -844,6 +844,8 @@ func TestRuntimeMobileStickyModifiersApplyToTextInput(t *testing.T) {
 		`const consumeMobileStickyTextInput = (value) => {`,
 		`const encoded = applyStickyModifierInput(value, {`,
 		`clearMobileSticky();`,
+		`const shouldApplyMobileStickyCompositionInput = (value) => {`,
+		`codePoint >= 0x20 && codePoint <= 0x7e;`,
 		`const focusMobileKeyboardFromShortcut = (session = activeSession()) => {`,
 		`targetSession.allowMobileKeyboardFocusUntil = performance.now() + mobileKeyboardFocusAllowWindowMs;`,
 		`focusTerminalInput(targetSession);`,
@@ -851,6 +853,9 @@ func TestRuntimeMobileStickyModifiersApplyToTextInput(t *testing.T) {
 		`last?.data === rawData || last?.rawData === rawData`,
 		`applySticky: shouldApplyMobileStickyTextInput(data, type),`,
 		`applySticky: shouldApplyMobileStickyTextInput(value, type),`,
+		`applySticky: shouldApplyMobileStickyCompositionInput(data),`,
+		`applySticky: shouldApplyMobileStickyCompositionInput(compositionValue),`,
+		`applySticky: shouldApplyMobileStickyCompositionInput(committedText),`,
 		`focusMobileKeyboardFromShortcut(session);`,
 		`hasMobileStickyModifiers()`,
 		`&& canApplyStickyModifierInput(event.key)`,
@@ -949,7 +954,8 @@ func TestRuntimeMobileIMECompositionPreviewVisible(t *testing.T) {
 		`const fallbackValue = stripTerminalInputSentinel(textarea.value);`,
 		`const compositionValue = resolveTerminalPostCompositionInput(session, fallbackValue);`,
 		`if (committedText && !committedAlreadySent) {`,
-		`sendTerminalTextInput(session, committedText, { dedupe: true });`,
+		`sendTerminalTextInput(session, committedText, {`,
+		`applySticky: shouldApplyMobileStickyCompositionInput(committedText),`,
 	}
 	for _, want := range wantSnippets {
 		if !strings.Contains(source, want) {

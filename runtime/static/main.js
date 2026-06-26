@@ -7364,7 +7364,10 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
         textarea.value = terminalInputSentinel;
         moveTerminalTextareaCaretToEnd(textarea);
       }
-      sendTerminalTextInput(session, data, { dedupe: true });
+      sendTerminalTextInput(session, data, {
+        dedupe: true,
+        applySticky: shouldApplyMobileStickyCompositionInput(data),
+      });
       resetTerminalHostViewport(session, { clean: true });
       positionTerminalInput(session);
       return;
@@ -7380,7 +7383,10 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
         moveTerminalTextareaCaretToEnd(textarea);
       }
       if (compositionValue) {
-        sendTerminalTextInput(session, compositionValue, { dedupe: true });
+        sendTerminalTextInput(session, compositionValue, {
+          dedupe: true,
+          applySticky: shouldApplyMobileStickyCompositionInput(compositionValue),
+        });
         rememberTerminalPostCompositionSentInput(session, pendingComposition, compositionValue);
       }
       resetTerminalHostViewport(session, { clean: true });
@@ -7434,7 +7440,10 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
         : null;
       if (compositionValue !== null) {
         if (compositionValue) {
-          sendTerminalTextInput(session, compositionValue, { dedupe: true });
+          sendTerminalTextInput(session, compositionValue, {
+            dedupe: true,
+            applySticky: shouldApplyMobileStickyCompositionInput(compositionValue),
+          });
           rememberTerminalPostCompositionSentInput(session, pendingComposition, compositionValue);
         }
       } else if (!value && isBackwardDeleteInputType(type)) {
@@ -7567,7 +7576,10 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       textarea.value = terminalInputSentinel;
       moveTerminalTextareaCaretToEnd(textarea);
       if (committedText && !committedAlreadySent) {
-        sendTerminalTextInput(session, committedText, { dedupe: true });
+        sendTerminalTextInput(session, committedText, {
+          dedupe: true,
+          applySticky: shouldApplyMobileStickyCompositionInput(committedText),
+        });
       }
       window.setTimeout(() => {
         const fallbackValue = stripTerminalInputSentinel(textarea.value);
@@ -7575,7 +7587,10 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
           const pendingComposition = session?.pendingCompositionInput;
           const compositionValue = resolveTerminalPostCompositionInput(session, fallbackValue);
           if (compositionValue) {
-            sendTerminalTextInput(session, compositionValue, { dedupe: true });
+            sendTerminalTextInput(session, compositionValue, {
+              dedupe: true,
+              applySticky: shouldApplyMobileStickyCompositionInput(compositionValue),
+            });
             rememberTerminalPostCompositionSentInput(session, pendingComposition, compositionValue);
           }
         }
@@ -10269,6 +10284,18 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       return false;
     }
     return canApplyStickyModifierInput(value);
+  };
+
+  const shouldApplyMobileStickyCompositionInput = (value) => {
+    if (!hasMobileStickyModifiers()) {
+      return false;
+    }
+    const points = Array.from(String(value || ""));
+    if (points.length !== 1) {
+      return false;
+    }
+    const codePoint = points[0].codePointAt(0);
+    return Number.isFinite(codePoint) && codePoint >= 0x20 && codePoint <= 0x7e;
   };
 
   const consumeMobileStickyTextInput = (value) => {
