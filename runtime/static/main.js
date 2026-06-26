@@ -221,6 +221,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   const mobileKeyboardInsetThresholdPx = 80;
   const mobileKeyboardDockMoveSettleMs = 260;
   const mobileKeyboardResizeSettleMs = mobileKeyboardDockMoveSettleMs + 140;
+  const mobileKeyboardDismissRecoveryDelays = [0, 80, 180, 360, 720, 1200];
   const mobileOrientationViewportRecoveryDelays = [0, 80, 180, 360, 720];
   const mobileOrientationHistoryReplayDelayMs = 900;
   const desktopSelectionCopyMoveThresholdPx = 4;
@@ -512,6 +513,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   let mobileKeyboardResizeSuppressedUntil = 0;
   let mobileKeyboardResizeReleaseTimer = 0;
   let mobileKeyboardDockMoveTimer = 0;
+  let mobileKeyboardDismissRecoverySeq = 0;
   let themePickerEdgeSwipe = null;
   let mobileOverviewEdgeSwipe = null;
   let resolvedThemeCardWidth = themeCardWidth;
@@ -7100,6 +7102,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       activeElement.blur();
     }
     updateMobileActiveTabTitle();
+    scheduleMobileKeyboardDismissRecovery();
   };
 
   const blurMobileKeyboard = () => {
@@ -7533,7 +7536,10 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     textarea.setAttribute("enterkeyhint", "enter");
     term.focus = () => focusTerminalInput(session);
     textarea.addEventListener("focus", updateMobileActiveTabTitle);
-    textarea.addEventListener("blur", updateMobileActiveTabTitle);
+    textarea.addEventListener("blur", () => {
+      updateMobileActiveTabTitle();
+      scheduleMobileKeyboardDismissRecovery();
+    });
     let lastMobileTapAt = 0;
     let lastMobileTapX = 0;
     let lastMobileTapY = 0;
@@ -7995,6 +8001,73 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     mobileViewportResizeFrame = window.requestAnimationFrame(handleMobileViewportResize);
   };
 
+  const isTerminalTextareaFocused = () => {
+    const activeElement = document.activeElement;
+    if (!(activeElement instanceof HTMLElement)) {
+      return false;
+    }
+    for (const tab of tabs.values()) {
+      for (const pane of tab.panes.values()) {
+        if (pane?.term?.textarea === activeElement) {
+          return true;
+        }
+      }
+    }
+    return false;
+  };
+
+  const measureMobileViewportBottomInset = () => {
+    const visualViewport = window.visualViewport;
+    if (!visualViewport) {
+      return 0;
+    }
+    const viewportOffsetTop = Math.max(0, Math.round(visualViewport.offsetTop || 0));
+    return Math.max(0, Math.round((window.innerHeight || document.documentElement.clientHeight || 0) - visualViewport.height - viewportOffsetTop));
+  };
+
+  const forceClearMobileKeyboardDockIfTerminalBlurred = () => {
+    if (!usesMobileViewportInsets() || isTerminalTextareaFocused()) {
+      return false;
+    }
+    if (mobileKeyboardInsetBottom === 0 && mobileClientBottomSafeOffset === 0 && !mobileKeyboardViewportActive) {
+      return false;
+    }
+    const measuredBottomInset = measureMobileViewportBottomInset();
+    const nextSafeOffset = measuredBottomInset > 0 && measuredBottomInset <= mobileKeyboardInsetThresholdPx
+      ? measuredBottomInset
+      : 0;
+    const changed = applyMobileViewportInsets(0, nextSafeOffset, { keyboardActive: false });
+    if (changed) {
+      scheduleMobileViewportResize();
+    }
+    return changed;
+  };
+
+  const runMobileKeyboardDismissRecoveryPass = (seq, { force = false } = {}) => {
+    if (seq !== mobileKeyboardDismissRecoverySeq || !usesMobileViewportInsets()) {
+      return;
+    }
+    syncMobileVisualViewport({ detectOrientation: false });
+    if (force) {
+      forceClearMobileKeyboardDockIfTerminalBlurred();
+    }
+  };
+
+  const scheduleMobileKeyboardDismissRecovery = () => {
+    if (!usesMobileViewportInsets()) {
+      return;
+    }
+    mobileKeyboardDismissRecoverySeq += 1;
+    const seq = mobileKeyboardDismissRecoverySeq;
+    const lastDelay = mobileKeyboardDismissRecoveryDelays[mobileKeyboardDismissRecoveryDelays.length - 1] || 0;
+    for (const delay of mobileKeyboardDismissRecoveryDelays) {
+      window.setTimeout(
+        () => runMobileKeyboardDismissRecoveryPass(seq, { force: delay === lastDelay }),
+        delay,
+      );
+    }
+  };
+
   const markMobileKeyboardDockMoving = () => {
     if (!document.body) {
       return;
@@ -8080,13 +8153,15 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       return;
     }
     const viewportOffsetTop = Math.max(0, Math.round(visualViewport?.offsetTop || 0));
-    const measuredBottomInset = visualViewport
-      ? Math.max(0, Math.round((window.innerHeight || document.documentElement.clientHeight || 0) - visualViewport.height - viewportOffsetTop))
-      : 0;
+    const measuredBottomInset = measureMobileViewportBottomInset();
     const measuredReferenceInset = visualViewport
       ? Math.max(0, Math.round((mobileViewportReferenceHeight || nextHeight) - visualViewport.height - viewportOffsetTop))
       : 0;
-    const measuredInset = Math.max(measuredBottomInset, measuredReferenceInset);
+    const shouldTrustReferenceInset = isTouchShortcutLayout() && (
+      isTerminalTextareaFocused()
+      || (mobileKeyboardViewportActive && measuredBottomInset > mobileKeyboardInsetThresholdPx)
+    );
+    const measuredInset = Math.max(measuredBottomInset, shouldTrustReferenceInset ? measuredReferenceInset : 0);
     const nextKeyboardActive = measuredInset > mobileKeyboardInsetThresholdPx && !orientationChanged && isTouchShortcutLayout();
     const nextInset = useKeyboardInset && measuredInset > mobileKeyboardInsetThresholdPx ? measuredInset : 0;
     const nextSafeOffset = nextInset === 0 && measuredBottomInset > 0 && measuredBottomInset <= mobileKeyboardInsetThresholdPx
