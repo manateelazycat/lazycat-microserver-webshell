@@ -384,7 +384,7 @@ func TestHandleAttachmentFilesListsFiles(t *testing.T) {
 			Path:   "/home/alice",
 			Parent: "/home",
 			Entries: []attachmentFileEntry{
-				{Name: "note.txt", Path: "/home/alice/note.txt", Type: "file", Size: 4},
+				{Name: "note.txt", Path: "/home/alice/note.txt", Type: "file", Size: 4, Modified: 1720000000},
 			},
 		},
 	}
@@ -404,6 +404,9 @@ func TestHandleAttachmentFilesListsFiles(t *testing.T) {
 	}
 	if response.Path != "/home/alice" || len(response.Entries) != 1 || response.Entries[0].Name != "note.txt" {
 		t.Fatalf("response = %+v, want listed file", response)
+	}
+	if response.Entries[0].Type != "file" || response.Entries[0].Size != 4 || response.Entries[0].Modified != 1720000000 {
+		t.Fatalf("response entry metadata = %+v, want type, size and modified", response.Entries[0])
 	}
 }
 

@@ -149,6 +149,8 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   const attachmentBrowserClose = document.getElementById("attachmentBrowserClose");
   const attachmentBrowserPath = document.getElementById("attachmentBrowserPath");
   const attachmentBrowserBreadcrumbs = document.getElementById("attachmentBrowserBreadcrumbs");
+  const attachmentBrowserSortbar = document.getElementById("attachmentBrowserSortbar");
+  const attachmentBrowserSortButtons = Array.from(document.querySelectorAll("[data-attachment-sort-key]"));
   const attachmentBrowserFeedback = document.getElementById("attachmentBrowserFeedback");
   const attachmentBrowserList = document.getElementById("attachmentBrowserList");
   const attachmentBrowserCancel = document.getElementById("attachmentBrowserCancel");
@@ -549,6 +551,9 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   let attachmentBrowserParentPath = "";
   let attachmentBrowserBreadcrumbPath = "";
   let attachmentBrowserRequestSeq = 0;
+  const attachmentBrowserDefaultSort = Object.freeze({ key: "name", direction: "asc" });
+  let attachmentBrowserSort = { ...attachmentBrowserDefaultSort };
+  let attachmentBrowserEntries = [];
   const attachmentBrowserSelectedPaths = new Set();
   const attachmentBrowserEntriesByPath = new Map();
   let attachmentUploads = new Map();
@@ -14108,6 +14113,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       attachmentBrowserPath.title = attachmentBrowserCurrentPath || "/";
     }
     renderAttachmentBrowserBreadcrumbs();
+    updateAttachmentBrowserSortControls();
     if (attachmentBrowserDownload) {
       const count = attachmentBrowserSelectedPaths.size;
       attachmentBrowserDownload.disabled = count === 0;
@@ -14125,13 +14131,147 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     return true;
   };
 
-  const normalizeAttachmentEntry = (entry) => ({
-    name: String(entry?.name || "").trim(),
-    path: String(entry?.path || "").trim(),
-    type: String(entry?.type || "file").trim() === "dir" ? "dir" : "file",
-    size: Number(entry?.size || 0),
-    modified: Number(entry?.modified || 0),
+  const attachmentBrowserSortNames = {
+    name: "名称",
+    size: "文件大小",
+    modified: "修改日期",
+  };
+
+  const normalizeAttachmentEntryType = (type) => {
+    const normalized = String(type || "file").trim().toLowerCase();
+    if (normalized === "dir" || normalized === "link") {
+      return normalized;
+    }
+    return "file";
+  };
+
+  const normalizeAttachmentEntry = (entry, order = 0) => {
+    const size = Number(entry?.size || 0);
+    const modified = Number(entry?.modified || 0);
+    return {
+      name: String(entry?.name || "").trim(),
+      path: String(entry?.path || "").trim(),
+      type: normalizeAttachmentEntryType(entry?.type),
+      size: Number.isFinite(size) && size > 0 ? size : 0,
+      modified: Number.isFinite(modified) && modified > 0 ? modified : 0,
+      order,
+    };
+  };
+
+  const formatAttachmentFileSize = (entry) => {
+    if (entry?.type === "dir") {
+      return "";
+    }
+    const bytes = Number(entry?.size || 0);
+    if (!Number.isFinite(bytes) || bytes <= 0) {
+      return "0 B";
+    }
+    const units = ["B", "KB", "MB", "GB", "TB"];
+    let value = bytes;
+    let unitIndex = 0;
+    while (value >= 1024 && unitIndex < units.length - 1) {
+      value /= 1024;
+      unitIndex += 1;
+    }
+    if (unitIndex === 0) {
+      return `${Math.round(value)} ${units[unitIndex]}`;
+    }
+    const precision = value >= 10 ? 0 : 1;
+    return `${value.toFixed(precision)} ${units[unitIndex]}`;
+  };
+
+  const formatAttachmentModified = (entry) => {
+    const seconds = Number(entry?.modified || 0);
+    if (!Number.isFinite(seconds) || seconds <= 0) {
+      return "";
+    }
+    const date = new Date(seconds * 1000);
+    if (!Number.isFinite(date.getTime())) {
+      return "";
+    }
+    const pad = (value) => String(value).padStart(2, "0");
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  };
+
+  const compareAttachmentNames = (left, right) => String(left?.name || "").localeCompare(String(right?.name || ""), undefined, {
+    numeric: true,
+    sensitivity: "base",
   });
+
+  const compareAttachmentOptionalNumbers = (left, right, value, empty) => {
+    const leftEmpty = empty(left);
+    const rightEmpty = empty(right);
+    if (leftEmpty && rightEmpty) {
+      return 0;
+    }
+    if (leftEmpty) {
+      return -1;
+    }
+    if (rightEmpty) {
+      return 1;
+    }
+    return Number(value(left) || 0) - Number(value(right) || 0);
+  };
+
+  const compareAttachmentEntries = (left, right) => {
+    let result = 0;
+    if (attachmentBrowserSort.key === "name") {
+      result = compareAttachmentNames(left, right);
+    } else if (attachmentBrowserSort.key === "size") {
+      result = compareAttachmentOptionalNumbers(left, right, (entry) => entry.size, (entry) => entry.type === "dir");
+    } else if (attachmentBrowserSort.key === "modified") {
+      result = compareAttachmentOptionalNumbers(left, right, (entry) => entry.modified, (entry) => !Number(entry?.modified || 0));
+    }
+    if (result !== 0) {
+      return attachmentBrowserSort.direction === "desc" ? -result : result;
+    }
+    const nameResult = compareAttachmentNames(left, right);
+    if (nameResult !== 0) {
+      return nameResult;
+    }
+    return Number(left?.order || 0) - Number(right?.order || 0);
+  };
+
+  const sortedAttachmentBrowserEntries = () => attachmentBrowserEntries.slice().sort(compareAttachmentEntries);
+
+  const resetAttachmentBrowserSort = () => {
+    attachmentBrowserSort = { ...attachmentBrowserDefaultSort };
+  };
+
+  const cycleAttachmentBrowserSort = (key) => {
+    const normalizedKey = String(key || "").trim();
+    if (!Object.prototype.hasOwnProperty.call(attachmentBrowserSortNames, normalizedKey)) {
+      return;
+    }
+    if (attachmentBrowserSort.key !== normalizedKey) {
+      attachmentBrowserSort = { key: normalizedKey, direction: "asc" };
+      return;
+    }
+    if (attachmentBrowserSort.direction === "asc") {
+      attachmentBrowserSort = { key: normalizedKey, direction: "desc" };
+      return;
+    }
+    resetAttachmentBrowserSort();
+  };
+
+  const updateAttachmentBrowserSortControls = () => {
+    const activeLabel = attachmentBrowserSortNames[attachmentBrowserSort.key] || "";
+    const activeDirectionLabel = attachmentBrowserSort.direction === "desc" ? "降序" : "升序";
+    attachmentBrowserSortbar?.setAttribute("data-sort-key", attachmentBrowserSort.key);
+    attachmentBrowserSortbar?.setAttribute("data-sort-direction", attachmentBrowserSort.direction);
+    for (const button of attachmentBrowserSortButtons) {
+      const key = String(button.dataset.attachmentSortKey || "");
+      const active = key === attachmentBrowserSort.key;
+      const label = attachmentBrowserSortNames[key] || button.textContent.trim();
+      button.classList.toggle("is-active", active);
+      button.dataset.sortDirection = active ? attachmentBrowserSort.direction : "";
+      button.setAttribute("aria-pressed", active ? "true" : "false");
+      button.setAttribute("aria-label", active ? `按${label}排序，当前${activeDirectionLabel}，点击切换排序` : `按${label}排序`);
+    }
+    if (attachmentBrowserList) {
+      attachmentBrowserList.setAttribute("aria-label", activeLabel ? `文件列表，当前按${activeLabel}${activeDirectionLabel}排序` : "文件列表");
+    }
+  };
 
   const attachmentBrowserDownloadFilename = (paths) => {
     const selected = Array.from(paths || []).filter(Boolean);
@@ -14149,6 +14289,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     item.className = "attachment-browser-item";
     item.dataset.path = entry.path;
     item.dataset.type = entry.type;
+    item.setAttribute("role", "listitem");
 
     const row = document.createElement("div");
     row.className = "attachment-browser-file";
@@ -14167,7 +14308,15 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     name.className = "attachment-browser-file-name";
     name.textContent = entry.name || entry.path;
     button.appendChild(name);
-    row.append(checkbox, button);
+    const size = document.createElement("span");
+    size.className = "attachment-browser-file-meta attachment-browser-file-size";
+    size.textContent = formatAttachmentFileSize(entry);
+    size.title = size.textContent;
+    const modified = document.createElement("span");
+    modified.className = "attachment-browser-file-meta attachment-browser-file-modified";
+    modified.textContent = formatAttachmentModified(entry);
+    modified.title = modified.textContent;
+    row.append(checkbox, button, size, modified);
     item.appendChild(row);
     return item;
   };
@@ -14178,17 +14327,11 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     }
     attachmentBrowserList.textContent = "";
     attachmentBrowserEntriesByPath.clear();
-    const normalized = Array.isArray(entries) ? entries.map(normalizeAttachmentEntry).filter((entry) => entry.name && entry.path) : [];
-    normalized.sort((left, right) => {
-      if (left.type === "dir" && right.type !== "dir") {
-        return -1;
-      }
-      if (left.type !== "dir" && right.type === "dir") {
-        return 1;
-      }
-      return left.name.localeCompare(right.name, undefined, { numeric: true, sensitivity: "base" });
-    });
-    if (normalized.length === 0) {
+    if (Array.isArray(entries)) {
+      attachmentBrowserEntries = entries.map((entry, index) => normalizeAttachmentEntry(entry, index)).filter((entry) => entry.name && entry.path);
+    }
+    const sorted = sortedAttachmentBrowserEntries();
+    if (sorted.length === 0) {
       const empty = document.createElement("div");
       empty.className = "attachment-browser-empty";
       empty.textContent = "这个目录没有文件";
@@ -14196,7 +14339,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       return;
     }
     const fragment = document.createDocumentFragment();
-    for (const entry of normalized) {
+    for (const entry of sorted) {
       attachmentBrowserEntriesByPath.set(entry.path, entry);
       fragment.appendChild(createAttachmentBrowserItem(entry));
     }
@@ -14223,6 +14366,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       attachmentBrowserCurrentPath = String(payload?.path || path || "/").trim() || "/";
       attachmentBrowserParentPath = String(payload?.parent || "").trim();
       attachmentBrowserSelectedPaths.clear();
+      resetAttachmentBrowserSort();
       renderAttachmentBrowserList(payload?.entries || []);
       setAttachmentBrowserFeedback("");
       updateAttachmentBrowserControls();
@@ -14251,6 +14395,8 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     attachmentBrowserCurrentPath = startPath;
     attachmentBrowserParentPath = "";
     attachmentBrowserSelectedPaths.clear();
+    attachmentBrowserEntries = [];
+    resetAttachmentBrowserSort();
     document.body?.classList.add("attachment-browser-open");
     attachmentBrowserBackdrop.hidden = false;
     renderAttachmentBrowserList([]);
@@ -14264,6 +14410,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     attachmentBrowserRequestSeq += 1;
     attachmentBrowserSelectedPaths.clear();
     attachmentBrowserEntriesByPath.clear();
+    attachmentBrowserEntries = [];
     attachmentBrowserBreadcrumbPath = "";
     attachmentBrowserEdgeSwipe = null;
     if (attachmentBrowserBackdrop) {
@@ -15399,6 +15546,15 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     }
     loadAttachmentBrowserPath(button.dataset.path || "/").catch((error) => setAttachmentBrowserFeedback(error.message || "文件列表读取失败。", "error"));
   });
+  attachmentBrowserSortbar?.addEventListener("click", (event) => {
+    const button = event.target instanceof Element ? event.target.closest("[data-attachment-sort-key]") : null;
+    if (!(button instanceof HTMLButtonElement)) {
+      return;
+    }
+    cycleAttachmentBrowserSort(button.dataset.attachmentSortKey);
+    renderAttachmentBrowserList();
+    updateAttachmentBrowserControls();
+  });
   attachmentBrowserBackdrop?.addEventListener("touchstart", handleAttachmentBrowserTouchStart, { passive: true });
   attachmentBrowserBackdrop?.addEventListener("touchmove", handleAttachmentBrowserTouchMove, { passive: false });
   attachmentBrowserBackdrop?.addEventListener("touchend", resetAttachmentBrowserEdgeSwipe, { passive: true });
@@ -15411,7 +15567,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       return;
     }
     const fileButton = target instanceof Element ? target.closest(".attachment-browser-file-main[data-path]") : null;
-    if (fileButton?.closest?.('.attachment-browser-item[data-type="file"]')) {
+    if (fileButton && !fileButton.closest?.('.attachment-browser-item[data-type="dir"]')) {
       triggerAttachmentDownload([fileButton.dataset.path || ""]);
       closeAttachmentBrowser({ focusTerminal: true });
     }

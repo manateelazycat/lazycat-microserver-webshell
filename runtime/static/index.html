@@ -566,8 +566,29 @@
           <button class="attachment-browser-close" id="attachmentBrowserClose" type="button" aria-label="关闭">&times;</button>
         </div>
         <nav class="attachment-browser-breadcrumbs" id="attachmentBrowserBreadcrumbs" aria-label="路径导航"></nav>
+        <div class="attachment-browser-sortbar" id="attachmentBrowserSortbar" aria-label="文件列表排序">
+          <span class="attachment-browser-sort-spacer" aria-hidden="true"></span>
+          <div class="attachment-browser-sort-cell">
+            <button class="attachment-browser-sort-button" type="button" data-attachment-sort-key="name" aria-label="按名称排序">
+              <span class="attachment-browser-sort-label">名称</span>
+              <span class="attachment-browser-sort-indicator" aria-hidden="true"></span>
+            </button>
+          </div>
+          <div class="attachment-browser-sort-cell attachment-browser-sort-cell-size">
+            <button class="attachment-browser-sort-button attachment-browser-sort-button-size" type="button" data-attachment-sort-key="size" aria-label="按文件大小排序">
+              <span class="attachment-browser-sort-label">文件大小</span>
+              <span class="attachment-browser-sort-indicator" aria-hidden="true"></span>
+            </button>
+          </div>
+          <div class="attachment-browser-sort-cell">
+            <button class="attachment-browser-sort-button" type="button" data-attachment-sort-key="modified" aria-label="按修改日期排序">
+              <span class="attachment-browser-sort-label">修改日期</span>
+              <span class="attachment-browser-sort-indicator" aria-hidden="true"></span>
+            </button>
+          </div>
+        </div>
         <div class="attachment-browser-feedback" id="attachmentBrowserFeedback" hidden></div>
-        <div class="attachment-browser-list" id="attachmentBrowserList" role="listbox" aria-label="文件列表"></div>
+        <div class="attachment-browser-list" id="attachmentBrowserList" role="list" aria-label="文件列表"></div>
         <div class="attachment-browser-actions">
           <button class="attachment-browser-cancel" id="attachmentBrowserCancel" type="button">取消</button>
           <button class="attachment-browser-download" id="attachmentBrowserDownload" type="button" disabled>下载选中</button>

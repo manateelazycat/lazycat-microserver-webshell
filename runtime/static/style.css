@@ -3506,11 +3506,14 @@ body.is-tab-overview-dragging {
 }
 
 .attachment-browser-panel {
+  --attachment-browser-column-gap: 10px;
+  --attachment-browser-grid-columns: 18px minmax(0, 1fr) 104px 156px;
   display: grid;
-  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+  grid-template-rows: auto auto auto auto minmax(0, 1fr) auto;
   grid-template-areas:
     "header"
     "breadcrumbs"
+    "sortbar"
     "feedback"
     "list"
     "actions";
@@ -3701,6 +3704,106 @@ body.is-tab-overview-dragging {
   color: var(--danger);
 }
 
+.attachment-browser-sortbar {
+  grid-area: sortbar;
+  display: grid;
+  grid-template-columns: var(--attachment-browser-grid-columns);
+  min-width: 0;
+  min-height: 36px;
+  align-items: center;
+  column-gap: var(--attachment-browser-column-gap);
+  padding: 5px 16px 5px 8px;
+  border-bottom: 1px solid var(--panel-border);
+  background: color-mix(in srgb, var(--panel-bg) 86%, var(--terminal-bg));
+  box-sizing: border-box;
+}
+
+.attachment-browser-sort-spacer {
+  width: 18px;
+  height: 18px;
+}
+
+.attachment-browser-sort-cell {
+  display: flex;
+  min-width: 0;
+}
+
+.attachment-browser-sort-cell-size {
+  justify-content: flex-end;
+}
+
+.attachment-browser-sort-cell:last-child {
+  justify-content: flex-end;
+}
+
+.attachment-browser-sort-button {
+  display: inline-flex;
+  width: 100%;
+  min-width: 0;
+  height: 26px;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 5px 0;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--chrome-text-muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.3;
+  text-align: left;
+}
+
+.attachment-browser-sort-button-size {
+  justify-content: flex-end;
+  text-align: right;
+}
+
+.attachment-browser-sort-cell:last-child .attachment-browser-sort-button {
+  justify-content: flex-end;
+  text-align: right;
+}
+
+.attachment-browser-sort-button:hover,
+.attachment-browser-sort-button:focus-visible {
+  border-color: var(--panel-border);
+  background: var(--panel-hover-bg);
+  color: var(--chrome-text-strong);
+  outline: none;
+}
+
+.attachment-browser-sort-button.is-active {
+  color: var(--terminal-fg);
+}
+
+.attachment-browser-sort-label {
+  min-width: 0;
+  overflow: hidden;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attachment-browser-sort-indicator {
+  display: inline-flex;
+  width: 9px;
+  flex: 0 0 9px;
+  justify-content: center;
+  color: currentColor;
+  font-size: 9px;
+  line-height: 1;
+}
+
+.attachment-browser-sort-button.is-active[data-sort-direction="asc"] .attachment-browser-sort-indicator::before {
+  content: "\25b2";
+}
+
+.attachment-browser-sort-button.is-active[data-sort-direction="desc"] .attachment-browser-sort-indicator::before {
+  content: "\25bc";
+}
+
 .attachment-browser-list {
   grid-area: list;
   min-height: 0;
@@ -3741,12 +3844,13 @@ body.is-tab-overview-dragging {
 }
 
 .attachment-browser-file {
-  display: flex;
+  display: grid;
+  grid-template-columns: var(--attachment-browser-grid-columns);
   width: 100%;
   min-width: 0;
   min-height: 38px;
   align-items: center;
-  gap: 10px;
+  column-gap: var(--attachment-browser-column-gap);
   padding: 6px 8px;
   border: 0;
   border-radius: 7px;
@@ -3816,10 +3920,13 @@ body.is-tab-overview-dragging {
 
 .attachment-browser-file-main {
   display: flex;
+  width: 100%;
   min-width: 0;
-  flex: 1 1 auto;
+  min-height: 26px;
+  align-items: center;
   padding: 0;
   border: 0;
+  border-radius: 5px;
   background: transparent;
   color: inherit;
   cursor: pointer;
@@ -3827,18 +3934,42 @@ body.is-tab-overview-dragging {
 }
 
 .attachment-browser-file-main:focus-visible {
-  outline: none;
+  outline: 2px solid var(--terminal-fg);
+  outline-offset: 2px;
 }
 
 .attachment-browser-file-name {
   min-width: 0;
   overflow: hidden;
-  color: var(--chrome-text-strong);
+  color: var(--chrome-text-muted);
   font-size: 13px;
   font-weight: 650;
-  line-height: 1.25;
+  line-height: 1.35;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.attachment-browser-item[data-type="dir"] .attachment-browser-file-name {
+  color: var(--chrome-text-strong);
+}
+
+.attachment-browser-file-meta {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--chrome-text-muted);
+  font-size: 12px;
+  font-weight: 550;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attachment-browser-file-size {
+  text-align: right;
+}
+
+.attachment-browser-file-modified {
+  text-align: right;
 }
 
 .attachment-browser-empty {
@@ -4320,11 +4451,14 @@ body.is-tab-overview-dragging {
   }
 
   .attachment-browser-panel {
+    --attachment-browser-column-gap: 6px;
+    --attachment-browser-grid-columns: 16px minmax(64px, 1fr) minmax(62px, 0.5fr) minmax(118px, 0.95fr);
     display: grid;
-    grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+    grid-template-rows: auto auto auto auto minmax(0, 1fr) auto;
     grid-template-areas:
       "header"
       "breadcrumbs"
+      "sortbar"
       "feedback"
       "list"
       "actions";
@@ -4412,10 +4546,56 @@ body.is-tab-overview-dragging {
     min-height: 0;
   }
 
+  .attachment-browser-sortbar {
+    min-height: 34px;
+    padding-right: max(6px, var(--lzc-safe-area-inset-right));
+    padding-left: max(6px, var(--lzc-safe-area-inset-left));
+  }
+
+  .attachment-browser-sort-spacer {
+    width: 16px;
+    height: 16px;
+  }
+
+  .attachment-browser-sort-button {
+    min-height: 24px;
+    height: auto;
+    gap: 2px;
+    padding: 2px 2px 1px;
+    font-size: 11px;
+    line-height: 1.35;
+  }
+
+  .attachment-browser-sort-indicator {
+    width: 7px;
+    flex-basis: 7px;
+    font-size: 8px;
+  }
+
   .attachment-browser-list {
     min-height: 0;
     padding-bottom: 8px;
     overflow: auto;
+  }
+
+  .attachment-browser-file {
+    min-height: 42px;
+    padding-right: max(6px, var(--lzc-safe-area-inset-right));
+    padding-left: max(6px, var(--lzc-safe-area-inset-left));
+  }
+
+  .attachment-browser-check {
+    width: 16px;
+    height: 16px;
+    border-radius: 4px;
+  }
+
+  .attachment-browser-file-name {
+    font-size: 12px;
+  }
+
+  .attachment-browser-file-meta {
+    font-size: 11px;
   }
 
   .attachment-browser-actions {
@@ -5270,11 +5450,14 @@ body.attachment-browser-open .mobile-shortcuts {
   }
 
   .attachment-browser-panel {
+    --attachment-browser-column-gap: 6px;
+    --attachment-browser-grid-columns: 16px minmax(64px, 1fr) minmax(62px, 0.5fr) minmax(118px, 0.95fr);
     display: grid;
-    grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+    grid-template-rows: auto auto auto auto minmax(0, 1fr) auto;
     grid-template-areas:
       "header"
       "breadcrumbs"
+      "sortbar"
       "feedback"
       "list"
       "actions";
@@ -5362,11 +5545,57 @@ body.attachment-browser-open .mobile-shortcuts {
     min-height: 0;
   }
 
+  .attachment-browser-sortbar {
+    min-height: 34px;
+    padding-right: max(6px, var(--lzc-safe-area-inset-right));
+    padding-left: max(6px, var(--lzc-safe-area-inset-left));
+  }
+
+  .attachment-browser-sort-spacer {
+    width: 16px;
+    height: 16px;
+  }
+
+  .attachment-browser-sort-button {
+    min-height: 24px;
+    height: auto;
+    gap: 2px;
+    padding: 2px 2px 1px;
+    font-size: 11px;
+    line-height: 1.35;
+  }
+
+  .attachment-browser-sort-indicator {
+    width: 7px;
+    flex-basis: 7px;
+    font-size: 8px;
+  }
+
   .attachment-browser-list {
     min-height: 0;
     padding-bottom: 8px;
     overflow: auto;
     -webkit-overflow-scrolling: touch;
+  }
+
+  .attachment-browser-file {
+    min-height: 42px;
+    padding-right: max(6px, var(--lzc-safe-area-inset-right));
+    padding-left: max(6px, var(--lzc-safe-area-inset-left));
+  }
+
+  .attachment-browser-check {
+    width: 16px;
+    height: 16px;
+    border-radius: 4px;
+  }
+
+  .attachment-browser-file-name {
+    font-size: 12px;
+  }
+
+  .attachment-browser-file-meta {
+    font-size: 11px;
   }
 
   .attachment-browser-actions {
@@ -5656,6 +5885,25 @@ body.attachment-browser-open .mobile-shortcuts {
 @media (hover: none) and (min-width: 641px), (pointer: coarse) and (min-width: 641px) {
   .mobile-shortcut-row {
     justify-content: center;
+  }
+}
+
+@media (max-width: 640px), (hover: none), (pointer: coarse) {
+  .theme-picker-panel,
+  .settings-panel,
+  .device-panel,
+  .tab-overview-panel,
+  .attachment-browser-panel {
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+  }
+
+  .mobile-action-sheet-panel,
+  .mobile-close-confirm-panel,
+  .service-forward-editor-panel,
+  .mobile-shortcut-editor-panel {
+    border-top: 0 !important;
   }
 }
 
