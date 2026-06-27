@@ -45,9 +45,13 @@ type pluginServer struct {
 	settingsMu   sync.Mutex
 	inputLocksMu sync.Mutex
 	inputLocks   map[string]map[string]time.Time
+	devicesMu    sync.Mutex
+	devices      map[string]webshellDeviceRecord
+	deviceNow    func() time.Time
 }
 
 type instanceSummary struct {
+	Selector      string `json:"selector,omitempty"`
 	Name          string `json:"name"`
 	OwnerDeployID string `json:"owner_deploy_id"`
 	Status        string `json:"status"`
@@ -73,12 +77,33 @@ type apiErrorResponse struct {
 	Error string `json:"error"`
 }
 
+type clientInstanceSummary struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Platform    string `json:"platform"`
+	Status      string `json:"status"`
+	OwnerUserID string `json:"owner_user_id"`
+	WebshellURL string `json:"webshell_url"`
+}
+
 const lightOSUserIDHeader = "X-HC-USER-ID"
+const lightOSRequireCookieAuthEnv = "LIGHTOS_REQUIRE_COOKIE_AUTH"
 const lazyCatAppDeployUIDEnv = "LAZYCAT_APP_DEPLOY_UID"
+const lazyCatDeployUIDEnv = "LAZYCAT_DEPLOY_UID"
+const lazyCatUserIDEnv = "LAZYCAT_USER_ID"
+const lazyCatUserUIDEnv = "LAZYCAT_USER_UID"
+const lazyCatAppDeployIDEnv = "LAZYCAT_APP_DEPLOY_ID"
+const lazyCatDeployIDEnv = "LAZYCAT_DEPLOY_ID"
+const lazyCatAppIDEnv = "LAZYCAT_APP_ID"
+const lightOSAdminInternalBaseURLEnv = "LIGHTOS_ADMIN_INTERNAL_BASE_URL"
+const lightOSAdminAppID = "cloud.lazycat.lightos.entry"
+const defaultLightOSAdminInternalBaseURL = "http://127.0.0.1:18081"
 const serverRevisionInputLockTTL = 60 * time.Second
+const webshellDeviceTTL = 1500 * time.Millisecond
 
 var errInstanceForbidden = errors.New("instance is not accessible by current account")
 var errInvalidPublishCreatePayload = errors.New("invalid publish create payload")
+var errClientTerminalProxyUnavailable = errors.New("client terminal proxy is not available yet")
 
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool { return true },
@@ -183,6 +208,9 @@ func (s *pluginServer) run(ctx context.Context) error {
 	mux.HandleFunc("/api/lightos-admin-info", s.handleLightOSAdminInfo)
 	mux.HandleFunc("/api/publish/", s.handlePublishProxy)
 	mux.HandleFunc("/api/server-revision", s.handleServerRevision)
+	mux.HandleFunc("/api/devices", s.handleDevices)
+	mux.HandleFunc("/api/devices/heartbeat", s.handleDeviceHeartbeat)
+	mux.HandleFunc("/api/devices/offline", s.handleDeviceOffline)
 	mux.HandleFunc("/api/settings", s.handleSettings)
 	mux.HandleFunc("/api/settings/fonts", s.handleSettingsFonts)
 	mux.HandleFunc("/api/settings/fonts/", s.handleSettingsFont)
@@ -258,11 +286,12 @@ func (s *pluginServer) handleInstances(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "account id is required", http.StatusUnauthorized)
 		return
 	}
-	items, err := s.listVisibleInstances(r.Context())
+	items, err := s.listRequestVisibleInstances(r.Context(), r.Header, accountID)
 	if err != nil {
 		writeAuthorizationError(w, err)
 		return
 	}
+	items = dedupeInstanceSummaries(items)
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	if err := json.NewEncoder(w).Encode(items); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -295,6 +324,11 @@ func (s *pluginServer) handlePublishProxy(w http.ResponseWriter, r *http.Request
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
+	accountID := currentRequestAccountID(r)
+	if accountID == "" {
+		http.Error(w, "account id is required", http.StatusUnauthorized)
+		return
+	}
 	if err := s.authorizePublishProxyRequest(r); err != nil {
 		writeAuthorizationError(w, err)
 		return
@@ -305,7 +339,7 @@ func (s *pluginServer) handlePublishProxy(w http.ResponseWriter, r *http.Request
 		writeAPIError(w, http.StatusBadGateway, err)
 		return
 	}
-	targetURL, err := buildLightOSAdminURL(info.BaseURL, r.URL)
+	targetURL, err := buildLightOSAdminURL(resolvePublishProxyLightOSAdminBaseURL(info), r.URL)
 	if err != nil {
 		writeAPIError(w, http.StatusBadGateway, err)
 		return
@@ -317,6 +351,7 @@ func (s *pluginServer) handlePublishProxy(w http.ResponseWriter, r *http.Request
 	}
 	request.ContentLength = r.ContentLength
 	copyPublishProxyRequestHeaders(request.Header, r.Header)
+	setPublishProxyAuthHeaders(request.Header, r.Header, accountID)
 
 	response, err := s.publishClient().Do(request)
 	if err != nil {
@@ -349,6 +384,15 @@ func (s *pluginServer) handleServerRevision(w http.ResponseWriter, r *http.Reque
 			http.Error(w, "account id is required", http.StatusUnauthorized)
 			return
 		}
+		if isClientTarget(selector) {
+			if err := s.authorizeClientTarget(r.Context(), r.Header, accountID, selector); err != nil {
+				writeAuthorizationError(w, err)
+				return
+			}
+			w.Header().Set("Cache-Control", "no-store")
+			writeJSON(w, info)
+			return
+		}
 		if err := s.authorizeInstanceSelector(r.Context(), selector); err != nil {
 			writeAuthorizationError(w, err)
 			return
@@ -356,6 +400,9 @@ func (s *pluginServer) handleServerRevision(w http.ResponseWriter, r *http.Reque
 		scope := normalizeAgentScope(selector, accountID)
 		if blockedText := strings.TrimSpace(r.URL.Query().Get("terminal_input_blocked")); blockedText != "" {
 			s.setTerminalInputBlocked(scope, serverRevisionInputLockOwner(clientID), parseBoolQuery(blockedText))
+			w.Header().Set("Cache-Control", "no-store")
+			writeJSON(w, info)
+			return
 		}
 		changed, err := observeServerRevisionState(r.Context(), scope, clientID, s.serverRevision)
 		if err != nil {
@@ -389,7 +436,95 @@ func currentRequestAccountID(r *http.Request) string {
 	if r == nil {
 		return ""
 	}
-	return strings.TrimSpace(r.Header.Get(lightOSUserIDHeader))
+	if accountID := strings.TrimSpace(r.Header.Get(lightOSUserIDHeader)); accountID != "" {
+		return accountID
+	}
+	if lightOSCookieAuthRequired() {
+		return ""
+	}
+	return currentDeployUIDFromEnv()
+}
+
+func lightOSCookieAuthRequired() bool {
+	switch strings.ToLower(lightOSConfigValue(lightOSRequireCookieAuthEnv)) {
+	case "0", "false", "no", "off":
+		return false
+	default:
+		return true
+	}
+}
+
+func currentDeployUIDFromEnv() string {
+	for _, name := range []string{
+		lazyCatAppDeployUIDEnv,
+		lazyCatDeployUIDEnv,
+		lazyCatUserIDEnv,
+		lazyCatUserUIDEnv,
+		lazyCatAppDeployIDEnv,
+		lazyCatDeployIDEnv,
+		lazyCatAppIDEnv,
+	} {
+		if uid := strings.TrimSpace(os.Getenv(name)); uid != "" {
+			return uid
+		}
+	}
+	return ""
+}
+
+func lightOSConfigValue(name string) string {
+	if value, ok := os.LookupEnv(name); ok {
+		return strings.TrimSpace(value)
+	}
+	for _, filename := range lightOSConfigEnvFiles() {
+		if value, ok := readLightOSConfigFileValue(filename, name); ok {
+			return value
+		}
+	}
+	return ""
+}
+
+func lightOSConfigEnvFiles() []string {
+	files := []string{"/lzcapp/pkg/content/.env", "/lzcapp/run/.env"}
+	if exe, err := os.Executable(); err == nil {
+		files = append(files, filepath.Join(filepath.Dir(exe), ".env"))
+	}
+	if cwd, err := os.Getwd(); err == nil {
+		files = append(files, filepath.Join(cwd, ".env"))
+	}
+	return files
+}
+
+func readLightOSConfigFileValue(filename, name string) (string, bool) {
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		return "", false
+	}
+	prefix := name + "="
+	exportPrefix := "export " + prefix
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		switch {
+		case strings.HasPrefix(line, prefix):
+			return unquoteLightOSConfigValue(strings.TrimSpace(strings.TrimPrefix(line, prefix))), true
+		case strings.HasPrefix(line, exportPrefix):
+			return unquoteLightOSConfigValue(strings.TrimSpace(strings.TrimPrefix(line, exportPrefix))), true
+		}
+	}
+	return "", false
+}
+
+func unquoteLightOSConfigValue(value string) string {
+	value = strings.TrimSpace(value)
+	if len(value) >= 2 {
+		quote := value[0]
+		if (quote == '"' || quote == '\'') && value[len(value)-1] == quote {
+			return strings.TrimSpace(value[1 : len(value)-1])
+		}
+	}
+	return value
 }
 
 func writeAuthorizationError(w http.ResponseWriter, err error) {
@@ -398,11 +533,15 @@ func writeAuthorizationError(w http.ResponseWriter, err error) {
 		return
 	case errors.Is(err, errInstanceForbidden):
 		http.Error(w, err.Error(), http.StatusForbidden)
+	case errors.Is(err, errClientTerminalProxyUnavailable):
+		http.Error(w, err.Error(), http.StatusNotImplemented)
 	case strings.Contains(err.Error(), "account id is required"):
 		http.Error(w, err.Error(), http.StatusUnauthorized)
 	case strings.Contains(err.Error(), "deploy uid is required"):
 		http.Error(w, err.Error(), http.StatusUnauthorized)
 	case strings.Contains(err.Error(), "invalid instance selector"):
+		http.Error(w, err.Error(), http.StatusBadRequest)
+	case strings.Contains(err.Error(), "invalid client target"):
 		http.Error(w, err.Error(), http.StatusBadRequest)
 	case errors.Is(err, errInvalidPublishCreatePayload):
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -576,8 +715,64 @@ func buildTerminalSessionBootstrapScript(initialCWD string) string {
 		`unset __webshell_tty`,
 		"if [ -f /run/catlink/shell-env.sh ]; then . /run/catlink/shell-env.sh; fi",
 		`export SHELL="$__webshell_shell"`,
+		buildClaudeTUIDefaultBootstrapScript(),
 		buildInitialCWDChangeScript(initialCWD),
 	}, "\n")
+}
+
+func buildClaudeTUIDefaultBootstrapScript() string {
+	return `__webshell_claude_user="${user:-}"
+__webshell_claude_uid="${uid:-}"
+__webshell_claude_gid="${gid:-}"
+__webshell_claude_home="${home:-}"
+if [ -z "$__webshell_claude_user" ]; then
+  __webshell_claude_user="$(id -un 2>/dev/null || true)"
+fi
+__webshell_claude_entry="$(getent passwd "$__webshell_claude_user" 2>/dev/null || true)"
+if [ -z "$__webshell_claude_uid" ]; then
+  __webshell_claude_uid="$(printf '%s\n' "$__webshell_claude_entry" | cut -d: -f3)"
+fi
+if [ -z "$__webshell_claude_gid" ]; then
+  __webshell_claude_gid="$(printf '%s\n' "$__webshell_claude_entry" | cut -d: -f4)"
+fi
+if [ -z "$__webshell_claude_home" ]; then
+  __webshell_claude_home="$(printf '%s\n' "$__webshell_claude_entry" | cut -d: -f6)"
+fi
+if [ -z "$__webshell_claude_home" ]; then
+  __webshell_claude_home="${HOME:-}"
+fi
+if [ -n "$__webshell_claude_uid" ] && [ -n "$__webshell_claude_gid" ] && [ -n "$__webshell_claude_home" ] && [ "$__webshell_claude_home" != "/" ]; then
+  __webshell_claude_config_dir="$__webshell_claude_home/.claude"
+  __webshell_claude_settings_file="$__webshell_claude_config_dir/settings.json"
+  if command -v claude >/dev/null 2>&1 || [ -d "$__webshell_claude_config_dir" ] || [ -f "$__webshell_claude_settings_file" ]; then
+    mkdir -p "$__webshell_claude_config_dir" 2>/dev/null || true
+    if [ -f "$__webshell_claude_settings_file" ]; then
+      if command -v node >/dev/null 2>&1; then
+        SETTINGS_FILE="$__webshell_claude_settings_file" node <<'NODE' || true
+const fs = require("fs");
+const file = process.env.SETTINGS_FILE;
+let settings;
+try {
+  settings = JSON.parse(fs.readFileSync(file, "utf8"));
+} catch (error) {
+  process.exit(0);
+}
+if (!settings || Array.isArray(settings) || typeof settings !== "object" || Object.prototype.hasOwnProperty.call(settings, "tui")) {
+  process.exit(0);
+}
+settings.tui = "default";
+fs.writeFileSync(file, JSON.stringify(settings, null, 2) + "\n");
+NODE
+      fi
+    else
+      printf '%s\n' '{"tui":"default"}' > "$__webshell_claude_settings_file" 2>/dev/null || true
+    fi
+    chown -R "$__webshell_claude_uid:$__webshell_claude_gid" "$__webshell_claude_config_dir" 2>/dev/null || true
+    chmod 700 "$__webshell_claude_config_dir" 2>/dev/null || true
+    chmod 600 "$__webshell_claude_settings_file" 2>/dev/null || true
+  fi
+fi
+unset __webshell_claude_user __webshell_claude_uid __webshell_claude_gid __webshell_claude_home __webshell_claude_entry __webshell_claude_config_dir __webshell_claude_settings_file`
 }
 
 func listInstances(ctx context.Context) ([]instanceSummary, error) {
@@ -603,11 +798,198 @@ func (s *pluginServer) listInstances(ctx context.Context) ([]instanceSummary, er
 	return listInstances(ctx)
 }
 
+func (s *pluginServer) listRequestVisibleInstances(ctx context.Context, header http.Header, accountID string) ([]instanceSummary, error) {
+	if s != nil && s.instancesResolver != nil {
+		return s.instancesResolver(ctx)
+	}
+	items, err := s.listLightOSAdminWebshellInstances(ctx, header, accountID)
+	if err != nil {
+		return nil, err
+	}
+	clientItems, err := s.listLightOSAdminClientInstances(ctx, header, accountID)
+	if err != nil {
+		return nil, err
+	}
+	items = append(items, clientInstanceSummariesToInstances(clientItems)...)
+	return items, nil
+}
+
+func dedupeInstanceSummaries(items []instanceSummary) []instanceSummary {
+	if len(items) == 0 {
+		return items
+	}
+	result := make([]instanceSummary, 0, len(items))
+	indexBySelector := make(map[string]int, len(items))
+	for _, item := range items {
+		selector := instanceSelector(item)
+		if selector == "" {
+			result = append(result, item)
+			continue
+		}
+		index, ok := indexBySelector[selector]
+		if !ok {
+			indexBySelector[selector] = len(result)
+			result = append(result, item)
+			continue
+		}
+		result[index] = mergeDuplicateInstanceSummary(result[index], item)
+	}
+	return result
+}
+
+func mergeDuplicateInstanceSummary(current, next instanceSummary) instanceSummary {
+	if instanceSummaryCompletenessScore(next) > instanceSummaryCompletenessScore(current) {
+		current, next = next, current
+	}
+	if strings.TrimSpace(current.Selector) == "" {
+		current.Selector = strings.TrimSpace(next.Selector)
+	}
+	if strings.TrimSpace(current.Name) == "" {
+		current.Name = strings.TrimSpace(next.Name)
+	}
+	if strings.TrimSpace(current.OwnerDeployID) == "" {
+		current.OwnerDeployID = strings.TrimSpace(next.OwnerDeployID)
+	}
+	if strings.TrimSpace(current.Status) == "" {
+		current.Status = strings.TrimSpace(next.Status)
+	}
+	if strings.TrimSpace(current.Username) == "" {
+		current.Username = strings.TrimSpace(next.Username)
+	}
+	return current
+}
+
+func instanceSummaryCompletenessScore(item instanceSummary) int {
+	score := 0
+	if strings.TrimSpace(item.Selector) != "" {
+		score += 8
+	}
+	if strings.TrimSpace(item.Name) != "" {
+		score += 4
+	}
+	if strings.TrimSpace(item.OwnerDeployID) != "" {
+		score += 4
+	}
+	if strings.TrimSpace(item.Username) != "" {
+		score += 2
+	}
+	if strings.TrimSpace(item.Status) != "" {
+		score++
+	}
+	return score
+}
+
+func (s *pluginServer) listLightOSAdminWebshellInstances(ctx context.Context, header http.Header, accountID string) ([]instanceSummary, error) {
+	accountID = strings.TrimSpace(accountID)
+	if accountID == "" {
+		return nil, errors.New("account id is required")
+	}
+	info, err := s.resolveLightOSAdminInfo(ctx)
+	if err != nil {
+		return nil, err
+	}
+	targetURL, err := buildLightOSAdminURL(resolvePublishProxyLightOSAdminBaseURL(info), &url.URL{Path: "/api/webshell/instances"})
+	if err != nil {
+		return nil, err
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, targetURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	copyPublishProxyRequestHeaders(request.Header, header)
+	setPublishProxyAuthHeaders(request.Header, header, accountID)
+	request.Header.Set("Accept", "application/json")
+
+	response, err := s.publishClient().Do(request)
+	if err != nil {
+		return nil, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(response.Body)
+		message := strings.TrimSpace(string(body))
+		if message == "" {
+			message = response.Status
+		}
+		return nil, errors.New(message)
+	}
+	var items []instanceSummary
+	if err := json.NewDecoder(response.Body).Decode(&items); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+func (s *pluginServer) listLightOSAdminClientInstances(ctx context.Context, header http.Header, accountID string) ([]clientInstanceSummary, error) {
+	accountID = strings.TrimSpace(accountID)
+	if accountID == "" {
+		return nil, errors.New("account id is required")
+	}
+	info, err := s.resolveLightOSAdminInfo(ctx)
+	if err != nil {
+		return nil, err
+	}
+	targetURL, err := buildLightOSAdminURL(resolvePublishProxyLightOSAdminBaseURL(info), &url.URL{Path: "/api/client-instances"})
+	if err != nil {
+		return nil, err
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, targetURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	copyPublishProxyRequestHeaders(request.Header, header)
+	setPublishProxyAuthHeaders(request.Header, header, accountID)
+	request.Header.Set("Accept", "application/json")
+
+	response, err := s.publishClient().Do(request)
+	if err != nil {
+		return nil, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(response.Body)
+		message := strings.TrimSpace(string(body))
+		if message == "" {
+			message = response.Status
+		}
+		return nil, errors.New(message)
+	}
+	var items []clientInstanceSummary
+	if err := json.NewDecoder(response.Body).Decode(&items); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+func clientInstanceSummariesToInstances(items []clientInstanceSummary) []instanceSummary {
+	result := make([]instanceSummary, 0, len(items))
+	for _, item := range items {
+		id := strings.TrimSpace(item.ID)
+		if id == "" {
+			continue
+		}
+		name := strings.TrimSpace(item.Name)
+		if name == "" {
+			name = "PC Client"
+		}
+		status := strings.TrimSpace(item.Status)
+		if status == "" {
+			status = "running"
+		}
+		result = append(result, instanceSummary{
+			Selector: "client:" + id,
+			Name:     name,
+			Status:   status,
+		})
+	}
+	return result
+}
+
 func (s *pluginServer) currentDeployUID() string {
 	if s != nil && s.deployUIDResolver != nil {
 		return strings.TrimSpace(s.deployUIDResolver())
 	}
-	return strings.TrimSpace(os.Getenv(lazyCatAppDeployUIDEnv))
+	return currentDeployUIDFromEnv()
 }
 
 func (s *pluginServer) listOwnedInstances(ctx context.Context) ([]instanceSummary, error) {
@@ -680,6 +1062,23 @@ func (s *pluginServer) authorizeInstanceSelector(ctx context.Context, selector s
 	return errInstanceForbidden
 }
 
+func (s *pluginServer) authorizeClientTarget(ctx context.Context, header http.Header, accountID, target string) error {
+	id, err := parseClientTargetID(target)
+	if err != nil {
+		return err
+	}
+	items, err := s.listLightOSAdminClientInstances(ctx, header, accountID)
+	if err != nil {
+		return err
+	}
+	for _, item := range items {
+		if strings.TrimSpace(item.ID) == id {
+			return nil
+		}
+	}
+	return errInstanceForbidden
+}
+
 func (s *pluginServer) authorizeOwnedInstanceSelector(ctx context.Context, selector string) error {
 	selector = strings.TrimSpace(selector)
 	if err := validateInstanceSelector(selector); err != nil {
@@ -732,7 +1131,24 @@ func validateInstanceSelector(value string) error {
 	return nil
 }
 
+func isClientTarget(value string) bool {
+	return strings.HasPrefix(strings.TrimSpace(value), "client:")
+}
+
+func parseClientTargetID(value string) (string, error) {
+	value = strings.TrimSpace(value)
+	id, ok := strings.CutPrefix(value, "client:")
+	id = strings.TrimSpace(id)
+	if !ok || id == "" {
+		return "", errors.New("invalid client target")
+	}
+	return id, nil
+}
+
 func instanceSelector(item instanceSummary) string {
+	if selector := strings.TrimSpace(item.Selector); selector != "" {
+		return selector
+	}
 	name := strings.TrimSpace(item.Name)
 	ownerDeployID := strings.TrimSpace(item.OwnerDeployID)
 	if name == "" || ownerDeployID == "" {
@@ -815,6 +1231,16 @@ func buildLightOSAdminURL(baseURL string, requestURL *url.URL) (string, error) {
 	return target.String(), nil
 }
 
+func resolvePublishProxyLightOSAdminBaseURL(info adminInfo) string {
+	if value := strings.TrimSpace(lightOSConfigValue(lightOSAdminInternalBaseURLEnv)); value != "" {
+		return value
+	}
+	if strings.TrimSpace(os.Getenv(lazyCatAppIDEnv)) == lightOSAdminAppID {
+		return defaultLightOSAdminInternalBaseURL
+	}
+	return info.BaseURL
+}
+
 func joinURLPath(basePath, requestPath string) string {
 	basePath = strings.TrimRight(strings.TrimSpace(basePath), "/")
 	requestPath = "/" + strings.TrimLeft(strings.TrimSpace(requestPath), "/")
@@ -840,6 +1266,39 @@ func copyPublishProxyRequestHeaders(dst, src http.Header) {
 			dst.Add(key, value)
 		}
 	}
+}
+
+func setPublishProxyAuthHeaders(dst, src http.Header, accountID string) {
+	if dst == nil {
+		return
+	}
+	accountID = strings.TrimSpace(accountID)
+	if accountID == "" {
+		return
+	}
+	for _, key := range []string{"X-HC-User-ID", "X-HC-USER-ID", "X-HC-User-Role", "X-HC-Device-ID", "X-HC-Login-Time"} {
+		dst.Del(key)
+	}
+	dst.Set(lightOSUserIDHeader, accountID)
+	for _, key := range []string{"X-HC-User-Role", "X-HC-Device-ID", "X-HC-Login-Time"} {
+		if value := firstHeaderValueAnyCase(src, key); value != "" {
+			dst.Set(key, value)
+		}
+	}
+}
+
+func firstHeaderValueAnyCase(header http.Header, key string) string {
+	for actualKey, values := range header {
+		if !strings.EqualFold(actualKey, key) {
+			continue
+		}
+		for _, value := range values {
+			if trimmed := strings.TrimSpace(value); trimmed != "" {
+				return trimmed
+			}
+		}
+	}
+	return ""
 }
 
 func isPublishProxyRequestHeaderAllowed(key string) bool {

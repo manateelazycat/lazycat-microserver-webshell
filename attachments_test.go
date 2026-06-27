@@ -10,6 +10,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -119,6 +120,48 @@ func buildAttachmentMultipart(t *testing.T, files map[string]string) (*bytes.Buf
 	return &body, writer.FormDataContentType()
 }
 
+func setupClientAttachmentProxyTest(t *testing.T, deviceHandler func(*testing.T, *http.Request) (*http.Response, error)) (*pluginServer, *[]string) {
+	t.Helper()
+	var requestedPaths []string
+	oldHTTPClient := newClientTerminalHTTPClient
+	oldAuthToken := resolveClientDeviceAPIAuthToken
+	t.Cleanup(func() {
+		newClientTerminalHTTPClient = oldHTTPClient
+		resolveClientDeviceAPIAuthToken = oldAuthToken
+	})
+	resolveClientDeviceAPIAuthToken = func(context.Context, string) (string, error) {
+		return "device-auth-token", nil
+	}
+	newClientTerminalHTTPClient = func() *http.Client {
+		return &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+			requestedPaths = append(requestedPaths, request.URL.Path)
+			if request.Header.Get("lzc_dapi_auth_token") != "device-auth-token" {
+				t.Fatalf("device api auth token header = %q", request.Header.Get("lzc_dapi_auth_token"))
+			}
+			return deviceHandler(t, request)
+		})}
+	}
+	server := &pluginServer{
+		adminInfoResolver: func(context.Context) (adminInfo, error) {
+			return adminInfo{BaseURL: "http://lightos-admin.local"}, nil
+		},
+		publishHTTPClient: &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+			requestedPaths = append(requestedPaths, request.URL.Path)
+			body := `[{"id":"client-a","name":"Alice PC","platform":"darwin","status":"running","owner_user_id":"alice"}]`
+			if request.URL.Path == "/api/client-instances/terminal-ticket" {
+				body = `{"client_instance_id":"client-a","device_api_url":"https://device.example.com","terminal_service_name":"cloud.lazycat.lightos.client-terminal.client-a","ticket":"ticket","expires_at":"2026-06-11T08:01:00Z"}`
+			}
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     make(http.Header),
+				Body:       io.NopCloser(strings.NewReader(body)),
+				Request:    request,
+			}, nil
+		})},
+	}
+	return server, &requestedPaths
+}
+
 func TestHandleAttachmentsUploadsMultipleFiles(t *testing.T) {
 	backend := &stubAttachmentBackend{}
 	server := newAttachmentTestServer(backend)
@@ -152,6 +195,57 @@ func TestHandleAttachmentsUploadsMultipleFiles(t *testing.T) {
 		}
 		if call.username != "alice" {
 			t.Fatalf("backend username = %q, want alice", call.username)
+		}
+	}
+}
+
+func TestHandleAttachmentsClientTargetProxiesUpload(t *testing.T) {
+	server, requestedPaths := setupClientAttachmentProxyTest(t, func(t *testing.T, request *http.Request) (*http.Response, error) {
+		t.Helper()
+		if request.Method != http.MethodPost {
+			t.Fatalf("client attachment upload method = %s, want POST", request.Method)
+		}
+		if request.URL.Path != "/s/cloud.lazycat.lightos.client-terminal.client-a/attachments" {
+			t.Fatalf("client attachment upload path = %s", request.URL.Path)
+		}
+		if ticket := request.URL.Query().Get("ticket"); ticket != "ticket" {
+			t.Fatalf("client attachment ticket = %q, want ticket", ticket)
+		}
+		payload, err := io.ReadAll(request.Body)
+		if err != nil {
+			t.Fatalf("read client upload body error = %v", err)
+		}
+		if !containsAll(string(payload), `name="file"`, `filename="note.txt"`, "hello") {
+			t.Fatalf("client upload payload missing multipart file: %q", string(payload))
+		}
+		return &http.Response{
+			StatusCode: http.StatusCreated,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader(`{"files":[{"name":"note.txt","path":"/note.txt","size":5}]}`)),
+			Request:    request,
+		}, nil
+	})
+	body, contentType := buildAttachmentMultipart(t, map[string]string{"note.txt": "hello"})
+	request := httptest.NewRequest(http.MethodPost, "/api/attachments?name=client:client-a", body)
+	request.Header.Set("Content-Type", contentType)
+	request.Header.Set(lightOSUserIDHeader, "alice")
+	recorder := httptest.NewRecorder()
+
+	server.handleAttachments(recorder, request)
+
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("handleAttachments status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	var response attachmentUploadResponse
+	if err := json.NewDecoder(recorder.Body).Decode(&response); err != nil {
+		t.Fatalf("decode response error = %v", err)
+	}
+	if len(response.Files) != 1 || response.Files[0].Path != "/note.txt" {
+		t.Fatalf("response = %+v, want proxied upload result", response)
+	}
+	for _, want := range []string{"/api/client-instances", "/api/client-instances/terminal-ticket", "/s/cloud.lazycat.lightos.client-terminal.client-a/attachments"} {
+		if !slices.Contains(*requestedPaths, want) {
+			t.Fatalf("requested paths = %v, missing %q", *requestedPaths, want)
 		}
 	}
 }
@@ -290,7 +384,7 @@ func TestHandleAttachmentFilesListsFiles(t *testing.T) {
 			Path:   "/home/alice",
 			Parent: "/home",
 			Entries: []attachmentFileEntry{
-				{Name: "note.txt", Path: "/home/alice/note.txt", Type: "file", Size: 4},
+				{Name: "note.txt", Path: "/home/alice/note.txt", Type: "file", Size: 4, Modified: 1720000000},
 			},
 		},
 	}
@@ -310,6 +404,51 @@ func TestHandleAttachmentFilesListsFiles(t *testing.T) {
 	}
 	if response.Path != "/home/alice" || len(response.Entries) != 1 || response.Entries[0].Name != "note.txt" {
 		t.Fatalf("response = %+v, want listed file", response)
+	}
+	if response.Entries[0].Type != "file" || response.Entries[0].Size != 4 || response.Entries[0].Modified != 1720000000 {
+		t.Fatalf("response entry metadata = %+v, want type, size and modified", response.Entries[0])
+	}
+}
+
+func TestHandleAttachmentFilesClientTargetProxiesList(t *testing.T) {
+	server, requestedPaths := setupClientAttachmentProxyTest(t, func(t *testing.T, request *http.Request) (*http.Response, error) {
+		t.Helper()
+		if request.Method != http.MethodGet {
+			t.Fatalf("client attachment list method = %s, want GET", request.Method)
+		}
+		if request.URL.Path != "/s/cloud.lazycat.lightos.client-terminal.client-a/attachments/files" {
+			t.Fatalf("client attachment list path = %s", request.URL.Path)
+		}
+		if got := request.URL.Query().Get("path"); got != "/Documents" {
+			t.Fatalf("client attachment list query path = %q, want /Documents", got)
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader(`{"path":"/Documents","parent":"/","entries":[{"name":"note.txt","path":"/Documents/note.txt","type":"file","size":5,"modified":1}]}`)),
+			Request:    request,
+		}, nil
+	})
+	request := httptest.NewRequest(http.MethodGet, "/api/attachments/files?name=client:client-a&path=/Documents", nil)
+	request.Header.Set(lightOSUserIDHeader, "alice")
+	recorder := httptest.NewRecorder()
+
+	server.handleAttachmentFiles(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("handleAttachmentFiles status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	var response attachmentFileListResponse
+	if err := json.NewDecoder(recorder.Body).Decode(&response); err != nil {
+		t.Fatalf("decode response error = %v", err)
+	}
+	if response.Path != "/Documents" || len(response.Entries) != 1 || response.Entries[0].Path != "/Documents/note.txt" {
+		t.Fatalf("response = %+v, want proxied list response", response)
+	}
+	for _, want := range []string{"/api/client-instances", "/api/client-instances/terminal-ticket", "/s/cloud.lazycat.lightos.client-terminal.client-a/attachments/files"} {
+		if !slices.Contains(*requestedPaths, want) {
+			t.Fatalf("requested paths = %v, missing %q", *requestedPaths, want)
+		}
 	}
 }
 
@@ -336,6 +475,60 @@ func TestHandleAttachmentDownloadSingleFile(t *testing.T) {
 	}
 	if disposition := recorder.Header().Get("Content-Disposition"); !strings.Contains(disposition, "note.txt") {
 		t.Fatalf("Content-Disposition = %q, want filename", disposition)
+	}
+}
+
+func TestHandleAttachmentDownloadClientTargetProxiesSingleFile(t *testing.T) {
+	server, requestedPaths := setupClientAttachmentProxyTest(t, func(t *testing.T, request *http.Request) (*http.Response, error) {
+		t.Helper()
+		switch request.URL.Path {
+		case "/s/cloud.lazycat.lightos.client-terminal.client-a/attachments/stat":
+			if request.Method != http.MethodGet {
+				t.Fatalf("client attachment stat method = %s, want GET", request.Method)
+			}
+			if got := request.URL.Query()["path"]; len(got) != 1 || got[0] != "/Documents/note.txt" {
+				t.Fatalf("client attachment stat query path = %v, want /Documents/note.txt", got)
+			}
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     make(http.Header),
+				Body:       io.NopCloser(strings.NewReader(`[{"name":"note.txt","path":"/Documents/note.txt","type":"file","size":5,"modified":1}]`)),
+				Request:    request,
+			}, nil
+		case "/s/cloud.lazycat.lightos.client-terminal.client-a/attachments/open":
+			if request.Method != http.MethodGet {
+				t.Fatalf("client attachment open method = %s, want GET", request.Method)
+			}
+			if got := request.URL.Query().Get("path"); got != "/Documents/note.txt" {
+				t.Fatalf("client attachment open query path = %q, want /Documents/note.txt", got)
+			}
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     make(http.Header),
+				Body:       io.NopCloser(strings.NewReader("hello")),
+				Request:    request,
+			}, nil
+		default:
+			t.Fatalf("unexpected client attachment path = %s", request.URL.Path)
+			return nil, nil
+		}
+	})
+	request := httptest.NewRequest(http.MethodGet, "/api/attachments/download?name=client:client-a&path=/Documents/note.txt", nil)
+	request.Header.Set(lightOSUserIDHeader, "alice")
+	recorder := httptest.NewRecorder()
+
+	server.handleAttachmentDownload(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("handleAttachmentDownload status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	if got := recorder.Body.String(); got != "hello" {
+		t.Fatalf("download body = %q, want hello", got)
+	}
+	for _, want := range []string{"/api/client-instances", "/api/client-instances/terminal-ticket", "/s/cloud.lazycat.lightos.client-terminal.client-a/attachments/stat", "/s/cloud.lazycat.lightos.client-terminal.client-a/attachments/open"} {
+		if !slices.Contains(*requestedPaths, want) {
+			t.Fatalf("requested paths = %v, missing %q", *requestedPaths, want)
+		}
 	}
 }
 

@@ -31,6 +31,7 @@ const (
 	agentLogPath            = "/tmp/lcmd-webshell-agent.log"
 	agentReadyMarker        = "__LCMD_WEBSHELL_AGENT_READY__"
 	agentInstallCachePrefix = agentProtocolVersion + "\t"
+	commandOutputSnippetMax = 1024
 	websocketReadTimeout    = 30 * time.Second
 	websocketWriteTimeout   = 5 * time.Second
 )
@@ -130,6 +131,18 @@ func (t *persistentAgentStartupTrace) addCommandResult(stage string, output []by
 		return
 	}
 	t.add("%s succeeded: output=%s", stage, text)
+}
+
+func commandOutputSnippet(output []byte) string {
+	text := strings.TrimSpace(string(output))
+	if text == "" {
+		return "<empty>"
+	}
+	runes := []rune(text)
+	if len(runes) <= commandOutputSnippetMax {
+		return text
+	}
+	return string(runes[:commandOutputSnippetMax]) + "..."
 }
 
 func (t *persistentAgentStartupTrace) String() string {
@@ -324,7 +337,7 @@ func runPersistentAgentRequest(ctx context.Context, scope agentScope, request ag
 	}
 	var response agentResponse
 	if err := json.Unmarshal(bytes.TrimSpace(output), &response); err != nil {
-		return agentResponse{}, err
+		return agentResponse{}, fmt.Errorf("invalid agent response: %w: output=%s", err, commandOutputSnippet(output))
 	}
 	if !response.OK {
 		if response.Error == "" {
@@ -464,12 +477,11 @@ func ensureAgentBinaryInstalled(ctx context.Context, scope agentScope, trace *pe
 	trace.add("agent archive ready: manifest=%s payload_bytes=%d", manifest, len(payload))
 	cacheKey := scope.cacheKey()
 	persistentAgentCache.Lock()
-	if persistentAgentCache.installed[cacheKey] == manifest {
-		persistentAgentCache.Unlock()
-		trace.add("install cache hit")
-		return manifest, nil
-	}
+	cacheHit := persistentAgentCache.installed[cacheKey] == manifest
 	persistentAgentCache.Unlock()
+	if cacheHit {
+		trace.add("install cache hit, verifying installed binary")
+	}
 
 	checkCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
@@ -489,6 +501,9 @@ func ensureAgentBinaryInstalled(ctx context.Context, scope agentScope, trace *pe
 		persistentAgentCache.Unlock()
 		trace.add("installed binary already matches manifest")
 		return manifest, nil
+	}
+	if cacheHit {
+		trace.add("install cache stale, reinstalling")
 	}
 
 	installCtx, installCancel := context.WithTimeout(ctx, 30*time.Second)
@@ -602,6 +617,10 @@ agent=%s
 socket=%s
 log=%s
 legacy_socket=%s
+if [ ! -x "$agent" ]; then
+  printf 'agent executable is missing: %%s\n' "$agent" >&2
+  exit 127
+fi
 rm -f "$socket"
 if [ "$legacy_socket" != "$socket" ]; then
   rm -f "$legacy_socket" 2>/dev/null || true
@@ -669,6 +688,19 @@ func (s *pluginServer) handleAgentStartupError(w http.ResponseWriter, r *http.Re
 		http.Error(w, "account id is required", http.StatusUnauthorized)
 		return
 	}
+	if isClientTarget(selector) {
+		if err := s.authorizeClientTarget(r.Context(), r.Header, accountID, selector); err != nil {
+			writeClientTerminalError(w, err)
+			return
+		}
+		cols, rows := parseTerminalSize(r.URL.Query().Get("cols"), r.URL.Query().Get("rows"))
+		if _, err := s.clientWorkspaceActivity(r.Context(), r.Header, selector, cols, rows); err != nil {
+			writeJSON(w, agentStartupErrorResponse{Error: err.Error()})
+			return
+		}
+		writeJSON(w, agentStartupErrorResponse{})
+		return
+	}
 	if err := s.authorizeInstanceSelector(r.Context(), selector); err != nil {
 		writeAuthorizationError(w, err)
 		return
@@ -680,40 +712,9 @@ func (s *pluginServer) handleAgentStartupError(w http.ResponseWriter, r *http.Re
 
 func (s *pluginServer) attachAgentPane(w http.ResponseWriter, r *http.Request, scope agentScope, paneID string, cols, rows, terminalScrollback int) error {
 	scope = normalizeAgentScope(scope.Selector, scope.AccountID)
-	if _, err := ensurePersistentAgent(r.Context(), scope); err != nil {
-		if !websocket.IsWebSocketUpgrade(r) {
-			http.Error(w, err.Error(), http.StatusBadGateway)
-			return nil
-		}
-		conn, upgradeErr := upgrader.Upgrade(w, r, nil)
-		if upgradeErr != nil {
-			return upgradeErr
-		}
-		defer conn.Close()
-		_ = conn.WriteMessage(websocket.TextMessage, []byte("\r\n[webshell error]\r\n"+err.Error()+"\r\n"))
+	if !websocket.IsWebSocketUpgrade(r) {
+		http.Error(w, "websocket upgrade is required", http.StatusBadRequest)
 		return nil
-	}
-	if err := pingPersistentAgentError(r.Context(), scope); err != nil {
-		log.Printf("persistent webshell agent ping before attach failed: scope=%s account=%s err=%v", scope.Selector, scope.AccountID, err)
-		rememberIncompatiblePersistentAgentNotice(scope, err)
-		markPersistentAgentNotRunning(scope)
-		if _, ensureErr := ensurePersistentAgent(r.Context(), scope); ensureErr != nil {
-			if !websocket.IsWebSocketUpgrade(r) {
-				http.Error(w, ensureErr.Error(), http.StatusBadGateway)
-				return nil
-			}
-			conn, upgradeErr := upgrader.Upgrade(w, r, nil)
-			if upgradeErr != nil {
-				return upgradeErr
-			}
-			defer conn.Close()
-			_ = writeWebSocketJSON(conn, map[string]any{"type": "process-exit", "message": ensureErr.Error(), "exit_code": -1, "retryable": true})
-			return nil
-		}
-	}
-	clientID := strings.TrimSpace(r.URL.Query().Get("client_id"))
-	if clientID == "" {
-		clientID = strings.TrimSpace(r.URL.Query().Get("client"))
 	}
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -722,7 +723,27 @@ func (s *pluginServer) attachAgentPane(w http.ResponseWriter, r *http.Request, s
 	defer conn.Close()
 	conn.EnableWriteCompression(false)
 	conn.SetReadLimit(websocketReadLimit)
-	_ = conn.SetReadDeadline(time.Now().Add(websocketReadTimeout))
+
+	var writeMu sync.Mutex
+	_ = writeWebSocketJSONLocked(conn, &writeMu, map[string]any{"type": "agent-preparing"})
+
+	if _, err := ensurePersistentAgent(r.Context(), scope); err != nil {
+		_ = writeWebSocketMessageLocked(conn, &writeMu, websocket.TextMessage, []byte("\r\n[webshell error]\r\n"+err.Error()+"\r\n"))
+		return nil
+	}
+	if err := pingPersistentAgentError(r.Context(), scope); err != nil {
+		log.Printf("persistent webshell agent ping before attach failed: scope=%s account=%s err=%v", scope.Selector, scope.AccountID, err)
+		rememberIncompatiblePersistentAgentNotice(scope, err)
+		markPersistentAgentNotRunning(scope)
+		if _, ensureErr := ensurePersistentAgent(r.Context(), scope); ensureErr != nil {
+			_ = writeWebSocketJSONLocked(conn, &writeMu, map[string]any{"type": "process-exit", "message": ensureErr.Error(), "exit_code": -1, "retryable": true})
+			return nil
+		}
+	}
+	clientID := strings.TrimSpace(r.URL.Query().Get("client_id"))
+	if clientID == "" {
+		clientID = strings.TrimSpace(r.URL.Query().Get("client"))
+	}
 
 	attachCtx, cancelAttach := context.WithCancel(context.Background())
 	defer cancelAttach()
@@ -752,18 +773,18 @@ func (s *pluginServer) attachAgentPane(w http.ResponseWriter, r *http.Request, s
 	)
 	stdout, err := command.StdoutPipe()
 	if err != nil {
-		_ = writeWebSocketJSON(conn, map[string]any{"type": "process-exit", "message": err.Error(), "exit_code": -1})
+		_ = writeWebSocketJSONLocked(conn, &writeMu, map[string]any{"type": "process-exit", "message": err.Error(), "exit_code": -1})
 		return nil
 	}
 	stdin, err := command.StdinPipe()
 	if err != nil {
-		_ = writeWebSocketJSON(conn, map[string]any{"type": "process-exit", "message": err.Error(), "exit_code": -1})
+		_ = writeWebSocketJSONLocked(conn, &writeMu, map[string]any{"type": "process-exit", "message": err.Error(), "exit_code": -1})
 		return nil
 	}
 	var stderr bytes.Buffer
 	command.Stderr = &stderr
 	if err := command.Start(); err != nil {
-		_ = writeWebSocketJSON(conn, map[string]any{"type": "process-exit", "message": err.Error(), "exit_code": -1})
+		_ = writeWebSocketJSONLocked(conn, &writeMu, map[string]any{"type": "process-exit", "message": err.Error(), "exit_code": -1})
 		return nil
 	}
 	waitDone := make(chan error, 1)
@@ -788,7 +809,6 @@ func (s *pluginServer) attachAgentPane(w http.ResponseWriter, r *http.Request, s
 		}
 	}()
 
-	var writeMu sync.Mutex
 	writerDone := make(chan struct{})
 	go func() {
 		defer close(writerDone)
@@ -823,6 +843,7 @@ func (s *pluginServer) attachAgentPane(w http.ResponseWriter, r *http.Request, s
 		}
 	}()
 
+	_ = conn.SetReadDeadline(time.Now().Add(websocketReadTimeout))
 	localInputBlocked := false
 	for {
 		messageType, payload, err := conn.ReadMessage()

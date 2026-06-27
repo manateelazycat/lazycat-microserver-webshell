@@ -1,4 +1,5 @@
 import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
+import { createPerformanceTaskMonitor } from "./performance_tasks.js";
 
 const params = new URLSearchParams(window.location.search);
 const isEmbedMode = params.has("embed");
@@ -20,6 +21,8 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   const emptyStateAction = document.getElementById("emptyStateAction");
   const performanceMeterFps = document.getElementById("performanceMeterFps");
   const performanceMeterRefresh = document.getElementById("performanceMeterRefresh");
+  const performanceTaskMeter = document.getElementById("performanceTaskMeter");
+  const performanceTaskMeterList = document.getElementById("performanceTaskMeterList");
   const startupErrorPanel = document.getElementById("startupErrorPanel");
   const startupErrorText = document.getElementById("startupErrorText");
   const instanceSwitcher = document.getElementById("instanceSwitcher");
@@ -51,7 +54,11 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   const settingsLineHeightResetButton = document.getElementById("settingsLineHeightResetButton");
   const settingsScrollbackInput = document.getElementById("settingsScrollbackInput");
   const settingsScrollbackResetButton = document.getElementById("settingsScrollbackResetButton");
+  const settingsDebugModeToggle = document.getElementById("settingsDebugModeToggle");
+  const settingsDebugOptions = document.getElementById("settingsDebugOptions");
+  const settingsOnlineDevicesButton = document.getElementById("settingsOnlineDevicesButton");
   const settingsPerformanceMeterToggle = document.getElementById("settingsPerformanceMeterToggle");
+  const settingsPerformanceTasksToggle = document.getElementById("settingsPerformanceTasksToggle");
   const settingsDesktopMouseClipboardToggle = document.getElementById("settingsDesktopMouseClipboardToggle");
   const settingsMobilePixelScrollToggle = document.getElementById("settingsMobilePixelScrollToggle");
   const settingsMobileDoubleTapReminderToggle = document.getElementById("settingsMobileDoubleTapReminderToggle");
@@ -120,6 +127,11 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   const settingsFeedback = document.getElementById("settingsFeedback");
   const settingsTabs = Array.from(document.querySelectorAll("[data-settings-tab]"));
   const settingsTabPanels = Array.from(document.querySelectorAll("[data-settings-panel]"));
+  const deviceBackdrop = document.getElementById("deviceBackdrop");
+  const deviceBack = document.getElementById("deviceBack");
+  const deviceClose = document.getElementById("deviceClose");
+  const deviceList = document.getElementById("deviceList");
+  const deviceFeedback = document.getElementById("deviceFeedback");
   const searchPanel = document.getElementById("searchPanel");
   const searchInput = document.getElementById("searchInput");
   const searchCount = document.getElementById("searchCount");
@@ -137,6 +149,8 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   const attachmentBrowserClose = document.getElementById("attachmentBrowserClose");
   const attachmentBrowserPath = document.getElementById("attachmentBrowserPath");
   const attachmentBrowserBreadcrumbs = document.getElementById("attachmentBrowserBreadcrumbs");
+  const attachmentBrowserSortbar = document.getElementById("attachmentBrowserSortbar");
+  const attachmentBrowserSortButtons = Array.from(document.querySelectorAll("[data-attachment-sort-key]"));
   const attachmentBrowserFeedback = document.getElementById("attachmentBrowserFeedback");
   const attachmentBrowserList = document.getElementById("attachmentBrowserList");
   const attachmentBrowserCancel = document.getElementById("attachmentBrowserCancel");
@@ -182,7 +196,9 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   const recentTabsStorageKey = (name) => `${storagePrefix}.recentTabs.${name || "default"}`;
   const restartTabStorageKey = `${storagePrefix}.restartTab`;
   const touchShortcutFeedbackStorageKey = `${storagePrefix}.touchShortcutFeedback`;
+  const debugModeStorageKey = `${storagePrefix}.debugMode`;
   const performanceMeterStorageKey = `${storagePrefix}.performanceMeter`;
+  const performanceTasksStorageKey = `${storagePrefix}.performanceTasks`;
   const defaultFontSize = 16;
   const minFontSize = 10;
   const maxFontSize = 32;
@@ -203,6 +219,9 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   const mobileKeyboardFocusAllowWindowMs = 600;
   const mobileKeyboardFocusPrompt = "双击屏幕开启键盘输入";
   const mobileKeyboardInsetThresholdPx = 80;
+  const mobileKeyboardDockMoveSettleMs = 260;
+  const mobileKeyboardResizeSettleMs = mobileKeyboardDockMoveSettleMs + 140;
+  const mobileKeyboardDismissRecoveryDelays = [0, 80, 180, 360, 720, 1200];
   const mobileOrientationViewportRecoveryDelays = [0, 80, 180, 360, 720];
   const mobileOrientationHistoryReplayDelayMs = 900;
   const desktopSelectionCopyMoveThresholdPx = 4;
@@ -210,6 +229,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   const terminalInputChunkChars = 16 * 1024;
   const terminalInputFlushDelayMs = 8;
   const terminalInteractiveInputImmediateMaxBytes = 256;
+  const terminalCursorBlinkHoldMs = 700;
   const terminalInputPumpChunkBudget = 4;
   const terminalInputBackpressureBytes = 512 * 1024;
   const terminalInputBackpressureDelayMs = 16;
@@ -217,17 +237,38 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   const maxPendingInputBytes = 8 * 1024 * 1024;
   const maxQueuedInputBytes = 16 * 1024 * 1024;
   const terminalWebSocketPingIntervalMs = 10 * 1000;
+  const deviceHeartbeatIntervalMs = 1500;
+  const deviceListRefreshIntervalMs = 500;
   const terminalWebSocketHealthTimeoutMs = 25 * 1000;
   const terminalResumeProbeTimeoutMs = 1500;
   const terminalUserRecoveryThrottleMs = 1500;
   const terminalAttachReadyTimeoutMs = 8 * 1000;
+  const terminalAgentPrepareTimeoutMs = 45 * 1000;
   const terminalReconnectBaseDelayMs = 500;
   const terminalReconnectMaxDelayMs = 10 * 1000;
   const terminalReconnectJitterRatio = 0.2;
   const terminalOutputFlushFallbackMs = 32;
+  const terminalOutputFlushBudgetBytes = 128 * 1024;
   const performanceMeterSampleMs = 500;
   const performanceMeterWarmupFrames = 12;
+  const performanceTaskPanelLimit = 10;
+  const performanceTaskAlertThresholds = {
+    count: 120,
+    avgMs: 16,
+    maxMs: 50,
+    totalMs: 200,
+  };
+  const performanceTaskAlertThresholdsByName = {
+    "device heartbeat": {
+      count: 10,
+      avgMs: 250,
+      maxMs: 1000,
+      totalMs: 2000,
+    },
+  };
+  const deviceHeartbeatTimeoutMs = 5000;
   const terminalPixelScrollOffsetEpsilon = 0.001;
+  const terminalMouseLegacyCoordinateLimit = 95;
   const maxQueuedTerminalOutputBytes = 4 * 1024 * 1024;
   const activityPollIntervalMs = 4000;
   const maxAttachmentUploadBytes = 2 * 1024 * 1024 * 1024;
@@ -411,7 +452,8 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     },
   ];
 
-  let activeName = (params.get("name") || "").trim();
+  const readTargetNameParam = (sourceParams) => (sourceParams.get("target") || sourceParams.get("name") || "").trim();
+  let activeName = readTargetNameParam(params);
   let activeTabId = null;
   let inlineTabRenameState = null;
   let recentTabIds = [];
@@ -429,7 +471,9 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   let desktopMouseClipboardEnabled = true;
   let mobilePixelScrollEnabled = true;
   let mobileDoubleTapReminderEnabled = true;
+  let debugModeEnabled = window.localStorage.getItem(debugModeStorageKey) === "true";
   let performanceMeterEnabled = window.localStorage.getItem(performanceMeterStorageKey) === "true";
+  let performanceTasksEnabled = window.localStorage.getItem(performanceTasksStorageKey) === "true";
   let fontEditMode = false;
   const selectedFontDeleteIDs = new Set();
   const registeredFontFaces = new Map();
@@ -440,17 +484,20 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   let currentServerRevision = "";
   let serverRevisionReloadPrompted = false;
   let serverRevisionRefreshTimer = 0;
+  let deviceHeartbeatTimer = 0;
+  let deviceHeartbeatInFlight = null;
+  let deviceListRefreshTimer = 0;
+  let deviceListRequestSeq = 0;
+  let deviceListLoading = false;
+  let deviceListLoaded = false;
+  let deviceListSignature = "";
   let suppressLocationUpdate = false;
   let suppressBeforeUnloadOnce = false;
   let suppressBeforeUnloadResetTimer = 0;
   let tabOverviewRenderFrame = 0;
   let tabOverviewDragState = null;
   let tabOverviewSuppressClickUntil = 0;
-  let lightOSAdminInfo = null;
-  let lightOSAdminInfoPromise = null;
-  let lightOSAdminBaseURL = "";
   let lightOSHomeURL = "";
-  let lightOSHomeURLPromise = null;
   let mobileActionSheetIgnoreClicksUntil = 0;
   let mobileCloseConfirmResolve = null;
   let mobileCustomSelectState = null;
@@ -462,6 +509,11 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   let mobileViewportReferenceHeight = mobileViewportHeight;
   let mobileKeyboardInsetBottom = 0;
   let mobileClientBottomSafeOffset = 0;
+  let mobileKeyboardViewportActive = false;
+  let mobileKeyboardResizeSuppressedUntil = 0;
+  let mobileKeyboardResizeReleaseTimer = 0;
+  let mobileKeyboardDockMoveTimer = 0;
+  let mobileKeyboardDismissRecoverySeq = 0;
   let themePickerEdgeSwipe = null;
   let mobileOverviewEdgeSwipe = null;
   let resolvedThemeCardWidth = themeCardWidth;
@@ -486,6 +538,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   let mobileShortcutsPersistChain = Promise.resolve();
   let mobileShortcutEditorState = null;
   let mobileShortcutDragState = null;
+  let performanceMeterFrame = 0;
   let desktopShortcutsSaveRequestSeq = 0;
   let desktopShortcutsSaveVersion = 0;
   let desktopShortcutsPersistChain = Promise.resolve();
@@ -500,6 +553,9 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   let attachmentBrowserParentPath = "";
   let attachmentBrowserBreadcrumbPath = "";
   let attachmentBrowserRequestSeq = 0;
+  const attachmentBrowserDefaultSort = Object.freeze({ key: "name", direction: "asc" });
+  let attachmentBrowserSort = { ...attachmentBrowserDefaultSort };
+  let attachmentBrowserEntries = [];
   const attachmentBrowserSelectedPaths = new Set();
   const attachmentBrowserEntriesByPath = new Map();
   let attachmentUploads = new Map();
@@ -509,7 +565,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   const mobileSticky = { ctrl: false, alt: false, shift: false };
   let touchShortcutFeedbackEnabled = loadTouchShortcutFeedbackEnabled();
   const textEncoder = new TextEncoder();
-  const serverRevisionClientID = globalThis.crypto?.randomUUID?.() || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  const serverRevisionClientID = loadStableClientID();
   let terminalUserRecoveryLastAt = 0;
   const themePickerSwipeEdgeWidth = 24;
   const themePickerSwipeAxisThreshold = 12;
@@ -638,20 +694,122 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   };
   const terminalOptions = (overrides = {}) => ({ ...terminalOptionsBase, fontSize: terminalFontSize, theme: cloneTheme(activeTheme), ...overrides });
 
+  const formatPerformanceTaskMs = (value) => {
+    const ms = Number(value);
+    if (!Number.isFinite(ms)) {
+      return "--";
+    }
+    if (ms >= 100) {
+      return `${Math.round(ms)}ms`;
+    }
+    if (ms >= 10) {
+      return `${ms.toFixed(1)}ms`;
+    }
+    return `${ms.toFixed(2)}ms`;
+  };
+
+  const appendPerformanceTaskCell = (row, text, className = "performance-task-value", isAlert = false) => {
+    const cell = document.createElement("span");
+    cell.className = className;
+    if (isAlert) {
+      cell.classList.add("is-alert");
+    }
+    cell.textContent = text;
+    row.appendChild(cell);
+    return cell;
+  };
+
+  const getPerformanceTaskAlertThresholds = (name) => performanceTaskAlertThresholdsByName[name] || performanceTaskAlertThresholds;
+
+  const isPerformanceTaskValueAlert = (name, field, value) => {
+    const thresholds = getPerformanceTaskAlertThresholds(name);
+    const limit = thresholds?.[field];
+    return Number.isFinite(limit) && Number(value) >= limit;
+  };
+
+  const renderPerformanceTaskMeter = () => {
+    if (!performanceTaskMeterList) {
+      return;
+    }
+    performanceTaskMeterList.textContent = "";
+    const rows = performanceTaskMonitor.snapshot({ limit: performanceTaskPanelLimit });
+    if (rows.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "performance-task-empty";
+      empty.textContent = "暂无采样";
+      performanceTaskMeterList.appendChild(empty);
+      return;
+    }
+
+    const header = document.createElement("div");
+    header.className = "performance-task-row header";
+    appendPerformanceTaskCell(header, "任务", "performance-task-name");
+    appendPerformanceTaskCell(header, "次数");
+    appendPerformanceTaskCell(header, "平均");
+    appendPerformanceTaskCell(header, "最大");
+    appendPerformanceTaskCell(header, "总计");
+    performanceTaskMeterList.appendChild(header);
+
+    for (const item of rows) {
+      const row = document.createElement("div");
+      row.className = "performance-task-row";
+      appendPerformanceTaskCell(row, item.name, "performance-task-name");
+      appendPerformanceTaskCell(
+        row,
+        String(item.count),
+        "performance-task-value",
+        isPerformanceTaskValueAlert(item.name, "count", item.count),
+      );
+      appendPerformanceTaskCell(
+        row,
+        formatPerformanceTaskMs(item.avg),
+        "performance-task-value",
+        isPerformanceTaskValueAlert(item.name, "avgMs", item.avg),
+      );
+      appendPerformanceTaskCell(
+        row,
+        formatPerformanceTaskMs(item.max),
+        "performance-task-value",
+        isPerformanceTaskValueAlert(item.name, "maxMs", item.max),
+      );
+      appendPerformanceTaskCell(
+        row,
+        formatPerformanceTaskMs(item.total),
+        "performance-task-value",
+        isPerformanceTaskValueAlert(item.name, "totalMs", item.total),
+      );
+      performanceTaskMeterList.appendChild(row);
+    }
+  };
+
+  const performanceTaskMonitor = createPerformanceTaskMonitor({
+    onChange: () => renderPerformanceTaskMeter(),
+  });
+
+  const performanceTaskNow = () => (
+    window.performance && typeof window.performance.now === "function"
+      ? window.performance.now()
+      : Date.now()
+  );
+  const recordPerformanceTask = (name, ms) => performanceTaskMonitor.record(name, ms);
+  const measurePerformanceTask = (name, fn) => performanceTaskMonitor.measure(name, fn);
+
   const startPerformanceMeter = () => {
     if (!performanceMeterFps || !performanceMeterRefresh) {
       return;
     }
-    applyPerformanceMeterVisibility();
+    if (!performanceMeterEnabled || performanceMeterFrame) {
+      return;
+    }
     let frameCount = 0;
     let sampleFrames = 0;
     let sampleStart = 0;
     let lastTime = 0;
-    let rafID = 0;
     const frameIntervals = [];
     const maxIntervals = 90;
     const update = (time) => {
-      if (disposed) {
+      if (disposed || !performanceMeterEnabled) {
+        performanceMeterFrame = 0;
         return;
       }
       frameCount += 1;
@@ -668,7 +826,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       if (frameCount <= performanceMeterWarmupFrames) {
         sampleStart = time;
         sampleFrames = 0;
-        rafID = window.requestAnimationFrame(update);
+        performanceMeterFrame = window.requestAnimationFrame(update);
         return;
       }
       if (!sampleStart) {
@@ -686,10 +844,22 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
         sampleStart = time;
         sampleFrames = 0;
       }
-      rafID = window.requestAnimationFrame(update);
+      performanceMeterFrame = window.requestAnimationFrame(update);
     };
-    rafID = window.requestAnimationFrame(update);
-    window.addEventListener("beforeunload", () => window.cancelAnimationFrame(rafID), { once: true });
+    performanceMeterFrame = window.requestAnimationFrame(update);
+    window.addEventListener("beforeunload", () => {
+      if (performanceMeterFrame) {
+        window.cancelAnimationFrame(performanceMeterFrame);
+        performanceMeterFrame = 0;
+      }
+    }, { once: true });
+  };
+
+  const stopPerformanceMeter = () => {
+    if (performanceMeterFrame) {
+      window.cancelAnimationFrame(performanceMeterFrame);
+      performanceMeterFrame = 0;
+    }
   };
 
   const selectStoredTheme = () => {
@@ -720,6 +890,21 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     const text = await response.text().catch(() => "");
     return text.trim() || fallback;
   };
+
+  function loadStableClientID() {
+    const key = `${storagePrefix}.clientID`;
+    try {
+      const stored = String(window.localStorage.getItem(key) || "").trim();
+      if (stored) {
+        return stored;
+      }
+      const next = globalThis.crypto?.randomUUID?.() || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+      window.localStorage.setItem(key, next);
+      return next;
+    } catch (error) {
+      return globalThis.crypto?.randomUUID?.() || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+    }
+  }
 
   function cloneMobileShortcutRows(rows) {
     return [0, 1].map((rowIndex) => Array.isArray(rows?.[rowIndex])
@@ -869,6 +1054,8 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     renderSettingsDesktopShortcuts();
   };
 
+  const fontFileURLPath = (id) => `api/settings/fonts/${encodeURIComponent(id)}/file`;
+
   const normalizeUploadedFont = (font) => {
     const id = String(font?.id || "").trim();
     const family = String(font?.family || "").trim();
@@ -883,7 +1070,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       mime: String(font?.mime || "").trim(),
       size: Number(font?.size || 0),
       uploadedAt: String(font?.uploaded_at || "").trim(),
-      url: String(font?.url || `/api/settings/fonts/${id}/file`).trim(),
+      url: String(font?.url || fontFileURLPath(id)).trim(),
       sourceName: String(font?.source_name || "").trim(),
       builtin: font?.builtin === true,
     };
@@ -900,7 +1087,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     };
   };
 
-  const fontFileSource = (font) => new URL(font.url || `/api/settings/fonts/${font.id}/file`, window.location.href).toString();
+  const fontFileSource = (font) => new URL(font.url || fontFileURLPath(font.id), window.location.href).toString();
 
   const cssString = (value) => `"${String(value || "").replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
 
@@ -982,9 +1169,33 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   };
 
   const applyPerformanceMeterVisibility = () => {
-    const meter = performanceMeterFps?.closest?.(".performance-meter");
+    const meter = performanceMeterFps?.closest?.(".fps-meter");
     if (meter) {
       meter.hidden = !performanceMeterEnabled;
+    }
+    if (performanceMeterEnabled) {
+      startPerformanceMeter();
+    } else {
+      stopPerformanceMeter();
+    }
+  };
+
+  const applyPerformanceTaskMeterVisibility = () => {
+    if (performanceTaskMeter) {
+      performanceTaskMeter.hidden = !performanceTasksEnabled;
+    }
+    performanceTaskMonitor.setEnabled(performanceTasksEnabled);
+    if (performanceTasksEnabled) {
+      renderPerformanceTaskMeter();
+    }
+  };
+
+  const syncSettingsDebugModeControls = () => {
+    if (settingsDebugModeToggle) {
+      settingsDebugModeToggle.checked = debugModeEnabled;
+    }
+    if (settingsDebugOptions) {
+      settingsDebugOptions.hidden = !debugModeEnabled;
     }
   };
 
@@ -992,6 +1203,22 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     if (settingsPerformanceMeterToggle) {
       settingsPerformanceMeterToggle.checked = performanceMeterEnabled;
     }
+  };
+
+  const syncSettingsPerformanceTasksToggle = () => {
+    if (settingsPerformanceTasksToggle) {
+      settingsPerformanceTasksToggle.checked = performanceTasksEnabled;
+    }
+  };
+
+  const syncSettingsDebugOptions = () => {
+    syncSettingsDebugModeControls();
+    syncSettingsPerformanceMeterToggle();
+    syncSettingsPerformanceTasksToggle();
+  };
+
+  const syncDebugModeState = () => {
+    syncSettingsDebugOptions();
   };
 
   const syncSettingsDesktopMouseClipboardToggle = () => {
@@ -2109,7 +2336,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     syncSettingsDesktopMouseClipboardToggle();
     syncSettingsMobilePixelScrollToggle();
     syncSettingsMobileDoubleTapReminderToggle();
-    syncSettingsPerformanceMeterToggle();
+    syncSettingsDebugOptions();
     resizeActiveTabForCurrentDevice();
     updateMobileActiveTabTitle();
     await registerTerminalSymbolFont(terminalSymbolFont);
@@ -2126,7 +2353,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     await applySettingsState(await response.json());
   };
 
-  const saveTerminalFontSelection = async (fontID) => {
+  const saveTerminalFontSelection = async (fontID) => measurePerformanceTask("settings save", async () => {
     const response = await fetch("./api/settings", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
@@ -2136,9 +2363,9 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       throw new Error(await readResponseText(response, `字体设置保存失败 (${response.status})`));
     }
     await applySettingsState(await response.json());
-  };
+  });
 
-  const saveTerminalScrollback = async (scrollback, { syncScrollbackInput = false } = {}) => {
+  const saveTerminalScrollback = async (scrollback, { syncScrollbackInput = false } = {}) => measurePerformanceTask("settings save", async () => {
     const response = await fetch("./api/settings", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
@@ -2148,9 +2375,9 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       throw new Error(await readResponseText(response, `滚动历史设置保存失败 (${response.status})`));
     }
     await applySettingsState(await response.json(), { syncScrollbackInput, syncLineHeightInput: false });
-  };
+  });
 
-  const saveTerminalLineHeightPercent = async (percent, { syncLineHeightInput = false } = {}) => {
+  const saveTerminalLineHeightPercent = async (percent, { syncLineHeightInput = false } = {}) => measurePerformanceTask("settings save", async () => {
     const response = await fetch("./api/settings", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
@@ -2160,9 +2387,9 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       throw new Error(await readResponseText(response, `行间距设置保存失败 (${response.status})`));
     }
     await applySettingsState(await response.json(), { syncScrollbackInput: false, syncLineHeightInput });
-  };
+  });
 
-  const saveDesktopMouseClipboardEnabled = async (enabled) => {
+  const saveDesktopMouseClipboardEnabled = async (enabled) => measurePerformanceTask("settings save", async () => {
     desktopMouseClipboardEnabled = enabled;
     syncSettingsDesktopMouseClipboardToggle();
     const response = await fetch("./api/settings", {
@@ -2174,9 +2401,9 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       throw new Error(await readResponseText(response, `鼠标复制粘贴设置保存失败 (${response.status})`));
     }
     await applySettingsState(await response.json(), { syncScrollbackInput: false, syncLineHeightInput: false });
-  };
+  });
 
-  const saveMobilePixelScrollEnabled = async (enabled) => {
+  const saveMobilePixelScrollEnabled = async (enabled) => measurePerformanceTask("settings save", async () => {
     mobilePixelScrollEnabled = enabled;
     syncSettingsMobilePixelScrollToggle();
     resizeActiveTabForCurrentDevice();
@@ -2189,9 +2416,9 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       throw new Error(await readResponseText(response, `像素级滚动设置保存失败 (${response.status})`));
     }
     await applySettingsState(await response.json(), { syncScrollbackInput: false, syncLineHeightInput: false });
-  };
+  });
 
-  const saveMobileDoubleTapReminderEnabled = async (enabled) => {
+  const saveMobileDoubleTapReminderEnabled = async (enabled) => measurePerformanceTask("settings save", async () => {
     mobileDoubleTapReminderEnabled = enabled;
     syncSettingsMobileDoubleTapReminderToggle();
     updateMobileActiveTabTitle();
@@ -2204,12 +2431,12 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       throw new Error(await readResponseText(response, `双击屏幕提醒设置保存失败 (${response.status})`));
     }
     await applySettingsState(await response.json(), { syncScrollbackInput: false, syncLineHeightInput: false });
-  };
+  });
 
   const saveMobileShortcuts = (rows, { reset = false } = {}) => {
     const nextRows = cloneMobileShortcutRows(rows);
     const saveVersion = ++mobileShortcutsSaveVersion;
-    mobileShortcutsPersistChain = mobileShortcutsPersistChain.catch(() => {}).then(async () => {
+    mobileShortcutsPersistChain = mobileShortcutsPersistChain.catch(() => {}).then(() => measurePerformanceTask("settings save", async () => {
       const previousRows = cloneMobileShortcutRows(lastSavedMobileShortcutRowsConfig);
       const requestSeq = ++mobileShortcutsSaveRequestSeq;
       setMobileShortcutSaving(true);
@@ -2236,14 +2463,14 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
           setMobileShortcutSaving(false);
         }
       }
-    });
+    }));
     return mobileShortcutsPersistChain;
   };
 
   const saveDesktopShortcuts = (shortcuts, { reset = false } = {}) => {
     const nextShortcuts = cloneDesktopShortcuts(shortcuts);
     const saveVersion = ++desktopShortcutsSaveVersion;
-    desktopShortcutsPersistChain = desktopShortcutsPersistChain.catch(() => {}).then(async () => {
+    desktopShortcutsPersistChain = desktopShortcutsPersistChain.catch(() => {}).then(() => measurePerformanceTask("settings save", async () => {
       const previousShortcuts = cloneDesktopShortcuts(lastSavedDesktopShortcutsConfig);
       const requestSeq = ++desktopShortcutsSaveRequestSeq;
       setDesktopShortcutSaving(true);
@@ -2270,7 +2497,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
           setDesktopShortcutSaving(false);
         }
       }
-    });
+    }));
     return desktopShortcutsPersistChain;
   };
 
@@ -2925,6 +3152,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   const openSettings = (tabID = "terminal") => {
     closeContextMenu();
     closeThemePicker();
+    closeDevicePanel();
     closeInstanceSwitcher();
     renderSettingsMobileNav();
     settingsMobileView = isMobileLayout() ? "index" : "detail";
@@ -2935,7 +3163,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     renderServiceForwardSettings();
     syncSettingsScrollbackInput();
     syncSettingsLineHeightInput();
-    syncSettingsPerformanceMeterToggle();
+    syncSettingsDebugOptions();
     syncSettingsDesktopMouseClipboardToggle();
     syncSettingsMobilePixelScrollToggle();
     syncSettingsMobileDoubleTapReminderToggle();
@@ -2978,6 +3206,14 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   };
 
   const instanceSelector = (item) => {
+    const explicitSelector = String(item?.selector || item?.target || "").trim();
+    if (explicitSelector) {
+      return explicitSelector;
+    }
+    const clientInstanceID = String(item?.client_instance_id || "").trim();
+    if (clientInstanceID) {
+      return `client:${clientInstanceID}`;
+    }
     const name = String(item?.name || "").trim();
     const ownerDeployID = String(item?.owner_deploy_id || "").trim();
     if (!name || !ownerDeployID) {
@@ -2988,6 +3224,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
 
   const instanceDisplayName = (item) => String(item?.name || "").trim() || instanceSelector(item).split("@", 1)[0];
   const getActiveInstance = () => currentInstances.find((item) => instanceSelector(item) === activeName) || null;
+  const isClientInstanceName = (name = activeName) => String(name || "").trim().startsWith("client:");
   const isRunningInstance = (item) => item?.status === "running";
   const setActiveInstanceName = (name) => {
     const normalized = String(name || "").trim();
@@ -2999,6 +3236,10 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   };
   const isCurrentInstanceRequest = (name, generation) =>
     String(name || "").trim() === activeName && generation === activeInstanceGeneration;
+  const isCurrentInstanceSession = (session) => {
+    const name = String(session?.name || "").trim();
+    return Boolean(name) && name === activeName;
+  };
   const responseSelector = (state) => String(state?.selector || "").trim();
   const ensureResponseSelector = (state, expectedName, label = "Workspace") => {
     const selector = responseSelector(state);
@@ -3083,7 +3324,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     ["select_right", "选择右侧窗格"],
     ["close_pane", "关闭窗格"],
     ["theme", "主题设置"],
-    ["switch_container", "切换容器"],
+    ["switch_container", "切换实例"],
     ["copy_terminal", "复制终端文本"],
     ["paste_terminal", "粘贴到终端"],
     ["search_terminal", "搜索终端"],
@@ -3116,7 +3357,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     { id: "select-right", label: "选择右侧窗格", action: "select_right", shortcut: shortcutDefinitions.select_right },
     { id: "close-pane", label: "关闭窗格", action: "close_pane", shortcut: shortcutDefinitions.close_pane },
     { id: "theme", label: "主题设置", action: "theme", shortcut: shortcutDefinitions.theme },
-    { id: "switch-container", label: "切换容器", action: "switch_container", shortcut: shortcutDefinitions.switch_container },
+    { id: "switch-container", label: "切换实例", action: "switch_container", shortcut: shortcutDefinitions.switch_container },
     { id: "copy-terminal", label: "复制", action: "copy_terminal", shortcut: shortcutDefinitions.copy_terminal },
     { id: "paste-terminal", label: "粘贴", action: "paste_terminal", shortcut: shortcutDefinitions.paste_terminal },
     { id: "search-terminal", label: "搜索", action: "search_terminal", shortcut: shortcutDefinitions.search_terminal },
@@ -3269,6 +3510,12 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     });
   };
 
+  const isShiftInsertPasteShortcutEvent = (event) => {
+    const key = normalizeShortcutKeyToken(shortcutKeyFromEventCode(event) || event.key);
+    const keyCode = Number(event.keyCode || event.which || 0);
+    return (key === "insert" || keyCode === 45) && event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey;
+  };
+
   const isNativePasteShortcutEvent = (event) => {
     const key = normalizeShortcutKeyToken(shortcutKeyFromEventCode(event) || event.key);
     const keyCode = Number(event.keyCode || event.which || 0);
@@ -3280,6 +3527,47 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       return (event.metaKey && !event.ctrlKey) || ctrlShiftPaste;
     }
     return event.ctrlKey && !event.metaKey;
+  };
+
+  const terminalFontSizeShortcutAction = (event) => {
+    if (!(event instanceof KeyboardEvent) || event.altKey) {
+      return "";
+    }
+    const usesControl = event.ctrlKey && !event.metaKey;
+    const usesCommand = isMacPlatform() && event.metaKey && !event.ctrlKey;
+    if (!usesControl && !usesCommand) {
+      return "";
+    }
+    const key = String(event.key || "");
+    const code = String(event.code || "");
+    if (key === "+" || key === "=" || code === "Equal" || code === "NumpadAdd") {
+      return "increase";
+    }
+    if (key === "-" || key === "_" || code === "Minus" || code === "NumpadSubtract") {
+      return "decrease";
+    }
+    if (key === "0" || (!event.shiftKey && code === "Digit0") || code === "Numpad0") {
+      return "reset";
+    }
+    return "";
+  };
+
+  const runTerminalFontSizeShortcut = (event) => {
+    const action = terminalFontSizeShortcutAction(event);
+    if (!action) {
+      return false;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    event.stopImmediatePropagation?.();
+    if (action === "increase") {
+      adjustTerminalFontSize(1);
+    } else if (action === "decrease") {
+      adjustTerminalFontSize(-1);
+    } else {
+      resetTerminalFontSize();
+    }
+    return true;
   };
 
   const rebuildShortcutActionMap = () => {
@@ -3330,6 +3618,269 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     instanceSwitcherFeedback.hidden = !message;
   };
 
+  const setDeviceFeedback = (message, tone = "info") => {
+    if (!deviceFeedback) {
+      return;
+    }
+    const text = String(message || "").trim();
+    deviceFeedback.hidden = !text;
+    deviceFeedback.textContent = text;
+    deviceFeedback.dataset.tone = tone;
+  };
+
+  const normalizeDevicePlatform = () => {
+    const platform = String(navigator.userAgentData?.platform || navigator.platform || "");
+    const userAgent = String(navigator.userAgent || "");
+    if (/\bAndroid\b/i.test(platform) || /\bAndroid\b/i.test(userAgent)) {
+      return "Android";
+    }
+    if (/\b(iPhone|iPad|iPod)\b/i.test(platform) || /\b(iPhone|iPad|iPod)\b/i.test(userAgent)) {
+      return "iOS";
+    }
+    if (/\bMac/i.test(platform)) {
+      return Number(navigator.maxTouchPoints || 0) > 1 ? "iOS" : "macOS";
+    }
+    if (/\bWin/i.test(platform)) {
+      return "Windows";
+    }
+    if (/\bLinux/i.test(platform) || /\bX11\b/i.test(platform)) {
+      return "Linux";
+    }
+    return "Unknown";
+  };
+
+  const normalizeDeviceBrowser = () => {
+    const userAgent = String(navigator.userAgent || "");
+    const brands = navigator.userAgentData?.brands || [];
+    const brandNames = brands.map((brand) => String(brand?.brand || "")).filter(Boolean);
+    const hasBrand = (pattern) => brandNames.some((brand) => pattern.test(brand));
+    if (hasBrand(/Firefox/i) || /\bFirefox\//i.test(userAgent)) {
+      return "Firefox";
+    }
+    if (hasBrand(/Edg/i) || /\bEdg\//i.test(userAgent)) {
+      return "Edge";
+    }
+    if (hasBrand(/Chrome|Chromium/i) || /\bChrome\//i.test(userAgent) || /\bCriOS\//i.test(userAgent)) {
+      return "Chrome";
+    }
+    if (/\bSafari\//i.test(userAgent) && !/\bChrome\/|\bCriOS\/|\bChromium\/|\bEdg\//i.test(userAgent)) {
+      return "Safari";
+    }
+    return "Browser";
+  };
+
+  const currentDeviceInfo = () => {
+    const platform = normalizeDevicePlatform();
+    const devicePlatform = platform === "macOS" ? "Mac" : platform;
+    return {
+      client_id: serverRevisionClientID,
+      device_name: `${devicePlatform === "Unknown" ? "Unknown" : devicePlatform} ${normalizeDeviceBrowser()}`,
+      platform,
+    };
+  };
+
+  const devicesAPIURL = () => new URL("./api/devices", window.location.href).toString();
+  const deviceHeartbeatAPIURL = () => new URL("./api/devices/heartbeat", window.location.href).toString();
+  const deviceOfflineAPIURL = () => new URL("./api/devices/offline", window.location.href).toString();
+
+  const postDeviceHeartbeat = async () => {
+    if (disposed || navigator.onLine === false) {
+      return;
+    }
+    if (deviceHeartbeatInFlight) {
+      return deviceHeartbeatInFlight;
+    }
+    deviceHeartbeatInFlight = measurePerformanceTask("device heartbeat", async () => {
+      const controller = typeof AbortController === "function" ? new AbortController() : null;
+      const timeout = controller
+        ? window.setTimeout(() => controller.abort(), deviceHeartbeatTimeoutMs)
+        : 0;
+      try {
+        const response = await fetch(deviceHeartbeatAPIURL(), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(currentDeviceInfo()),
+          signal: controller?.signal,
+        });
+        if (!response.ok) {
+          throw new Error(await readResponseText(response, `设备心跳失败 (${response.status})`));
+        }
+      } finally {
+        if (timeout) {
+          window.clearTimeout(timeout);
+        }
+      }
+    }).finally(() => {
+      deviceHeartbeatInFlight = null;
+    });
+    return deviceHeartbeatInFlight;
+  };
+
+  const sendDeviceOfflineBeacon = () => {
+    if (navigator.onLine === false || !navigator.sendBeacon) {
+      return false;
+    }
+    try {
+      return navigator.sendBeacon(
+        deviceOfflineAPIURL(),
+        new Blob([JSON.stringify({ client_id: serverRevisionClientID })], { type: "application/json" }),
+      );
+    } catch (error) {
+      return false;
+    }
+  };
+
+  const startDeviceHeartbeat = () => {
+    window.clearInterval(deviceHeartbeatTimer);
+    postDeviceHeartbeat().catch(() => {});
+    deviceHeartbeatTimer = window.setInterval(() => {
+      postDeviceHeartbeat().catch(() => {});
+    }, deviceHeartbeatIntervalMs);
+  };
+
+  const renderDeviceList = (devices) => {
+    if (!deviceList) {
+      return;
+    }
+    deviceList.textContent = "";
+    if (!deviceListLoaded && deviceListLoading) {
+      const empty = document.createElement("div");
+      empty.className = "device-empty";
+      empty.textContent = "正在加载设备...";
+      deviceList.appendChild(empty);
+      return;
+    }
+    if (!Array.isArray(devices) || devices.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "device-empty";
+      empty.textContent = "暂无正在连接的设备";
+      deviceList.appendChild(empty);
+      return;
+    }
+    for (const device of devices) {
+      const item = document.createElement("div");
+      item.className = "device-item";
+      item.setAttribute("role", "listitem");
+
+      const title = document.createElement("div");
+      title.className = "device-item-title";
+      const name = String(device?.device_name || "Unknown Browser").trim();
+      const platform = String(device?.platform || "Unknown").trim();
+      const accountID = String(device?.account_id || "").trim();
+      title.textContent = [name, platform, accountID].filter(Boolean).join(" - ");
+
+      const meta = document.createElement("div");
+      meta.className = "device-item-meta";
+      meta.textContent = "当前在线";
+
+      item.append(title, meta);
+      deviceList.appendChild(item);
+    }
+  };
+
+  const deviceListContentSignature = (devices) => JSON.stringify((devices || []).map((device) => ({
+    client_id: String(device?.client_id || "").trim(),
+    device_name: String(device?.device_name || "").trim(),
+    platform: String(device?.platform || "").trim(),
+    account_id: String(device?.account_id || "").trim(),
+    joined_at: String(device?.joined_at || "").trim(),
+  })));
+
+  const refreshDeviceList = async () => {
+    if (!deviceList || !deviceBackdrop || deviceBackdrop.hidden) {
+      return [];
+    }
+    return measurePerformanceTask("device list refresh", async () => {
+      const requestSeq = ++deviceListRequestSeq;
+      if (!deviceListLoaded) {
+        deviceListLoading = true;
+        renderDeviceList([]);
+      }
+      try {
+        const response = await fetch(devicesAPIURL(), { cache: "no-store" });
+        if (!response.ok) {
+          throw new Error(await readResponseText(response, `设备列表加载失败 (${response.status})`));
+        }
+        const devices = await response.json();
+        if (!Array.isArray(devices)) {
+          throw new Error("设备列表响应无效");
+        }
+        if (requestSeq !== deviceListRequestSeq) {
+          return devices;
+        }
+        deviceListLoaded = true;
+        deviceListLoading = false;
+        setDeviceFeedback("");
+        const nextSignature = deviceListContentSignature(devices);
+        if (nextSignature === deviceListSignature) {
+          return devices;
+        }
+        deviceListSignature = nextSignature;
+        renderDeviceList(devices);
+        return devices;
+      } catch (error) {
+        if (requestSeq === deviceListRequestSeq) {
+          deviceListLoading = false;
+          deviceListLoaded = true;
+          if (!deviceListSignature) {
+            renderDeviceList([]);
+          }
+          setDeviceFeedback(error.message || "设备列表加载失败。", "error");
+        }
+        throw error;
+      }
+    });
+  };
+
+  const startDeviceListRefresh = () => {
+    window.clearInterval(deviceListRefreshTimer);
+    refreshDeviceList().catch(() => {});
+    deviceListRefreshTimer = window.setInterval(() => {
+      refreshDeviceList().catch(() => {});
+    }, deviceListRefreshIntervalMs);
+  };
+
+  const stopDeviceListRefresh = () => {
+    window.clearInterval(deviceListRefreshTimer);
+    deviceListRefreshTimer = 0;
+  };
+
+  const openDevicePanel = () => {
+    closeContextMenu();
+    closeThemePicker();
+    closeSettings();
+    closeInstanceSwitcher();
+    deviceListLoaded = false;
+    deviceListLoading = true;
+    deviceListSignature = "";
+    setDeviceFeedback("");
+    deviceList?.setAttribute("role", "list");
+    renderDeviceList([]);
+    if (deviceBackdrop) {
+      deviceBackdrop.hidden = false;
+    }
+    postDeviceHeartbeat().catch(() => {});
+    startDeviceListRefresh();
+    window.setTimeout(() => {
+      if (isMobileLayout()) {
+        deviceBack?.focus();
+        return;
+      }
+      deviceClose?.focus();
+    }, 0);
+  };
+
+  const closeDevicePanel = () => {
+    const wasOpen = deviceBackdrop && !deviceBackdrop.hidden;
+    if (deviceBackdrop) {
+      deviceBackdrop.hidden = true;
+    }
+    stopDeviceListRefresh();
+    if (wasOpen) {
+      window.setTimeout(() => activeSession()?.term?.focus(), 0);
+    }
+  };
+
   const loadInstances = async () => {
     const response = await fetch("./api/instances", { cache: "no-store" });
     if (!response.ok) {
@@ -3353,93 +3904,18 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     return targetName;
   };
 
-  const buildExplicitHomeURL = (value) => {
-    const targetURL = new URL(String(value || "").trim(), window.location.href);
+  const buildCurrentOriginHomeURL = () => {
+    const targetURL = new URL("/", window.location.origin);
     targetURL.searchParams.set("view", "home");
     return targetURL.toString();
   };
 
-  const resolveReferrerHomeURL = () => {
-    try {
-      const referrerURL = new URL(document.referrer);
-      if (referrerURL.origin === window.location.origin) {
-        return "";
-      }
-      referrerURL.pathname = "/";
-      referrerURL.search = "";
-      referrerURL.hash = "";
-      return buildExplicitHomeURL(referrerURL.toString());
-    } catch (error) {
-      return "";
-    }
-  };
-
-  const loadLightOSAdminInfo = async () => {
-    if (lightOSAdminInfo?.base_url) {
-      return lightOSAdminInfo;
-    }
-    if (!lightOSAdminInfoPromise) {
-      lightOSAdminInfoPromise = fetch("./api/lightos-admin-info", { cache: "no-store" })
-        .then(async (response) => {
-          if (!response.ok) {
-            throw new Error(await response.text() || `无法获取 LightOS 管理地址 (${response.status})`);
-          }
-          const info = await response.json();
-          const baseURL = String(info?.base_url || "").trim();
-          if (!baseURL) {
-            throw new Error("LightOS 管理地址不可用。");
-          }
-          lightOSAdminInfo = {
-            ...info,
-            deploy_id: String(info?.deploy_id || "").trim(),
-            domain: String(info?.domain || "").trim(),
-            base_url: baseURL,
-          };
-          return lightOSAdminInfo;
-        })
-        .finally(() => {
-          lightOSAdminInfoPromise = null;
-        });
-    }
-    return lightOSAdminInfoPromise;
-  };
-
-  const loadLightOSAdminBaseURL = async () => {
-    if (lightOSAdminBaseURL) {
-      return lightOSAdminBaseURL;
-    }
-    const info = await loadLightOSAdminInfo();
-    const parsed = new URL(String(info?.base_url || "").trim(), window.location.href);
-    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-      throw new Error("LightOS 管理地址协议无效。");
-    }
-    lightOSAdminBaseURL = parsed.toString();
-    return lightOSAdminBaseURL;
-  };
-
-  const loadLightOSHomeURL = async () => {
+  const loadLightOSHomeURL = () => {
     if (lightOSHomeURL) {
       return lightOSHomeURL;
     }
-    if (!lightOSHomeURLPromise) {
-      lightOSHomeURLPromise = loadLightOSAdminInfo()
-        .then((info) => buildExplicitHomeURL(info.base_url))
-        .catch((error) => {
-          const fallback = resolveReferrerHomeURL();
-          if (fallback) {
-            return fallback;
-          }
-          throw error;
-        })
-        .then((url) => {
-          lightOSHomeURL = url;
-          return url;
-        })
-        .finally(() => {
-          lightOSHomeURLPromise = null;
-        });
-    }
-    return lightOSHomeURLPromise;
+    lightOSHomeURL = buildCurrentOriginHomeURL();
+    return lightOSHomeURL;
   };
 
   const terminalEstimatedSizeForElement = (element) => {
@@ -3786,6 +4262,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   };
 
   const navigateHome = async () => {
+    closeDevicePanel();
     closeInstanceSwitcher();
     rememberActiveTab();
     if (homeMenuButton) {
@@ -3951,6 +4428,27 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     };
   };
 
+  const holdTerminalCursorVisible = (session) => {
+    const term = session?.term;
+    const renderer = term?.renderer;
+    if (!term || !renderer || term.isDisposed || !term.isOpen) {
+      return;
+    }
+    if (session.cursorBlinkHoldTimer) {
+      window.clearTimeout(session.cursorBlinkHoldTimer);
+      session.cursorBlinkHoldTimer = 0;
+    }
+    renderer.cursorVisible = true;
+    if (term.options?.cursorBlink) {
+      term.options.cursorBlink = false;
+    }
+    term.requestRender?.();
+    session.cursorBlinkHoldTimer = window.setTimeout(() => {
+      session.cursorBlinkHoldTimer = 0;
+      syncCursorBlinkState();
+      term.requestRender?.();
+    }, terminalCursorBlinkHoldMs);
+  };
   const terminalViewportValue = (value) => {
     const number = Number(value || 0);
     return Number.isFinite(number) ? number : 0;
@@ -4179,6 +4677,12 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   const terminalLineCellAt = (renderer, row, column) => {
     if (column < 0) {
       return null;
+    }
+    const snapshot = renderer?.currentViewportSnapshot;
+    const cols = Number(renderer?.currentViewportSnapshotCols || 0);
+    const rows = Number(renderer?.currentViewportSnapshotRows || 0);
+    if (snapshot && cols > 0 && rows > 0 && row >= 0 && row < rows && column < cols) {
+      return snapshot[row * cols + column] || null;
     }
     try {
       const line = renderer?.currentBuffer?.getLine?.(row);
@@ -4710,9 +5214,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     }
     if (session.term.renderer && typeof session.term.renderer.setTheme === "function") {
       session.term.renderer.setTheme(nextTheme);
-      if (session.term.wasmTerm && typeof session.term.renderer.render === "function") {
-        session.term.renderer.render(session.term.wasmTerm, true, session.term.viewportY || 0, session.term);
-      }
+      session.term.requestRender?.({ full: true });
     }
     refreshTerminalMetrics(session);
   };
@@ -4738,6 +5240,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
 
   const openThemePicker = () => {
     closeContextMenu();
+    closeDevicePanel();
     renderThemePicker();
     if (themePickerBackdrop) {
       themePickerBackdrop.hidden = false;
@@ -4785,7 +5288,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   };
 
   const shouldShowMobileKeyboardFocusPrompt = () => {
-    if (!mobileDoubleTapReminderEnabled || !mobileLayoutQuery?.matches) {
+    if (!mobileDoubleTapReminderEnabled || !requiresTouchKeyboardDoubleTap()) {
       return false;
     }
     const tab = currentTab();
@@ -4807,7 +5310,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
 
   const isMobileLayout = () => Boolean(mobileLayoutQuery?.matches);
   const isTouchShortcutLayout = () => Boolean(touchShortcutLayoutQuery?.matches);
-  const requiresTouchKeyboardDoubleTap = () => isMobileLayout() || isTouchShortcutLayout();
+  const requiresTouchKeyboardDoubleTap = () => isTouchShortcutLayout();
 
   const isMobileCustomSelectLayout = () => isMobileLayout() || isTouchShortcutLayout();
   const shouldPreventMobileViewportZoom = () => isMobileLayout() || isTouchShortcutLayout() || usesMobileViewportInsets();
@@ -5008,15 +5511,108 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     }
   };
 
+  const terminalRuntimeClearSequence = "\x1b[2J\x1b[3J\x1b[H";
+
+  const clearTerminalCanvasPixels = (session) => {
+    const term = session?.term;
+    const canvas = term?.canvas || term?.renderer?.getCanvas?.();
+    if (!(canvas instanceof HTMLCanvasElement)) {
+      return false;
+    }
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      return false;
+    }
+    const ratio = Number(term?.renderer?.devicePixelRatio || window.devicePixelRatio || 1) || 1;
+    ctx.save();
+    ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+    ctx.fillStyle = activeTheme?.background || terminalOptionsBase.theme?.background || "#000000";
+    ctx.fillRect(0, 0, canvas.width / ratio, canvas.height / ratio);
+    ctx.restore();
+    return true;
+  };
+
+  const clearTerminalRuntimeBuffer = (session) => {
+    const term = session?.term;
+    if (!term || !term.wasmTerm) {
+      return false;
+    }
+    try {
+      term.wasmTerm.write(terminalRuntimeClearSequence);
+      term.viewportY = 0;
+      term.targetViewportY = 0;
+      term.linkDetector?.invalidateCache?.();
+      term.requestRender?.({ full: true });
+      return true;
+    } catch (error) {
+      return false;
+    }
+  };
+
   const resetTerminalAfterInitialFit = (session) => {
     const term = session?.term;
     if (!term || session.initialFitResetDone) {
       return;
     }
     session.initialFitResetDone = true;
-    if (typeof term.reset === "function") {
-      term.reset();
+    resetTerminalRuntimeState(session);
+  };
+
+  const syncTerminalRuntimeReferences = (session) => {
+    const term = session?.term;
+    if (!term) {
+      return;
     }
+    if (term.selectionManager && term.wasmTerm) {
+      term.selectionManager.wasmTerm = term.wasmTerm;
+    }
+    term.linkDetector?.invalidateCache?.();
+    installRendererBaselinePatch(session);
+    installRendererThemeMapper(session);
+    installRendererCellSeamPatch(session);
+  };
+
+  const resetTerminalRuntimeState = (session) => {
+    const term = session?.term;
+    if (!term || typeof term.reset !== "function") {
+      return false;
+    }
+    term.reset();
+    syncTerminalRuntimeReferences(session);
+    clearTerminalRuntimeBuffer(session);
+    clearTerminalCanvasPixels(session);
+    return true;
+  };
+
+  const setPaneRenderReady = (session, ready) => {
+    if (!session?.shellEl) {
+      return;
+    }
+    session.renderReady = ready === true;
+    session.shellEl.dataset.renderReady = session.renderReady ? "true" : "false";
+  };
+
+  const markPaneRenderPending = (session) => {
+    if (!session || session.closed) {
+      return;
+    }
+    setPaneRenderReady(session, false);
+    session.term?.renderer?.clear?.();
+    clearTerminalCanvasPixels(session);
+  };
+
+  const markPaneRenderedIfMeasurable = (session) => {
+    if (!session || session.closed || session.renderReady || session.replayCompletionPending || (!session.replayComplete && session.shellEl?.dataset.connection === "connecting") || !isPaneMeasurable(session)) {
+      return;
+    }
+    setPaneRenderReady(session, true);
+  };
+
+  const requestPaneFullRender = (session) => {
+    if (!session?.term || session.closed) {
+      return;
+    }
+    session.term.requestRender?.({ full: true });
   };
 
   const syncTabMobilePixelScroll = (tab) => {
@@ -5800,7 +6396,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     card.addEventListener("pointerdown", handleTabOverviewCardPointerDown);
   };
 
-  const renderTabOverview = () => {
+  const renderTabOverview = () => measurePerformanceTask("tab overview render", () => {
     if (!tabOverviewGrid) {
       return;
     }
@@ -5882,7 +6478,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     for (const item of previewItems) {
       drawTabOverviewPreview(item.canvas, item.tab, colors);
     }
-  };
+  });
 
   const scheduleTabOverviewRender = () => {
     if (!isTabOverviewOpen() || tabOverviewRenderFrame) {
@@ -5917,6 +6513,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     }
     closeContextMenu();
     closeThemePicker();
+    closeDevicePanel();
     closeInstanceSwitcher();
     tabOverview.hidden = false;
     tabOverviewToggle?.setAttribute("aria-expanded", "true");
@@ -5973,6 +6570,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     isTabOverviewOpen() ||
     isThemePickerOpen() ||
     (settingsBackdrop && !settingsBackdrop.hidden) ||
+    (deviceBackdrop && !deviceBackdrop.hidden) ||
     (instanceSwitcherPanel && !instanceSwitcherPanel.hidden) ||
     (mobileActionSheet && !mobileActionSheet.hidden) ||
     (mobileCloseConfirmSheet && !mobileCloseConfirmSheet.hidden) ||
@@ -6110,6 +6708,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     refreshTabAutoLabel(tab);
     syncCursorBlinkState();
     updateMobileSelectionHandles(activePane);
+    requestPaneFullRender(activePane);
     if (activePane?.pendingConnect) {
       connectPendingSession(activePane);
     } else {
@@ -6118,6 +6717,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     if (focus) {
       window.requestAnimationFrame(() => {
         resizePane(activePane);
+        requestPaneFullRender(activePane);
         connectPendingSession(activePane);
         activePane?.term?.focus();
       });
@@ -6177,6 +6777,107 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     window.requestAnimationFrame(() => resetTerminalHostViewport(session, options));
   };
 
+  const isMobileKeyboardResizeSuppressed = () => (
+    isTouchShortcutLayout() &&
+    (mobileKeyboardViewportActive || performance.now() < mobileKeyboardResizeSuppressedUntil)
+  );
+
+  const terminalViewportPanY = (session) => {
+    if (!isMobileKeyboardResizeSuppressed()) {
+      return 0;
+    }
+    const term = session?.term;
+    const host = session?.terminalHost;
+    const metrics = term?.renderer?.getMetrics?.();
+    const cursor = term?.wasmTerm?.getCursor?.();
+    if (!term || !(host instanceof HTMLElement) || !metrics?.height || !cursor) {
+      return 0;
+    }
+    const cellHeight = Math.max(1, Number(metrics.height) || 0);
+    const logicalHeight = Math.ceil((Number(term.rows) || 0) * cellHeight);
+    const visibleHeight = Math.max(0, host.clientHeight || 0);
+    if (logicalHeight <= 0 || visibleHeight <= 0 || logicalHeight <= visibleHeight) {
+      return 0;
+    }
+    const cursorRow = Math.max(0, Math.min(Math.max(0, (Number(term.rows) || 1) - 1), Number(cursor.y) || 0));
+    const cursorBottom = Math.ceil((cursorRow + 1) * cellHeight);
+    const keyboardPanLimit = Math.max(0, mobileViewportReferenceHeight - mobileViewportHeight);
+    const overflowPastViewport = Math.max(0, cursorBottom + cellHeight - visibleHeight);
+    return Math.min(logicalHeight - visibleHeight, keyboardPanLimit, overflowPastViewport);
+  };
+
+  const syncTerminalViewportPan = (session) => {
+    const panY = terminalViewportPanY(session);
+    const transform = panY > 0 ? `translate3d(0, -${panY}px, 0)` : "";
+    const term = session?.term;
+    const canvas = term?.canvas || term?.renderer?.getCanvas?.();
+    const textarea = term?.textarea;
+    const preview = session?.compositionPreview;
+    for (const node of [canvas, textarea, preview]) {
+      if (node instanceof HTMLElement) {
+        node.style.transform = transform;
+      }
+    }
+  };
+
+  const isKeyboardLikeViewportHeightChange = (previousHeight, nextHeight, { orientationChanged = false } = {}) => {
+    if (!isTouchShortcutLayout() || orientationChanged) {
+      return false;
+    }
+    const fromHeight = Math.max(0, Math.round(Number(previousHeight) || 0));
+    const toHeight = Math.max(0, Math.round(Number(nextHeight) || 0));
+    if (fromHeight <= 0 || toHeight <= 0) {
+      return false;
+    }
+    return Math.abs(toHeight - fromHeight) > mobileKeyboardInsetThresholdPx;
+  };
+
+  const syncActiveTerminalViewportForKeyboard = () => {
+    const tab = tabs.get(activeTabId);
+    const session = tab?.panes.get(tab.activePaneId) || null;
+    resetTerminalHostViewport(session, { clean: true });
+    positionTerminalInput(session);
+    syncTerminalViewportPan(session);
+    updateMobileSelectionHandles(session);
+    updateSelectionSheet();
+    if (mobileActionSheet && !mobileActionSheet.hidden) {
+      renderMobileActionSheet();
+    }
+    scheduleTabOverviewRender();
+  };
+
+  const clearMobileKeyboardResizeReleaseTimer = () => {
+    if (mobileKeyboardResizeReleaseTimer) {
+      window.clearTimeout(mobileKeyboardResizeReleaseTimer);
+      mobileKeyboardResizeReleaseTimer = 0;
+    }
+  };
+
+  const releaseMobileKeyboardResizeSuppression = () => {
+    mobileKeyboardResizeReleaseTimer = 0;
+    const remaining = mobileKeyboardResizeSuppressedUntil - performance.now();
+    if (remaining > 0) {
+      mobileKeyboardResizeReleaseTimer = window.setTimeout(releaseMobileKeyboardResizeSuppression, Math.ceil(remaining));
+      return;
+    }
+    if (mobileKeyboardViewportActive) {
+      syncActiveTerminalViewportForKeyboard();
+      return;
+    }
+    const tab = tabs.get(activeTabId);
+    syncTerminalViewportPan(tab?.panes.get(tab.activePaneId) || null);
+    resizeActiveTabForCurrentDevice();
+  };
+
+  const armMobileKeyboardResizeSuppression = () => {
+    mobileKeyboardResizeSuppressedUntil = Math.max(
+      mobileKeyboardResizeSuppressedUntil,
+      performance.now() + mobileKeyboardResizeSettleMs,
+    );
+    clearMobileKeyboardResizeReleaseTimer();
+    mobileKeyboardResizeReleaseTimer = window.setTimeout(releaseMobileKeyboardResizeSuppression, mobileKeyboardResizeSettleMs);
+  };
+
   const stripTerminalInputSentinel = (value) => String(value || "").split(terminalInputSentinel).join("");
 
   const moveTerminalTextareaCaretToEnd = (textarea) => {
@@ -6231,9 +6932,48 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       return "";
     }
     const normalized = stripTerminalInputSentinel(text);
+    const previous = typeof session.compositionText === "string" ? session.compositionText : "";
+    if (normalized && normalized !== previous) {
+      session.compositionPreviousText = previous;
+      const history = Array.isArray(session.compositionTextHistory) ? session.compositionTextHistory.slice() : [];
+      if (!history.includes(normalized)) {
+        history.push(normalized);
+      }
+      session.compositionTextHistory = history.slice(-8);
+    }
     session.compositionText = normalized;
     return normalized;
   };
+
+  const normalizeTerminalCompositionTextCandidates = (...values) => {
+    const seen = new Set();
+    const candidates = [];
+    const add = (value) => {
+      if (Array.isArray(value)) {
+        for (const item of value) {
+          add(item);
+        }
+        return;
+      }
+      const normalized = stripTerminalInputSentinel(value);
+      if (!normalized || seen.has(normalized)) {
+        return;
+      }
+      seen.add(normalized);
+      candidates.push(normalized);
+    };
+    for (const value of values) {
+      add(value);
+    }
+    return candidates.sort((left, right) => right.length - left.length);
+  };
+
+  const terminalCompositionPreeditCandidates = (session, ...extraValues) => normalizeTerminalCompositionTextCandidates(
+    session?.compositionTextHistory,
+    session?.compositionPreviousText,
+    session?.compositionText,
+    extraValues,
+  );
 
   const setTerminalCompositionPreviewVisible = (session, visible) => {
     const preview = session?.compositionPreview;
@@ -6362,6 +7102,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       activeElement.blur();
     }
     updateMobileActiveTabTitle();
+    scheduleMobileKeyboardDismissRecovery();
   };
 
   const blurMobileKeyboard = () => {
@@ -6386,6 +7127,16 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     focusTerminalInput(targetSession);
   };
 
+  const shouldPreserveMobileKeyboardForShortcut = (shortcut) => String(shortcut?.action || "") !== "open_mobile_menu";
+
+  const isMobileTerminalKeyboardActive = (session = activeSession()) => {
+    if (!isTouchShortcutLayout()) {
+      return false;
+    }
+    const textarea = session?.term?.textarea;
+    return Boolean(textarea && (document.activeElement === textarea || mobileKeyboardViewportActive));
+  };
+
   const focusTerminalForNativePasteShortcut = (session = activeSession()) => {
     if (!session?.term || session.closed) {
       return;
@@ -6397,8 +7148,13 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   };
 
   const setTerminalInputComposing = (session, composing) => {
+    const wasComposing = Boolean(session.composingIME);
     session.composingIME = composing;
     if (composing) {
+      if (!wasComposing) {
+        session.compositionPreviousText = "";
+        session.compositionTextHistory = [];
+      }
       if (typeof session.compositionText !== "string") {
         session.compositionText = "";
       }
@@ -6420,12 +7176,27 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     session.pendingCompositionInput = null;
   };
 
-  const armTerminalPostCompositionInput = (session, { preedit = "", committed = "", sent = false } = {}) => {
+  const isTerminalPostCompositionInputAlreadySent = (session, committed) => {
+    const pending = session?.pendingCompositionInput;
+    const committedText = stripTerminalInputSentinel(committed);
+    if (!pending?.sent || !committedText) {
+      return false;
+    }
+    if (performance.now() > Number(pending.expiresAt || 0)) {
+      clearTerminalPostCompositionInput(session);
+      return false;
+    }
+    return pending.committed === committedText;
+  };
+
+  const armTerminalPostCompositionInput = (session, { preedit = "", preedits = [], committed = "", sent = false } = {}) => {
     if (!session) {
       return null;
     }
+    const preeditCandidates = normalizeTerminalCompositionTextCandidates(preedits, preedit);
     const pending = {
-      preedit: stripTerminalInputSentinel(preedit),
+      preedit: preeditCandidates[0] || "",
+      preedits: preeditCandidates,
       committed: stripTerminalInputSentinel(committed),
       sent: Boolean(sent),
       expiresAt: performance.now() + 350,
@@ -6444,28 +7215,43 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       return null;
     }
     const rawValue = stripTerminalInputSentinel(value);
-    const preedit = pending.preedit || "";
+    const preedits = normalizeTerminalCompositionTextCandidates(pending.preedits, pending.preedit);
     const committed = pending.committed || "";
     let data = rawValue;
     let handled = false;
     if (!rawValue) {
       data = "";
       handled = true;
-    } else if (pending.sent && (rawValue === committed || (preedit && rawValue === `${preedit}${committed}`))) {
-      data = "";
-      handled = true;
-    } else if (!pending.sent && preedit && rawValue === preedit) {
-      data = rawValue;
-      handled = true;
-    } else if (!pending.sent && preedit && rawValue.startsWith(preedit)) {
-      data = rawValue.slice(preedit.length);
-      handled = true;
-    } else if (!pending.sent && committed && rawValue === committed) {
+    } else if (pending.sent) {
+      if (
+        (committed && rawValue === committed)
+        || preedits.includes(rawValue)
+        || (committed && preedits.some((preedit) => rawValue === `${preedit}${committed}`))
+      ) {
+        data = "";
+        handled = true;
+      }
+    } else if (committed && rawValue === committed) {
       data = committed;
       handled = true;
-    } else if (!pending.sent && !committed) {
-      data = rawValue;
+    } else if (committed && preedits.some((preedit) => rawValue === `${preedit}${committed}`)) {
+      data = committed;
       handled = true;
+    } else {
+      const preeditPrefix = preedits.find((preedit) => rawValue.startsWith(preedit) && rawValue.length > preedit.length);
+      if (preedits.includes(rawValue)) {
+        data = rawValue;
+        handled = true;
+      } else if (preeditPrefix && preedits.includes(rawValue.slice(preeditPrefix.length))) {
+        data = rawValue.slice(preeditPrefix.length);
+        handled = true;
+      } else if (preeditPrefix && preedits.length === 1) {
+        data = rawValue.slice(preeditPrefix.length);
+        handled = true;
+      } else if (!committed) {
+        data = rawValue;
+        handled = true;
+      }
     }
     if (handled) {
       if (!data) {
@@ -6486,7 +7272,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       return;
     }
     armTerminalPostCompositionInput(session, {
-      preedit: pending?.preedit || "",
+      preedits: pending?.preedits || pending?.preedit || "",
       committed: committedText,
       sent: true,
     });
@@ -6571,6 +7357,29 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     } else if (event.data) {
       data = event.data;
     }
+    if (data && session?.composingIME && (type === "insertText" || type === "insertReplacementText")) {
+      const textareaPreeditText = textarea ? stripTerminalInputSentinel(textarea.value) : "";
+      const preeditCandidates = terminalCompositionPreeditCandidates(session, textareaPreeditText);
+      event.preventDefault();
+      event.stopPropagation();
+      setTerminalInputComposing(session, false);
+      armTerminalPostCompositionInput(session, {
+        preedits: preeditCandidates,
+        committed: data,
+        sent: true,
+      });
+      if (textarea) {
+        textarea.value = terminalInputSentinel;
+        moveTerminalTextareaCaretToEnd(textarea);
+      }
+      sendTerminalTextInput(session, data, {
+        dedupe: true,
+        applySticky: shouldApplyMobileStickyCompositionInput(data),
+      });
+      resetTerminalHostViewport(session, { clean: true });
+      positionTerminalInput(session);
+      return;
+    }
     const pendingComposition = session?.pendingCompositionInput;
     const compositionValue = data ? resolveTerminalPostCompositionInput(session, data) : null;
     if (compositionValue !== null) {
@@ -6582,7 +7391,10 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
         moveTerminalTextareaCaretToEnd(textarea);
       }
       if (compositionValue) {
-        sendTerminalTextInput(session, compositionValue, { dedupe: true });
+        sendTerminalTextInput(session, compositionValue, {
+          dedupe: true,
+          applySticky: shouldApplyMobileStickyCompositionInput(compositionValue),
+        });
         rememberTerminalPostCompositionSentInput(session, pendingComposition, compositionValue);
       }
       resetTerminalHostViewport(session, { clean: true });
@@ -6636,7 +7448,10 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
         : null;
       if (compositionValue !== null) {
         if (compositionValue) {
-          sendTerminalTextInput(session, compositionValue, { dedupe: true });
+          sendTerminalTextInput(session, compositionValue, {
+            dedupe: true,
+            applySticky: shouldApplyMobileStickyCompositionInput(compositionValue),
+          });
           rememberTerminalPostCompositionSentInput(session, pendingComposition, compositionValue);
         }
       } else if (!value && isBackwardDeleteInputType(type)) {
@@ -6721,7 +7536,10 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     textarea.setAttribute("enterkeyhint", "enter");
     term.focus = () => focusTerminalInput(session);
     textarea.addEventListener("focus", updateMobileActiveTabTitle);
-    textarea.addEventListener("blur", updateMobileActiveTabTitle);
+    textarea.addEventListener("blur", () => {
+      updateMobileActiveTabTitle();
+      scheduleMobileKeyboardDismissRecovery();
+    });
     let lastMobileTapAt = 0;
     let lastMobileTapX = 0;
     let lastMobileTapY = 0;
@@ -6738,6 +7556,8 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       clearTerminalTextareaSentinel(session);
       clearTerminalPostCompositionInput(session);
       setTerminalInputComposing(session, true);
+      session.compositionTextHistory = [];
+      session.compositionPreviousText = "";
       setTerminalTextareaCompositionText(session, "");
       positionTerminalInput(session);
       scheduleTerminalHostViewportReset(session, { clean: true });
@@ -6754,15 +7574,23 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     textarea.addEventListener("compositionend", (event) => {
       event.stopPropagation();
       const preeditText = terminalTextareaCompositionText(session);
+      const textareaPreeditText = stripTerminalInputSentinel(textarea.value);
+      const preeditCandidates = terminalCompositionPreeditCandidates(session, preeditText, textareaPreeditText);
       const committedText = typeof event.data === "string" ? stripTerminalInputSentinel(event.data) : "";
+      const committedAlreadySent = isTerminalPostCompositionInputAlreadySent(session, committedText);
       setTerminalInputComposing(session, false);
       armTerminalPostCompositionInput(session, {
-        preedit: preeditText,
+        preedits: preeditCandidates,
         committed: committedText,
         sent: Boolean(committedText),
       });
-      if (committedText) {
-        sendTerminalTextInput(session, committedText, { dedupe: true });
+      textarea.value = terminalInputSentinel;
+      moveTerminalTextareaCaretToEnd(textarea);
+      if (committedText && !committedAlreadySent) {
+        sendTerminalTextInput(session, committedText, {
+          dedupe: true,
+          applySticky: shouldApplyMobileStickyCompositionInput(committedText),
+        });
       }
       window.setTimeout(() => {
         const fallbackValue = stripTerminalInputSentinel(textarea.value);
@@ -6770,7 +7598,10 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
           const pendingComposition = session?.pendingCompositionInput;
           const compositionValue = resolveTerminalPostCompositionInput(session, fallbackValue);
           if (compositionValue) {
-            sendTerminalTextInput(session, compositionValue, { dedupe: true });
+            sendTerminalTextInput(session, compositionValue, {
+              dedupe: true,
+              applySticky: shouldApplyMobileStickyCompositionInput(compositionValue),
+            });
             rememberTerminalPostCompositionSentInput(session, pendingComposition, compositionValue);
           }
         }
@@ -6796,6 +7627,9 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     host.addEventListener("pointerdown", (event) => {
       if (event.pointerType === "touch" || event.pointerType === "pen") {
         return;
+      }
+      if (requiresTouchKeyboardDoubleTap()) {
+        session.allowMobileKeyboardFocusUntil = performance.now() + mobileKeyboardFocusAllowWindowMs;
       }
       window.requestAnimationFrame(() => focusTerminalInput(session));
     });
@@ -6872,10 +7706,35 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     resetTerminalHostViewport(session, { clean: true });
   };
 
-  const sendTerminalSize = (pane) => {
-    if (pane?.socket?.readyState === WebSocket.OPEN) {
-      pane.socket.send(JSON.stringify({ type: "resize", cols: pane.term.cols, rows: pane.term.rows }));
+  const terminalSize = (pane) => {
+    const cols = Math.max(0, Math.floor(Number(pane?.term?.cols) || 0));
+    const rows = Math.max(0, Math.floor(Number(pane?.term?.rows) || 0));
+    return { cols, rows };
+  };
+
+  const dimensionsEqualTerminalSize = (pane, dimensions) => {
+    if (!dimensions) {
+      return false;
     }
+    const { cols, rows } = terminalSize(pane);
+    return Math.floor(Number(dimensions.cols) || 0) === cols && Math.floor(Number(dimensions.rows) || 0) === rows;
+  };
+
+  const sendTerminalSize = (pane) => {
+    if (pane?.socket?.readyState !== WebSocket.OPEN) {
+      return false;
+    }
+    const { cols, rows } = terminalSize(pane);
+    if (cols <= 0 || rows <= 0) {
+      return false;
+    }
+    if (pane.lastSentCols === cols && pane.lastSentRows === rows) {
+      return false;
+    }
+    pane.lastSentCols = cols;
+    pane.lastSentRows = rows;
+    pane.socket.send(JSON.stringify({ type: "resize", cols, rows }));
+    return true;
   };
 
   const isPaneMeasurable = (pane) => {
@@ -6898,27 +7757,43 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     if (visibleOnly && !isPaneVisibleForSizing(pane)) {
       return false;
     }
-    const dimensions = pane.fitAddon?.proposeDimensions?.();
-    if (!dimensions || dimensions.cols <= 0 || dimensions.rows <= 0) {
+    if (isMobileKeyboardResizeSuppressed()) {
+      resetTerminalHostViewport(pane, { clean: true });
+      positionTerminalInput(pane);
+      syncTerminalViewportPan(pane);
+      updateMobileSelectionHandles(pane);
       return false;
     }
-    try {
-      pane.fitAddon.fit();
-    } catch (error) {
-      return false;
-    }
-    resetTerminalHostViewport(pane, { clean: true });
-    positionTerminalInput(pane);
-    if (!pane.initialFitResetDone && !pane.replayComplete) {
-      resetTerminalAfterInitialFit(pane);
-    }
-    sendTerminalSize(pane);
-    updateMobileSelectionHandles(pane);
-    return true;
+    return measurePerformanceTask("resize/fit", () => {
+      const dimensions = pane.fitAddon?.proposeDimensions?.();
+      if (!dimensions || dimensions.cols <= 0 || dimensions.rows <= 0) {
+        return false;
+      }
+      const sizeChanged = !dimensionsEqualTerminalSize(pane, dimensions);
+      try {
+        if (sizeChanged) {
+          pane.fitAddon.fit();
+        }
+      } catch (error) {
+        return false;
+      }
+      resetTerminalHostViewport(pane, { clean: true });
+      positionTerminalInput(pane);
+      syncTerminalViewportPan(pane);
+      if (!pane.initialFitResetDone && !pane.replayComplete) {
+        resetTerminalAfterInitialFit(pane);
+      }
+      if (sizeChanged) {
+        requestPaneFullRender(pane);
+      }
+      sendTerminalSize(pane);
+      updateMobileSelectionHandles(pane);
+      return sizeChanged;
+    });
   };
 
   const connectPendingSession = (session, { allowHidden = false } = {}) => {
-    if (!session || !session.pendingConnect || session.closed || session.name !== activeName) {
+    if (!session || !session.pendingConnect || session.closed || !isCurrentInstanceSession(session)) {
       return;
     }
     const socketReadyState = session.socket?.readyState;
@@ -7097,9 +7972,17 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
 
   const handleMobileViewportResize = () => {
     mobileViewportResizeFrame = 0;
+    if (isMobileKeyboardResizeSuppressed()) {
+      syncActiveTerminalViewportForKeyboard();
+      if (rememberMobileViewportOrientationChange() || mobileOrientationRecoveryTimer) {
+        scheduleMobileOrientationViewportRecovery();
+      }
+      return;
+    }
     resizeActiveTabForCurrentDevice();
     const session = activeSession();
     positionTerminalInput(session);
+    syncTerminalViewportPan(session);
     updateMobileSelectionHandles(session);
     updateSelectionSheet();
     if (mobileActionSheet && !mobileActionSheet.hidden) {
@@ -7118,6 +8001,124 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     mobileViewportResizeFrame = window.requestAnimationFrame(handleMobileViewportResize);
   };
 
+  const isTerminalTextareaFocused = () => {
+    const activeElement = document.activeElement;
+    if (!(activeElement instanceof HTMLElement)) {
+      return false;
+    }
+    for (const tab of tabs.values()) {
+      for (const pane of tab.panes.values()) {
+        if (pane?.term?.textarea === activeElement) {
+          return true;
+        }
+      }
+    }
+    return false;
+  };
+
+  const measureMobileViewportBottomInset = () => {
+    const visualViewport = window.visualViewport;
+    if (!visualViewport) {
+      return 0;
+    }
+    const viewportOffsetTop = Math.max(0, Math.round(visualViewport.offsetTop || 0));
+    return Math.max(0, Math.round((window.innerHeight || document.documentElement.clientHeight || 0) - visualViewport.height - viewportOffsetTop));
+  };
+
+  const forceClearMobileKeyboardDockIfTerminalBlurred = () => {
+    if (!usesMobileViewportInsets() || isTerminalTextareaFocused()) {
+      return false;
+    }
+    if (mobileKeyboardInsetBottom === 0 && mobileClientBottomSafeOffset === 0 && !mobileKeyboardViewportActive) {
+      return false;
+    }
+    const measuredBottomInset = measureMobileViewportBottomInset();
+    const nextSafeOffset = measuredBottomInset > 0 && measuredBottomInset <= mobileKeyboardInsetThresholdPx
+      ? measuredBottomInset
+      : 0;
+    const changed = applyMobileViewportInsets(0, nextSafeOffset, { keyboardActive: false });
+    if (changed) {
+      scheduleMobileViewportResize();
+    }
+    return changed;
+  };
+
+  const runMobileKeyboardDismissRecoveryPass = (seq, { force = false } = {}) => {
+    if (seq !== mobileKeyboardDismissRecoverySeq || !usesMobileViewportInsets()) {
+      return;
+    }
+    syncMobileVisualViewport({ detectOrientation: false });
+    if (force) {
+      forceClearMobileKeyboardDockIfTerminalBlurred();
+    }
+  };
+
+  const scheduleMobileKeyboardDismissRecovery = () => {
+    if (!usesMobileViewportInsets()) {
+      return;
+    }
+    mobileKeyboardDismissRecoverySeq += 1;
+    const seq = mobileKeyboardDismissRecoverySeq;
+    const lastDelay = mobileKeyboardDismissRecoveryDelays[mobileKeyboardDismissRecoveryDelays.length - 1] || 0;
+    for (const delay of mobileKeyboardDismissRecoveryDelays) {
+      window.setTimeout(
+        () => runMobileKeyboardDismissRecoveryPass(seq, { force: delay === lastDelay }),
+        delay,
+      );
+    }
+  };
+
+  const markMobileKeyboardDockMoving = () => {
+    if (!document.body) {
+      return;
+    }
+    document.body.classList.add("mobile-keyboard-dock-moving");
+    if (mobileKeyboardDockMoveTimer) {
+      window.clearTimeout(mobileKeyboardDockMoveTimer);
+    }
+    mobileKeyboardDockMoveTimer = window.setTimeout(() => {
+      mobileKeyboardDockMoveTimer = 0;
+      document.body?.classList.remove("mobile-keyboard-dock-moving");
+    }, mobileKeyboardDockMoveSettleMs);
+  };
+
+  const syncMobileKeyboardDockTransform = (inset, safeOffset) => {
+    if (!(mobileShortcuts instanceof HTMLElement)) {
+      return;
+    }
+    if (inset > mobileKeyboardInsetThresholdPx) {
+      mobileShortcuts.style.transform = `translate3d(0, -${inset}px, 0)`;
+      return;
+    }
+    if (safeOffset > 0) {
+      mobileShortcuts.style.transform = `translate3d(0, -${safeOffset}px, 0)`;
+      return;
+    }
+    mobileShortcuts.style.transform = "";
+  };
+
+  const applyMobileViewportInsets = (nextInset, nextSafeOffset, { animateDock = true, keyboardActive = null } = {}) => {
+    const inset = Math.max(0, Math.round(Number(nextInset) || 0));
+    const safeOffset = Math.max(0, Math.round(Number(nextSafeOffset) || 0));
+    const dockChanged = inset !== mobileKeyboardInsetBottom || safeOffset !== mobileClientBottomSafeOffset;
+    const keyboardWasActive = mobileKeyboardViewportActive;
+    const keyboardIsActive = keyboardActive === null ? inset > mobileKeyboardInsetThresholdPx : keyboardActive === true;
+    if (keyboardWasActive || keyboardIsActive || dockChanged) {
+      armMobileKeyboardResizeSuppression();
+    }
+    mobileKeyboardInsetBottom = inset;
+    mobileClientBottomSafeOffset = safeOffset;
+    mobileKeyboardViewportActive = keyboardIsActive;
+    document.documentElement.style.setProperty("--mobile-keyboard-inset-bottom", `${inset}px`);
+    document.documentElement.style.setProperty("--mobile-client-bottom-safe-offset", `${safeOffset}px`);
+    document.body.classList.toggle("mobile-keyboard-visible", inset > mobileKeyboardInsetThresholdPx);
+    syncMobileKeyboardDockTransform(inset, safeOffset);
+    if (dockChanged && animateDock) {
+      markMobileKeyboardDockMoving();
+    }
+    return dockChanged;
+  };
+
   const syncMobileVisualViewport = ({ detectOrientation = true } = {}) => {
     const supportsViewportInsets = usesMobileViewportInsets();
     const useKeyboardInset = isIOSPlatform();
@@ -7132,16 +8133,17 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       mobileViewportReferenceHeight = nextHeight;
     }
     if (!supportsViewportInsets) {
+      const previousHeight = mobileViewportHeight;
       const insetChanged = mobileKeyboardInsetBottom !== 0;
       const safeOffsetChanged = mobileClientBottomSafeOffset !== 0;
       const heightChanged = nextHeight !== mobileViewportHeight;
+      const keyboardLikeHeightChange = isKeyboardLikeViewportHeightChange(previousHeight, nextHeight, { orientationChanged });
       mobileViewportHeight = nextHeight;
       mobileViewportReferenceHeight = nextHeight;
-      mobileKeyboardInsetBottom = 0;
-      mobileClientBottomSafeOffset = 0;
-      document.documentElement.style.setProperty("--mobile-keyboard-inset-bottom", "0px");
-      document.documentElement.style.setProperty("--mobile-client-bottom-safe-offset", "0px");
-      document.body.classList.remove("mobile-keyboard-visible");
+      applyMobileViewportInsets(0, 0, { animateDock: false, keyboardActive: keyboardLikeHeightChange && nextHeight < previousHeight });
+      if (keyboardLikeHeightChange) {
+        armMobileKeyboardResizeSuppression();
+      }
       if (heightChanged || insetChanged || safeOffsetChanged) {
         scheduleMobileViewportResize();
       }
@@ -7151,13 +8153,16 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       return;
     }
     const viewportOffsetTop = Math.max(0, Math.round(visualViewport?.offsetTop || 0));
-    const measuredBottomInset = visualViewport
-      ? Math.max(0, Math.round((window.innerHeight || document.documentElement.clientHeight || 0) - visualViewport.height - viewportOffsetTop))
-      : 0;
+    const measuredBottomInset = measureMobileViewportBottomInset();
     const measuredReferenceInset = visualViewport
       ? Math.max(0, Math.round((mobileViewportReferenceHeight || nextHeight) - visualViewport.height - viewportOffsetTop))
       : 0;
-    const measuredInset = Math.max(measuredBottomInset, measuredReferenceInset);
+    const shouldTrustReferenceInset = isTouchShortcutLayout() && (
+      isTerminalTextareaFocused()
+      || (mobileKeyboardViewportActive && measuredBottomInset > mobileKeyboardInsetThresholdPx)
+    );
+    const measuredInset = Math.max(measuredBottomInset, shouldTrustReferenceInset ? measuredReferenceInset : 0);
+    const nextKeyboardActive = measuredInset > mobileKeyboardInsetThresholdPx && !orientationChanged && isTouchShortcutLayout();
     const nextInset = useKeyboardInset && measuredInset > mobileKeyboardInsetThresholdPx ? measuredInset : 0;
     const nextSafeOffset = nextInset === 0 && measuredBottomInset > 0 && measuredBottomInset <= mobileKeyboardInsetThresholdPx
       ? measuredBottomInset
@@ -7169,11 +8174,10 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       mobileViewportReferenceHeight = nextHeight;
     }
     mobileViewportHeight = nextHeight;
-    mobileKeyboardInsetBottom = nextInset;
-    mobileClientBottomSafeOffset = nextSafeOffset;
-    document.documentElement.style.setProperty("--mobile-keyboard-inset-bottom", `${nextInset}px`);
-    document.documentElement.style.setProperty("--mobile-client-bottom-safe-offset", `${nextSafeOffset}px`);
-    document.body.classList.toggle("mobile-keyboard-visible", nextInset > mobileKeyboardInsetThresholdPx);
+    applyMobileViewportInsets(nextInset, nextSafeOffset, { keyboardActive: nextKeyboardActive });
+    if (heightChanged && !orientationChanged && isTouchShortcutLayout() && (nextKeyboardActive || mobileKeyboardViewportActive)) {
+      armMobileKeyboardResizeSuppression();
+    }
     if (heightChanged || insetChanged || safeOffsetChanged) {
       scheduleMobileViewportResize();
     }
@@ -7202,9 +8206,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       if (session.term.renderer && typeof session.term.renderer.measureFont === "function") {
         session.term.renderer.metrics = session.term.renderer.measureFont();
       }
-      if (session.term.renderer && session.term.wasmTerm && typeof session.term.renderer.render === "function") {
-        session.term.renderer.render(session.term.wasmTerm, true, session.term.viewportY || 0, session.term);
-      }
+      session.term.requestRender?.({ full: true });
       resizePane(session);
       if (deferFitRetry) {
         window.setTimeout(() => resizePane(session), 60);
@@ -7958,6 +8960,385 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     return { col, row, absoluteRow: scrollback + row - viewportY };
   };
 
+  const terminalMouseModeEnabled = (term, mode) => {
+    try {
+      return typeof term?.getMode === "function" && term.getMode(mode, false) === true;
+    } catch (error) {
+      return false;
+    }
+  };
+
+  const terminalMouseTrackingState = (session) => {
+    const term = session?.term;
+    if (!term || session?.closed) {
+      return null;
+    }
+    const x10 = terminalMouseModeEnabled(term, 9);
+    const normal = terminalMouseModeEnabled(term, 1000);
+    const drag = terminalMouseModeEnabled(term, 1002);
+    const any = terminalMouseModeEnabled(term, 1003);
+    let tracking = x10 || normal || drag || any;
+    try {
+      tracking = tracking || term.hasMouseTracking?.() === true;
+    } catch (error) {
+    }
+    if (!tracking) {
+      return null;
+    }
+    return {
+      x10,
+      normal,
+      drag,
+      any,
+      sgr: terminalMouseModeEnabled(term, 1006),
+    };
+  };
+
+  const terminalMouseButtonFromEvent = (event) => {
+    switch (event?.button) {
+      case 0:
+        return 0;
+      case 1:
+        return 1;
+      case 2:
+        return 2;
+      default:
+        return -1;
+    }
+  };
+
+  const terminalMouseButtonMask = (button) => {
+    switch (button) {
+      case 0:
+        return 1;
+      case 1:
+        return 4;
+      case 2:
+        return 2;
+      default:
+        return 0;
+    }
+  };
+
+  const terminalMouseButtonFromButtons = (buttons, preferred = -1) => {
+    const mask = Number(buttons || 0);
+    if (preferred >= 0 && (mask & terminalMouseButtonMask(preferred))) {
+      return preferred;
+    }
+    if (mask & 1) {
+      return 0;
+    }
+    if (mask & 4) {
+      return 1;
+    }
+    if (mask & 2) {
+      return 2;
+    }
+    return -1;
+  };
+
+  const terminalMouseModifierCode = (event) => (
+    (event?.shiftKey ? 4 : 0)
+    | (event?.altKey ? 8 : 0)
+    | (event?.ctrlKey ? 16 : 0)
+  );
+
+  const encodeTerminalLegacyMouseSequence = (buttonCode, x, y) => {
+    if (
+      buttonCode < 0
+      || buttonCode > terminalMouseLegacyCoordinateLimit
+      || x < 1
+      || y < 1
+      || x > terminalMouseLegacyCoordinateLimit
+      || y > terminalMouseLegacyCoordinateLimit
+    ) {
+      return "";
+    }
+    return `\x1b[M${String.fromCharCode(buttonCode + 32)}${String.fromCharCode(x + 32)}${String.fromCharCode(y + 32)}`;
+  };
+
+  const encodeTerminalMouseSequence = (session, event, action, button = -1) => {
+    const state = terminalMouseTrackingState(session);
+    if (!state) {
+      return "";
+    }
+    const cell = terminalCellFromPoint(session, event.clientX, event.clientY);
+    if (!cell) {
+      return "";
+    }
+    const x = cell.col + 1;
+    const y = cell.row + 1;
+    const modifiers = terminalMouseModifierCode(event);
+    let buttonCode = -1;
+    let suffix = "M";
+
+    if (action === "press") {
+      if (button < 0) {
+        return "";
+      }
+      buttonCode = button;
+    } else if (action === "release") {
+      if (state.x10 && !state.normal && !state.drag && !state.any) {
+        return "";
+      }
+      if (state.sgr) {
+        buttonCode = button >= 0 ? button : 0;
+        suffix = "m";
+      } else {
+        buttonCode = 3;
+      }
+    } else if (action === "move") {
+      if (button >= 0) {
+        if (!state.drag && !state.any) {
+          return "";
+        }
+        buttonCode = 32 + button;
+      } else {
+        if (!state.any) {
+          return "";
+        }
+        buttonCode = 35;
+      }
+    } else if (action === "wheel") {
+      const delta = Math.abs(event.deltaY || 0) >= Math.abs(event.deltaX || 0) ? event.deltaY : event.deltaX;
+      if (!delta) {
+        return "";
+      }
+      buttonCode = delta < 0 ? 64 : 65;
+    } else {
+      return "";
+    }
+
+    buttonCode += modifiers;
+    if (state.sgr) {
+      return `\x1b[<${buttonCode};${x};${y}${suffix}`;
+    }
+    return encodeTerminalLegacyMouseSequence(buttonCode, x, y);
+  };
+
+  const stopTerminalMouseEvent = (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    event.stopImmediatePropagation?.();
+  };
+
+  const installTerminalMouseTracking = (session) => {
+    const shell = session?.shellEl;
+    const host = session?.terminalHost;
+    if (!shell || !host || !session?.term) {
+      return;
+    }
+
+    const isTerminalMouseTarget = (target) => target instanceof Element && target.closest(".terminal-host") === host;
+    const activateSessionPane = () => {
+      const current = tabs.get(session.tabId);
+      setActivePane(current, session.id, { focus: false });
+    };
+    const mouseState = {
+      activeButton: -1,
+      lastMoveSequence: "",
+    };
+    const touchMouseState = {
+      identifier: -1,
+      active: false,
+      lastX: 0,
+      lastY: 0,
+    };
+
+    const sendMouseSequence = (event, action, button = -1) => {
+      const sequence = encodeTerminalMouseSequence(session, event, action, button);
+      if (!sequence) {
+        return false;
+      }
+      if (action === "move") {
+        if (sequence === mouseState.lastMoveSequence) {
+          return true;
+        }
+        mouseState.lastMoveSequence = sequence;
+      } else {
+        mouseState.lastMoveSequence = "";
+      }
+      reassertTerminalSizeForMouse(session, event);
+      sendOrQueueInput(session, sequence);
+      return true;
+    };
+
+    const terminalMouseEventFromTouch = (event, touch = null) => ({
+      clientX: Number(touch?.clientX ?? touchMouseState.lastX) || 0,
+      clientY: Number(touch?.clientY ?? touchMouseState.lastY) || 0,
+      shiftKey: Boolean(event?.shiftKey),
+      altKey: Boolean(event?.altKey),
+      ctrlKey: Boolean(event?.ctrlKey),
+    });
+
+    const changedTouchForActiveMouse = (event) => {
+      const touches = Array.from(event?.changedTouches || []);
+      return touches.find((touch) => touch.identifier === touchMouseState.identifier) || null;
+    };
+
+    const resetTouchMouseState = () => {
+      touchMouseState.identifier = -1;
+      touchMouseState.active = false;
+      touchMouseState.lastX = 0;
+      touchMouseState.lastY = 0;
+    };
+
+    const handleMouseDown = (event) => {
+      if (!isTerminalMouseTarget(event.target)) {
+        return;
+      }
+      const state = terminalMouseTrackingState(session);
+      if (!state) {
+        mouseState.activeButton = -1;
+        mouseState.lastMoveSequence = "";
+        return;
+      }
+      const button = terminalMouseButtonFromEvent(event);
+      if (button < 0) {
+        return;
+      }
+      stopTerminalMouseEvent(event);
+      activateSessionPane();
+      mouseState.activeButton = button;
+      sendMouseSequence(event, "press", button);
+    };
+
+    const handleMouseMove = (event) => {
+      const state = terminalMouseTrackingState(session);
+      if (!state) {
+        mouseState.lastMoveSequence = "";
+        return;
+      }
+      const button = terminalMouseButtonFromButtons(event.buttons, mouseState.activeButton);
+      const hasCapturedButton = mouseState.activeButton >= 0;
+      const isLocalTarget = isTerminalMouseTarget(event.target);
+      if (!hasCapturedButton && !isLocalTarget) {
+        return;
+      }
+      if (hasCapturedButton || (isLocalTarget && state.any)) {
+        stopTerminalMouseEvent(event);
+      }
+      sendMouseSequence(event, "move", hasCapturedButton ? button : -1);
+    };
+
+    const handleMouseUp = (event) => {
+      const hadActiveButton = mouseState.activeButton >= 0;
+      const state = terminalMouseTrackingState(session);
+      if (!state && !hadActiveButton) {
+        return;
+      }
+      const button = terminalMouseButtonFromEvent(event);
+      const releasedButton = mouseState.activeButton >= 0 ? mouseState.activeButton : button;
+      mouseState.activeButton = terminalMouseButtonFromButtons(event.buttons, mouseState.activeButton);
+      if (mouseState.activeButton === releasedButton) {
+        mouseState.activeButton = -1;
+      }
+      mouseState.lastMoveSequence = "";
+      if (!state) {
+        return;
+      }
+      if (hadActiveButton || isTerminalMouseTarget(event.target)) {
+        stopTerminalMouseEvent(event);
+        sendMouseSequence(event, "release", releasedButton);
+      }
+    };
+
+    const handleWheel = (event) => {
+      if (!isTerminalMouseTarget(event.target) || !terminalMouseTrackingState(session)) {
+        return;
+      }
+      const sent = sendMouseSequence(event, "wheel");
+      if (sent) {
+        stopTerminalMouseEvent(event);
+      }
+    };
+
+    const handleClickLike = (event) => {
+      if (isTerminalMouseTarget(event.target) && terminalMouseTrackingState(session)) {
+        stopTerminalMouseEvent(event);
+      }
+    };
+
+    const handleTouchStart = (event) => {
+      if (
+        !isTouchShortcutLayout()
+        || event.touches.length !== 1
+        || !isTerminalMouseTarget(event.target)
+        || !terminalMouseTrackingState(session)
+      ) {
+        resetTouchMouseState();
+        return;
+      }
+      const touch = event.touches[0];
+      stopTerminalMouseEvent(event);
+      activateSessionPane();
+      session.selectAllBufferActive = false;
+      session.term?.clearSelection?.();
+      touchMouseState.identifier = touch.identifier;
+      touchMouseState.active = true;
+      touchMouseState.lastX = touch.clientX;
+      touchMouseState.lastY = touch.clientY;
+      sendMouseSequence(terminalMouseEventFromTouch(event, touch), "press", 0);
+    };
+
+    const handleTouchMove = (event) => {
+      if (!touchMouseState.active || !terminalMouseTrackingState(session)) {
+        return;
+      }
+      const touch = Array.from(event.touches || []).find((item) => item.identifier === touchMouseState.identifier) || null;
+      if (!touch) {
+        return;
+      }
+      stopTerminalMouseEvent(event);
+      touchMouseState.lastX = touch.clientX;
+      touchMouseState.lastY = touch.clientY;
+      sendMouseSequence(terminalMouseEventFromTouch(event, touch), "move", 0);
+    };
+
+    const finishTouchMouse = (event) => {
+      if (!touchMouseState.active) {
+        return;
+      }
+      const touch = changedTouchForActiveMouse(event);
+      stopTerminalMouseEvent(event);
+      if (touch) {
+        touchMouseState.lastX = touch.clientX;
+        touchMouseState.lastY = touch.clientY;
+      }
+      sendMouseSequence(terminalMouseEventFromTouch(event, touch), "release", 0);
+      resetTouchMouseState();
+    };
+
+    shell.addEventListener("mousedown", handleMouseDown, { capture: true, passive: false });
+    shell.addEventListener("mousemove", handleMouseMove, { capture: true, passive: false });
+    shell.addEventListener("wheel", handleWheel, { capture: true, passive: false });
+    shell.addEventListener("click", handleClickLike, { capture: true, passive: false });
+    shell.addEventListener("dblclick", handleClickLike, { capture: true, passive: false });
+    shell.addEventListener("auxclick", handleClickLike, { capture: true, passive: false });
+    shell.addEventListener("contextmenu", handleClickLike, { capture: true, passive: false });
+    shell.addEventListener("touchstart", handleTouchStart, { capture: true, passive: false });
+    shell.addEventListener("touchmove", handleTouchMove, { capture: true, passive: false });
+    shell.addEventListener("touchend", finishTouchMouse, { capture: true, passive: false });
+    shell.addEventListener("touchcancel", finishTouchMouse, { capture: true, passive: false });
+    document.addEventListener("mousemove", handleMouseMove, { capture: true, passive: false });
+    document.addEventListener("mouseup", handleMouseUp, { capture: true, passive: false });
+    addSessionCleanup(session, () => {
+      shell.removeEventListener("mousedown", handleMouseDown, { capture: true });
+      shell.removeEventListener("mousemove", handleMouseMove, { capture: true });
+      shell.removeEventListener("wheel", handleWheel, { capture: true });
+      shell.removeEventListener("click", handleClickLike, { capture: true });
+      shell.removeEventListener("dblclick", handleClickLike, { capture: true });
+      shell.removeEventListener("auxclick", handleClickLike, { capture: true });
+      shell.removeEventListener("contextmenu", handleClickLike, { capture: true });
+      shell.removeEventListener("touchstart", handleTouchStart, { capture: true });
+      shell.removeEventListener("touchmove", handleTouchMove, { capture: true });
+      shell.removeEventListener("touchend", finishTouchMouse, { capture: true });
+      shell.removeEventListener("touchcancel", finishTouchMouse, { capture: true });
+      document.removeEventListener("mousemove", handleMouseMove, { capture: true });
+      document.removeEventListener("mouseup", handleMouseUp, { capture: true });
+    });
+  };
+
   const compareSelectionCells = (left, right) => {
     if (!left || !right) {
       return 0;
@@ -8003,7 +9384,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       return;
     }
     try {
-      term.renderer.render(term.wasmTerm, true, term.viewportY || 0, term);
+      term.requestRender?.({ full: true });
     } catch (error) {
     }
   };
@@ -8700,6 +10081,11 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     }
   };
 
+  const clearStartupServerRevisionInputLock = async () => {
+    await setServerRevisionInputLocked(false);
+    setAllTerminalInputLocked(false);
+  };
+
   const drainGeneratedTerminalResponses = (session) => {
     const term = session?.term;
     const wasmTerm = term?.wasmTerm;
@@ -8978,6 +10364,18 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       return false;
     }
     return canApplyStickyModifierInput(value);
+  };
+
+  const shouldApplyMobileStickyCompositionInput = (value) => {
+    if (!hasMobileStickyModifiers()) {
+      return false;
+    }
+    const points = Array.from(String(value || ""));
+    if (points.length !== 1) {
+      return false;
+    }
+    const codePoint = points[0].codePointAt(0);
+    return Number.isFinite(codePoint) && codePoint >= 0x20 && codePoint <= 0x7e;
   };
 
   const consumeMobileStickyTextInput = (value) => {
@@ -9295,6 +10693,30 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     let repeatTimer = 0;
     let repeatTriggered = false;
 
+    const rememberShortcutSession = () => {
+      shortcutSession = activeSession();
+      if (shouldPreserveMobileKeyboardForShortcut(shortcut) && isMobileTerminalKeyboardActive(shortcutSession)) {
+        shortcutSession.allowMobileKeyboardFocusUntil = performance.now() + mobileKeyboardFocusAllowWindowMs;
+      }
+    };
+
+    const preserveMobileKeyboardOnTouchStart = (event) => {
+      if (
+        !shouldPreserveMobileKeyboardForShortcut(shortcut)
+        || Number(event?.touches?.length || 0) !== 1
+      ) {
+        return;
+      }
+      rememberShortcutSession();
+      if (!isMobileTerminalKeyboardActive(shortcutSession)) {
+        return;
+      }
+      if (event.cancelable) {
+        event.preventDefault();
+      }
+      event.stopPropagation();
+    };
+
     const stopRepeat = () => {
       if (repeatDelayTimer) {
         window.clearTimeout(repeatDelayTimer);
@@ -9354,6 +10776,8 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       }, touchShortcutRepeatInitialDelayMs);
     };
 
+    button.addEventListener("touchstart", preserveMobileKeyboardOnTouchStart, { capture: true, passive: false });
+
     button.addEventListener("pointerdown", (event) => {
       if (!(event instanceof PointerEvent) || !event.isPrimary) {
         return;
@@ -9367,7 +10791,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       touchStartY = event.clientY;
       touchMoved = false;
       repeatTriggered = false;
-      shortcutSession = activeSession();
+      rememberShortcutSession();
       startRepeat();
     }, { passive: false });
 
@@ -9572,6 +10996,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     closeContextMenu();
     closeInstanceSwitcher();
     closeThemePicker();
+    closeDevicePanel();
     renderMobileActionSheet(buildMobileContextTarget());
     mobileActionSheet.hidden = false;
     document.body.classList.add("mobile-action-sheet-open");
@@ -9773,7 +11198,12 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     };
     session.shellEl.addEventListener("touchstart", (event) => {
       resetTouchSelectionState();
-      if (!isMobileLayout() || event.touches.length !== 1 || (mobileActionSheet && !mobileActionSheet.hidden)) {
+      if (
+        !isMobileLayout()
+        || event.touches.length !== 1
+        || terminalMouseTrackingState(session)
+        || (mobileActionSheet && !mobileActionSheet.hidden)
+      ) {
         return;
       }
       const target = event.target;
@@ -10200,6 +11630,41 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     return 0;
   };
 
+  const terminalOutputByteChunkEnd = (data, start, maxBytes) => {
+    const hardEnd = Math.min(data.byteLength, start + maxBytes);
+    if (hardEnd >= data.byteLength) {
+      return hardEnd;
+    }
+    let end = hardEnd;
+    while (end > start && (data[end] & 0xc0) === 0x80) {
+      end -= 1;
+    }
+    return end > start ? end : hardEnd;
+  };
+
+  const splitTerminalOutputText = (data, maxBytes) => {
+    const chunks = [];
+    let chunk = "";
+    let chunkBytes = 0;
+    for (let index = 0; index < data.length;) {
+      const codepoint = data.codePointAt(index);
+      const text = String.fromCodePoint(codepoint);
+      const byteLength = textEncoder.encode(text).length;
+      if (chunk && chunkBytes + byteLength > maxBytes) {
+        chunks.push(chunk);
+        chunk = "";
+        chunkBytes = 0;
+      }
+      chunk += text;
+      chunkBytes += byteLength;
+      index += text.length;
+    }
+    if (chunk) {
+      chunks.push(chunk);
+    }
+    return chunks;
+  };
+
   const coalesceTerminalOutputBatch = (chunks, kind, byteLength) => {
     if (chunks.length === 1) {
       return chunks[0];
@@ -10228,7 +11693,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       session.replayOutputDepth += 1;
     }
     try {
-      session.term.write(data);
+      measurePerformanceTask("terminal render", () => session.term.write(data));
       drainGeneratedTerminalResponses(session);
       return true;
     } finally {
@@ -10239,6 +11704,31 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     }
   };
 
+  const finishSessionHistoryReplayIfReady = (session) => {
+    if (
+      !session ||
+      !session.replayCompletionPending ||
+      session.outputQueueSize > 0 ||
+      !session.replayVerified ||
+      session.closed ||
+      session.name !== activeName
+    ) {
+      return false;
+    }
+    session.replayCompletionPending = false;
+    session.replayComplete = true;
+    session.replayVerified = false;
+    session.agentPreparing = false;
+    session.allowGeneratedInputDuringReplay = false;
+    clearAttachReadyTimer(session);
+    session.reconnectAttempts = 0;
+    session.shellEl.dataset.connection = "open";
+    clearTerminalCanvasPixels(session);
+    requestPaneFullRender(session);
+    flushPendingInput(session);
+    return true;
+  };
+
   const discardSessionOutputBuffers = (session) => {
     if (!session) {
       return;
@@ -10246,6 +11736,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     clearSessionOutputFlushSchedule(session);
     session.outputQueue = [];
     session.outputQueueSize = 0;
+    session.replayCompletionPending = false;
   };
 
   const flushSessionOutput = (session, { force = false } = {}) => {
@@ -10257,50 +11748,77 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     if (queue.length === 0) {
       return;
     }
-    session.outputQueue = [];
-    session.outputQueueSize = 0;
     if (!session.term || (!force && (session.closed || session.name !== activeName))) {
+      session.outputQueue = [];
+      session.outputQueueSize = 0;
+      session.replayCompletionPending = false;
       return;
     }
-
-    let wrote = false;
-    let batch = null;
-    const flushBatch = () => {
-      if (!batch) {
-        return;
+    measurePerformanceTask("output flush", () => {
+      const flushQueue = [];
+      const restQueue = [];
+      let flushBytes = 0;
+      let restBytes = 0;
+      if (force) {
+        flushQueue.push(...queue);
+      } else {
+        for (const entry of queue) {
+          if (restQueue.length > 0 || (flushQueue.length > 0 && flushBytes + entry.byteLength > terminalOutputFlushBudgetBytes)) {
+            restQueue.push(entry);
+            restBytes += entry.byteLength;
+          } else {
+            flushQueue.push(entry);
+            flushBytes += entry.byteLength;
+          }
+        }
       }
-      const data = coalesceTerminalOutputBatch(batch.chunks, batch.kind, batch.byteLength);
-      if (writeTerminalOutputBatch(session, data, batch.replayOutput, batch.allowGeneratedInput)) {
-        wrote = true;
-      }
-      batch = null;
-    };
+      session.outputQueue = restQueue;
+      session.outputQueueSize = restBytes;
 
-    for (const entry of queue) {
-      if (
-        !batch ||
-        batch.kind !== entry.kind ||
-        batch.replayOutput !== entry.replayOutput ||
-        batch.allowGeneratedInput !== entry.allowGeneratedInput
-      ) {
-        flushBatch();
-        batch = {
-          kind: entry.kind,
-          replayOutput: entry.replayOutput,
-          allowGeneratedInput: entry.allowGeneratedInput,
-          chunks: [],
-          byteLength: 0,
-        };
-      }
-      batch.chunks.push(entry.data);
-      batch.byteLength += entry.byteLength;
-    }
-    flushBatch();
+      let wrote = false;
+      let batch = null;
+      const flushBatch = () => {
+        if (!batch) {
+          return;
+        }
+        const data = coalesceTerminalOutputBatch(batch.chunks, batch.kind, batch.byteLength);
+        if (writeTerminalOutputBatch(session, data, batch.replayOutput, batch.allowGeneratedInput)) {
+          wrote = true;
+        }
+        batch = null;
+      };
 
-    if (wrote) {
-      resetTerminalHostViewport(session, { clean: true });
-      positionTerminalInput(session);
-    }
+      for (const entry of flushQueue) {
+        if (
+          !batch ||
+          batch.kind !== entry.kind ||
+          batch.replayOutput !== entry.replayOutput ||
+          batch.allowGeneratedInput !== entry.allowGeneratedInput
+        ) {
+          flushBatch();
+          batch = {
+            kind: entry.kind,
+            replayOutput: entry.replayOutput,
+            allowGeneratedInput: entry.allowGeneratedInput,
+            chunks: [],
+            byteLength: 0,
+          };
+        }
+        batch.chunks.push(entry.data);
+        batch.byteLength += entry.byteLength;
+      }
+      flushBatch();
+
+      if (wrote) {
+        resetTerminalHostViewport(session, { clean: true });
+        positionTerminalInput(session);
+      }
+      if (session.outputQueueSize > 0) {
+        scheduleSessionOutputFlush(session);
+      } else {
+        finishSessionHistoryReplayIfReady(session);
+      }
+    });
   };
 
   const scheduleSessionOutputFlush = (session) => {
@@ -10323,15 +11841,34 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     }
     // Output chunks carry replay state because the replay-complete control frame can arrive before the next paint.
     const replayOutput = !session.replayComplete;
-    const entry = {
-      data: outputData,
-      kind,
-      byteLength: terminalOutputByteLength(outputData),
-      replayOutput,
-      allowGeneratedInput: replayOutput && session.allowGeneratedInputDuringReplay === true,
+    const allowGeneratedInput = replayOutput && session.allowGeneratedInputDuringReplay === true;
+    const enqueueEntry = (entryData) => {
+      const byteLength = terminalOutputByteLength(entryData);
+      if (byteLength <= 0) {
+        return;
+      }
+      session.outputQueue.push({
+        data: entryData,
+        kind,
+        byteLength,
+        replayOutput,
+        allowGeneratedInput,
+      });
+      session.outputQueueSize += byteLength;
     };
-    session.outputQueue.push(entry);
-    session.outputQueueSize += entry.byteLength;
+    if (kind === "bytes" && outputData.byteLength > terminalOutputFlushBudgetBytes) {
+      for (let offset = 0; offset < outputData.byteLength;) {
+        const end = terminalOutputByteChunkEnd(outputData, offset, terminalOutputFlushBudgetBytes);
+        enqueueEntry(outputData.subarray(offset, end));
+        offset = end;
+      }
+    } else if (kind === "text" && terminalOutputByteLength(outputData) > terminalOutputFlushBudgetBytes) {
+      for (const chunk of splitTerminalOutputText(outputData, terminalOutputFlushBudgetBytes)) {
+        enqueueEntry(chunk);
+      }
+    } else {
+      enqueueEntry(outputData);
+    }
     if (session.outputQueueSize >= maxQueuedTerminalOutputBytes) {
       flushSessionOutput(session);
     } else {
@@ -10347,14 +11884,18 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     if (session.closed) {
       return;
     }
-    session.term.write(data);
+    measurePerformanceTask("terminal render", () => session.term.write(data));
     drainGeneratedTerminalResponses(session);
     resetTerminalHostViewport(session, { clean: true });
     positionTerminalInput(session);
   };
 
   const readAgentStartupError = async (name) => {
-    const response = await fetch(agentStartupErrorURL(name), { cache: "no-store" });
+    const requestName = String(name || "").trim();
+    if (!requestName) {
+      return "";
+    }
+    const response = await fetch(agentStartupErrorURL(requestName), { cache: "no-store" });
     if (!response.ok) {
       return "";
     }
@@ -10364,7 +11905,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
 
   const writeSessionWebShellError = (session, message) => {
     const text = String(message || "").trim();
-    if (!text || !session || session.closed || session.name !== activeName) {
+    if (!text || !session || session.closed || !isCurrentInstanceSession(session)) {
       return;
     }
     showStartupErrorPanel(text);
@@ -10381,7 +11922,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     genericWebSocketStartupFallbacks.has(String(message || "").trim());
 
   const showSessionStartupError = async (session, fallback = "") => {
-    if (!session || session.closed || session.name !== activeName) {
+    if (!session || session.closed || !isCurrentInstanceSession(session)) {
       return;
     }
     let message = "";
@@ -10406,8 +11947,11 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     session.socket = null;
     session.replayComplete = false;
     session.replayVerified = false;
+    session.replayCompletionPending = false;
     session.allowGeneratedInputDuringReplay = false;
+    session.agentPreparing = false;
     session.attachStartedAt = 0;
+    session.attachReadyTimeoutMs = 0;
     session.lastSocketHealthAt = 0;
     clearSessionConnectionTimers(session);
     if (connection) {
@@ -10420,27 +11964,30 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     if (!session?.term || session.closed || session.name !== activeName) {
       return false;
     }
-    discardSessionOutputBuffers(session);
-    session.selectAllBufferActive = false;
-    session.term.clearSelection?.();
-    session.term.viewportY = 0;
-    session.term.targetViewportY = 0;
-    try {
-      session.term.reset();
-      if (session.term.selectionManager && session.term.wasmTerm) {
-        session.term.selectionManager.wasmTerm = session.term.wasmTerm;
+    return measurePerformanceTask("history replay", () => {
+      discardSessionOutputBuffers(session);
+      markPaneRenderPending(session);
+      session.replayComplete = false;
+      session.replayVerified = false;
+      session.replayCompletionPending = false;
+      session.resetOnNextReplay = false;
+      session.selectAllBufferActive = false;
+      session.term.clearSelection?.();
+      session.term.viewportY = 0;
+      session.term.targetViewportY = 0;
+      try {
+        if (!resetTerminalRuntimeState(session)) {
+          return false;
+        }
+        session.initialFitResetDone = true;
+      } catch (error) {
+        return false;
       }
-      session.term.linkDetector?.invalidateCache?.();
-    } catch (error) {
-      return false;
-    }
-    installRendererBaselinePatch(session);
-    installRendererThemeMapper(session);
-    installRendererCellSeamPatch(session);
-    resizePane(session);
-    resetTerminalHostViewport(session, { clean: true });
-    positionTerminalInput(session);
-    return true;
+      resizePane(session);
+      resetTerminalHostViewport(session, { clean: true });
+      positionTerminalInput(session);
+      return true;
+    });
   };
 
   const requestSessionHistoryReplay = (session) => {
@@ -10486,7 +12033,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   };
 
   const scheduleReconnect = (session, { immediate = false, allowHidden = false } = {}) => {
-    if (disposed || !session || session.closed || session.reconnectPending || session.reconnectTimer || session.name !== activeName) {
+    if (disposed || !session || session.closed || session.reconnectPending || session.reconnectTimer || !isCurrentInstanceSession(session)) {
       return;
     }
     if (document.hidden && !allowHidden) {
@@ -10572,7 +12119,8 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
         return;
       }
       const lastHealth = Number(session.lastSocketHealthAt || 0);
-      if (lastHealth > 0 && Date.now() - lastHealth > terminalWebSocketHealthTimeoutMs) {
+      const healthTimeout = session.agentPreparing ? terminalAgentPrepareTimeoutMs : terminalWebSocketHealthTimeoutMs;
+      if (lastHealth > 0 && Date.now() - lastHealth > healthTimeout) {
         closeSessionSocketForReconnect(session, currentSocket, `Terminal WebSocket health timeout: ${session.name}/${session.id}`);
         return;
       }
@@ -10584,20 +12132,21 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     }, terminalWebSocketPingIntervalMs);
   };
 
-  const startAttachReadyTimer = (session, currentSocket) => {
+  const startAttachReadyTimer = (session, currentSocket, timeoutMs = terminalAttachReadyTimeoutMs) => {
     clearAttachReadyTimer(session);
     session.attachStartedAt = Date.now();
+    session.attachReadyTimeoutMs = timeoutMs;
     session.attachReadyTimer = window.setTimeout(() => {
       session.attachReadyTimer = 0;
       if (session.socket !== currentSocket || session.replayComplete) {
         return;
       }
       closeSessionSocketForReconnect(session, currentSocket, `Terminal attach timed out before replay complete: ${session.name}/${session.id}`);
-    }, terminalAttachReadyTimeoutMs);
+    }, timeoutMs);
   };
 
   const checkSessionConnectionHealth = (session, { connect = true, force = false, allowHidden = false } = {}) => {
-    if (disposed || !session || session.closed || session.name !== activeName) {
+    if (disposed || !session || session.closed || !isCurrentInstanceSession(session)) {
       return false;
     }
     if (navigator.onLine === false) {
@@ -10612,12 +12161,14 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     if (socket?.readyState === WebSocket.OPEN) {
       const now = Date.now();
       const lastHealth = Number(session.lastSocketHealthAt || 0);
-      if (lastHealth > 0 && now - lastHealth > terminalWebSocketHealthTimeoutMs) {
+      const healthTimeout = session.agentPreparing ? terminalAgentPrepareTimeoutMs : terminalWebSocketHealthTimeoutMs;
+      if (lastHealth > 0 && now - lastHealth > healthTimeout) {
         closeSessionSocketForReconnect(session, socket, `Terminal WebSocket health check failed: ${session.name}/${session.id}`, { allowHidden: allowHidden || force });
         return false;
       }
       const attachStartedAt = Number(session.attachStartedAt || 0);
-      if (!session.replayComplete && attachStartedAt > 0 && now - attachStartedAt > terminalAttachReadyTimeoutMs) {
+      const attachReadyTimeout = Number(session.attachReadyTimeoutMs || 0) || terminalAttachReadyTimeoutMs;
+      if (!session.replayComplete && attachStartedAt > 0 && now - attachStartedAt > attachReadyTimeout) {
         closeSessionSocketForReconnect(session, socket, `Terminal attach readiness check failed: ${session.name}/${session.id}`, { allowHidden: allowHidden || force });
         return false;
       }
@@ -10639,7 +12190,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     if (
       !session ||
       session.closed ||
-      session.name !== activeName ||
+      !isCurrentInstanceSession(session) ||
       (document.hidden && !allowHidden) ||
       navigator.onLine === false ||
       session.socket?.readyState === WebSocket.OPEN ||
@@ -10650,15 +12201,34 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     session.pendingConnect = false;
     clearReconnectTimer(session);
     const socketUrl = webSocketURL("./ws");
-    socketUrl.searchParams.set("name", session.name);
+    socketUrl.searchParams.set("name", String(session.name || "").trim());
     socketUrl.searchParams.set("pane", session.id);
     socketUrl.searchParams.set("client_id", serverRevisionClientID);
     socketUrl.searchParams.set("cols", String(session.term.cols || 120));
     socketUrl.searchParams.set("rows", String(session.term.rows || 32));
+    const logSocketUrl = new URL(socketUrl.toString());
+    logSocketUrl.searchParams.delete("client_id");
+    const socketDebug = {
+      textMessages: 0,
+      binaryMessages: 0,
+      binaryBytes: 0,
+      openedAt: 0,
+    };
+    console.info("[client-terminal] websocket connecting", {
+      name: session.name,
+      pane: session.id,
+      cols: session.term.cols || 120,
+      rows: session.term.rows || 32,
+      url: logSocketUrl.toString(),
+      allowHidden,
+      documentHidden: document.hidden,
+      reconnectAttempts: session.reconnectAttempts || 0,
+    });
     const currentSocket = new WebSocket(socketUrl.toString());
     session.socket = currentSocket;
     session.replayComplete = false;
     session.replayVerified = false;
+    session.replayCompletionPending = false;
     session.allowGeneratedInputDuringReplay = false;
     session.startupErrorShown = false;
     session.shellEl.dataset.connection = "connecting";
@@ -10683,6 +12253,13 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       const selector = String(message?.selector || "").trim() || "unknown";
       const paneID = String(message?.pane_id || message?.paneId || "").trim() || "unknown";
       detachSessionSocket(session, currentSocket, { connection: "error" });
+      console.warn("[client-terminal] rejected terminal replay", {
+        selector,
+        pane: paneID,
+        expectedName: session.name,
+        expectedPane: session.id,
+        messageType: message?.type,
+      });
       console.warn(`Rejected terminal replay for ${selector}/${paneID}; expected ${session.name}/${session.id}.`);
       currentSocket.close();
     };
@@ -10691,6 +12268,14 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       if (session.socket !== currentSocket) {
         return;
       }
+      socketDebug.openedAt = Date.now();
+      console.info("[client-terminal] websocket open", {
+        name: session.name,
+        pane: session.id,
+        cols: session.term.cols || 120,
+        rows: session.term.rows || 32,
+        reconnectAttempts: session.reconnectAttempts || 0,
+      });
       session.reconnectPending = false;
       session.shellEl.dataset.connection = "connecting";
       startSocketHealthMonitor(session, currentSocket);
@@ -10717,20 +12302,41 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
         return;
       }
       if (typeof event.data === "string") {
+        socketDebug.textMessages += 1;
         try {
           const message = JSON.parse(event.data);
           if (message && typeof message.type === "string") {
+            if (
+              socketDebug.textMessages <= 8
+              || message.type === "history-replay-start"
+              || message.type === "history-replay-complete"
+              || message.type === "process-exit"
+              || message.type === "agent-preparing"
+            ) {
+              console.info("[client-terminal] websocket control message", {
+                name: session.name,
+                pane: session.id,
+                type: message.type,
+                selector: message.selector || "",
+                paneID: message.pane_id || message.paneId || "",
+                replayVerified: session.replayVerified || false,
+                replayComplete: session.replayComplete,
+                textMessages: socketDebug.textMessages,
+              });
+            }
             switch (message.type) {
               case "history-replay-start":
                 if (!validateReplayMessage(message)) {
                   rejectMismatchedReplay(message);
                   return;
                 }
-                if (session.resetOnNextReplay) {
-                  session.resetOnNextReplay = false;
-                  resetTerminalForHistoryReplay(session);
+                session.agentPreparing = false;
+                if (!resetTerminalForHistoryReplay(session)) {
+                  detachSessionSocket(session, currentSocket, { connection: "error" });
+                  currentSocket.close();
+                  scheduleReconnect(session, { immediate: true });
+                  return;
                 }
-                session.replayComplete = false;
                 session.replayVerified = replayMessageHasIdentity(message) ? "identified" : "legacy";
                 session.allowGeneratedInputDuringReplay = message.allow_generated_input === true || message.allowGeneratedInput === true;
                 session.suppressGeneratedTerminalInputUntil = 0;
@@ -10741,19 +12347,26 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
                   rejectMismatchedReplay(message);
                   return;
                 }
-                flushSessionOutput(session);
-                session.replayComplete = true;
-                session.replayVerified = false;
-                session.allowGeneratedInputDuringReplay = false;
-                clearAttachReadyTimer(session);
-                session.reconnectAttempts = 0;
-                session.shellEl.dataset.connection = "open";
-                flushPendingInput(session);
+                session.replayCompletionPending = true;
+                finishSessionHistoryReplayIfReady(session) || flushSessionOutput(session);
+                return;
+              case "agent-preparing":
+                session.agentPreparing = true;
+                startAttachReadyTimer(session, currentSocket, terminalAgentPrepareTimeoutMs);
+                session.shellEl.dataset.connection = "connecting";
                 return;
               case "pong":
                 return;
               case "process-exit":
+                console.warn("[client-terminal] process exit message", {
+                  name: session.name,
+                  pane: session.id,
+                  retryable: message.retryable === true,
+                  exitCode: message.exit_code,
+                  message: message.message || "",
+                });
                 if (message.retryable === true && !/pane not found/i.test(String(message.message || ""))) {
+                  showSessionStartupError(session, message.message || "Client terminal connection failed.");
                   detachSessionSocket(session, currentSocket, { connection: "closed" });
                   currentSocket.close();
                   scheduleReconnect(session, { immediate: true });
@@ -10768,22 +12381,67 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
             }
           }
         } catch (error) {
+          if (socketDebug.textMessages <= 8) {
+            console.warn("[client-terminal] websocket text message parse failed", {
+              name: session.name,
+              pane: session.id,
+              bytes: event.data.length,
+              textMessages: socketDebug.textMessages,
+              error: error?.message || String(error),
+            });
+          }
         }
         writeSessionOutput(session, event.data);
         return;
       }
       if (event.data instanceof ArrayBuffer) {
+        socketDebug.binaryMessages += 1;
+        socketDebug.binaryBytes += event.data.byteLength;
+        if (socketDebug.binaryMessages <= 8) {
+          console.info("[client-terminal] websocket binary message", {
+            name: session.name,
+            pane: session.id,
+            bytes: event.data.byteLength,
+            binaryMessages: socketDebug.binaryMessages,
+            binaryBytes: socketDebug.binaryBytes,
+            replayVerified: session.replayVerified || false,
+            replayComplete: session.replayComplete,
+          });
+        }
         if (!session.replayVerified && !session.replayComplete) {
+          if (socketDebug.binaryMessages <= 8) {
+            console.warn("[client-terminal] dropped binary before replay verification", {
+              name: session.name,
+              pane: session.id,
+              bytes: event.data.byteLength,
+              binaryMessages: socketDebug.binaryMessages,
+            });
+          }
           return;
         }
         writeSessionOutput(session, new Uint8Array(event.data));
       }
     });
 
-    currentSocket.addEventListener("close", () => {
+    currentSocket.addEventListener("close", (event) => {
       if (session.socket !== currentSocket) {
         return;
       }
+      console.warn("[client-terminal] websocket close", {
+        name: session.name,
+        pane: session.id,
+        code: event.code,
+        reason: event.reason || "",
+        wasClean: event.wasClean,
+        openDurationMs: socketDebug.openedAt ? Date.now() - socketDebug.openedAt : 0,
+        textMessages: socketDebug.textMessages,
+        binaryMessages: socketDebug.binaryMessages,
+        binaryBytes: socketDebug.binaryBytes,
+        replayVerified: session.replayVerified || false,
+        replayComplete: session.replayComplete,
+        startupErrorShown: session.startupErrorShown,
+        exitExpected: session.exitExpected === true,
+      });
       detachSessionSocket(session, currentSocket, { connection: "closed" });
       flushSessionOutput(session);
       if (session.exitExpected) {
@@ -10791,15 +12449,27 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       }
       if (!session.startupErrorShown) {
         session.startupErrorShown = true;
-        showSessionStartupError(session, "WebSocket closed before terminal attached.");
+        showSessionStartupError(session, event.reason || "WebSocket closed before terminal attached.");
       }
       scheduleReconnect(session);
     });
 
-    currentSocket.addEventListener("error", () => {
+    currentSocket.addEventListener("error", (event) => {
       if (session.socket !== currentSocket) {
         return;
       }
+      console.warn("[client-terminal] websocket error", {
+        name: session.name,
+        pane: session.id,
+        readyState: currentSocket.readyState,
+        openDurationMs: socketDebug.openedAt ? Date.now() - socketDebug.openedAt : 0,
+        textMessages: socketDebug.textMessages,
+        binaryMessages: socketDebug.binaryMessages,
+        binaryBytes: socketDebug.binaryBytes,
+        replayVerified: session.replayVerified || false,
+        replayComplete: session.replayComplete,
+        eventType: event.type,
+      });
       detachSessionSocket(session, currentSocket, { connection: "error" });
       flushSessionOutput(session);
       if (!session.startupErrorShown) {
@@ -10820,6 +12490,9 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       return;
     }
     term.attachCustomKeyEventHandler((event) => {
+      if (runTerminalFontSizeShortcut(event)) {
+        return true;
+      }
       if (
         hasMobileStickyModifiers()
         && !event.ctrlKey
@@ -10856,6 +12529,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     shellEl.className = "pane-shell";
     shellEl.dataset.paneId = normalizedID;
     shellEl.dataset.connection = connect ? "connecting" : "idle";
+    shellEl.dataset.renderReady = "false";
     shellEl.setAttribute("tabindex", "-1");
 
     const terminalHost = document.createElement("div");
@@ -10873,10 +12547,6 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     compositionPreview.className = "terminal-composition-preview";
     compositionPreview.hidden = true;
     terminalHost.appendChild(compositionPreview);
-    if (typeof fitAddon.observeResize === "function") {
-      fitAddon.observeResize();
-    }
-
     const session = {
       id: normalizedID,
       tabId: tab.id,
@@ -10897,9 +12567,12 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       attachReadyTimer: 0,
       resumeProbeTimer: 0,
       attachStartedAt: 0,
+      attachReadyTimeoutMs: 0,
       lastSocketHealthAt: 0,
       replayComplete: false,
       replayVerified: false,
+      replayCompletionPending: false,
+      agentPreparing: false,
       pendingInput: [],
       pendingInputSize: 0,
       inputBuffer: "",
@@ -10921,11 +12594,14 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       composingIME: false,
       exitExpected: false,
       closed: false,
+      initialFitResetDone: false,
+      renderReady: false,
       baseTheme: activeTheme,
       selectAllBufferActive: false,
       title: "",
       hasUserInputSinceFocus: false,
       notifyWhenIdle: false,
+      cursorBlinkHoldTimer: 0,
       tty: "",
       busy: false,
       command: "",
@@ -10935,6 +12611,8 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       lastSizeReassertAt: 0,
       cleanupCallbacks: [],
     };
+    clearTerminalRuntimeBuffer(session);
+    clearTerminalCanvasPixels(session);
 
     installTerminalHostInputIsolation(session);
     installTerminalInputFocus(session);
@@ -10945,7 +12623,12 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     installRendererThemeMapper(session);
     installRendererCellSeamPatch(session);
     installMobileTouchSelection(session);
+    installTerminalMouseTracking(session);
     installDesktopMouseClipboard(session);
+    const renderDisposable = typeof term.onRender === "function" ? term.onRender(() => markPaneRenderedIfMeasurable(session)) : null;
+    if (renderDisposable && typeof renderDisposable.dispose === "function") {
+      session.cleanupCallbacks.push(() => renderDisposable.dispose());
+    }
 
     term.onData((data) => {
       const generatedResponse = isGeneratedTerminalResponse(data);
@@ -10973,6 +12656,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
         }
         return;
       }
+      holdTerminalCursorVisible(session);
       reassertTerminalSize(session);
       sendOrQueueInput(session, data, { userInput: !isGeneratedTerminalResponse(data) });
     });
@@ -11274,7 +12958,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     tabsEl.appendChild(button);
   };
 
-  const createTab = ({ id = "", label, pane, focus = true, connect = true, customLabel = false, empty = false, activate = true } = {}) => {
+  const createTab = ({ id = "", label, pane, paneId = "", focus = true, connect = true, customLabel = false, empty = false, activate = true } = {}) => {
     const normalizedID = String(id || `tab-${nextTabSeq}`).trim();
     const numeric = Number(normalizedID.replace(/^tab-/, ""));
     if (Number.isFinite(numeric) && numeric >= nextTabSeq) {
@@ -11307,7 +12991,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       tab.activePaneId = pane.id;
       tab.layout = { type: "leaf", paneId: pane.id };
     } else if (!empty) {
-      const session = createPaneSession(tab, activeName, { connect });
+      const session = createPaneSession(tab, activeName, { id: paneId, connect });
       tab.activePaneId = session.id;
       tab.layout = { type: "leaf", paneId: session.id };
     }
@@ -11319,38 +13003,63 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     return tab;
   };
 
+  const ensureInitialInteractiveTab = ({ focus = true } = {}) => {
+    if (!activeName || tabs.size > 0) {
+      return null;
+    }
+    const wasApplyingWorkspaceState = applyingWorkspaceState;
+    applyingWorkspaceState = true;
+    try {
+      return createTab({
+        id: "tab-1",
+        label: "Shell 1",
+        focus,
+        connect: true,
+        empty: false,
+        activate: true,
+        paneId: "pane-1",
+      });
+    } finally {
+      applyingWorkspaceState = wasApplyingWorkspaceState;
+    }
+  };
+
   const setActiveTab = (tabId, { focus = true, remember = true, rememberRecent = true } = {}) => {
     const tab = tabs.get(tabId);
     if (!tab) {
       return;
     }
-    const previousTabId = activeTabId;
-    const wasActive = previousTabId === tab.id;
-    activeTabId = tab.id;
-    if (rememberRecent) {
-      rememberRecentTab(tab.id, previousTabId);
-    }
-    for (const item of tabs.values()) {
-      const isActive = item.id === activeTabId;
-      item.paneEl.classList.toggle("active", isActive);
-      item.button?.classList.toggle("active", isActive);
-      item.button?.setAttribute("aria-selected", isActive ? "true" : "false");
-      item.button?.setAttribute("tabindex", isActive ? "0" : "-1");
-    }
-    setActivePane(tab, tab.activePaneId, { focus });
-    resetSessionUserInput(tab.panes.get(tab.activePaneId));
-    syncCursorBlinkState();
-    clearTabNotification(tab);
-    if (remember) {
-      rememberActiveTab();
-    }
-    renderAttachmentUploadsForActiveTab();
-    scheduleVisibleTabResize(tab);
-    window.requestAnimationFrame(() => scrollTabButtonIntoView(tab.button));
-    if (!applyingWorkspaceState && !wasActive) {
-      postWorkspaceAction("activate_tab", { tab_id: tab.id, recent_tab_ids: recentTabIds }).catch((error) => showToast(error.message));
-    }
-    scheduleTabOverviewRender();
+    return measurePerformanceTask("tab switch", () => {
+      const previousTabId = activeTabId;
+      const wasActive = previousTabId === tab.id;
+      activeTabId = tab.id;
+      if (rememberRecent) {
+        rememberRecentTab(tab.id, previousTabId);
+      }
+      for (const item of tabs.values()) {
+        const isActive = item.id === activeTabId;
+        item.paneEl.classList.toggle("active", isActive);
+        item.button?.classList.toggle("active", isActive);
+        item.button?.setAttribute("aria-selected", isActive ? "true" : "false");
+        item.button?.setAttribute("tabindex", isActive ? "0" : "-1");
+      }
+      setActivePane(tab, tab.activePaneId, { focus });
+      const activePane = tab.panes.get(tab.activePaneId);
+      resetSessionUserInput(activePane);
+      requestPaneFullRender(activePane);
+      syncCursorBlinkState();
+      clearTabNotification(tab);
+      if (remember) {
+        rememberActiveTab();
+      }
+      renderAttachmentUploadsForActiveTab();
+      scheduleVisibleTabResize(tab);
+      window.requestAnimationFrame(() => scrollTabButtonIntoView(tab.button));
+      if (!applyingWorkspaceState && !wasActive) {
+        postWorkspaceAction("activate_tab", { tab_id: tab.id, recent_tab_ids: recentTabIds }).catch((error) => showToast(error.message));
+      }
+      scheduleTabOverviewRender();
+    });
   };
 
   const renderLeaf = (tab, node) => {
@@ -11470,7 +13179,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     window.requestAnimationFrame(() => resizeTab(tab));
   };
 
-  const applyWorkspaceState = (state, { focus = false, instanceName = activeName, generation = activeInstanceGeneration, preferStateActiveTab = false } = {}) => {
+  const applyWorkspaceState = (state, { focus = false, instanceName = activeName, generation = activeInstanceGeneration, preferStateActiveTab = false } = {}) => measurePerformanceTask("workspace apply", () => {
     const expectedName = String(instanceName || "").trim();
     ensureResponseSelector(state, expectedName);
     const targetName = responseSelector(state) || expectedName;
@@ -11561,9 +13270,9 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       clearRestartTabForReload();
       applyingWorkspaceState = false;
     }
-  };
+  });
 
-  const refreshWorkspace = async ({ focus = false, instanceName = activeName, generation = activeInstanceGeneration } = {}) => {
+  const refreshWorkspace = async ({ focus = false, instanceName = activeName, generation = activeInstanceGeneration } = {}) => measurePerformanceTask("workspace refresh", async () => {
     const requestName = String(instanceName || "").trim();
     const state = await fetchWorkspaceState(requestName);
     if (!isCurrentInstanceRequest(requestName, generation)) {
@@ -11573,7 +13282,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     observeServerRevision(state);
     applyWorkspaceState(state, { focus, instanceName: requestName, generation });
     return state;
-  };
+  });
 
   const splitLayout = (node, targetPaneId, direction, newPaneId) => {
     if (!node) {
@@ -11791,6 +13500,10 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     pane.inputQueueSize = 0;
     clearInputPumpTimer(pane);
     pane.inputPumpActive = false;
+    if (pane.cursorBlinkHoldTimer) {
+      window.clearTimeout(pane.cursorBlinkHoldTimer);
+      pane.cursorBlinkHoldTimer = 0;
+    }
     clearReconnectTimer(pane);
     clearSessionConnectionTimers(pane);
     discardSessionOutputBuffers(pane);
@@ -11800,6 +13513,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       pane.socket = null;
       socket.close();
     }
+    clearTerminalCanvasPixels(pane);
     try {
       pane.term.dispose();
     } catch (error) {
@@ -12249,6 +13963,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     if (
       (themePickerBackdrop && !themePickerBackdrop.hidden) ||
       (settingsBackdrop && !settingsBackdrop.hidden) ||
+      (deviceBackdrop && !deviceBackdrop.hidden) ||
       (instanceSwitcherPanel && !instanceSwitcherPanel.hidden) ||
       (attachmentBackdrop && !attachmentBackdrop.hidden) ||
       isTabOverviewOpen()
@@ -12258,6 +13973,15 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     if (isInteractiveShortcutTarget(event.target)) {
       return;
     }
+    if (isShiftInsertPasteShortcutEvent(event)) {
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation?.();
+      focusTerminalForNativePasteShortcut();
+      closeContextMenu();
+      pasteIntoSession().catch((error) => showToast(error.message));
+      return;
+    }
     if (isNativePasteShortcutEvent(event)) {
       focusTerminalForNativePasteShortcut();
       closeContextMenu();
@@ -12265,22 +13989,9 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       event.stopImmediatePropagation?.();
       return;
     }
-    if (event.ctrlKey && !event.altKey && !event.metaKey) {
-      if (event.key === "+" || event.key === "=") {
-        event.preventDefault();
-        adjustTerminalFontSize(1);
-        return;
-      }
-      if (event.key === "-" || event.key === "_") {
-        event.preventDefault();
-        adjustTerminalFontSize(-1);
-        return;
-      }
-      if (event.key === "0") {
-        event.preventDefault();
-        resetTerminalFontSize();
-        return;
-      }
+    if (runTerminalFontSizeShortcut(event)) {
+      closeContextMenu();
+      return;
     }
     if (!event.ctrlKey && !event.altKey && !event.metaKey && (event.key === "PageUp" || event.key === "PageDown")) {
       const session = activeSession();
@@ -12347,6 +14058,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       return;
     }
     closeContextMenu();
+    closeDevicePanel();
     instanceSwitcher.classList.add("is-open");
     instanceSwitcherPanel.hidden = false;
     instanceSwitcherButton.setAttribute("aria-expanded", "true");
@@ -12376,6 +14088,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     }
     closeContextMenu();
     closeInstanceSwitcher();
+    closeDevicePanel();
     attachmentDialogOpen = true;
     attachmentBackdrop.hidden = false;
     window.setTimeout(() => attachmentClipboard?.focus(), 0);
@@ -12475,6 +14188,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       attachmentBrowserPath.title = attachmentBrowserCurrentPath || "/";
     }
     renderAttachmentBrowserBreadcrumbs();
+    updateAttachmentBrowserSortControls();
     if (attachmentBrowserDownload) {
       const count = attachmentBrowserSelectedPaths.size;
       attachmentBrowserDownload.disabled = count === 0;
@@ -12492,13 +14206,147 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     return true;
   };
 
-  const normalizeAttachmentEntry = (entry) => ({
-    name: String(entry?.name || "").trim(),
-    path: String(entry?.path || "").trim(),
-    type: String(entry?.type || "file").trim() === "dir" ? "dir" : "file",
-    size: Number(entry?.size || 0),
-    modified: Number(entry?.modified || 0),
+  const attachmentBrowserSortNames = {
+    name: "名称",
+    size: "文件大小",
+    modified: "修改日期",
+  };
+
+  const normalizeAttachmentEntryType = (type) => {
+    const normalized = String(type || "file").trim().toLowerCase();
+    if (normalized === "dir" || normalized === "link") {
+      return normalized;
+    }
+    return "file";
+  };
+
+  const normalizeAttachmentEntry = (entry, order = 0) => {
+    const size = Number(entry?.size || 0);
+    const modified = Number(entry?.modified || 0);
+    return {
+      name: String(entry?.name || "").trim(),
+      path: String(entry?.path || "").trim(),
+      type: normalizeAttachmentEntryType(entry?.type),
+      size: Number.isFinite(size) && size > 0 ? size : 0,
+      modified: Number.isFinite(modified) && modified > 0 ? modified : 0,
+      order,
+    };
+  };
+
+  const formatAttachmentFileSize = (entry) => {
+    if (entry?.type === "dir") {
+      return "";
+    }
+    const bytes = Number(entry?.size || 0);
+    if (!Number.isFinite(bytes) || bytes <= 0) {
+      return "0 B";
+    }
+    const units = ["B", "KB", "MB", "GB", "TB"];
+    let value = bytes;
+    let unitIndex = 0;
+    while (value >= 1024 && unitIndex < units.length - 1) {
+      value /= 1024;
+      unitIndex += 1;
+    }
+    if (unitIndex === 0) {
+      return `${Math.round(value)} ${units[unitIndex]}`;
+    }
+    const precision = value >= 10 ? 0 : 1;
+    return `${value.toFixed(precision)} ${units[unitIndex]}`;
+  };
+
+  const formatAttachmentModified = (entry) => {
+    const seconds = Number(entry?.modified || 0);
+    if (!Number.isFinite(seconds) || seconds <= 0) {
+      return "";
+    }
+    const date = new Date(seconds * 1000);
+    if (!Number.isFinite(date.getTime())) {
+      return "";
+    }
+    const pad = (value) => String(value).padStart(2, "0");
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  };
+
+  const compareAttachmentNames = (left, right) => String(left?.name || "").localeCompare(String(right?.name || ""), undefined, {
+    numeric: true,
+    sensitivity: "base",
   });
+
+  const compareAttachmentOptionalNumbers = (left, right, value, empty) => {
+    const leftEmpty = empty(left);
+    const rightEmpty = empty(right);
+    if (leftEmpty && rightEmpty) {
+      return 0;
+    }
+    if (leftEmpty) {
+      return -1;
+    }
+    if (rightEmpty) {
+      return 1;
+    }
+    return Number(value(left) || 0) - Number(value(right) || 0);
+  };
+
+  const compareAttachmentEntries = (left, right) => {
+    let result = 0;
+    if (attachmentBrowserSort.key === "name") {
+      result = compareAttachmentNames(left, right);
+    } else if (attachmentBrowserSort.key === "size") {
+      result = compareAttachmentOptionalNumbers(left, right, (entry) => entry.size, (entry) => entry.type === "dir");
+    } else if (attachmentBrowserSort.key === "modified") {
+      result = compareAttachmentOptionalNumbers(left, right, (entry) => entry.modified, (entry) => !Number(entry?.modified || 0));
+    }
+    if (result !== 0) {
+      return attachmentBrowserSort.direction === "desc" ? -result : result;
+    }
+    const nameResult = compareAttachmentNames(left, right);
+    if (nameResult !== 0) {
+      return nameResult;
+    }
+    return Number(left?.order || 0) - Number(right?.order || 0);
+  };
+
+  const sortedAttachmentBrowserEntries = () => attachmentBrowserEntries.slice().sort(compareAttachmentEntries);
+
+  const resetAttachmentBrowserSort = () => {
+    attachmentBrowserSort = { ...attachmentBrowserDefaultSort };
+  };
+
+  const cycleAttachmentBrowserSort = (key) => {
+    const normalizedKey = String(key || "").trim();
+    if (!Object.prototype.hasOwnProperty.call(attachmentBrowserSortNames, normalizedKey)) {
+      return;
+    }
+    if (attachmentBrowserSort.key !== normalizedKey) {
+      attachmentBrowserSort = { key: normalizedKey, direction: "asc" };
+      return;
+    }
+    if (attachmentBrowserSort.direction === "asc") {
+      attachmentBrowserSort = { key: normalizedKey, direction: "desc" };
+      return;
+    }
+    resetAttachmentBrowserSort();
+  };
+
+  const updateAttachmentBrowserSortControls = () => {
+    const activeLabel = attachmentBrowserSortNames[attachmentBrowserSort.key] || "";
+    const activeDirectionLabel = attachmentBrowserSort.direction === "desc" ? "降序" : "升序";
+    attachmentBrowserSortbar?.setAttribute("data-sort-key", attachmentBrowserSort.key);
+    attachmentBrowserSortbar?.setAttribute("data-sort-direction", attachmentBrowserSort.direction);
+    for (const button of attachmentBrowserSortButtons) {
+      const key = String(button.dataset.attachmentSortKey || "");
+      const active = key === attachmentBrowserSort.key;
+      const label = attachmentBrowserSortNames[key] || button.textContent.trim();
+      button.classList.toggle("is-active", active);
+      button.dataset.sortDirection = active ? attachmentBrowserSort.direction : "";
+      button.setAttribute("aria-pressed", active ? "true" : "false");
+      button.setAttribute("aria-label", active ? `按${label}排序，当前${activeDirectionLabel}，点击切换排序` : `按${label}排序`);
+    }
+    if (attachmentBrowserList) {
+      attachmentBrowserList.setAttribute("aria-label", activeLabel ? `文件列表，当前按${activeLabel}${activeDirectionLabel}排序` : "文件列表");
+    }
+  };
 
   const attachmentBrowserDownloadFilename = (paths) => {
     const selected = Array.from(paths || []).filter(Boolean);
@@ -12516,6 +14364,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     item.className = "attachment-browser-item";
     item.dataset.path = entry.path;
     item.dataset.type = entry.type;
+    item.setAttribute("role", "listitem");
 
     const row = document.createElement("div");
     row.className = "attachment-browser-file";
@@ -12534,7 +14383,15 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     name.className = "attachment-browser-file-name";
     name.textContent = entry.name || entry.path;
     button.appendChild(name);
-    row.append(checkbox, button);
+    const size = document.createElement("span");
+    size.className = "attachment-browser-file-meta attachment-browser-file-size";
+    size.textContent = formatAttachmentFileSize(entry);
+    size.title = size.textContent;
+    const modified = document.createElement("span");
+    modified.className = "attachment-browser-file-meta attachment-browser-file-modified";
+    modified.textContent = formatAttachmentModified(entry);
+    modified.title = modified.textContent;
+    row.append(checkbox, button, size, modified);
     item.appendChild(row);
     return item;
   };
@@ -12545,17 +14402,11 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     }
     attachmentBrowserList.textContent = "";
     attachmentBrowserEntriesByPath.clear();
-    const normalized = Array.isArray(entries) ? entries.map(normalizeAttachmentEntry).filter((entry) => entry.name && entry.path) : [];
-    normalized.sort((left, right) => {
-      if (left.type === "dir" && right.type !== "dir") {
-        return -1;
-      }
-      if (left.type !== "dir" && right.type === "dir") {
-        return 1;
-      }
-      return left.name.localeCompare(right.name, undefined, { numeric: true, sensitivity: "base" });
-    });
-    if (normalized.length === 0) {
+    if (Array.isArray(entries)) {
+      attachmentBrowserEntries = entries.map((entry, index) => normalizeAttachmentEntry(entry, index)).filter((entry) => entry.name && entry.path);
+    }
+    const sorted = sortedAttachmentBrowserEntries();
+    if (sorted.length === 0) {
       const empty = document.createElement("div");
       empty.className = "attachment-browser-empty";
       empty.textContent = "这个目录没有文件";
@@ -12563,14 +14414,14 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       return;
     }
     const fragment = document.createDocumentFragment();
-    for (const entry of normalized) {
+    for (const entry of sorted) {
       attachmentBrowserEntriesByPath.set(entry.path, entry);
       fragment.appendChild(createAttachmentBrowserItem(entry));
     }
     attachmentBrowserList.appendChild(fragment);
   };
 
-  const loadAttachmentBrowserPath = async (path = attachmentBrowserCurrentPath) => {
+  const loadAttachmentBrowserPath = async (path = attachmentBrowserCurrentPath) => measurePerformanceTask("attachment list refresh", async () => {
     if (!activeName) {
       showToast("没有可用的当前终端。");
       return;
@@ -12590,6 +14441,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       attachmentBrowserCurrentPath = String(payload?.path || path || "/").trim() || "/";
       attachmentBrowserParentPath = String(payload?.parent || "").trim();
       attachmentBrowserSelectedPaths.clear();
+      resetAttachmentBrowserSort();
       renderAttachmentBrowserList(payload?.entries || []);
       setAttachmentBrowserFeedback("");
       updateAttachmentBrowserControls();
@@ -12603,7 +14455,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
         updateAttachmentBrowserControls();
       }
     }
-  };
+  });
 
   const openAttachmentBrowser = () => {
     if (!attachmentBrowserBackdrop) {
@@ -12612,11 +14464,14 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     closeAttachmentDialog({ focusTerminal: false });
     closeContextMenu();
     closeInstanceSwitcher();
-    const startPath = String(activeSession()?.cwd || "").trim() || "/";
+    closeDevicePanel();
+    const startPath = isClientInstanceName() ? "/" : String(activeSession()?.cwd || "").trim() || "/";
     attachmentBrowserOpen = true;
     attachmentBrowserCurrentPath = startPath;
     attachmentBrowserParentPath = "";
     attachmentBrowserSelectedPaths.clear();
+    attachmentBrowserEntries = [];
+    resetAttachmentBrowserSort();
     document.body?.classList.add("attachment-browser-open");
     attachmentBrowserBackdrop.hidden = false;
     renderAttachmentBrowserList([]);
@@ -12630,6 +14485,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     attachmentBrowserRequestSeq += 1;
     attachmentBrowserSelectedPaths.clear();
     attachmentBrowserEntriesByPath.clear();
+    attachmentBrowserEntries = [];
     attachmentBrowserBreadcrumbPath = "";
     attachmentBrowserEdgeSwipe = null;
     if (attachmentBrowserBackdrop) {
@@ -12982,6 +14838,15 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     };
     attachmentUploads.set(id, upload);
     renderAttachmentUpload(upload);
+    const uploadStartedAt = performanceTaskNow();
+    let uploadRecorded = false;
+    const recordAttachmentUpload = () => {
+      if (uploadRecorded) {
+        return;
+      }
+      uploadRecorded = true;
+      recordPerformanceTask("attachment upload", performanceTaskNow() - uploadStartedAt);
+    };
 
     const form = new FormData();
     for (const file of selectedFiles) {
@@ -13000,6 +14865,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       renderAttachmentUpload(upload);
     });
     xhr.addEventListener("load", async () => {
+      recordAttachmentUpload();
       upload.xhr = null;
       upload.loaded = upload.total || upload.loaded;
       if (xhr.status < 200 || xhr.status >= 300) {
@@ -13028,6 +14894,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       }
     });
     xhr.addEventListener("error", () => {
+      recordAttachmentUpload();
       upload.xhr = null;
       upload.status = "error";
       upload.error = "上传失败";
@@ -13040,6 +14907,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       renderAttachmentUpload(upload);
     });
     xhr.addEventListener("abort", () => {
+      recordAttachmentUpload();
       upload.xhr = null;
       upload.status = "canceled";
       upload.error = "";
@@ -13127,13 +14995,18 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   };
 
   const bootstrap = async () => {
-    startPerformanceMeter();
+    syncDebugModeState();
+    applyPerformanceMeterVisibility();
+    applyPerformanceTaskMeterVisibility();
+    startDeviceHeartbeat();
     await loadThemeCatalog();
     applyThemeDocumentState();
     renderThemePicker();
     renderSettingsThemeList();
     await loadSettings().catch((error) => showToast(error.message || "设置加载失败。"));
     await refreshInstances();
+    await clearStartupServerRevisionInputLock().catch(() => {});
+    ensureInitialInteractiveTab({ focus: true });
     await refreshWorkspace({ focus: true });
     await refreshServerRevision().catch(() => {});
     startServerRevisionRefresh();
@@ -13260,6 +15133,13 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   settingsBackdrop?.addEventListener("click", (event) => {
     if (event.target === settingsBackdrop) {
       closeSettings();
+    }
+  });
+  deviceClose?.addEventListener("click", closeDevicePanel);
+  deviceBack?.addEventListener("click", closeDevicePanel);
+  deviceBackdrop?.addEventListener("click", (event) => {
+    if (event.target === deviceBackdrop) {
+      closeDevicePanel();
     }
   });
   settingsMobileNav?.addEventListener("click", (event) => {
@@ -13451,11 +15331,23 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
         }
       });
   });
+  settingsDebugModeToggle?.addEventListener("change", () => {
+    debugModeEnabled = settingsDebugModeToggle.checked;
+    window.localStorage.setItem(debugModeStorageKey, debugModeEnabled ? "true" : "false");
+    syncDebugModeState();
+  });
+  settingsOnlineDevicesButton?.addEventListener("click", openDevicePanel);
   settingsPerformanceMeterToggle?.addEventListener("change", () => {
     performanceMeterEnabled = settingsPerformanceMeterToggle.checked;
     window.localStorage.setItem(performanceMeterStorageKey, performanceMeterEnabled ? "true" : "false");
     applyPerformanceMeterVisibility();
     syncSettingsPerformanceMeterToggle();
+  });
+  settingsPerformanceTasksToggle?.addEventListener("change", () => {
+    performanceTasksEnabled = settingsPerformanceTasksToggle.checked;
+    window.localStorage.setItem(performanceTasksStorageKey, performanceTasksEnabled ? "true" : "false");
+    applyPerformanceTaskMeterVisibility();
+    syncSettingsPerformanceTasksToggle();
   });
   settingsMobilePixelScrollToggle?.addEventListener("change", () => {
     const previous = mobilePixelScrollEnabled;
@@ -13729,6 +15621,15 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     }
     loadAttachmentBrowserPath(button.dataset.path || "/").catch((error) => setAttachmentBrowserFeedback(error.message || "文件列表读取失败。", "error"));
   });
+  attachmentBrowserSortbar?.addEventListener("click", (event) => {
+    const button = event.target instanceof Element ? event.target.closest("[data-attachment-sort-key]") : null;
+    if (!(button instanceof HTMLButtonElement)) {
+      return;
+    }
+    cycleAttachmentBrowserSort(button.dataset.attachmentSortKey);
+    renderAttachmentBrowserList();
+    updateAttachmentBrowserControls();
+  });
   attachmentBrowserBackdrop?.addEventListener("touchstart", handleAttachmentBrowserTouchStart, { passive: true });
   attachmentBrowserBackdrop?.addEventListener("touchmove", handleAttachmentBrowserTouchMove, { passive: false });
   attachmentBrowserBackdrop?.addEventListener("touchend", resetAttachmentBrowserEdgeSwipe, { passive: true });
@@ -13741,7 +15642,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       return;
     }
     const fileButton = target instanceof Element ? target.closest(".attachment-browser-file-main[data-path]") : null;
-    if (fileButton?.closest?.('.attachment-browser-item[data-type="file"]')) {
+    if (fileButton && !fileButton.closest?.('.attachment-browser-item[data-type="dir"]')) {
       triggerAttachmentDownload([fileButton.dataset.path || ""]);
       closeAttachmentBrowser({ focusTerminal: true });
     }
@@ -13783,6 +15684,11 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     }
   });
   document.addEventListener("keydown", (event) => {
+    if (deviceBackdrop && !deviceBackdrop.hidden && event.key === "Escape") {
+      event.preventDefault();
+      closeDevicePanel();
+      return;
+    }
     if (mobileCustomSelectState && event.key === "Escape") {
       event.preventDefault();
       closeMobileCustomSelect({ focus: true });
@@ -13864,6 +15770,11 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     const cardButton = target instanceof Element ? target.closest(".tab-overview-card-main") : null;
     if (cardButton) {
       selectTabFromOverview(cardButton.dataset.tabId);
+      return;
+    }
+    const card = target instanceof Element ? target.closest(".tab-overview-card") : null;
+    if (card) {
+      selectTabFromOverview(card.dataset.tabId);
       return;
     }
     if (target instanceof Element && !target.closest(".tab-overview-header")) {
@@ -13962,6 +15873,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       closeAttachmentBrowser({ focusTerminal: false });
       closeThemePicker();
       closeSettings();
+      closeDevicePanel();
       closeTabOverview();
     }
     handleGlobalShortcutKeydown(event);
@@ -13989,6 +15901,9 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     if (settingsBackdrop && !settingsBackdrop.hidden) {
       syncSettingsMobileNavigation();
     }
+    if (deviceBackdrop && !deviceBackdrop.hidden) {
+      refreshDeviceList().catch(() => {});
+    }
     ensureMobileOverviewHistoryGuard();
     scheduleTabOverviewRender();
   });
@@ -14014,7 +15929,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       return;
     }
     const nextParams = new URLSearchParams(window.location.search);
-    const nextName = (nextParams.get("name") || "").trim();
+    const nextName = readTargetNameParam(nextParams);
     const nextTab = (nextParams.get("tab") || "").trim();
     if (!nextName) {
       return;
@@ -14042,10 +15957,14 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   });
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden) {
+      postDeviceHeartbeat().catch(() => {});
       resizeActiveTab();
       refreshServerRevision().catch(() => {});
       reconnectVisibleSessions({ allowHidden: true, probe: true });
       refreshActivity({ silent: true }).catch(() => {});
+      if (deviceBackdrop && !deviceBackdrop.hidden) {
+        refreshDeviceList().catch(() => {});
+      }
       updateSelectionSheet();
     }
   });
@@ -14056,10 +15975,14 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     refreshActivity({ silent: true }).catch(() => {});
   });
   window.addEventListener("pageshow", () => {
+    postDeviceHeartbeat().catch(() => {});
     resizeActiveTab();
     refreshServerRevision().catch(() => {});
     reconnectVisibleSessions({ allowHidden: true, probe: true });
     refreshActivity({ silent: true }).catch(() => {});
+  });
+  window.addEventListener("pagehide", () => {
+    sendDeviceOfflineBeacon();
   });
   window.addEventListener("beforeunload", (event) => {
     if (!suppressBeforeUnloadOnce && hasCachedBusyPane()) {
@@ -14068,6 +15991,9 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       return "";
     }
     disposed = true;
+    sendDeviceOfflineBeacon();
+    window.clearInterval(deviceHeartbeatTimer);
+    stopDeviceListRefresh();
     window.clearInterval(serverRevisionRefreshTimer);
     for (const tab of tabs.values()) {
       for (const pane of tab.panes.values()) {
