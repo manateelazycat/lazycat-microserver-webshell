@@ -612,11 +612,43 @@ func TestRuntimeDefaultMobileShortcutOrder(t *testing.T) {
 	}
 	source := string(data)
 	tabSnippet := `{ id: "tab", label: "Tab", ariaLabel: "Tab", data: "\t", inputKey: "tab" },`
+	continueSnippet := `{ id: "continue", label: "Continue", ariaLabel: "Continue", text: "continue", data: "continue", kind: "primary" },`
 	returnSnippet := `{ id: "return", label: "Return", ariaLabel: "Return", data: "\r", inputKey: "enter", kind: "primary" },`
 	tabIndex := strings.Index(source, tabSnippet)
+	continueIndex := strings.Index(source, continueSnippet)
 	returnIndex := strings.Index(source, returnSnippet)
-	if tabIndex < 0 || returnIndex < 0 || tabIndex > returnIndex {
-		t.Fatalf("default mobile shortcut order should place Tab before Return")
+	if tabIndex < 0 || continueIndex < 0 || returnIndex < 0 || tabIndex > continueIndex || continueIndex > returnIndex {
+		t.Fatalf("default mobile shortcut order should place Tab before Continue before Return")
+	}
+}
+
+func TestRuntimeMobileShortcutTextButtons(t *testing.T) {
+	for _, path := range []string{"runtime/static/index.html", "runtime/static/main.js"} {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("ReadFile(%s) error = %v", path, err)
+		}
+		source := string(data)
+		wantSnippets := map[string][]string{
+			"runtime/static/index.html": {
+				`value="text"`,
+				`id="mobileShortcutTextField"`,
+				`id="mobileShortcutTextInput"`,
+			},
+			"runtime/static/main.js": {
+				`const mobileShortcutTextInput = document.getElementById("mobileShortcutTextInput");`,
+				`text: typeof shortcut.text === "string" ? shortcut.text : "",`,
+				`item.text = text;`,
+				`setSelectedMobileShortcutType(isAction ? "action" : isText ? "text" : "input");`,
+				`shortcut.text = text;`,
+				`normalizeMobileShortcutTextData(shortcut.text);`,
+			},
+		}
+		for _, want := range wantSnippets[path] {
+			if !strings.Contains(source, want) {
+				t.Fatalf("%s mobile shortcut text guard missing %q", path, want)
+			}
+		}
 	}
 }
 

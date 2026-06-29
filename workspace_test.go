@@ -946,17 +946,23 @@ func TestHandleSettingsDefaultsMobileShortcuts(t *testing.T) {
 	}
 	row := state.MobileShortcuts[0]
 	tabIndex := -1
+	continueIndex := -1
 	returnIndex := -1
 	for index, shortcut := range row {
 		switch shortcut.ID {
 		case "tab":
 			tabIndex = index
+		case "continue":
+			continueIndex = index
+			if shortcut.Text != "continue" || shortcut.Label != "Continue" {
+				t.Fatalf("MobileShortcuts[0][%d] = %+v, want Continue text shortcut", index, shortcut)
+			}
 		case "return":
 			returnIndex = index
 		}
 	}
-	if tabIndex < 0 || returnIndex < 0 || tabIndex > returnIndex {
-		t.Fatalf("MobileShortcuts[0] = %+v, want tab before return", row)
+	if tabIndex < 0 || continueIndex < 0 || returnIndex < 0 || tabIndex > continueIndex || continueIndex > returnIndex {
+		t.Fatalf("MobileShortcuts[0] = %+v, want tab before Continue before return", row)
 	}
 	row = state.MobileShortcuts[1]
 	ctrlCIndex := -1
@@ -1004,6 +1010,27 @@ func TestHandleSettingsAcceptsSwapMobileShortcut(t *testing.T) {
 	}
 	if got := state.MobileShortcuts[0][0]; got.Action != "swap_tab" || got.Label != "Swap" {
 		t.Fatalf("MobileShortcuts[0][0] = %+v, want swap_tab", got)
+	}
+}
+
+func TestHandleSettingsAcceptsTextMobileShortcut(t *testing.T) {
+	server := &pluginServer{fontDir: t.TempDir()}
+
+	body := `{"mobile_shortcuts":[[{"id":"continue","label":"Continue","text":"continue","kind":"primary"}],[]]}`
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPut, "/api/settings", strings.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	server.handleSettings(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("handleSettings() status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	var state fonts.State
+	if err := json.NewDecoder(recorder.Body).Decode(&state); err != nil {
+		t.Fatalf("decode response error = %v", err)
+	}
+	if got := state.MobileShortcuts[0][0]; got.Text != "continue" || got.Label != "Continue" || got.Kind != "primary" {
+		t.Fatalf("MobileShortcuts[0][0] = %+v, want Continue text shortcut", got)
 	}
 }
 
@@ -1187,6 +1214,9 @@ func TestHandleSettingsRejectsInvalidMobileShortcutsWithoutWriting(t *testing.T)
 		`{"mobile_shortcuts":[[{"id":"bad space","label":"A","input_key":"a"}],[]]}`,
 		`{"mobile_shortcuts":[[{"id":"bad-action","label":"A","action":"unknown"}],[]]}`,
 		`{"mobile_shortcuts":[[{"id":"bad-action-mod","label":"A","action":"copy","input_modifiers":{"ctrl":true}}],[]]}`,
+		`{"mobile_shortcuts":[[{"id":"bad-text-mod","label":"A","text":"continue","input_modifiers":{"ctrl":true}}],[]]}`,
+		`{"mobile_shortcuts":[[{"id":"bad-text-empty","label":"A","text":""}],[]]}`,
+		`{"mobile_shortcuts":[[{"id":"bad-shape-text-action","label":"A","action":"copy","text":"copy"}],[]]}`,
 		`{"mobile_shortcuts":[[{"id":"bad-label","label":"","input_key":"a"}],[]]}`,
 		`{"mobile_shortcuts":[[{"id":"bad-shape","label":"A","input_key":"a"}]]}`,
 	} {

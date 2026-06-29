@@ -2679,7 +2679,7 @@ body.split-resize-active * {
 
 .mobile-shortcut-editor-type {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
   margin: 0;
   padding: 0;
@@ -2740,10 +2740,10 @@ body.split-resize-active * {
 
 .mobile-shortcut-editor-field input,
 .mobile-shortcut-editor-field select,
+.mobile-shortcut-editor-field textarea,
 .desktop-shortcut-editor-field input,
 .desktop-shortcut-editor-field select {
   width: 100%;
-  height: 34px;
   min-width: 0;
   padding: 0 10px;
   border: 1px solid var(--panel-border);
@@ -2755,8 +2755,24 @@ body.split-resize-active * {
   box-sizing: border-box;
 }
 
+.mobile-shortcut-editor-field input,
+.mobile-shortcut-editor-field select,
+.desktop-shortcut-editor-field input,
+.desktop-shortcut-editor-field select {
+  height: 34px;
+}
+
+.mobile-shortcut-editor-field textarea {
+  min-height: 74px;
+  padding-top: 8px;
+  padding-bottom: 8px;
+  resize: vertical;
+  line-height: 1.35;
+}
+
 .mobile-shortcut-editor-field input:focus,
 .mobile-shortcut-editor-field select:focus,
+.mobile-shortcut-editor-field textarea:focus,
 .desktop-shortcut-editor-field input:focus,
 .desktop-shortcut-editor-field select:focus {
   border-color: rgba(148, 163, 184, 0.68);

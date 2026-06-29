@@ -104,6 +104,8 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   const mobileShortcutShiftInput = document.getElementById("mobileShortcutShiftInput");
   const mobileShortcutActionField = document.getElementById("mobileShortcutActionField");
   const mobileShortcutActionSelect = document.getElementById("mobileShortcutActionSelect");
+  const mobileShortcutTextField = document.getElementById("mobileShortcutTextField");
+  const mobileShortcutTextInput = document.getElementById("mobileShortcutTextInput");
   const mobileShortcutEditorCancel = document.getElementById("mobileShortcutEditorCancel");
   const mobileShortcutEditorDelete = document.getElementById("mobileShortcutEditorDelete");
   const desktopShortcutEditor = document.getElementById("desktopShortcutEditor");
@@ -617,6 +619,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       { id: "sticky-alt", label: "Alt+", ariaLabel: "Sticky Alt", action: "sticky_alt", kind: "modifier" },
       { id: "sticky-shift", label: "Shift+", ariaLabel: "Sticky Shift", action: "sticky_shift", kind: "modifier" },
       { id: "tab", label: "Tab", ariaLabel: "Tab", data: "\t", inputKey: "tab" },
+      { id: "continue", label: "Continue", ariaLabel: "Continue", text: "continue", data: "continue", kind: "primary" },
       { id: "return", label: "Return", ariaLabel: "Return", data: "\r", inputKey: "enter", kind: "primary" },
       { id: "arrow-up", label: "\u2191", ariaLabel: "Up Arrow", data: "\x1b[A", inputKey: "arrow_up", kind: "nav" },
       { id: "arrow-down", label: "\u2193", ariaLabel: "Down Arrow", data: "\x1b[B", inputKey: "arrow_down", kind: "nav" },
@@ -911,6 +914,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       ? rows[rowIndex].map((shortcut) => ({
         ...shortcut,
         inputKey: String(shortcut.inputKey || shortcut.input_key || "").trim(),
+        text: typeof shortcut.text === "string" ? shortcut.text : "",
         ariaLabel: String(shortcut.ariaLabel || shortcut.aria_label || "").trim(),
         inputModifiers: {
           ctrl: (shortcut.inputModifiers || shortcut.input_modifiers)?.ctrl === true,
@@ -935,7 +939,8 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     const label = String(shortcut?.label || "").trim();
     const action = String(shortcut?.action || "").trim();
     const inputKey = String(shortcut?.inputKey || shortcut?.input_key || "").trim();
-    if (!id || !label || (!action && !inputKey)) {
+    const text = typeof shortcut?.text === "string" ? shortcut.text : "";
+    if (!id || !label || (!action && !inputKey && !text)) {
       return null;
     }
     const next = {
@@ -948,9 +953,12 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     };
     if (action) {
       next.action = action;
-    } else {
+    } else if (inputKey) {
       next.inputKey = inputKey;
       next.data = encodeMobileShortcutKeyInput(inputKey, next.inputModifiers);
+    } else {
+      next.text = text;
+      next.data = text;
     }
     return next;
   };
@@ -971,14 +979,17 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     };
     const action = String(shortcut.action || "").trim();
     const inputKey = String(shortcut.inputKey || "").trim();
+    const text = typeof shortcut.text === "string" ? shortcut.text : "";
     if (action) {
       item.action = action;
-    } else {
+    } else if (inputKey) {
       item.input_key = inputKey;
       const modifiers = normalizeShortcutInputModifiers(shortcut.inputModifiers);
       if (modifiers.ctrl || modifiers.alt || modifiers.shift) {
         item.input_modifiers = modifiers;
       }
+    } else {
+      item.text = text;
     }
     const kind = String(shortcut.kind || "").trim();
     const icon = String(shortcut.icon || "").trim();
@@ -2523,7 +2534,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   const selectedMobileShortcutType = () => mobileShortcutTypeInputs.find((input) => input.checked)?.value || "input";
 
   const setSelectedMobileShortcutType = (type) => {
-    const nextType = type === "action" ? "action" : "input";
+    const nextType = ["action", "text"].includes(type) ? type : "input";
     for (const input of mobileShortcutTypeInputs) {
       input.checked = input.value === nextType;
     }
@@ -2532,11 +2543,16 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   const syncMobileShortcutEditorFields = () => {
     const type = selectedMobileShortcutType();
     const isInput = type === "input";
+    const isAction = type === "action";
+    const isText = type === "text";
     if (mobileShortcutKeyField) {
       mobileShortcutKeyField.hidden = !isInput;
     }
     if (mobileShortcutActionField) {
-      mobileShortcutActionField.hidden = isInput;
+      mobileShortcutActionField.hidden = !isAction;
+    }
+    if (mobileShortcutTextField) {
+      mobileShortcutTextField.hidden = !isText;
     }
     if (mobileShortcutModifiersField) {
       mobileShortcutModifiersField.hidden = !isInput;
@@ -2568,13 +2584,17 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     if (mobileShortcutLabelInput) {
       mobileShortcutLabelInput.value = label;
     }
-    const isAction = Boolean(existing?.action);
-    setSelectedMobileShortcutType(isAction ? "action" : "input");
     if (mobileShortcutActionSelect) {
       mobileShortcutActionSelect.value = existing?.action || "copy";
     }
+    if (mobileShortcutTextInput) {
+      mobileShortcutTextInput.value = typeof existing?.text === "string" ? existing.text : "";
+    }
+    const isText = typeof existing?.text === "string" && existing.text !== "";
     const inputKey = existing?.inputKey || "tab";
     const isKnownKey = inputKey !== "" && mobileShortcutKeyOptions.some((item) => item.value === inputKey);
+    const isAction = Boolean(existing?.action);
+    setSelectedMobileShortcutType(isAction ? "action" : isText ? "text" : "input");
     if (mobileShortcutKeySelect) {
       mobileShortcutKeySelect.value = isKnownKey ? inputKey : "custom";
     }
@@ -2623,6 +2643,18 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       } else if (action.startsWith("sticky_") || action.startsWith("zoom_")) {
         shortcut.kind = "modifier";
       }
+      return shortcut;
+    }
+    if (type === "text") {
+      const text = String(mobileShortcutTextInput?.value ?? "");
+      if (!text || Array.from(text).length > 1024) {
+        throw new Error("发送文字必须是 1-1024 个字符。");
+      }
+      if (text.includes("\x00")) {
+        throw new Error("发送文字不能包含 NUL 字符。");
+      }
+      shortcut.text = text;
+      shortcut.data = text;
       return shortcut;
     }
     let inputKey = String(mobileShortcutKeySelect?.value || "").trim();
@@ -10481,9 +10513,23 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
 
   const isMobileShortcutRepeatable = (shortcut) => ["enter", "arrow_up", "arrow_down", "arrow_left", "arrow_right"].includes(String(shortcut?.inputKey || ""));
 
+  const formatMobileShortcutTextPreview = (text) => {
+    const normalized = String(text || "")
+      .replace(/\r\n/g, "\n")
+      .replace(/\r/g, "\n");
+    const visible = normalized
+      .replace(/\t/g, "\\t")
+      .replace(/\n/g, "\\n");
+    const points = Array.from(visible);
+    return points.length > 32 ? `${points.slice(0, 32).join("")}...` : visible;
+  };
+
   const describeMobileShortcut = (shortcut) => {
     if (shortcut?.action) {
       return mobileShortcutActionLabels.get(shortcut.action) || shortcut.action;
+    }
+    if (typeof shortcut?.text === "string" && shortcut.text !== "") {
+      return `发送文字: ${formatMobileShortcutTextPreview(shortcut.text)}`;
     }
     const key = String(shortcut?.inputKey || "");
     const keyLabel = key.length === 1 ? key : (mobileShortcutInputKeyLabels.get(key) || key);
@@ -10523,6 +10569,10 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     }
     return encoded || (typeof shortcut?.data === "string" ? shortcut.data : "");
   };
+
+  const normalizeMobileShortcutTextData = (text) => String(text || "")
+    .replace(/\r\n/g, "\r")
+    .replace(/\n/g, "\r");
 
   const setTouchShortcutFeedbackEnabled = (enabled) => {
     touchShortcutFeedbackEnabled = enabled !== false;
@@ -10667,6 +10717,16 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     }
     const targetSession = session || activeSession();
     if (!targetSession) {
+      return;
+    }
+    if (typeof shortcut?.text === "string" && shortcut.text !== "") {
+      if (hasMobileStickyModifiers()) {
+        clearMobileSticky();
+      }
+      const text = normalizeMobileShortcutTextData(shortcut.text);
+      if (text) {
+        sendOrQueueInput(targetSession, text);
+      }
       return;
     }
     sendOrQueueInput(targetSession, data);

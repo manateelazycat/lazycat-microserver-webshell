@@ -450,6 +450,10 @@
             <input class="mobile-shortcut-type-input" type="radio" name="mobileShortcutType" value="action" />
             <span>执行动作</span>
           </label>
+          <label class="mobile-shortcut-type-card">
+            <input class="mobile-shortcut-type-input" type="radio" name="mobileShortcutType" value="text" />
+            <span>发送文字</span>
+          </label>
         </fieldset>
         <label class="mobile-shortcut-editor-field" id="mobileShortcutKeyField">
           <span>按键</span>
@@ -468,6 +472,10 @@
         <label class="mobile-shortcut-editor-field" id="mobileShortcutActionField" hidden>
           <span>动作</span>
           <select id="mobileShortcutActionSelect"></select>
+        </label>
+        <label class="mobile-shortcut-editor-field" id="mobileShortcutTextField" hidden>
+          <span>文字</span>
+          <textarea id="mobileShortcutTextInput" maxlength="1024" rows="3" autocomplete="off" spellcheck="false"></textarea>
         </label>
         <div class="mobile-shortcut-editor-actions">
           <button class="settings-text-button danger" id="mobileShortcutEditorDelete" type="button" hidden>删除</button>

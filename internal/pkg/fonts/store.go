@@ -29,6 +29,7 @@ const (
 	MinTerminalLineHeightPercent     = 100
 	MaxTerminalLineHeightPercent     = 160
 	DefaultTerminalFontID            = "03e60d3c1a9f8bef4e1f78836f80aacb9ec005260a6b094f5bfc10043bb115ab"
+	MaxMobileShortcutTextRunes       = 1024
 )
 
 var (
@@ -76,6 +77,7 @@ type MobileShortcut struct {
 	Label          string                  `json:"label"`
 	Action         string                  `json:"action,omitempty"`
 	InputKey       string                  `json:"input_key,omitempty"`
+	Text           string                  `json:"text,omitempty"`
 	InputModifiers MobileShortcutModifiers `json:"input_modifiers,omitempty"`
 	Kind           string                  `json:"kind,omitempty"`
 	Icon           string                  `json:"icon,omitempty"`
@@ -213,6 +215,7 @@ var defaultMobileShortcuts = MobileShortcutRows{
 		{ID: "sticky-alt", Label: "Alt+", Action: "sticky_alt", Kind: "modifier", AriaLabel: "Sticky Alt"},
 		{ID: "sticky-shift", Label: "Shift+", Action: "sticky_shift", Kind: "modifier", AriaLabel: "Sticky Shift"},
 		{ID: "tab", Label: "Tab", InputKey: "tab", AriaLabel: "Tab"},
+		{ID: "continue", Label: "Continue", Text: "continue", Kind: "primary", AriaLabel: "Continue"},
 		{ID: "return", Label: "Return", InputKey: "enter", Kind: "primary", AriaLabel: "Return"},
 		{ID: "arrow-up", Label: "\u2191", InputKey: "arrow_up", Kind: "nav", AriaLabel: "Up Arrow"},
 		{ID: "arrow-down", Label: "\u2193", InputKey: "arrow_down", Kind: "nav", AriaLabel: "Down Arrow"},
@@ -259,6 +262,18 @@ var allowedMobileShortcutActions = map[string]bool{
 	"sticky_ctrl":           true,
 	"sticky_alt":            true,
 	"sticky_shift":          true,
+	"new_tab":               true,
+	"close_tab":             true,
+	"rename_tab":            true,
+	"next_tab":              true,
+	"previous_tab":          true,
+	"vertical_split":        true,
+	"horizontal_split":      true,
+	"tab_overview":          true,
+	"search_terminal":       true,
+	"attachment":            true,
+	"attachment_clipboard":  true,
+	"attachment_file":       true,
 	"copy":                  true,
 	"paste":                 true,
 	"page_up":               true,
@@ -1019,6 +1034,7 @@ func normalizeMobileShortcut(shortcut MobileShortcut) (MobileShortcut, error) {
 		Label:          strings.TrimSpace(shortcut.Label),
 		Action:         strings.TrimSpace(shortcut.Action),
 		InputKey:       strings.TrimSpace(shortcut.InputKey),
+		Text:           shortcut.Text,
 		InputModifiers: shortcut.InputModifiers,
 		Kind:           strings.TrimSpace(shortcut.Kind),
 		Icon:           strings.TrimSpace(shortcut.Icon),
@@ -1033,8 +1049,15 @@ func normalizeMobileShortcut(shortcut MobileShortcut) (MobileShortcut, error) {
 	}
 	hasAction := next.Action != ""
 	hasInputKey := next.InputKey != ""
-	if hasAction == hasInputKey {
-		return MobileShortcut{}, fmt.Errorf("%w: mobile shortcut must have exactly one action or input key", ErrBadRequest)
+	hasText := next.Text != ""
+	modeCount := 0
+	for _, enabled := range []bool{hasAction, hasInputKey, hasText} {
+		if enabled {
+			modeCount++
+		}
+	}
+	if modeCount != 1 {
+		return MobileShortcut{}, fmt.Errorf("%w: mobile shortcut must have exactly one action, input key, or text", ErrBadRequest)
 	}
 	if hasAction {
 		if next.InputModifiers.Ctrl || next.InputModifiers.Alt || next.InputModifiers.Shift {
@@ -1044,8 +1067,22 @@ func normalizeMobileShortcut(shortcut MobileShortcut) (MobileShortcut, error) {
 			return MobileShortcut{}, fmt.Errorf("%w: invalid mobile shortcut action", ErrBadRequest)
 		}
 		next.InputModifiers = MobileShortcutModifiers{}
-	} else if !validMobileShortcutInputKey(next.InputKey) {
-		return MobileShortcut{}, fmt.Errorf("%w: invalid mobile shortcut input key", ErrBadRequest)
+	} else if hasInputKey {
+		if !validMobileShortcutInputKey(next.InputKey) {
+			return MobileShortcut{}, fmt.Errorf("%w: invalid mobile shortcut input key", ErrBadRequest)
+		}
+	} else if hasText {
+		if next.InputModifiers.Ctrl || next.InputModifiers.Alt || next.InputModifiers.Shift {
+			return MobileShortcut{}, fmt.Errorf("%w: mobile shortcut text cannot have input modifiers", ErrBadRequest)
+		}
+		textLen := utf8.RuneCountInString(next.Text)
+		if textLen < 1 || textLen > MaxMobileShortcutTextRunes {
+			return MobileShortcut{}, fmt.Errorf("%w: mobile shortcut text must be 1-%d characters", ErrBadRequest, MaxMobileShortcutTextRunes)
+		}
+		if strings.ContainsRune(next.Text, '\x00') {
+			return MobileShortcut{}, fmt.Errorf("%w: mobile shortcut text cannot contain NUL", ErrBadRequest)
+		}
+		next.InputModifiers = MobileShortcutModifiers{}
 	}
 	return next, nil
 }
