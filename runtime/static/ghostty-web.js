@@ -1438,7 +1438,6 @@ class $ {
   render(A, B = !1, g = 0, E, C = 1) {
     var U;
     this.currentBuffer = A;
-    this.currentViewportSnapshot = null, this.currentViewportSnapshotCols = 0, this.currentViewportSnapshotRows = 0;
     const I = A.getCursor(), D = A.getDimensions(), i = E ? E.getScrollbackLength() : 0;
     const usePixelScroll = Boolean(E?.options?.mobilePixelScroll), viewportLine = Math.max(0, Math.floor(g)), viewportFraction = usePixelScroll ? Math.max(0, Math.min(1, g - viewportLine)) : 0, viewportOffsetY = viewportFraction * this.metrics.height, hasFractionalViewport = viewportFraction > 0.001;
     const S = this.canvasSize(D.cols, D.rows);
@@ -1451,7 +1450,6 @@ class $ {
       }
       return A.getLine(t);
     };
-    W && (this.currentViewportSnapshot = W, this.currentViewportSnapshotCols = D.cols, this.currentViewportSnapshotRows = D.rows);
     const s = I.x !== this.lastCursorPosition.x || I.y !== this.lastCursorPosition.y;
     if (s || this.cursorBlink) {
       if (!B && !A.isRowDirty(I.y)) {
@@ -1530,7 +1528,7 @@ class $ {
         c = R(t);
       c && this.renderLine(c, t, D.cols, viewportOffsetY);
     }
-    g === 0 && I.visible && this.cursorVisible && this.renderCursor(I.x, I.y), E && C > 0 && this.renderScrollbar(g, i, D.rows, C), this.lastCursorPosition = { x: I.x, y: I.y }, A.clearDirty(), this.currentViewportSnapshot = null, this.currentViewportSnapshotCols = 0, this.currentViewportSnapshotRows = 0;
+    g === 0 && I.visible && this.cursorVisible && this.renderCursor(I.x, I.y), E && C > 0 && this.renderScrollbar(g, i, D.rows, C), this.lastCursorPosition = { x: I.x, y: I.y }, A.clearDirty();
   }
   /**
    * Render a single line using two-pass approach:
@@ -3023,7 +3021,7 @@ class DA {
       return;
     const B = this._terminal, g = B.cols, E = B.rows;
     if (A.cols === this._lastCols && A.rows === this._lastRows || A.cols === g && A.rows === E) {
-      this._lastCols = A.cols, this._lastRows = A.rows;
+      this._lastCols = A.cols, this._lastRows = A.rows, B.resize && typeof B.resize == "function" && B.resize(A.cols, A.rows);
       return;
     }
     this._lastCols = A.cols, this._lastRows = A.rows, this._isResizing = !0;
