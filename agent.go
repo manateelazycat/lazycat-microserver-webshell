@@ -390,8 +390,15 @@ func (d *agentDaemon) handleAttach(ctx context.Context, conn net.Conn, reader *b
 			_ = pane.writeGeneratedInput(payload)
 		case agentFrameResize:
 			var message terminalControlMessage
-			if err := json.Unmarshal(payload, &message); err == nil && message.Cols > 0 && message.Rows > 0 {
-				_ = pane.resize(message.Cols, message.Rows)
+			if err := json.Unmarshal(payload, &message); err == nil {
+				switch message.Type {
+				case "resize":
+					if message.Cols > 0 && message.Rows > 0 {
+						_ = pane.resize(message.Cols, message.Rows)
+					}
+				case "theme":
+					pane.updateTerminalThemeColors(message.Foreground, message.Background, message.Cursor)
+				}
 			}
 		case agentFrameLock:
 			var message terminalControlMessage

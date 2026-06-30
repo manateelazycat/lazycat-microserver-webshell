@@ -1752,7 +1752,7 @@ func TestTerminalPaneRespondsToOSCForegroundColor(t *testing.T) {
 	if string(filtered) != "beforeafter" {
 		t.Fatalf("unexpected filtered output: %q", string(filtered))
 	}
-	assertTerminalQueryResponse(t, reader, terminalForegroundColorResponse)
+	assertTerminalQueryResponse(t, reader, terminalOSCColorResponse("10", defaultTerminalForegroundColor))
 }
 
 func TestTerminalPaneRespondsToOSCColorWhenInputBlocked(t *testing.T) {
@@ -1764,7 +1764,7 @@ func TestTerminalPaneRespondsToOSCColorWhenInputBlocked(t *testing.T) {
 	if len(filtered) != 0 {
 		t.Fatalf("unexpected filtered output: %q", string(filtered))
 	}
-	assertTerminalQueryResponse(t, reader, terminalForegroundColorResponse)
+	assertTerminalQueryResponse(t, reader, terminalOSCColorResponse("10", defaultTerminalForegroundColor))
 }
 
 func TestTerminalPaneRespondsToOSCBackgroundColor(t *testing.T) {
@@ -1775,7 +1775,7 @@ func TestTerminalPaneRespondsToOSCBackgroundColor(t *testing.T) {
 	if len(filtered) != 0 {
 		t.Fatalf("unexpected filtered output: %q", string(filtered))
 	}
-	assertTerminalQueryResponse(t, reader, terminalBackgroundColorResponse)
+	assertTerminalQueryResponse(t, reader, terminalOSCColorResponse("11", defaultTerminalBackgroundColor))
 }
 
 func TestTerminalPaneRespondsToOSCCursorColor(t *testing.T) {
@@ -1786,7 +1786,7 @@ func TestTerminalPaneRespondsToOSCCursorColor(t *testing.T) {
 	if len(filtered) != 0 {
 		t.Fatalf("unexpected filtered output: %q", string(filtered))
 	}
-	assertTerminalQueryResponse(t, reader, terminalCursorColorResponse)
+	assertTerminalQueryResponse(t, reader, terminalOSCColorResponse("12", defaultTerminalCursorColor))
 }
 
 func TestTerminalPaneRespondsToSplitOSCColorQuery(t *testing.T) {
@@ -1801,7 +1801,33 @@ func TestTerminalPaneRespondsToSplitOSCColorQuery(t *testing.T) {
 	if string(filtered) != "after" {
 		t.Fatalf("unexpected second filtered output: %q", string(filtered))
 	}
-	assertTerminalQueryResponse(t, reader, terminalBackgroundColorResponse)
+	assertTerminalQueryResponse(t, reader, terminalOSCColorResponse("11", defaultTerminalBackgroundColor))
+}
+
+func TestTerminalPaneRespondsToOSCColorFromTheme(t *testing.T) {
+	pane, reader, cleanup := newTerminalQueryTestPane(t)
+	defer cleanup()
+	pane.updateTerminalThemeColors("#403513", "#fdf6e3", "#403513")
+
+	filtered := pane.filterTerminalQueryOutput([]byte("\x1b]11;?\a"))
+	if len(filtered) != 0 {
+		t.Fatalf("unexpected filtered output: %q", string(filtered))
+	}
+	assertTerminalQueryResponse(t, reader, "\x1b]11;rgb:fdfd/f6f6/e3e3\a")
+}
+
+func TestTerminalPaneThemeControlUpdatesOSCColor(t *testing.T) {
+	pane, reader, cleanup := newTerminalQueryTestPane(t)
+	defer cleanup()
+
+	if !handleTerminalControlMessage(pane, []byte(`{"type":"theme","foreground":"#403513","background":"#fdf6e3","cursor":"#403513"}`), nil) {
+		t.Fatal("theme control message should keep the connection open")
+	}
+	filtered := pane.filterTerminalQueryOutput([]byte("\x1b]11;?\a"))
+	if len(filtered) != 0 {
+		t.Fatalf("unexpected filtered output: %q", string(filtered))
+	}
+	assertTerminalQueryResponse(t, reader, "\x1b]11;rgb:fdfd/f6f6/e3e3\a")
 }
 
 func TestTerminalPaneKeepsNonQueryOSC(t *testing.T) {
@@ -1828,6 +1854,44 @@ func TestTerminalPaneGeneratedInputBypassesInputBlock(t *testing.T) {
 		t.Fatalf("generated input returned error: %v", err)
 	}
 	assertTerminalQueryOutput(t, pane, reader, string(generated))
+}
+
+func TestTerminalPaneInputAppliesClientSize(t *testing.T) {
+	pane, reader, cleanup := newTerminalQueryTestPane(t)
+	defer cleanup()
+	pane.cols = 80
+	pane.rows = 24
+
+	if err := pane.writeInputWithSize([]byte("pc"), 132, 43); err != nil {
+		t.Fatalf("writeInputWithSize returned error: %v", err)
+	}
+	pane.mu.Lock()
+	cols := pane.cols
+	rows := pane.rows
+	pane.mu.Unlock()
+	if cols != 132 || rows != 43 {
+		t.Fatalf("pane size = %dx%d, want 132x43", cols, rows)
+	}
+	assertTerminalQueryOutput(t, pane, reader, "pc")
+}
+
+func TestTerminalControlInputAppliesClientSize(t *testing.T) {
+	pane, reader, cleanup := newTerminalQueryTestPane(t)
+	defer cleanup()
+	pane.cols = 80
+	pane.rows = 24
+
+	if !handleTerminalControlMessage(pane, []byte(`{"type":"input","data":"mobile","cols":41,"rows":18}`), nil) {
+		t.Fatal("input control message should keep the connection open")
+	}
+	pane.mu.Lock()
+	cols := pane.cols
+	rows := pane.rows
+	pane.mu.Unlock()
+	if cols != 41 || rows != 18 {
+		t.Fatalf("pane size = %dx%d, want 41x18", cols, rows)
+	}
+	assertTerminalQueryOutput(t, pane, reader, "mobile")
 }
 
 func TestTerminalPaneFiltersGeneratedInputEcho(t *testing.T) {
@@ -2397,6 +2461,76 @@ func TestHandleAgentAttachControlMessageDropsInputWhenServerLocked(t *testing.T)
 	}
 	if frameType != agentFrameInput || string(payload) != "6;55R" {
 		t.Fatalf("unexpected forwarded frame: type=%q payload=%q", frameType, string(payload))
+	}
+
+	var sized bytes.Buffer
+	if !handleAgentAttachControlMessage(nil, &sync.Mutex{}, &sized, []byte(`{"type":"input","data":"pc","cols":132,"rows":43}`), false, nil) {
+		t.Fatal("sized input message should keep the connection open")
+	}
+	frameType, payload, err = readAgentFrame(&sized)
+	if err != nil {
+		t.Fatalf("reading forwarded sized resize frame returned error: %v", err)
+	}
+	if frameType != agentFrameResize {
+		t.Fatalf("unexpected sized resize frame type: %q", frameType)
+	}
+	var resizeMessage terminalControlMessage
+	if err := json.Unmarshal(payload, &resizeMessage); err != nil {
+		t.Fatalf("unmarshal sized resize frame returned error: %v", err)
+	}
+	if resizeMessage.Type != "resize" || resizeMessage.Cols != 132 || resizeMessage.Rows != 43 {
+		t.Fatalf("unexpected sized resize frame payload: %+v", resizeMessage)
+	}
+	frameType, payload, err = readAgentFrame(&sized)
+	if err != nil {
+		t.Fatalf("reading forwarded sized input frame returned error: %v", err)
+	}
+	if frameType != agentFrameInput || string(payload) != "pc" {
+		t.Fatalf("unexpected sized input frame: type=%q payload=%q", frameType, string(payload))
+	}
+
+	var themed bytes.Buffer
+	if !handleAgentAttachControlMessage(nil, &sync.Mutex{}, &themed, []byte(`{"type":"input","data":"light","foreground":"#403513","background":"#fdf6e3","cursor":"#403513"}`), false, nil) {
+		t.Fatal("themed input message should keep the connection open")
+	}
+	frameType, payload, err = readAgentFrame(&themed)
+	if err != nil {
+		t.Fatalf("reading forwarded theme frame returned error: %v", err)
+	}
+	if frameType != agentFrameResize {
+		t.Fatalf("unexpected theme frame type: %q", frameType)
+	}
+	var themeMessage terminalControlMessage
+	if err := json.Unmarshal(payload, &themeMessage); err != nil {
+		t.Fatalf("unmarshal forwarded theme frame returned error: %v", err)
+	}
+	if themeMessage.Type != "theme" || themeMessage.Foreground != "#403513" || themeMessage.Background != "#fdf6e3" || themeMessage.Cursor != "#403513" {
+		t.Fatalf("unexpected forwarded theme frame payload: %+v", themeMessage)
+	}
+	frameType, payload, err = readAgentFrame(&themed)
+	if err != nil {
+		t.Fatalf("reading forwarded themed input frame returned error: %v", err)
+	}
+	if frameType != agentFrameInput || string(payload) != "light" {
+		t.Fatalf("unexpected themed input frame: type=%q payload=%q", frameType, string(payload))
+	}
+
+	var themeOnly bytes.Buffer
+	if !handleAgentAttachControlMessage(nil, &sync.Mutex{}, &themeOnly, []byte(`{"type":"theme","foreground":"#403513","background":"#fdf6e3","cursor":"#403513"}`), false, nil) {
+		t.Fatal("theme message should keep the connection open")
+	}
+	frameType, payload, err = readAgentFrame(&themeOnly)
+	if err != nil {
+		t.Fatalf("reading forwarded theme-only frame returned error: %v", err)
+	}
+	if frameType != agentFrameResize {
+		t.Fatalf("unexpected theme-only frame type: %q", frameType)
+	}
+	if err := json.Unmarshal(payload, &themeMessage); err != nil {
+		t.Fatalf("unmarshal forwarded theme-only frame returned error: %v", err)
+	}
+	if themeMessage.Type != "theme" || themeMessage.Background != "#fdf6e3" {
+		t.Fatalf("unexpected forwarded theme-only frame payload: %+v", themeMessage)
 	}
 
 	var generated bytes.Buffer

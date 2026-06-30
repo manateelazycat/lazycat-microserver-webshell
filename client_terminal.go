@@ -137,6 +137,17 @@ func (s *pluginServer) attachClientPane(w http.ResponseWriter, r *http.Request, 
 	if rows > 0 {
 		query.Set("rows", fmt.Sprintf("%d", rows))
 	}
+	if foreground, background, cursor := terminalThemeFromRequest(r); foreground != "" || background != "" || cursor != "" {
+		if foreground != "" {
+			query.Set("fg", foreground)
+		}
+		if background != "" {
+			query.Set("bg", background)
+		}
+		if cursor != "" {
+			query.Set("cursor", cursor)
+		}
+	}
 	query.Set("ticket", ticket.Ticket)
 	targetURL.RawQuery = query.Encode()
 

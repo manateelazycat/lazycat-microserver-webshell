@@ -787,6 +787,12 @@ func (s *pluginServer) attachAgentPane(w http.ResponseWriter, r *http.Request, s
 		_ = writeWebSocketJSONLocked(conn, &writeMu, map[string]any{"type": "process-exit", "message": err.Error(), "exit_code": -1})
 		return nil
 	}
+	if foreground, background, cursor := terminalThemeFromRequest(r); foreground != "" || background != "" || cursor != "" {
+		themeMessage := terminalControlMessage{Type: "theme", Foreground: foreground, Background: background, Cursor: cursor}
+		if payload, err := json.Marshal(themeMessage); err == nil {
+			_ = writeAgentFrame(stdin, agentFrameResize, payload)
+		}
+	}
 	waitDone := make(chan error, 1)
 	go func() {
 		waitDone <- command.Wait()
@@ -908,9 +914,20 @@ func handleAgentAttachControlMessage(conn *websocket.Conn, writeMu *sync.Mutex, 
 	switch message.Type {
 	case "input":
 		if message.Data != "" && (!inputBlocked || message.Generated) {
+			if message.Foreground != "" || message.Background != "" || message.Cursor != "" {
+				themeMessage := terminalControlMessage{Type: "theme", Foreground: message.Foreground, Background: message.Background, Cursor: message.Cursor}
+				if payload, err := json.Marshal(themeMessage); err == nil {
+					_ = writeAgentFrame(stdin, agentFrameResize, payload)
+				}
+			}
 			frameType := agentFrameInput
 			if message.Generated {
 				frameType = agentFrameGeneratedInput
+			} else if message.Cols > 0 && message.Rows > 0 {
+				resizeMessage := terminalControlMessage{Type: "resize", Cols: message.Cols, Rows: message.Rows}
+				if payload, err := json.Marshal(resizeMessage); err == nil {
+					_ = writeAgentFrame(stdin, agentFrameResize, payload)
+				}
 			}
 			_ = writeAgentFrame(stdin, frameType, []byte(message.Data))
 		}
@@ -919,6 +936,9 @@ func handleAgentAttachControlMessage(conn *websocket.Conn, writeMu *sync.Mutex, 
 			data, _ := json.Marshal(message)
 			_ = writeAgentFrame(stdin, agentFrameResize, data)
 		}
+	case "theme":
+		data, _ := json.Marshal(message)
+		_ = writeAgentFrame(stdin, agentFrameResize, data)
 	case "input_lock":
 		if localInputBlocked != nil {
 			*localInputBlocked = message.Blocked

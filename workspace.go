@@ -100,6 +100,9 @@ type terminalPane struct {
 	activityCheckedAt          time.Time
 	controlPending             []byte
 	terminalQueryPending       []byte
+	terminalForegroundColor    string
+	terminalBackgroundColor    string
+	terminalCursorColor        string
 	pendingGeneratedInputs     map[string]int
 	pendingCursorReports       int
 	pendingCursorReportUntil   time.Time
@@ -191,12 +194,15 @@ type workspaceActivityState struct {
 }
 
 type terminalControlMessage struct {
-	Type      string `json:"type"`
-	Cols      int    `json:"cols"`
-	Rows      int    `json:"rows"`
-	Data      string `json:"data"`
-	Blocked   bool   `json:"blocked,omitempty"`
-	Generated bool   `json:"generated,omitempty"`
+	Type       string `json:"type"`
+	Cols       int    `json:"cols"`
+	Rows       int    `json:"rows"`
+	Data       string `json:"data"`
+	Blocked    bool   `json:"blocked,omitempty"`
+	Generated  bool   `json:"generated,omitempty"`
+	Foreground string `json:"foreground,omitempty"`
+	Background string `json:"background,omitempty"`
+	Cursor     string `json:"cursor,omitempty"`
 }
 
 func newWorkspaceManager(rootDir string) *workspaceManager {
@@ -378,6 +384,14 @@ func (s *pluginServer) attachPersistentPane(w http.ResponseWriter, r *http.Reque
 	return s.attachAgentPane(w, r, normalizeAgentScope(selector, accountID), paneID, cols, rows, s.currentTerminalScrollback())
 }
 
+func terminalThemeFromRequest(r *http.Request) (string, string, string) {
+	if r == nil {
+		return "", "", ""
+	}
+	query := r.URL.Query()
+	return query.Get("fg"), query.Get("bg"), query.Get("cursor")
+}
+
 func writeJSON(w http.ResponseWriter, payload any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	if err := json.NewEncoder(w).Encode(payload); err != nil {
@@ -407,17 +421,20 @@ func handleTerminalControlMessage(pane *terminalPane, payload []byte, client *pa
 	}
 	switch message.Type {
 	case "input":
+		pane.updateTerminalThemeColors(message.Foreground, message.Background, message.Cursor)
 		if message.Data != "" {
 			if message.Generated {
 				_ = pane.writeGeneratedInput([]byte(message.Data))
 			} else {
-				_ = pane.writeInput([]byte(message.Data))
+				_ = pane.writeInputWithSize([]byte(message.Data), message.Cols, message.Rows)
 			}
 		}
 	case "resize":
 		if message.Cols > 0 && message.Rows > 0 {
 			_ = pane.resize(message.Cols, message.Rows)
 		}
+	case "theme":
+		pane.updateTerminalThemeColors(message.Foreground, message.Background, message.Cursor)
 	case "input_lock":
 		pane.setInputBlocked(message.Blocked)
 	case "ping":
@@ -1380,9 +1397,9 @@ const (
 	maxPendingTerminalQuery           = 64
 	primaryDeviceAttributesResponse   = "\x1b[?1;2c"
 	secondaryDeviceAttributesResponse = "\x1b[>0;0;0c"
-	terminalForegroundColorResponse   = "\x1b]10;rgb:0000/cdcd/0000\a"
-	terminalBackgroundColorResponse   = "\x1b]11;rgb:0000/0000/0000\a"
-	terminalCursorColorResponse       = "\x1b]12;rgb:0000/cdcd/0000\a"
+	defaultTerminalForegroundColor    = "#00cd00"
+	defaultTerminalBackgroundColor    = "#000000"
+	defaultTerminalCursorColor        = "#00cd00"
 	generatedCursorReportWindow       = 2 * time.Second
 )
 
@@ -1692,7 +1709,7 @@ func (p *terminalPane) filterTerminalQueryOutput(data []byte) []byte {
 				continue
 			}
 			sequence := buffer[:end]
-			if response, ok := terminalOSCQueryResponse(sequence); ok {
+			if response, ok := p.terminalOSCQueryResponse(sequence); ok {
 				responseData := []byte(response)
 				p.expectGeneratedInput(responseData, 1)
 				_ = p.writeGeneratedInput(responseData)
@@ -1752,7 +1769,7 @@ func terminalQueryResponse(sequence []byte) (string, bool) {
 	}
 }
 
-func terminalOSCQueryResponse(sequence []byte) (string, bool) {
+func (p *terminalPane) terminalOSCQueryResponse(sequence []byte) (string, bool) {
 	if len(sequence) < len("\x1b]10;?\a") || sequence[0] != '\x1b' || sequence[1] != ']' {
 		return "", false
 	}
@@ -1767,14 +1784,40 @@ func terminalOSCQueryResponse(sequence []byte) (string, bool) {
 	}
 	switch string(sequence[2:terminator]) {
 	case "10;?":
-		return terminalForegroundColorResponse, true
+		return terminalOSCColorResponse("10", p.terminalForegroundColorValue()), true
 	case "11;?":
-		return terminalBackgroundColorResponse, true
+		return terminalOSCColorResponse("11", p.terminalBackgroundColorValue()), true
 	case "12;?":
-		return terminalCursorColorResponse, true
+		return terminalOSCColorResponse("12", p.terminalCursorColorValue()), true
 	default:
 		return "", false
 	}
+}
+
+func (p *terminalPane) terminalForegroundColorValue() string {
+	p.mu.Lock()
+	value := p.terminalForegroundColor
+	p.mu.Unlock()
+	return normalizeTerminalHexColor(value, defaultTerminalForegroundColor)
+}
+
+func (p *terminalPane) terminalBackgroundColorValue() string {
+	p.mu.Lock()
+	value := p.terminalBackgroundColor
+	p.mu.Unlock()
+	return normalizeTerminalHexColor(value, defaultTerminalBackgroundColor)
+}
+
+func (p *terminalPane) terminalCursorColorValue() string {
+	p.mu.Lock()
+	value := p.terminalCursorColor
+	p.mu.Unlock()
+	return normalizeTerminalHexColor(value, defaultTerminalCursorColor)
+}
+
+func terminalOSCColorResponse(code, color string) string {
+	color = normalizeTerminalHexColor(color, defaultTerminalForegroundColor)
+	return fmt.Sprintf("\x1b]%s;rgb:%s/%s/%s\a", code, strings.Repeat(color[1:3], 2), strings.Repeat(color[3:5], 2), strings.Repeat(color[5:7], 2))
 }
 
 func terminalClientGeneratedResponse(sequence []byte) (string, bool) {
@@ -1922,8 +1965,15 @@ func (p *terminalPane) detachClient(client *paneClient) {
 }
 
 func (p *terminalPane) writeInput(data []byte) error {
+	return p.writeInputWithSize(data, 0, 0)
+}
+
+func (p *terminalPane) writeInputWithSize(data []byte, cols, rows int) error {
 	if len(data) == 0 {
 		return nil
+	}
+	if cols > 0 && rows > 0 {
+		_ = p.resize(cols, rows)
 	}
 	dropInput, generatedInput := p.consumeGeneratedCursorReportInput(data)
 	if dropInput {
@@ -1934,6 +1984,26 @@ func (p *terminalPane) writeInput(data []byte) error {
 		data = generatedInput
 	}
 	return p.writePTYInput(data)
+}
+
+func (p *terminalPane) updateTerminalThemeColors(foreground, background, cursor string) {
+	foreground = normalizeTerminalHexColor(foreground, "")
+	background = normalizeTerminalHexColor(background, "")
+	cursor = normalizeTerminalHexColor(cursor, "")
+	if foreground == "" && background == "" && cursor == "" {
+		return
+	}
+	p.mu.Lock()
+	if foreground != "" {
+		p.terminalForegroundColor = foreground
+	}
+	if background != "" {
+		p.terminalBackgroundColor = background
+	}
+	if cursor != "" {
+		p.terminalCursorColor = cursor
+	}
+	p.mu.Unlock()
 }
 
 func (p *terminalPane) writePTYInput(data []byte) error {
@@ -2695,6 +2765,22 @@ func normalizeRows(rows int) int {
 		return defaultTerminalRows
 	}
 	return min(rows, 300)
+}
+
+func normalizeTerminalHexColor(value, fallback string) string {
+	value = strings.TrimSpace(value)
+	if strings.HasPrefix(value, "#") {
+		value = value[1:]
+	}
+	if len(value) != 6 {
+		return fallback
+	}
+	for _, r := range value {
+		if !((r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') || (r >= 'A' && r <= 'F')) {
+			return fallback
+		}
+	}
+	return "#" + strings.ToLower(value)
 }
 
 func sortedPaneIDs(panes map[string]*terminalPane) []string {

@@ -5264,6 +5264,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     for (const tab of tabs.values()) {
       for (const pane of tab.panes.values()) {
         applyThemeToSession(pane);
+        sendTerminalTheme(pane);
       }
     }
     resizeActiveTab();
@@ -7744,6 +7745,12 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     return { cols, rows };
   };
 
+  const terminalThemePayload = () => ({
+    foreground: normalizeThemeColor(activeTheme?.xterm?.foreground || activeTheme?.foreground || "#00cd00", "#00cd00"),
+    background: normalizeThemeColor(activeTheme?.xterm?.background || activeTheme?.background || "#000000", "#000000"),
+    cursor: normalizeThemeColor(activeTheme?.xterm?.cursor || activeTheme?.foreground || "#00cd00", "#00cd00"),
+  });
+
   const dimensionsEqualTerminalSize = (pane, dimensions) => {
     if (!dimensions) {
       return false;
@@ -7766,6 +7773,14 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     pane.lastSentCols = cols;
     pane.lastSentRows = rows;
     pane.socket.send(JSON.stringify({ type: "resize", cols, rows }));
+    return true;
+  };
+
+  const sendTerminalTheme = (pane) => {
+    if (pane?.socket?.readyState !== WebSocket.OPEN) {
+      return false;
+    }
+    pane.socket.send(JSON.stringify({ type: "theme", ...terminalThemePayload() }));
     return true;
   };
 
@@ -11445,8 +11460,16 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     if (!data || !isSessionInputReady(session)) {
       return false;
     }
+    const { cols, rows } = terminalSize(session);
+    const payload = { type: "input", data, ...terminalThemePayload() };
+    if (generated) {
+      payload.generated = true;
+    } else if (cols > 0 && rows > 0) {
+      payload.cols = cols;
+      payload.rows = rows;
+    }
     try {
-      session.socket.send(JSON.stringify(generated ? { type: "input", data, generated: true } : { type: "input", data }));
+      session.socket.send(JSON.stringify(payload));
       return true;
     } catch (error) {
       return false;
@@ -12266,6 +12289,10 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     socketUrl.searchParams.set("client_id", serverRevisionClientID);
     socketUrl.searchParams.set("cols", String(session.term.cols || 120));
     socketUrl.searchParams.set("rows", String(session.term.rows || 32));
+    const themePayload = terminalThemePayload();
+    socketUrl.searchParams.set("fg", themePayload.foreground);
+    socketUrl.searchParams.set("bg", themePayload.background);
+    socketUrl.searchParams.set("cursor", themePayload.cursor);
     const logSocketUrl = new URL(socketUrl.toString());
     logSocketUrl.searchParams.delete("client_id");
     const socketDebug = {
@@ -12344,6 +12371,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
         sendSessionInputLock(session, true);
         discardSessionInputBuffers(session);
       }
+      sendTerminalTheme(session);
       resizePane(session);
       if (session.tabId === activeTabId && currentTab()?.activePaneId === session.id) {
         session.term.focus();
