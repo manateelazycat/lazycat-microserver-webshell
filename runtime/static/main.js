@@ -12581,6 +12581,11 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       if (runTerminalFontSizeShortcut(event)) {
         return true;
       }
+      const altMetaInput = terminalAltMetaInputFromEvent(event);
+      if (altMetaInput) {
+        term.input(altMetaInput, true);
+        return true;
+      }
       if (
         hasMobileStickyModifiers()
         && !event.ctrlKey
@@ -12597,6 +12602,35 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       term.input(backtabSequence, true);
       return true;
     });
+  };
+
+  const isPrintableAsciiCharacter = (value) => {
+    const points = Array.from(String(value || ""));
+    if (points.length !== 1) {
+      return false;
+    }
+    const codePoint = points[0].codePointAt(0);
+    return Number.isFinite(codePoint) && codePoint >= 0x20 && codePoint <= 0x7e;
+  };
+
+  const terminalAltMetaInputFromEvent = (event) => {
+    if (!(event instanceof KeyboardEvent) || !event.altKey || event.ctrlKey || event.metaKey) {
+      return "";
+    }
+    if (event.getModifierState?.("AltGraph")) {
+      return "";
+    }
+    let key = String(event.key || "");
+    if (!isPrintableAsciiCharacter(key)) {
+      key = shortcutKeyFromEventCode(event);
+      if (event.shiftKey) {
+        key = applyStickyShiftInput(key) || key;
+      }
+    }
+    if (!isPrintableAsciiCharacter(key)) {
+      return "";
+    }
+    return `\x1b${key}`;
   };
 
   const normalizeTerminalInitialSize = (value, minValue) => {
