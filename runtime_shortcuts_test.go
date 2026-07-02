@@ -275,6 +275,31 @@ func TestRuntimeShortcutDefaultsGuardMacAndAltMappings(t *testing.T) {
 	}
 }
 
+func TestRuntimeDesktopAltPrintableKeysSendMetaEscapePrefix(t *testing.T) {
+	data, err := os.ReadFile("runtime/static/main.js")
+	if err != nil {
+		t.Fatalf("ReadFile(runtime/static/main.js) error = %v", err)
+	}
+	source := string(data)
+
+	wantSnippets := []string{
+		"const isPrintableAsciiCharacter = (value) => {",
+		"const terminalAltMetaInputFromEvent = (event) => {",
+		"if (!(event instanceof KeyboardEvent) || !event.altKey || event.ctrlKey || event.metaKey) {",
+		`event.getModifierState?.("AltGraph")`,
+		"key = shortcutKeyFromEventCode(event);",
+		"key = applyStickyShiftInput(key) || key;",
+		"return `\\x1b${key}`;",
+		"const altMetaInput = terminalAltMetaInputFromEvent(event);",
+		"term.input(altMetaInput, true);",
+	}
+	for _, want := range wantSnippets {
+		if !strings.Contains(source, want) {
+			t.Fatalf("runtime desktop alt meta guard missing %q", want)
+		}
+	}
+}
+
 func TestRuntimePasteShortcutUsesNativePasteEvent(t *testing.T) {
 	data, err := os.ReadFile("runtime/static/main.js")
 	if err != nil {
