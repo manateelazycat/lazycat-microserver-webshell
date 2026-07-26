@@ -7906,8 +7906,9 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   const installTerminalInputFocus = (session) => {
     const term = session?.term;
     const host = session?.terminalHost;
+    const shell = session?.shellEl;
     const textarea = term?.textarea;
-    if (!term || !host || !textarea) {
+    if (!term || !host || !shell || !textarea) {
       return;
     }
     textarea.setAttribute("inputmode", "text");
@@ -7922,6 +7923,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     let lastMobileTapX = 0;
     let lastMobileTapY = 0;
     let mobileTapTouchState = null;
+    let mobileTapFinishState = null;
     host.addEventListener("keydown", () => {
       reassertTerminalSize(session, { force: true });
     }, { capture: true });
@@ -8011,8 +8013,10 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       }
       window.requestAnimationFrame(() => focusTerminalInput(session));
     });
-    host.addEventListener("touchstart", (event) => {
-      if (!requiresTouchKeyboardDoubleTap() || event.touches.length !== 1) {
+    const isTerminalTouchTarget = (target) => target instanceof Element && target.closest(".terminal-host") === host;
+    const startMobileTap = (event) => {
+      mobileTapFinishState = null;
+      if (!requiresTouchKeyboardDoubleTap() || event.touches.length !== 1 || !isTerminalTouchTarget(event.target)) {
         mobileTapTouchState = null;
         return;
       }
@@ -8023,8 +8027,8 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
         startY: touch.clientY,
         moved: false,
       };
-    }, { passive: true });
-    host.addEventListener("touchmove", (event) => {
+    };
+    const moveMobileTap = (event) => {
       if (!mobileTapTouchState || event.touches.length !== 1) {
         return;
       }
@@ -8035,7 +8039,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       ) {
         mobileTapTouchState.moved = true;
       }
-    }, { passive: true });
+    };
     const finishMobileTap = (event) => {
       if (!requiresTouchKeyboardDoubleTap() || !mobileTapTouchState) {
         mobileTapTouchState = null;
@@ -8045,6 +8049,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       const state = mobileTapTouchState;
       mobileTapTouchState = null;
       if (!touch || state.moved) {
+        mobileTapFinishState = null;
         return;
       }
       const now = performance.now();
@@ -8054,18 +8059,39 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       lastMobileTapAt = now;
       lastMobileTapX = touch.clientX;
       lastMobileTapY = touch.clientY;
+      mobileTapFinishState = { event, isDoubleTap };
       if (!isDoubleTap) {
-        blurTerminalInput(session);
         return;
       }
       session.allowMobileKeyboardFocusUntil = now + mobileKeyboardFocusAllowWindowMs;
-      event.preventDefault();
-      window.requestAnimationFrame(() => focusTerminalInput(session));
+      if (event.cancelable) {
+        event.preventDefault();
+      }
+      focusTerminalInput(session);
     };
-    host.addEventListener("touchend", finishMobileTap, { passive: false });
-    host.addEventListener("touchcancel", () => {
+    const settleMobileTap = (event) => {
+      const finishState = mobileTapFinishState;
+      mobileTapFinishState = null;
+      if (finishState?.event === event && !finishState.isDoubleTap) {
+        blurTerminalInput(session);
+      }
+    };
+    const cancelMobileTap = () => {
       mobileTapTouchState = null;
-    }, { passive: true });
+      mobileTapFinishState = null;
+    };
+    shell.addEventListener("touchstart", startMobileTap, { capture: true, passive: true });
+    shell.addEventListener("touchmove", moveMobileTap, { capture: true, passive: true });
+    shell.addEventListener("touchend", finishMobileTap, { capture: true, passive: false });
+    shell.addEventListener("touchend", settleMobileTap);
+    shell.addEventListener("touchcancel", cancelMobileTap, { capture: true, passive: true });
+    addSessionCleanup(session, () => {
+      shell.removeEventListener("touchstart", startMobileTap, { capture: true });
+      shell.removeEventListener("touchmove", moveMobileTap, { capture: true });
+      shell.removeEventListener("touchend", finishMobileTap, { capture: true });
+      shell.removeEventListener("touchend", settleMobileTap);
+      shell.removeEventListener("touchcancel", cancelMobileTap, { capture: true });
+    });
     positionTerminalInput(session);
   };
 

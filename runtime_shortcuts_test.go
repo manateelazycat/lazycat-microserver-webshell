@@ -702,13 +702,64 @@ func TestRuntimeTouchKeyboardRequiresDoubleTapOnWideTouchScreens(t *testing.T) {
 		`if (requiresTouchKeyboardDoubleTap() && performance.now() > Number(session?.allowMobileKeyboardFocusUntil || 0)) {`,
 		`if (requiresTouchKeyboardDoubleTap()) {`,
 		`session.allowMobileKeyboardFocusUntil = performance.now() + mobileKeyboardFocusAllowWindowMs;`,
-		`if (!requiresTouchKeyboardDoubleTap() || event.touches.length !== 1) {`,
+		`if (!requiresTouchKeyboardDoubleTap() || event.touches.length !== 1 || !isTerminalTouchTarget(event.target)) {`,
 		`if (!requiresTouchKeyboardDoubleTap() || !mobileTapTouchState) {`,
 	}
 	for _, want := range wantSnippets {
 		if !strings.Contains(source, want) {
 			t.Fatalf("runtime wide touch keyboard double-tap guard missing %q", want)
 		}
+	}
+}
+
+func TestRuntimeTouchKeyboardFocusPrecedesTouchConsumers(t *testing.T) {
+	data, err := os.ReadFile("runtime/static/main.js")
+	if err != nil {
+		t.Fatalf("ReadFile(runtime/static/main.js) error = %v", err)
+	}
+	source := string(data)
+	inputFocus := sourceBetween(t, source, `  const installTerminalInputFocus = (session) => {`, `  const installTerminalHostViewportGuard = (session) => {`)
+
+	for _, want := range []string{
+		`const shell = session?.shellEl;`,
+		`const isTerminalTouchTarget = (target) => target instanceof Element && target.closest(".terminal-host") === host;`,
+		`shell.addEventListener("touchstart", startMobileTap, { capture: true, passive: true });`,
+		`shell.addEventListener("touchmove", moveMobileTap, { capture: true, passive: true });`,
+		`shell.addEventListener("touchend", finishMobileTap, { capture: true, passive: false });`,
+		`shell.addEventListener("touchend", settleMobileTap);`,
+		`shell.addEventListener("touchcancel", cancelMobileTap, { capture: true, passive: true });`,
+		`if (finishState?.event === event && !finishState.isDoubleTap) {`,
+		`blurTerminalInput(session);`,
+	} {
+		if !strings.Contains(inputFocus, want) {
+			t.Fatalf("runtime touch keyboard focus must observe gestures before terminal consumers, missing %q", want)
+		}
+	}
+	for _, forbidden := range []string{
+		`host.addEventListener("touchstart"`,
+		`host.addEventListener("touchmove"`,
+		`host.addEventListener("touchend"`,
+		`host.addEventListener("touchcancel"`,
+	} {
+		if strings.Contains(inputFocus, forbidden) {
+			t.Fatalf("runtime touch keyboard focus must not depend on host bubbling, found %q", forbidden)
+		}
+	}
+
+	finishMobileTap := sourceBetween(t, inputFocus, `    const finishMobileTap = (event) => {`, `    const cancelMobileTap = () => {`)
+	if !strings.Contains(finishMobileTap, `focusTerminalInput(session);`) {
+		t.Fatal("runtime touch keyboard focus must run directly from touchend")
+	}
+	for _, forbidden := range []string{"requestAnimationFrame", "setTimeout", "Promise"} {
+		if strings.Contains(finishMobileTap, forbidden) {
+			t.Fatalf("runtime touch keyboard focus must stay synchronous with touchend, found %q", forbidden)
+		}
+	}
+
+	installInputFocus := strings.Index(source, `installTerminalInputFocus(session);`)
+	installMouseTracking := strings.Index(source, `installTerminalMouseTracking(session);`)
+	if installInputFocus < 0 || installMouseTracking < 0 || installInputFocus > installMouseTracking {
+		t.Fatal("runtime touch keyboard capture listener must be installed before terminal mouse tracking")
 	}
 }
 
