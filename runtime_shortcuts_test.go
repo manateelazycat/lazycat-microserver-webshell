@@ -1983,6 +1983,81 @@ func TestRuntimeTerminalMouseTrackingSequences(t *testing.T) {
 	}
 }
 
+func TestRuntimeClaudeFullscreenTouchAdapterIsolation(t *testing.T) {
+	mainData, err := os.ReadFile("runtime/static/main.js")
+	if err != nil {
+		t.Fatalf("ReadFile(runtime/static/main.js) error = %v", err)
+	}
+	adapterData, err := os.ReadFile("runtime/static/claude_fullscreen_touch_adapter.js")
+	if err != nil {
+		t.Fatalf("ReadFile(runtime/static/claude_fullscreen_touch_adapter.js) error = %v", err)
+	}
+	mainSource := string(mainData)
+	adapterSource := string(adapterData)
+
+	for _, want := range []string{
+		`import { isClaudeTerminalIdentity } from "./claude_fullscreen_touch.js";`,
+		`import { installClaudeFullscreenTouchAdapter } from "./claude_fullscreen_touch_adapter.js";`,
+		`const mobileKeyboardClaimedTouchEnds = new WeakSet();`,
+		`mobileKeyboardClaimedTouchEnds.add(event);`,
+		`const terminalAlternateScreenActive = (session) => {`,
+		`isClaudeTerminalIdentity(session)`,
+		`&& terminalAlternateScreenActive(session)`,
+		`&& Boolean(terminalMouseTrackingState(session))`,
+		`const installClaudeTerminalTouchAdapter = (session) => {`,
+		`consumeKeyboardClaim: (event) => mobileKeyboardClaimedTouchEnds.delete(event),`,
+		`moveThresholdPx: touchShortcutMoveThresholdPx,`,
+		`longPressDelayMs: touchSelectionLongPressDelayMs,`,
+	} {
+		if !strings.Contains(mainSource, want) {
+			t.Fatalf("runtime Claude fullscreen adapter guard missing %q", want)
+		}
+	}
+
+	installInputFocus := strings.Index(mainSource, `installTerminalInputFocus(session);`)
+	installMobileSelection := strings.Index(mainSource, `installMobileTouchSelection(session);`)
+	installClaudeAdapter := strings.Index(mainSource, `installClaudeTerminalTouchAdapter(session);`)
+	installMouseTracking := strings.Index(mainSource, `installTerminalMouseTracking(session);`)
+	if installInputFocus < 0 || installMobileSelection < 0 || installClaudeAdapter < 0 || installMouseTracking < 0 {
+		t.Fatal("runtime terminal touch installation order is incomplete")
+	}
+	if !(installInputFocus < installMobileSelection && installMobileSelection < installClaudeAdapter && installClaudeAdapter < installMouseTracking) {
+		t.Fatal("runtime terminal touch order must be input focus, default selection, Claude adapter, generic mouse tracking")
+	}
+
+	genericMouseTracking := sourceBetween(
+		t,
+		mainSource,
+		`  const installTerminalMouseTracking = (session) => {`,
+		`  const compareSelectionCells = (left, right) => {`,
+	)
+	if strings.Contains(strings.ToLower(genericMouseTracking), "claude") {
+		t.Fatal("generic terminal mouse tracking must not contain Claude-specific branches")
+	}
+	defaultSelection := sourceBetween(
+		t,
+		mainSource,
+		`  const installMobileTouchSelection = (session) => {`,
+		`  const installClaudeTerminalTouchAdapter = (session) => {`,
+	)
+	if !strings.Contains(defaultSelection, `|| terminalMouseTrackingState(session)`) {
+		t.Fatal("default mobile selection must preserve its existing mouse-tracking guard")
+	}
+
+	for _, want := range []string{
+		`stopEvent(event, { preventDefault: false });`,
+		`const keyboardClaimed = consumeKeyboardClaim(event);`,
+		`stopEvent(event, { preventDefault: !keyboardClaimed });`,
+		`if (outcome === "keyboard" || outcome === "scrolling") {`,
+		`const steps = gesture.takeWheelSteps(rowHeight(), 10);`,
+		`if (clearSelectionIfTapOutside(touch) || hasSelection()) {`,
+	} {
+		if !strings.Contains(adapterSource, want) {
+			t.Fatalf("Claude fullscreen touch adapter isolation missing %q", want)
+		}
+	}
+}
+
 func TestRuntimeGrokMouseTrackingPreservesMobileDoubleTapKeyboard(t *testing.T) {
 	data, err := os.ReadFile("runtime/static/main.js")
 	if err != nil {

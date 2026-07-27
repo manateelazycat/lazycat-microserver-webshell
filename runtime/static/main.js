@@ -1,4 +1,6 @@
 import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
+import { isClaudeTerminalIdentity } from "./claude_fullscreen_touch.js";
+import { installClaudeFullscreenTouchAdapter } from "./claude_fullscreen_touch_adapter.js";
 import { createPerformanceTaskMonitor } from "./performance_tasks.js";
 import { createTerminalHistoryCache } from "./terminal_history_cache.js";
 
@@ -267,6 +269,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   }
 
   const tabs = new Map();
+  const mobileKeyboardClaimedTouchEnds = new WeakSet();
   const storagePrefix = "webshell";
   const themeStorageKey = `${storagePrefix}.theme`;
   const fontSizeStorageKey = `${storagePrefix}.fontSize`;
@@ -8064,6 +8067,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
         return;
       }
       session.allowMobileKeyboardFocusUntil = now + mobileKeyboardFocusAllowWindowMs;
+      mobileKeyboardClaimedTouchEnds.add(event);
       if (event.cancelable) {
         event.preventDefault();
       }
@@ -9607,6 +9611,20 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       sgr: terminalMouseModeEnabled(term, 1006),
     };
   };
+
+  const terminalAlternateScreenActive = (session) => {
+    try {
+      return session?.term?.wasmTerm?.isAlternateScreen?.() === true;
+    } catch (error) {
+      return false;
+    }
+  };
+
+  const isClaudeFullscreenTouchSession = (session) => (
+    isClaudeTerminalIdentity(session)
+    && terminalAlternateScreenActive(session)
+    && Boolean(terminalMouseTrackingState(session))
+  );
 
   const terminalMouseButtonFromEvent = (event) => {
     switch (event?.button) {
@@ -12216,6 +12234,101 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     session.term.onScroll?.(() => updateSelectionSheet());
   };
 
+  const installClaudeTerminalTouchAdapter = (session) => {
+    const shell = session?.shellEl;
+    const host = session?.terminalHost;
+    if (!shell || !host || !session?.term) {
+      return;
+    }
+
+    const activateSessionPane = () => {
+      const current = tabs.get(session.tabId);
+      setActivePane(current, session.id, { focus: false });
+    };
+    const terminalMouseEventFromTouch = (event, touch, extra = {}) => ({
+      clientX: Number(touch?.clientX) || 0,
+      clientY: Number(touch?.clientY) || 0,
+      shiftKey: Boolean(event?.shiftKey),
+      altKey: Boolean(event?.altKey),
+      ctrlKey: Boolean(event?.ctrlKey),
+      ...extra,
+    });
+    const sendWheel = (steps, event, touch) => {
+      const count = Math.abs(Math.trunc(Number(steps) || 0));
+      if (!count) {
+        return false;
+      }
+      const wheelEvent = terminalMouseEventFromTouch(event, touch, {
+        deltaX: 0,
+        deltaY: Math.sign(steps),
+      });
+      const sequence = encodeTerminalMouseSequence(session, wheelEvent, "wheel");
+      if (!sequence) {
+        return false;
+      }
+      sendOrQueueInput(session, sequence.repeat(count));
+      return true;
+    };
+    const sendClick = (event, touch) => {
+      const mouseEvent = terminalMouseEventFromTouch(event, touch);
+      const press = encodeTerminalMouseSequence(session, mouseEvent, "press", 0);
+      if (!press) {
+        return false;
+      }
+      const release = encodeTerminalMouseSequence(session, mouseEvent, "release", 0);
+      sendOrQueueInput(session, press + release);
+      return true;
+    };
+
+    installClaudeFullscreenTouchAdapter({
+      shell,
+      shouldStart: (event) => {
+        if (
+          !isTouchShortcutLayout()
+          || event.touches.length !== 1
+          || !isClaudeFullscreenTouchSession(session)
+          || (mobileActionSheet && !mobileActionSheet.hidden)
+        ) {
+          return false;
+        }
+        const target = event.target;
+        return (
+          target instanceof Element
+          && !target.closest(".mobile-selection-handle")
+          && target.closest(".terminal-host") === host
+        );
+      },
+      cellFromPoint: (clientX, clientY) => terminalCellFromPoint(session, clientX, clientY),
+      activatePane: activateSessionPane,
+      markContextMenuCandidate: markTerminalTouchContextMenuCandidate,
+      blurInput: () => blurTerminalInput(session),
+      suppressTouchScroll: () => suppressTerminalTouchScroll(session),
+      applySelection: (start, end) => {
+        session.selectAllBufferActive = false;
+        applyTerminalSelection(session, start, end);
+      },
+      updateSelectionHandles: () => updateMobileSelectionHandles(session),
+      updateSelectionAutoScroll: (state, applyPoint) => updateMobileSelectionAutoScroll(session, state, applyPoint),
+      stopSelectionAutoScroll: stopMobileSelectionAutoScroll,
+      clearSelectionIfTapOutside: (touch) => clearMobileSelectionIfTapOutside(session, touch),
+      hasSelection: () => Boolean(session.term?.hasSelection?.() || session.selectAllBufferActive),
+      consumeKeyboardClaim: (event) => mobileKeyboardClaimedTouchEnds.delete(event),
+      prepareMouseInput: (event) => reassertTerminalSizeForMouse(session, event),
+      rowHeight: () => {
+        const renderer = session.term?.renderer;
+        return Math.max(
+          touchShortcutMoveThresholdPx,
+          Number(renderer?.getMetrics?.().height) || Number(renderer?.charHeight) || 18,
+        );
+      },
+      sendWheel,
+      sendClick,
+      registerCleanup: (callback) => addSessionCleanup(session, callback),
+      moveThresholdPx: touchShortcutMoveThresholdPx,
+      longPressDelayMs: touchSelectionLongPressDelayMs,
+    });
+  };
+
   const clearReconnectTimer = (session) => {
     if (session?.reconnectTimer) {
       window.clearTimeout(session.reconnectTimer);
@@ -14082,6 +14195,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     installRendererThemeMapper(session);
     installRendererCellSeamPatch(session);
     installMobileTouchSelection(session);
+    installClaudeTerminalTouchAdapter(session);
     installTerminalMouseTracking(session);
     installDesktopMouseClipboard(session);
     installTerminalResizeObserver(session);
