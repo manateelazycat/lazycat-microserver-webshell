@@ -1,0 +1,157 @@
+# 历史修复与回归防护记录
+
+本文档用于保存 `lazycat-microserver-webshell` 的架构基线、已确认的历史问题和防止问题复现的 guard。它不是发布日志，也不记录未经证实的猜测或已经否定的方案。
+
+首版建立于 2026-07-27。初始历史条目根据仓库 Git 提交、当前实现和现有测试重建；后续每次 Bug 修复都应在同一次变更中更新本文档。
+
+## 使用规则
+
+### 开始任务前
+
+1. 阅读 `AGENTS.md`、`README.md`、本文档和本次修改涉及的源码、调用方及测试。
+2. 在“架构基线”和“长期 guard”中确认状态归属、协议边界、终端历史、平台输入和账号隔离要求。
+3. 在“历史修复记录”中搜索相关模块、协议字段、事件类型、缓存字段或错误现象。
+4. 修改终端渲染、重连、输入、移动端手势或 agent 时，先画清事件/数据时序，不能只根据最终画面修补表象。
+
+### 修复 Bug 后
+
+1. 在“历史修复记录”末尾新增条目，不覆盖旧条目。
+2. 必须写清错误现象、触发条件、根因和最终实施方案，不能只写“已修复”。
+3. 必须增加 guard。优先级依次为：行为测试、单元测试、协议/资源契约测试、可重复的设备验证。
+4. 涉及终端状态机时，guard 至少覆盖正常路径和一个失败、重连、隐藏或跨账号边界。
+5. 执行与改动直接相关的测试，并在风险允许时执行完整测试。无法验证的设备或宿主必须写明。
+6. 如果修复改变了架构基线、稳定协议或验证方式，同时更新本文档前半部分。
+
+### 历史记录维护
+
+- 历史条目只追加，不静默删除。原记录有误时追加“更正”说明并引用原条目 ID。
+- 一个问题跨浏览器、Provider 后端和 persistent agent 时使用一个主条目，完整记录端到端时序。
+- 不能以吞掉错误、过滤日志或静默 fallback 代替根因修复。
+- 重构只有在改变了故障边界或 guard 时才记入本文档；普通功能开发不作为历史修复记录。
+
+## 当前架构基线
+
+### 进程与路由
+
+- `main.go` 启动仅监听 `127.0.0.1:8080` 的 Provider 服务，注册静态资源、实例、设置、附件、工作区、设备、版本和 WebSocket 路由。
+- LPK 通过 `lzc-manifest.yml` 的 `/=exec://8080` 启动入口，并通过 `lightos.webshell` Resource Export 被 `lightos-admin` 发现。
+- 页面静态资源位于 `runtime/static/`，随二进制一起打包。HTML 禁止缓存，CSS/JS/JSON/WASM 使用可重验证缓存策略。
+
+### 管理端、Provider 与目标端边界
+
+- `lightos-admin` 是实例发现、当前用户可见性和发布服务管理的权威入口；Provider 通过公开/白名单接口对接，不读取 Admin 私有状态。
+- 对 LightOS 实例，Provider 后端通过 `lightosctl` 进入目标实例，并把 persistent agent 安装和运行在目标实例内。
+- 对 `client:<client_instance_id>`，Provider 在服务端重新校验可见性、换取短期票据并代理到客户端本地终端服务。Device API URL、服务凭据和票据不得返回浏览器。
+- 浏览器只处理现有 WebShell API 和 WebSocket 协议，不直接调用目标实例或客户端终端服务。
+
+### 工作区与 persistent agent
+
+- `workspace.go` 定义 tab、pane、分屏、活动状态、历史和 PTY 行为；`agent.go`/`agent_runtime.go` 负责 agent 协议、安装、启动、兼容检查和 attach。
+- 工作区和 PTY 的权威状态位于目标实例的 persistent agent。Provider 进程重启或浏览器断开不应销毁兼容 agent 中的会话。
+- agent scope 至少由完整 selector 和 account ID 组成。socket、缓存、启动错误和请求都必须使用同一 scope，防止同名实例或不同账号串会话。
+- agent 协议版本不兼容时应明确报错或执行已设计的升级流程，不能把旧响应当成当前结构继续解析。
+
+### 终端历史与渲染
+
+- LightOS 实例终端历史以 persistent agent 保存的原始 PTY 字节为可信来源；浏览器渲染状态不是历史权威。
+- 历史流使用 `history_generation` 和绝对 byte cursor 表示范围。服务端根据本地范围选择 `snapshot`、`delta` 或 `current`，所有 chunk 必须连续。
+- IndexedDB 缓存按 selector 和 pane 隔离，并绑定 generation、base cursor、end cursor。缓存无效时可以丢弃并从 agent 重建，但不能把不连续缓存拼接到新 generation。
+- `client:` PC target 保持其独立的完整历史协议，不能未经双方协议升级直接套用实例 agent 的增量假设。
+- pane 只有在尺寸可测量、fit generation 与 replay generation 都是当前值、canvas 尺寸正确且回放完成后，才能标记为可展示。
+- 终端渲染使用随包分发的 Ghostty Web 和明确的 `ghostty-vt.wasm` 路径。本项目禁止引入或仿制 `xterm.js`。
+
+### 输入、移动端与 iOS
+
+- 终端 helper textarea 的 focus、blur、IME、composition、generated response 和用户输入属于同一条状态链，修改时必须检查事件顺序和输入锁。
+- iOS/宽触摸屏的键盘唤起必须发生在有效用户手势内。需要抢在终端手势消费者之前观察事件时，使用经过验证的 capture 顺序，不能改成异步延迟后再 focus。
+- 单击选择、双击唤起键盘、拖动、长按、终端鼠标协议和快捷键会竞争同一批 touch 事件；修复其中一项必须防止破坏其余路径。
+- `runtime/static/ios_terminal_host.js` 只处理 Lazycat iOS 宿主桥接行为，不应扩散为通用浏览器逻辑。
+
+### 设置、附件与设备
+
+- 设置由字体 store 统一持久化。部分更新必须保留未修改字段，并区分“未传”“显式 null”“显式空数组/空行”。
+- 附件上传单批最多 32 个文件、单文件最大 2GB；下载一次最多 64 个条目。文件名、路径、符号链接和压缩目录都必须限制在授权目标范围内。
+- 设备在线列表是按 account ID 隔离的短 TTL 心跳视图，不是持久设备数据库。`client_id` 不能脱离 account ID 单独作为全局键。
+
+## 长期 guard
+
+| 风险域 | 必须保持的不变量 | 修改时至少检查 |
+| --- | --- | --- |
+| 账号与 scope | HTTP、WebSocket、agent socket、输入锁、设备和缓存都按账号及完整 target 隔离 | 缺少账号头、跨账号、同名实例、`client:` target |
+| agent 生命周期 | 兼容 agent 和 PTY 不因 Provider 重启丢失；安装/升级失败不能伪装成 ready | ping、缓存命中校验、启动超时、协议不兼容、信号继承 |
+| 历史同步 | generation 一致、cursor 连续、trim 后绝对范围正确、snapshot/delta/current 选择正确 | 首次连接、刷新、断网重连、服务端 trim、本地缓存缺块 |
+| 渲染就绪 | 隐藏 pane 不使用不可测尺寸；旧 fit/replay generation 不能让画面提前显示 | tab 切换、分屏、隐藏恢复、方向变化、Canvas context 恢复 |
+| 用户输入 | 用户输入、IME 和终端自动响应分离；输入锁不能吞掉允许的 generated response | composition、粘贴、大输入、回放期间 DSR/OSC、锁过期 |
+| 触摸与 iOS | 双击 focus 保持同步用户手势和 capture 顺序；单击、拖动和选择不误触键盘 | iOS WebView、宽触摸屏、长按、终端鼠标模式、快捷键 |
+| 工作区恢复 | 最后 selector/tab 持久恢复；用户明确返回首页时清除恢复意图 | 超过 30 秒、WebView 重载、无效 URL、浏览器前进后退 |
+| 设置 | PATCH 只更新显式字段，保留其他设置；null 与空值语义稳定 | 字体、scrollback、line height、移动/桌面快捷键 |
+| 客户端终端 | 浏览器不可见票据和服务凭据；每次连接前重新验证可见性 | 下线、过期票据、403/401、Device API 失败、附件代理 |
+| 依赖边界 | 不引入 `tmux`、`xterm.js` 或其改名/复制实现 | Go/npm/构建依赖、脚本、vendor、示例代码迁入 |
+
+## 验证基线
+
+常规 Go、协议和静态资源改动：
+
+```sh
+go test ./...
+git diff --check
+```
+
+按风险补充验证：
+
+- agent、工作区或历史：覆盖首次 attach、snapshot、delta、current、trim、断线重连和关闭 pane 清理。
+- 前端终端：覆盖活动 pane、隐藏 pane、tab 切换、分屏、页面刷新和 Canvas context 恢复。
+- 移动端输入：至少验证单击、双击、拖动、长按、IME、快捷键和键盘收起；iOS 专属修复必须在 Lazycat iOS 宿主验证。
+- 客户端终端：覆盖可见性校验、票据失败、WebSocket 代理、完整历史和附件代理。
+- manifest、runtime 或打包内容：执行 `lzc-cli project release`，确认 Resource Export、WASM、字体、主题和许可证资源齐全。
+
+## 历史修复记录
+
+### LCMD-20260722-01：工作区恢复状态 30 秒后失效
+
+- 日期：2026-07-22
+- 来源：commit `dd22f0db8fc7093dab465596c565aa7f8a22e8c8`
+- 影响模块：`runtime/static/main.js`、LightOS 管理页与 Provider 的恢复状态
+- 错误现象：用户离开页面、折叠屏触发 WebView 重载或后台停留超过 30 秒后，Provider 无法恢复最后使用的实例和 tab。
+- 根因：`webshell.workspaceRestore` 被设计成 30 秒 TTL，但这个状态表达的是持续的工作区选择，而不是短期跳转令牌。
+- 实施方案：移除 TTL，保存 version、selector、tab、URL 和 `updatedAt`；启动时补全缺失 query；用户明确返回首页时通过抑制标记清除恢复状态，同时继续触碰活动历史缓存避免误判为孤儿数据。
+- Guard：`TestRuntimePersistsWorkspaceForLightOSHomeReload` 验证持久状态、显式首页清理及禁止重新引入 TTL。
+- 禁止复现：不得重新加入短过期时间；不得让普通刷新等同于用户主动退出工作区。
+
+### LCMD-20260724-01：隐藏终端使用过期尺寸/回放状态提前显示
+
+- 日期：2026-07-24
+- 来源：commit `86f137bc5c88d7c72f40987b61f2cb039b8df70f`
+- 影响模块：`runtime/static/main.js`、Ghostty Web 初始化、tab/pane resize 与历史回放
+- 错误现象：隐藏 tab/pane 恢复、历史回放或尺寸变化后可能显示残留、空白或与当前终端尺寸不一致的画面；定时 full-render 仍可能把旧状态标记为 ready。
+- 根因：就绪判断只依赖宽松的 render/timer 条件，没有把一次呈现绑定到实际可测量的 fit generation 和本次 replay generation；隐藏 pane 的尺寸不可测，旧帧可能通过 watchdog 被展示。
+- 实施方案：显式传入随包 WASM 路径；引入 measured/pending/presented fit 与 replay generation；使用 ResizeObserver 和 canvas 尺寸校验；回放和尺寸仍未完成时保持画面隐藏；移除周期性 full-render/watchdog 作为就绪依据。
+- Guard：`TestRuntimeTerminalCanvasResidueGuard`、`TestRuntimeTabResizeDoesNotTemporarilyActivateAllTabs`、`TestRuntimeMobileOrientationReplaysVisibleTerminalAfterViewportSettle`。
+- 禁止复现：不得临时激活所有 tab 来获得尺寸；不得仅凭进程时间、定时器或一次 render 回调将 pane 标记为 ready。
+
+### LCMD-20260726-01：iOS 双击未能恢复终端键盘焦点
+
+- 日期：2026-07-26
+- 来源：commit `a6cba71fdc22fae4cb726f11dd5084b0dcedfa56`
+- 影响模块：`runtime/static/main.js`、触摸手势与终端 helper textarea focus
+- 错误现象：iOS/宽触摸屏上双击终端后键盘有时不弹出，尤其在终端自身的 touch 消费、选择或鼠标跟踪逻辑先处理事件时复现。
+- 根因：双击监听依赖 terminal host 的冒泡阶段，可能被更早的终端消费者阻断；并且把 focus 延迟到 `requestAnimationFrame` 后会离开 iOS 认可的同步用户手势上下文。
+- 实施方案：在 pane shell 的 capture 阶段先记录 touchstart/move/end；只接受来自当前 terminal host 的触点；确认双击后在 `touchend` 中同步 focus；单击在后续冒泡阶段 settle 为 blur，并在 session 销毁时清理监听器。
+- Guard：`TestRuntimeTouchKeyboardRequiresDoubleTapOnWideTouchScreens`、`TestRuntimeTouchKeyboardFocusPrecedesTouchConsumers`。
+- 禁止复现：双击 focus 路径不得重新使用 `requestAnimationFrame`、`setTimeout` 或 Promise；不得退回依赖 host 冒泡监听。
+
+## 新增记录模板
+
+```md
+### LCMD-YYYYMMDD-NN：问题标题
+
+- 日期：YYYY-MM-DD
+- 来源：commit/PR/issue/现场问题编号
+- 影响模块：浏览器、Provider 后端、agent、客户端终端或目标环境
+- 错误现象：用户可见结果、触发条件和影响范围
+- 根因：导致错误的状态、协议、时序、权限、缓存或平台原因
+- 实施方案：最终采用的修复及关键顺序/边界
+- Guard：新增或更新的测试名称；无法自动化时写设备和可重复步骤
+- 验证结果：执行的命令、设备/浏览器/系统和结果
+- 禁止复现：后续修改不得破坏的不变量
+```
