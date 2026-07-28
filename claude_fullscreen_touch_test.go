@@ -28,6 +28,7 @@ const stateModule = await import(pathToFileURL(statePath).href);
 const adapterModule = await import(pathToFileURL(adapterPath).href);
 const {
   createClaudeFullscreenTouchGesture,
+  isClaudeFullscreenTouchCandidate,
   isClaudeTerminalIdentity,
   resolveClaudeFullscreenTouchCompletion,
 } = stateModule;
@@ -44,6 +45,18 @@ assert.equal(isClaudeTerminalIdentity({ title: "Claude Code" }), true);
 assert.equal(isClaudeTerminalIdentity({ command: "codex", title: "Codex" }), false);
 assert.equal(isClaudeTerminalIdentity({ command: "grok", title: "Grok" }), false);
 assert.equal(isClaudeTerminalIdentity({ command: "claude-helper", title: "shell" }), false);
+assert.equal(isClaudeFullscreenTouchCandidate(
+  { command: "claude", alternateScreen: false },
+  { mouseTracking: true },
+), true, "replayed alternate-screen state must not disable Claude touch ownership");
+assert.equal(isClaudeFullscreenTouchCandidate(
+  { command: "claude" },
+  { mouseTracking: false },
+), false, "Claude default mode must keep its existing touch path");
+assert.equal(isClaudeFullscreenTouchCandidate(
+  { command: "codex" },
+  { mouseTracking: true },
+), false, "other mouse-tracking TUIs must stay isolated");
 
 const gesture = createClaudeFullscreenTouchGesture({ moveThresholdPx: 8 });
 gesture.start({ identifier: 1, clientX: 20, clientY: 100 });

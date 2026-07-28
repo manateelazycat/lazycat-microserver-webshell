@@ -45,6 +45,10 @@ export const isClaudeTerminalIdentity = (session) => {
   return title === "claude" || title === "claude code";
 };
 
+export const isClaudeFullscreenTouchCandidate = (session, { mouseTracking = false } = {}) => (
+  isClaudeTerminalIdentity(session) && mouseTracking === true
+);
+
 export const resolveClaudeFullscreenTouchCompletion = (outcome, { keyboardClaimed = false } = {}) => {
   if (outcome === "tap" && keyboardClaimed) {
     return "keyboard";

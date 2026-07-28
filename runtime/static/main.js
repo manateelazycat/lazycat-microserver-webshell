@@ -1,8 +1,20 @@
 import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
-import { isClaudeTerminalIdentity } from "./claude_fullscreen_touch.js";
+import {
+  installClaudeFullscreenContextMenuAdapter,
+  isClaudeFullscreenContextMenuCandidate,
+} from "./claude_fullscreen_context_menu_adapter.js";
+import {
+  installClaudeFullscreenDesktopSelectionAdapter,
+  isClaudeFullscreenDesktopSelectionCandidate,
+} from "./claude_fullscreen_desktop_selection_adapter.js";
+import { isClaudeFullscreenTouchCandidate } from "./claude_fullscreen_touch.js";
 import { installClaudeFullscreenTouchAdapter } from "./claude_fullscreen_touch_adapter.js";
 import { createPerformanceTaskMonitor } from "./performance_tasks.js";
 import { createTerminalHistoryCache } from "./terminal_history_cache.js";
+import {
+  shouldSendTerminalSize,
+  terminalSizeDiffersFromServer,
+} from "./terminal_size_sync.js";
 
 const params = new URLSearchParams(window.location.search);
 const workspaceRestoreStorageKey = "webshell.workspaceRestore";
@@ -314,6 +326,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   const mobileOrientationHistoryReplayDelayMs = 900;
   const desktopSelectionCopyMoveThresholdPx = 4;
   const terminalSizeReassertIntervalMs = 250;
+  const terminalSizeClaimIntervalMs = 250;
   const terminalInputChunkChars = 16 * 1024;
   const terminalInputFlushDelayMs = 8;
   const terminalInteractiveInputImmediateMaxBytes = 256;
@@ -560,6 +573,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   let nextPaneSeq = 1;
   let contextTarget = null;
   let lastTerminalTouchContextMenuCandidate = null;
+  const terminalLocalMouseClaimedEvents = new WeakSet();
   let toastTimer = 0;
   let activeTheme = themes.find((theme) => theme.id === window.localStorage.getItem(themeStorageKey)) || themes[0];
   let uploadedFonts = [];
@@ -8023,6 +8037,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
         mobileTapTouchState = null;
         return;
       }
+      claimTerminalSize(session);
       blurTerminalInput(session);
       const touch = event.touches[0];
       mobileTapTouchState = {
@@ -8134,21 +8149,43 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     return Math.floor(Number(dimensions.cols) || 0) === cols && Math.floor(Number(dimensions.rows) || 0) === rows;
   };
 
-  const sendTerminalSize = (pane) => {
+  const sendTerminalSize = (pane, { force = false } = {}) => {
     if (pane?.socket?.readyState !== WebSocket.OPEN) {
       return false;
     }
     const { cols, rows } = terminalSize(pane);
-    if (cols <= 0 || rows <= 0) {
-      return false;
-    }
-    if (pane.lastSentCols === cols && pane.lastSentRows === rows) {
+    if (!shouldSendTerminalSize({
+      cols,
+      rows,
+      lastSentCols: pane.lastSentCols,
+      lastSentRows: pane.lastSentRows,
+      force,
+    })) {
       return false;
     }
     pane.lastSentCols = cols;
     pane.lastSentRows = rows;
+    pane.serverCols = cols;
+    pane.serverRows = rows;
+    pane.sizeClaimRequired = false;
     pane.socket.send(JSON.stringify({ type: "resize", cols, rows }));
     return true;
+  };
+
+  const claimTerminalSize = (pane) => {
+    if (!pane || pane.closed) {
+      return false;
+    }
+    const now = performance.now();
+    const lastClaimAt = Number(pane.lastSizeClaimAt || 0);
+    if (!pane.sizeClaimRequired && lastClaimAt > 0 && now - lastClaimAt < terminalSizeClaimIntervalMs) {
+      return false;
+    }
+    const sent = sendTerminalSize(pane, { force: true });
+    if (sent) {
+      pane.lastSizeClaimAt = now;
+    }
+    return sent;
   };
 
   const sendTerminalTheme = (pane) => {
@@ -8235,7 +8272,12 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     canvasChanged: false,
   });
 
-  const resizePane = (pane, { visibleOnly = true, forceFullRender = false, hideUntilRender = false } = {}) => {
+  const resizePane = (pane, {
+    visibleOnly = true,
+    forceFullRender = false,
+    hideUntilRender = false,
+    forceSizeSync = false,
+  } = {}) => {
     if (!pane || pane.closed) {
       return failedPaneFit();
     }
@@ -8298,7 +8340,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       if (forceFullRender || fitGenerationChanged || hideUntilRender || !pane.hasPresentedFrame) {
         renderPaneFullNow(pane);
       }
-      sendTerminalSize(pane);
+      sendTerminalSize(pane, { force: forceSizeSync });
       updateMobileSelectionHandles(pane);
       return {
         ok: true,
@@ -9612,18 +9654,27 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     };
   };
 
-  const terminalAlternateScreenActive = (session) => {
-    try {
-      return session?.term?.wasmTerm?.isAlternateScreen?.() === true;
-    } catch (error) {
-      return false;
-    }
-  };
-
   const isClaudeFullscreenTouchSession = (session) => (
-    isClaudeTerminalIdentity(session)
-    && terminalAlternateScreenActive(session)
-    && Boolean(terminalMouseTrackingState(session))
+    isClaudeFullscreenTouchCandidate(session, {
+      mouseTracking: Boolean(terminalMouseTrackingState(session)),
+    })
+  );
+
+  const isClaudeFullscreenContextMenuEvent = (session, event) => (
+    isClaudeFullscreenContextMenuCandidate(session, {
+      mouseTracking: Boolean(terminalMouseTrackingState(session)),
+      button: event?.button,
+      contextMenuSuppressed: shouldSuppressTerminalContextMenu(event),
+    })
+  );
+
+  const isClaudeFullscreenDesktopSelectionEvent = (session, event) => (
+    isClaudeFullscreenDesktopSelectionCandidate(session, {
+      mouseTracking: Boolean(terminalMouseTrackingState(session)),
+      button: event?.button,
+      touchSelectionLayout: isTouchSelectionLayout(),
+      applicationModifier: Boolean(event?.ctrlKey || event?.altKey || event?.metaKey),
+    })
   );
 
   const terminalMouseButtonFromEvent = (event) => {
@@ -9915,6 +9966,11 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     };
 
     const handleMouseDown = (event) => {
+      if (terminalLocalMouseClaimedEvents.has(event)) {
+        mouseState.activeButton = -1;
+        mouseState.lastMoveSequence = "";
+        return;
+      }
       if (!isTerminalMouseTarget(event.target)) {
         return;
       }
@@ -9935,6 +9991,9 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     };
 
     const handleMouseMove = (event) => {
+      if (terminalLocalMouseClaimedEvents.has(event)) {
+        return;
+      }
       const state = terminalMouseTrackingState(session);
       if (!state) {
         mouseState.lastMoveSequence = "";
@@ -9953,6 +10012,11 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     };
 
     const handleMouseUp = (event) => {
+      if (terminalLocalMouseClaimedEvents.has(event)) {
+        mouseState.activeButton = -1;
+        mouseState.lastMoveSequence = "";
+        return;
+      }
       const hadActiveButton = mouseState.activeButton >= 0;
       const state = terminalMouseTrackingState(session);
       if (!state && !hadActiveButton) {
@@ -9985,6 +10049,9 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     };
 
     const handleClickLike = (event) => {
+      if (terminalLocalMouseClaimedEvents.has(event)) {
+        return;
+      }
       if (isTerminalMouseTarget(event.target) && terminalMouseTrackingState(session)) {
         stopTerminalMouseEvent(event);
       }
@@ -10362,6 +10429,15 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       pane.processCommandLine = paneState.command_line || "";
       pane.cwd = paneState.cwd || pane.cwd || "";
       pane.activityCheckedAt = Number(paneState.activity_checked_at || 0);
+      pane.serverCols = Math.max(0, Math.floor(Number(paneState.cols) || 0));
+      pane.serverRows = Math.max(0, Math.floor(Number(paneState.rows) || 0));
+      const localSize = terminalSize(pane);
+      pane.sizeClaimRequired = terminalSizeDiffersFromServer({
+        cols: localSize.cols,
+        rows: localSize.rows,
+        serverCols: pane.serverCols,
+        serverRows: pane.serverRows,
+      });
       pane.shellEl.dataset.busy = pane.busy ? "true" : "false";
       markSessionActivityNotification(pane, wasBusy, isBusy);
       markSessionIdleNotification(pane, wasBusy, isBusy);
@@ -12313,7 +12389,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       clearSelectionIfTapOutside: (touch) => clearMobileSelectionIfTapOutside(session, touch),
       hasSelection: () => Boolean(session.term?.hasSelection?.() || session.selectAllBufferActive),
       consumeKeyboardClaim: (event) => mobileKeyboardClaimedTouchEnds.delete(event),
-      prepareMouseInput: (event) => reassertTerminalSizeForMouse(session, event),
+      prepareMouseInput: () => claimTerminalSize(session),
       rowHeight: () => {
         const renderer = session.term?.renderer;
         return Math.max(
@@ -12326,6 +12402,58 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       registerCleanup: (callback) => addSessionCleanup(session, callback),
       moveThresholdPx: touchShortcutMoveThresholdPx,
       longPressDelayMs: touchSelectionLongPressDelayMs,
+    });
+  };
+
+  const installClaudeTerminalContextMenuAdapter = (session) => {
+    const shell = session?.shellEl;
+    const host = session?.terminalHost;
+    if (!shell || !host) {
+      return;
+    }
+    installClaudeFullscreenContextMenuAdapter({
+      shell,
+      shouldStart: (event) => {
+        const target = event?.target;
+        return (
+          target instanceof Element
+          && target.closest(".terminal-host") === host
+          && isClaudeFullscreenContextMenuEvent(session, event)
+        );
+      },
+      claimEvent: (event) => terminalLocalMouseClaimedEvents.add(event),
+      registerCleanup: (callback) => addSessionCleanup(session, callback),
+    });
+  };
+
+  const installClaudeTerminalDesktopSelectionAdapter = (session) => {
+    const shell = session?.shellEl;
+    const host = session?.terminalHost;
+    if (!shell || !host) {
+      return;
+    }
+    installClaudeFullscreenDesktopSelectionAdapter({
+      shell,
+      shouldStart: (event) => {
+        const target = event?.target;
+        return (
+          target instanceof Element
+          && target.closest(".terminal-host") === host
+          && isClaudeFullscreenDesktopSelectionEvent(session, event)
+        );
+      },
+      claimEvent: (event) => terminalLocalMouseClaimedEvents.add(event),
+      sendClick: (event) => {
+        const press = encodeTerminalMouseSequence(session, event, "press", 0);
+        if (!press) {
+          return false;
+        }
+        const release = encodeTerminalMouseSequence(session, event, "release", 0);
+        sendOrQueueInput(session, press + release);
+        return true;
+      },
+      registerCleanup: (callback) => addSessionCleanup(session, callback),
+      moveThresholdPx: desktopSelectionCopyMoveThresholdPx,
     });
   };
 
@@ -13666,7 +13794,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
         discardSessionInputBuffers(session);
       }
       sendTerminalTheme(session);
-      resizePane(session);
+      resizePane(session, { forceSizeSync: true });
       if (session.tabId === activeTabId && currentTab()?.activePaneId === session.id) {
         session.term.focus();
       }
@@ -14180,6 +14308,10 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       cwd: "",
       activityCheckedAt: 0,
       lastSizeReassertAt: 0,
+      lastSizeClaimAt: 0,
+      serverCols: 0,
+      serverRows: 0,
+      sizeClaimRequired: false,
       cleanupCallbacks: [],
     };
     installTerminalCanvasRecovery(session);
@@ -14196,6 +14328,8 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     installRendererCellSeamPatch(session);
     installMobileTouchSelection(session);
     installClaudeTerminalTouchAdapter(session);
+    installClaudeTerminalContextMenuAdapter(session);
+    installClaudeTerminalDesktopSelectionAdapter(session);
     installTerminalMouseTracking(session);
     installDesktopMouseClipboard(session);
     installTerminalResizeObserver(session);
@@ -17577,6 +17711,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
       rememberWorkspaceRestoreState();
       postDeviceHeartbeat().catch(() => {});
       resizeActiveTab({ forceFullRender: true, hideUntilRender: true });
+      claimTerminalSize(activeSession());
       refreshServerRevision().catch(() => {});
       reconnectVisibleSessions({ allowHidden: true, probe: true });
       refreshActivity({ silent: true }).catch(() => {});
@@ -17588,6 +17723,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
   });
   window.addEventListener("focus", () => {
     resizeActiveTab({ forceFullRender: true });
+    claimTerminalSize(activeSession());
     refreshServerRevision().catch(() => {});
     reconnectVisibleSessions({ allowHidden: true, probe: true });
     refreshActivity({ silent: true }).catch(() => {});
@@ -17596,6 +17732,7 @@ document.body?.classList.toggle("is-embed-mode", isEmbedMode);
     rememberWorkspaceRestoreState();
     postDeviceHeartbeat().catch(() => {});
     resizeActiveTab({ forceFullRender: true, hideUntilRender: true });
+    claimTerminalSize(activeSession());
     refreshServerRevision().catch(() => {});
     reconnectVisibleSessions({ allowHidden: true, probe: true });
     refreshActivity({ silent: true }).catch(() => {});

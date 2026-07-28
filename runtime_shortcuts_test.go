@@ -1996,14 +1996,12 @@ func TestRuntimeClaudeFullscreenTouchAdapterIsolation(t *testing.T) {
 	adapterSource := string(adapterData)
 
 	for _, want := range []string{
-		`import { isClaudeTerminalIdentity } from "./claude_fullscreen_touch.js";`,
+		`import { isClaudeFullscreenTouchCandidate } from "./claude_fullscreen_touch.js";`,
 		`import { installClaudeFullscreenTouchAdapter } from "./claude_fullscreen_touch_adapter.js";`,
 		`const mobileKeyboardClaimedTouchEnds = new WeakSet();`,
 		`mobileKeyboardClaimedTouchEnds.add(event);`,
-		`const terminalAlternateScreenActive = (session) => {`,
-		`isClaudeTerminalIdentity(session)`,
-		`&& terminalAlternateScreenActive(session)`,
-		`&& Boolean(terminalMouseTrackingState(session))`,
+		`isClaudeFullscreenTouchCandidate(session, {`,
+		`mouseTracking: Boolean(terminalMouseTrackingState(session)),`,
 		`const installClaudeTerminalTouchAdapter = (session) => {`,
 		`consumeKeyboardClaim: (event) => mobileKeyboardClaimedTouchEnds.delete(event),`,
 		`moveThresholdPx: touchShortcutMoveThresholdPx,`,
@@ -2012,6 +2010,15 @@ func TestRuntimeClaudeFullscreenTouchAdapterIsolation(t *testing.T) {
 		if !strings.Contains(mainSource, want) {
 			t.Fatalf("runtime Claude fullscreen adapter guard missing %q", want)
 		}
+	}
+	claudeTouchSession := sourceBetween(
+		t,
+		mainSource,
+		`  const isClaudeFullscreenTouchSession = (session) => (`,
+		`  const terminalMouseButtonFromEvent = (event) => {`,
+	)
+	if strings.Contains(claudeTouchSession, "AlternateScreen") || strings.Contains(claudeTouchSession, "alternateScreen") {
+		t.Fatal("Claude fullscreen touch ownership must not depend on replayed alternate-screen state")
 	}
 
 	installInputFocus := strings.Index(mainSource, `installTerminalInputFocus(session);`)
@@ -2054,6 +2061,146 @@ func TestRuntimeClaudeFullscreenTouchAdapterIsolation(t *testing.T) {
 	} {
 		if !strings.Contains(adapterSource, want) {
 			t.Fatalf("Claude fullscreen touch adapter isolation missing %q", want)
+		}
+	}
+}
+
+func TestRuntimeClaudeFullscreenContextMenuIsolation(t *testing.T) {
+	data, err := os.ReadFile("runtime/static/main.js")
+	if err != nil {
+		t.Fatalf("ReadFile(runtime/static/main.js) error = %v", err)
+	}
+	source := string(data)
+
+	for _, want := range []string{
+		`from "./claude_fullscreen_context_menu_adapter.js";`,
+		`const terminalLocalMouseClaimedEvents = new WeakSet();`,
+		`const isClaudeFullscreenContextMenuEvent = (session, event) => (`,
+		`contextMenuSuppressed: shouldSuppressTerminalContextMenu(event),`,
+		`const installClaudeTerminalContextMenuAdapter = (session) => {`,
+		`claimEvent: (event) => terminalLocalMouseClaimedEvents.add(event),`,
+		`if (terminalLocalMouseClaimedEvents.has(event)) {`,
+		`installClaudeTerminalContextMenuAdapter(session);`,
+	} {
+		if !strings.Contains(source, want) {
+			t.Fatalf("runtime Claude fullscreen context menu isolation missing %q", want)
+		}
+	}
+
+	installClaudeTouch := strings.Index(source, `installClaudeTerminalTouchAdapter(session);`)
+	installClaudeContextMenu := strings.Index(source, `installClaudeTerminalContextMenuAdapter(session);`)
+	installMouseTracking := strings.Index(source, `installTerminalMouseTracking(session);`)
+	if installClaudeTouch < 0 || installClaudeContextMenu < 0 || installMouseTracking < 0 {
+		t.Fatal("runtime Claude context menu installation order is incomplete")
+	}
+	if !(installClaudeTouch < installClaudeContextMenu && installClaudeContextMenu < installMouseTracking) {
+		t.Fatal("Claude context menu ownership must be installed before generic mouse tracking")
+	}
+
+	genericMouseTracking := sourceBetween(
+		t,
+		source,
+		`  const installTerminalMouseTracking = (session) => {`,
+		`  const compareSelectionCells = (left, right) => {`,
+	)
+	if strings.Contains(strings.ToLower(genericMouseTracking), "claude") {
+		t.Fatal("generic terminal mouse tracking must not contain Claude-specific context menu branches")
+	}
+}
+
+func TestRuntimeClaudeFullscreenDesktopSelectionIsolation(t *testing.T) {
+	data, err := os.ReadFile("runtime/static/main.js")
+	if err != nil {
+		t.Fatalf("ReadFile(runtime/static/main.js) error = %v", err)
+	}
+	source := string(data)
+
+	for _, want := range []string{
+		`from "./claude_fullscreen_desktop_selection_adapter.js";`,
+		`const isClaudeFullscreenDesktopSelectionEvent = (session, event) => (`,
+		`touchSelectionLayout: isTouchSelectionLayout(),`,
+		`applicationModifier: Boolean(event?.ctrlKey || event?.altKey || event?.metaKey),`,
+		`const installClaudeTerminalDesktopSelectionAdapter = (session) => {`,
+		`claimEvent: (event) => terminalLocalMouseClaimedEvents.add(event),`,
+		`const press = encodeTerminalMouseSequence(session, event, "press", 0);`,
+		`const release = encodeTerminalMouseSequence(session, event, "release", 0);`,
+		`moveThresholdPx: desktopSelectionCopyMoveThresholdPx,`,
+		`installClaudeTerminalDesktopSelectionAdapter(session);`,
+	} {
+		if !strings.Contains(source, want) {
+			t.Fatalf("runtime Claude fullscreen desktop selection isolation missing %q", want)
+		}
+	}
+
+	installContextMenu := strings.Index(source, `installClaudeTerminalContextMenuAdapter(session);`)
+	installDesktopSelection := strings.Index(source, `installClaudeTerminalDesktopSelectionAdapter(session);`)
+	installMouseTracking := strings.Index(source, `installTerminalMouseTracking(session);`)
+	installDesktopClipboard := strings.Index(source, `installDesktopMouseClipboard(session);`)
+	if installContextMenu < 0 || installDesktopSelection < 0 || installMouseTracking < 0 || installDesktopClipboard < 0 {
+		t.Fatal("runtime Claude desktop selection installation order is incomplete")
+	}
+	if !(installContextMenu < installDesktopSelection && installDesktopSelection < installMouseTracking && installMouseTracking < installDesktopClipboard) {
+		t.Fatal("Claude desktop selection ownership must precede generic mouse tracking and desktop clipboard handling")
+	}
+
+	genericMouseTracking := sourceBetween(
+		t,
+		source,
+		`  const installTerminalMouseTracking = (session) => {`,
+		`  const compareSelectionCells = (left, right) => {`,
+	)
+	if strings.Contains(strings.ToLower(genericMouseTracking), "claude") {
+		t.Fatal("generic terminal mouse tracking must not contain Claude-specific desktop selection branches")
+	}
+	if strings.Count(genericMouseTracking, `terminalLocalMouseClaimedEvents.has(event)`) < 4 {
+		t.Fatal("generic terminal mouse tracking must honor local ownership for down, move, up, and click-like events")
+	}
+}
+
+func TestRuntimeTerminalSizeClaimSurvivesCrossClientResize(t *testing.T) {
+	data, err := os.ReadFile("runtime/static/main.js")
+	if err != nil {
+		t.Fatalf("ReadFile(runtime/static/main.js) error = %v", err)
+	}
+	source := string(data)
+
+	for _, want := range []string{
+		`from "./terminal_size_sync.js";`,
+		`const sendTerminalSize = (pane, { force = false } = {}) => {`,
+		`shouldSendTerminalSize({`,
+		`const claimTerminalSize = (pane) => {`,
+		`sendTerminalSize(pane, { force: true });`,
+		`pane.serverCols = Math.max(0, Math.floor(Number(paneState.cols) || 0));`,
+		`pane.serverRows = Math.max(0, Math.floor(Number(paneState.rows) || 0));`,
+		`pane.sizeClaimRequired = terminalSizeDiffersFromServer({`,
+		`resizePane(session, { forceSizeSync: true });`,
+		`prepareMouseInput: () => claimTerminalSize(session),`,
+	} {
+		if !strings.Contains(source, want) {
+			t.Fatalf("runtime cross-client terminal size claim missing %q", want)
+		}
+	}
+
+	startMobileTap := sourceBetween(
+		t,
+		source,
+		`    const startMobileTap = (event) => {`,
+		`    const moveMobileTap = (event) => {`,
+	)
+	claimIndex := strings.Index(startMobileTap, `claimTerminalSize(session);`)
+	blurIndex := strings.Index(startMobileTap, `blurTerminalInput(session);`)
+	if claimIndex < 0 || blurIndex < 0 || claimIndex > blurIndex {
+		t.Fatal("mobile touchstart must reclaim terminal size before keyboard and touch consumers")
+	}
+
+	for _, marker := range []string{
+		`document.addEventListener("visibilitychange", () => {`,
+		`window.addEventListener("focus", () => {`,
+		`window.addEventListener("pageshow", () => {`,
+	} {
+		body := sourceBetween(t, source, marker, `  });`)
+		if !strings.Contains(body, `claimTerminalSize(activeSession());`) {
+			t.Fatalf("runtime lifecycle size claim missing after %q", marker)
 		}
 	}
 }
@@ -2298,7 +2445,9 @@ func TestRuntimeTabResizeDoesNotTemporarilyActivateAllTabs(t *testing.T) {
 		"syncTabMobilePixelScroll(tab);",
 		"scheduleActiveTabWindowResize();",
 		"const isPaneVisibleForSizing = (pane) => {",
-		"const resizePane = (pane, { visibleOnly = true, forceFullRender = false, hideUntilRender = false } = {}) => {",
+		"const resizePane = (pane, {",
+		"visibleOnly = true,",
+		"forceSizeSync = false,",
 		"const failedPaneFit = (measurable = false) => ({",
 		"ok: false,",
 		"pane.fitAddon?.proposeDimensions?.();",
@@ -2333,7 +2482,7 @@ func TestRuntimeTabResizeDoesNotTemporarilyActivateAllTabs(t *testing.T) {
 	}
 
 	visibilityIndex := strings.Index(source, "const isPaneVisibleForSizing = (pane) => {")
-	resizeIndex := strings.Index(source, "const resizePane = (pane, { visibleOnly = true, forceFullRender = false, hideUntilRender = false } = {}) => {")
+	resizeIndex := strings.Index(source, "const resizePane = (pane, {")
 	resetIndex := strings.Index(source, "resetTerminalHostViewport(pane, { clean: true });")
 	if visibilityIndex < 0 || resizeIndex < 0 || resetIndex < 0 || !(visibilityIndex < resizeIndex && resizeIndex < resetIndex) {
 		t.Fatalf("runtime hidden pane resize guard is not before terminal viewport reset")
