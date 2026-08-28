@@ -9,6 +9,10 @@ import {
   terminalQueueGateAllowsCreation,
   terminalQueueProtocolVersion,
 } from "./runtime/static/terminal_queue_connection.js";
+import {
+  createTerminalUnifiedConnection,
+  terminalUnifiedTransportProtocolVersion,
+} from "./runtime/static/terminal_unified_connection.js";
 import { TerminalReplayController } from "./runtime/static/terminal_replay_controller.js";
 
 class FakeWebSocket {
@@ -99,6 +103,70 @@ const crc32 = (data) => {
 test.beforeEach(() => {
   FakeWebSocket.instances = [];
 });
+
+test("unified ping sends a physical probe and pong updates physical health", async () => {
+  const connection = createTerminalUnifiedConnection({
+    url: "ws://example/ws?mode=unified&transport_role=unified",
+    WebSocketImpl: FakeWebSocket,
+  });
+  connection.connect();
+  const physical = FakeWebSocket.instances[0];
+  physical.emit("open");
+  assert.equal(connection.ping(), true);
+  assert.equal(JSON.parse(physical.sent.at(-1)).type, "queue-ping");
+  assert.equal(connection.snapshot().physicalLastPongAt, 0);
+  physical.emit("message", { data: JSON.stringify({ type: "queue-pong", protocol_version: 1 }) });
+  assert.ok(connection.snapshot().physicalLastPongAt > 0);
+});
+
+test("physical close notifies the physical owner before logical streams", async () => {
+  const events = [];
+  const connection = createTerminalUnifiedConnection({
+    url: "ws://example/ws?mode=unified&transport_role=unified",
+    WebSocketImpl: FakeWebSocket,
+    onPhysicalClose: () => events.push("physical"),
+  });
+  const logical = connection.open(subscription("pane-1"));
+  logical.addEventListener("close", () => events.push("logical"));
+  const physical = FakeWebSocket.instances[0];
+  physical.emit("open");
+  physical.close(1006, "network");
+  assert.deepEqual(events, ["physical", "logical"]);
+});
+test("unified connection multiplexes three live panes over one physical socket", async () => {
+  const connection = createTerminalUnifiedConnection({
+    url: "/ws?mode=unified&transport_role=unified",
+    WebSocketImpl: FakeWebSocket,
+  });
+  const sockets = [
+    connection.open(subscription("pane-1")),
+    connection.open(subscription("pane-2")),
+    connection.open(subscription("pane-3")),
+  ];
+  assert.equal(FakeWebSocket.instances.length, 1);
+  assert.equal(connection.snapshot().logicalCount, 3);
+  assert.equal(connection.snapshot().physicalRole, "unified");
+  assert.equal(terminalUnifiedTransportProtocolVersion, terminalQueueProtocolVersion);
+
+  const physical = FakeWebSocket.instances[0];
+  physical.emit("open");
+  const replace = physical.sent.find((payload) => JSON.parse(payload).type === "replace-subscriptions");
+  assert.equal(JSON.parse(replace).subscriptions.length, 3);
+
+  sockets[0].send(JSON.stringify({ type: "input", data: "a" }));
+  const paneControl = physical.sent.at(-1);
+  assert.equal(JSON.parse(paneControl).type, "pane-control");
+  assert.equal(JSON.parse(paneControl).pane_id, "pane-1");
+
+  assert.equal(connection.setPriority("pane-2", 0), true);
+  assert.equal(JSON.parse(physical.sent.at(-1)).type, "set-priority");
+
+  sockets[0].close();
+  sockets[1].close();
+  sockets[2].close();
+  assert.equal(FakeWebSocket.instances.length, 1);
+});
+
 
 test("queue creation is gated by the single physical Fast channel", () => {
   assert.equal(terminalQueueGateAllowsCreation({
@@ -501,8 +569,13 @@ test("an invalid first sequence is rejected instead of becoming legacy metadata"
   assert.equal(messages.length, 1);
 });
 
-test("a physical queue error is reported once instead of retrying every logical pane", async () => {
-  const connection = createTerminalQueueConnection({ url: "ws://example/ws?mode=queue", WebSocketImpl: FakeWebSocket });
+test("a physical queue error is reported once to the physical owner and one logical pane", async () => {
+  const physicalErrors = [];
+  const connection = createTerminalQueueConnection({
+    url: "ws://example/ws?mode=queue",
+    WebSocketImpl: FakeWebSocket,
+    onPhysicalError: (event) => physicalErrors.push(event.message),
+  });
   const first = connection.open(subscription("pane-1"));
   const second = connection.open(subscription("pane-2"));
   const errors = [];
@@ -521,6 +594,7 @@ test("a physical queue error is reported once instead of retrying every logical 
   physical.emit("error");
 
   assert.deepEqual(errors, [["pane-1", "agent unavailable"]]);
+  assert.deepEqual(physicalErrors, ["agent unavailable"]);
 });
 
 test("logical send wraps pane identity and closing the last stream closes the physical socket", async () => {

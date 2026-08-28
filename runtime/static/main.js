@@ -37,9 +37,10 @@ import { createTabActivationScheduler } from "./tab_activation_scheduler.js";
 import { createTerminalLongScreenshot } from "./terminal_long_screenshot.js";
 import {
   createTerminalQueueTaskQueue,
-  createTerminalQueueConnection,
   createTerminalQueueStartupLatch,
 } from "./terminal_queue_connection.js";
+import { createTerminalUnifiedConnection } from "./terminal_unified_connection.js";
+import { createTerminalUnifiedHealthWatchdog } from "./terminal_unified_health.js";
 import {
   isIndependentClient,
   openConfigurationPage,
@@ -426,6 +427,9 @@ const ghosttyInitPromise = initGhostty(runtimeAssetURL("./ghostty-vt.wasm")).the
   const terminalPendingInputMaxWaitMs = 10 * 1000;
   const maxQueuedInputBytes = 16 * 1024 * 1024;
   const terminalWebSocketPingIntervalMs = 10 * 1000;
+  const terminalUnifiedHealthCheckIntervalMs = 4 * 1000;
+  const terminalUnifiedPongTimeoutMs = 12 * 1000;
+  const terminalUnifiedTransitionTimeoutMs = 12 * 1000;
   const terminalWebSocketConnectTimeoutMs = 12 * 1000;
   const terminalFastWebSocketCapacity = 1;
   const terminalClientDirectWebSocketCapacity = 3;
@@ -704,6 +708,10 @@ const ghosttyInitPromise = initGhostty(runtimeAssetURL("./ghostty-vt.wasm")).the
   let terminalConnectionSchedulerState = null;
   let terminalConnectionDemandGeneration = 0;
   let terminalTopologyController = null;
+  let terminalUnifiedConnection = null;
+  let terminalUnifiedTargetName = "";
+  let terminalUnifiedHealthWatchdog = null;
+  const terminalUnifiedClosedConnections = new WeakSet();
   let terminalFastConnections = [null];
   let terminalFastClosingPromises = [null];
   let terminalFastExpectedCloseReasons = [""];
@@ -721,7 +729,6 @@ const ghosttyInitPromise = initGhostty(runtimeAssetURL("./ghostty-vt.wasm")).the
   let terminalQueueReconnectAttempts = 0;
   let terminalQueuePhysicalReadyState = WebSocket.CLOSED;
   let terminalQueueExpectedCloseReason = "";
-  let terminalQueuePhysicalKeepAliveTimer = 0;
   let terminalTransportRecoveryScheduled = false;
   let terminalTransportRecoveryRunning = false;
   let terminalTransportRecoveryPendingReason = "";
@@ -1112,7 +1119,7 @@ const ghosttyInitPromise = initGhostty(runtimeAssetURL("./ghostty-vt.wasm")).the
   const emptyTerminalNetworkMonitorState = () => ({
     channels: (isClientInstanceName(activeName)
       ? ["直连通道 1", "直连通道 2", "直连通道 3"]
-      : ["直连通道", "队列通道"]
+      : ["统一通道"]
     ).map((label, index) => ({
       index,
       label,
@@ -1200,7 +1207,7 @@ const ghosttyInitPromise = initGhostty(runtimeAssetURL("./ghostty-vt.wasm")).the
     if (reset) {
       terminalNetworkMonitor.detachAll();
     }
-    terminalNetworkMonitor.setLayout(isClientInstanceName(activeName) ? "direct" : "multiplexed");
+    terminalNetworkMonitor.setLayout(isClientInstanceName(activeName) ? "direct" : "unified");
     if (isClientInstanceName(activeName)) {
       for (const tab of tabs.values()) {
         for (const pane of tab.panes.values()) {
@@ -1209,15 +1216,17 @@ const ghosttyInitPromise = initGhostty(runtimeAssetURL("./ghostty-vt.wasm")).the
           }
         }
       }
-    } else if (terminalFastTargetName === activeName) {
-      terminalFastConnections.forEach((connection, slot) => {
-        const socket = connection?.getPhysicalSocket?.();
-        if (socket) {
-          terminalNetworkMonitor.attachSocket(socket, { kind: "fast", slot });
-        }
-      });
+    } else if (terminalUnifiedTargetName === activeName) {
+      const unifiedSocket = terminalUnifiedConnection?.getPhysicalSocket?.();
+      if (unifiedSocket) {
+        terminalNetworkMonitor.attachSocket(unifiedSocket, { kind: "unified" });
+      }
     }
-    if (!isClientInstanceName(activeName) && terminalQueueTargetName === activeName) {
+    if (
+      !isClientInstanceName(activeName)
+      && terminalQueueTargetName === activeName
+      && terminalQueueConnection !== terminalUnifiedConnection
+    ) {
       const queueSocket = terminalQueueConnection?.getPhysicalSocket?.();
       if (queueSocket) {
         terminalNetworkMonitor.attachSocket(queueSocket, { kind: "queue" });
@@ -1255,7 +1264,7 @@ const ghosttyInitPromise = initGhostty(runtimeAssetURL("./ghostty-vt.wasm")).the
         return;
       }
       terminalNetworkMonitor = module.createTerminalNetworkMonitor({
-        layout: isClientInstanceName(activeName) ? "direct" : "multiplexed",
+        layout: isClientInstanceName(activeName) ? "direct" : "unified",
         onStateChange: (state) => renderTerminalNetworkMonitor(state),
       });
       syncTerminalNetworkMonitorSockets();
@@ -18072,7 +18081,7 @@ const ghosttyInitPromise = initGhostty(runtimeAssetURL("./ghostty-vt.wasm")).the
 
   const trySendPendingQueueTurnAck = (session) => {
     const pending = session?.pendingQueueTurnAck;
-    if (!pending || session.closed || session.socket !== pending.socket || session.connectionChannel !== "queue") {
+    if (!pending || session.closed || session.socket !== pending.socket || !["queue", "fast"].includes(session.connectionChannel)) {
       return false;
     }
     if (
@@ -18998,14 +19007,14 @@ const ghosttyInitPromise = initGhostty(runtimeAssetURL("./ghostty-vt.wasm")).the
       terminalTransportRecoveryRunning = true;
       appendDebugWarning("终端物理通道异常，正在恢复", normalizedReason);
       try {
-        terminalConnectionScheduler?.invalidateTransport?.(normalizedReason);
         if (!terminalTopologyController?.transportFailure(normalizedReason)) {
           return;
         }
-        // The controller's reset command closes all old physical sockets. Do
-        // not start the next epoch until every old socket has settled, or the
-        // browser may briefly hold both generations at once.
+        // Close and fence the old physical socket before clearing leases. This
+        // keeps immediate recovery from creating a replacement generation on
+        // top of a socket that is still CLOSING.
         await waitForTerminalPhysicalClosures();
+        terminalConnectionScheduler?.invalidateTransport?.(normalizedReason, { immediate: true });
         if (!disposed && navigator.onLine !== false) {
           refreshTerminalTopology({ reason: "transport_recovery" });
           reconnectVisibleSessions({ allowHidden: true, probe: true });
@@ -19039,6 +19048,37 @@ const ghosttyInitPromise = initGhostty(runtimeAssetURL("./ghostty-vt.wasm")).the
       }
     });
     return true;
+  };
+
+  const startTerminalUnifiedHealthWatchdog = (connection) => {
+    terminalUnifiedHealthWatchdog?.stop?.();
+    terminalUnifiedHealthWatchdog = createTerminalUnifiedHealthWatchdog({
+      intervalMs: terminalUnifiedHealthCheckIntervalMs,
+      pongTimeoutMs: terminalUnifiedPongTimeoutMs,
+      transitionTimeoutMs: terminalUnifiedTransitionTimeoutMs,
+      isPaused: () => disposed || navigator.onLine === false,
+      onUnhealthy: (reason, observedConnection) => {
+        appendDebugWarning("统一终端物理通道健康检查失败", reason);
+        const slot = terminalFastConnections.indexOf(observedConnection);
+        handleTerminalUnifiedPhysicalDisconnect(observedConnection, Math.max(0, slot), reason);
+      },
+      onDisconnected: (reason, observedConnection) => {
+        if (observedConnection && terminalUnifiedConnection !== observedConnection) {
+          return;
+        }
+        scheduleTerminalTransportRecovery(reason);
+      },
+    });
+    terminalUnifiedHealthWatchdog.setConnection(connection);
+    return terminalUnifiedHealthWatchdog;
+  };
+
+  const probeTerminalUnifiedHealth = (reason = "lifecycle_resume") => {
+    if (!terminalUnifiedHealthWatchdog || !terminalUnifiedConnection) {
+      return false;
+    }
+    const result = terminalUnifiedHealthWatchdog.probe(reason);
+    return result?.action !== "paused";
   };
 
   const terminalPhysicalTopologyNeedsRecovery = () => {
@@ -19160,6 +19200,67 @@ const ghosttyInitPromise = initGhostty(runtimeAssetURL("./ghostty-vt.wasm")).the
     return true;
   };
 
+  const handleTerminalUnifiedPhysicalDisconnect = (connection, slot, reason = "unified_transport_closed") => {
+    const normalizedSlot = Math.floor(Number(slot));
+    if (!connection || terminalUnifiedClosedConnections.has(connection)) {
+      return false;
+    }
+    terminalUnifiedClosedConnections.add(connection);
+    terminalUnifiedHealthWatchdog?.setConnection(null);
+    const existingClosingPromise = terminalFastClosingPromises[normalizedSlot];
+    if (!existingClosingPromise) {
+      let closeFenceTimer = 0;
+      const physicalClosed = Promise.resolve(connection.closed);
+      const closeFence = Promise.race([
+        physicalClosed,
+        new Promise((resolve) => {
+          closeFenceTimer = window.setTimeout(resolve, terminalUnifiedHealthCheckIntervalMs);
+        }),
+      ]).finally(() => {
+        if (closeFenceTimer) {
+          window.clearTimeout(closeFenceTimer);
+        }
+        if (terminalFastClosingPromises[normalizedSlot] === closeFence) {
+          terminalFastClosingPromises[normalizedSlot] = null;
+        }
+      });
+      terminalFastClosingPromises[normalizedSlot] = closeFence;
+    }
+    if (terminalUnifiedConnection === connection) {
+      terminalUnifiedConnection = null;
+      terminalUnifiedTargetName = "";
+    }
+    if (terminalQueueConnection === connection) {
+      terminalQueueConnection = null;
+      terminalQueueTargetName = "";
+    }
+    if (terminalFastConnections[normalizedSlot] === connection) {
+      terminalFastConnections[normalizedSlot] = null;
+      terminalFastPhysicalReadyStates[normalizedSlot] = WebSocket.CLOSED;
+    }
+    const session = terminalTopologyController?.fastPane(normalizedSlot);
+    invalidateSessionStartupError(session, { hidePanel: true });
+    appendDebugWarning("统一终端物理通道已断开，立即重建", String(reason || "unified_transport_closed"));
+    scheduleTerminalTransportRecovery(String(reason || "unified_transport_closed"));
+    return true;
+  };
+
+  const retryUnavailableTerminalUnifiedTransport = (reason = "lifecycle_resume") => {
+    if (disposed || navigator.onLine === false || isClientInstanceName(activeName)) {
+      return false;
+    }
+    const topology = terminalTopologyController?.snapshot();
+    if (!topology || topology.phase === "idle" || topology.phase === "suspended") {
+      return false;
+    }
+    const state = terminalUnifiedConnection?.snapshot?.().physicalReadyState ?? WebSocket.CLOSED;
+    if (terminalUnifiedConnection && state !== WebSocket.CLOSED) {
+      return false;
+    }
+    scheduleTerminalTransportRecovery(reason);
+    return true;
+  };
+
   const ensureTerminalFastConnection = (slot, targetName) => {
     const normalizedSlot = Math.floor(Number(slot));
     const normalizedTarget = String(targetName || "").trim();
@@ -19189,14 +19290,14 @@ const ghosttyInitPromise = initGhostty(runtimeAssetURL("./ghostty-vt.wasm")).the
     }
     terminalFastTargetName = normalizedTarget;
     const socketURL = webSocketURL("./ws");
-    socketURL.searchParams.set("mode", "queue");
-    socketURL.searchParams.set("transport_role", "fast");
+    socketURL.searchParams.set("mode", "unified");
+    socketURL.searchParams.set("transport_role", "unified");
     socketURL.searchParams.set("protocol_version", "1");
     socketURL.searchParams.set("name", normalizedTarget);
     socketURL.searchParams.set("client_id", serverRevisionClientID);
     let connection;
-    terminalFastExpectedCloseReasons[normalizedSlot] = "";
-    connection = createTerminalQueueConnection({
+    terminalUnifiedTargetName = normalizedTarget;
+    connection = createTerminalUnifiedConnection({
       url: socketURL.toString(),
       keepAliveWhenEmpty: true,
       onStateChange: (state) => {
@@ -19208,27 +19309,33 @@ const ghosttyInitPromise = initGhostty(runtimeAssetURL("./ghostty-vt.wasm")).the
         if (terminalNetworkMonitor) {
           syncTerminalNetworkMonitorSockets();
         }
+        if (state.physicalReadyState === WebSocket.CONNECTING) {
+          terminalUnifiedHealthWatchdog?.start();
+        } else if (state.physicalReadyState === WebSocket.OPEN) {
+          terminalUnifiedHealthWatchdog?.start();
+          terminalUnifiedHealthWatchdog?.probe("transport_open");
+        }
         if (state.physicalReadyState === WebSocket.CLOSED) {
           const expectedReason = terminalFastExpectedCloseReasons[normalizedSlot];
           if (!intentionalTerminalTransportCloseReasons.has(expectedReason)) {
-            const session = terminalTopologyController?.fastPane(normalizedSlot);
-            invalidateSessionStartupError(session, { hidePanel: true });
-            // Do not wait indefinitely for a wrapper Promise if the browser
-            // fails to deliver its final close notification. The identity
-            // check prevents this fallback from racing a replacement socket.
-            queueMicrotask(() => {
-              if (
-                terminalFastConnections[normalizedSlot] !== connection
-                || connection.snapshot().physicalReadyState !== WebSocket.CLOSED
-              ) {
-                return;
-              }
-              terminalFastConnections[normalizedSlot] = null;
-              terminalFastPhysicalReadyStates[normalizedSlot] = WebSocket.CLOSED;
-              retryTerminalFastAssignment(normalizedSlot, `fast_${normalizedSlot + 1}_closed`);
-            });
+            handleTerminalUnifiedPhysicalDisconnect(
+              connection,
+              normalizedSlot,
+              `fast_${normalizedSlot + 1}_closed`,
+            );
           }
         }
+      },
+      onPhysicalError: ({ message, connection: failedConnection }) => {
+        appendDebugWarning("统一终端物理通道 WebSocket 错误，立即关闭重建", message);
+        handleTerminalUnifiedPhysicalDisconnect(failedConnection, normalizedSlot, "unified_websocket_error");
+        try {
+          failedConnection.close(4001, "unified_websocket_error");
+        } catch (error) {
+        }
+      },
+      onPhysicalClose: ({ connection: closedConnection, reason }) => {
+        handleTerminalUnifiedPhysicalDisconnect(closedConnection, normalizedSlot, reason || "unified_websocket_closed");
       },
       onProtocolError: (error, identity) => {
         appendDebugError(
@@ -19238,6 +19345,10 @@ const ghosttyInitPromise = initGhostty(runtimeAssetURL("./ghostty-vt.wasm")).the
       },
     });
     terminalFastConnections[normalizedSlot] = connection;
+    terminalUnifiedConnection = connection;
+    terminalQueueConnection = connection;
+    terminalQueueTargetName = normalizedTarget;
+    startTerminalUnifiedHealthWatchdog(connection);
     syncTerminalTopologyFastPhysicalState(
       normalizedSlot,
       connection.snapshot().physicalReadyState,
@@ -19245,15 +19356,26 @@ const ghosttyInitPromise = initGhostty(runtimeAssetURL("./ghostty-vt.wasm")).the
     Promise.resolve(connection.closed).finally(() => {
       const unexpectedClose = terminalFastConnections[normalizedSlot] === connection
         && !intentionalTerminalTransportCloseReasons.has(terminalFastExpectedCloseReasons[normalizedSlot]);
-      if (terminalFastConnections[normalizedSlot] === connection) {
-        terminalFastConnections[normalizedSlot] = null;
-        terminalFastPhysicalReadyStates[normalizedSlot] = WebSocket.CLOSED;
+      if (unexpectedClose) {
+        handleTerminalUnifiedPhysicalDisconnect(
+          connection,
+          normalizedSlot,
+          `fast_${normalizedSlot + 1}_closed_finally`,
+        );
+      } else {
+        terminalUnifiedClosedConnections.add(connection);
+        terminalUnifiedHealthWatchdog?.setConnection(null);
+        if (terminalUnifiedConnection === connection) {
+          terminalUnifiedConnection = null;
+          terminalUnifiedTargetName = "";
+        }
+        if (terminalQueueConnection === connection) {
+          terminalQueueConnection = null;
+          terminalQueueTargetName = "";
+        }
       }
       if (terminalNetworkMonitor) {
         syncTerminalNetworkMonitorSockets();
-      }
-      if (unexpectedClose) {
-        retryTerminalFastAssignment(normalizedSlot, `fast_${normalizedSlot + 1}_closed`);
       }
     });
     return connection;
@@ -19345,8 +19467,8 @@ const ghosttyInitPromise = initGhostty(runtimeAssetURL("./ghostty-vt.wasm")).the
     socketUrl.searchParams.set("name", String(session.name || "").trim());
     socketUrl.searchParams.set("client_id", serverRevisionClientID);
     if (usesMultiplexedTransport) {
-      socketUrl.searchParams.set("mode", "queue");
-      socketUrl.searchParams.set("transport_role", channel);
+      socketUrl.searchParams.set("mode", "unified");
+      socketUrl.searchParams.set("transport_role", "unified");
       socketUrl.searchParams.set("protocol_version", "1");
     } else {
       socketUrl.searchParams.set("pane", session.id);
@@ -19456,6 +19578,7 @@ const ghosttyInitPromise = initGhostty(runtimeAssetURL("./ghostty-vt.wasm")).the
       streamID: channel === "queue" ? session.queueStreamID : session.fastStreamID,
     });
     let currentSocket;
+    let currentMultiplexedConnection = null;
     if (usesMultiplexedTransport) {
       const multiplexedConnection = channel === "queue"
         ? terminalQueueConnection
@@ -19466,6 +19589,7 @@ const ghosttyInitPromise = initGhostty(runtimeAssetURL("./ghostty-vt.wasm")).the
       }
       const size = terminalSize(session);
       const checkpointCapabilities = terminalCheckpointCapabilitiesForTerminal(session.term);
+      currentMultiplexedConnection = multiplexedConnection;
       currentSocket = multiplexedConnection.open({
         pane_id: session.id,
         stream_id: streamID,
@@ -19480,7 +19604,7 @@ const ghosttyInitPromise = initGhostty(runtimeAssetURL("./ghostty-vt.wasm")).the
         local_base_cursor: historyConnectRange?.baseCursor?.toString?.() || "",
         local_end_cursor: historyConnectRange?.endCursor?.toString?.() || "",
         history_replay_mode: session.resetOnNextReplay ? "snapshot" : "",
-        flow_control: channel === "queue" ? "turn-ack-v1" : "",
+        flow_control: usesMultiplexedTransport ? "turn-ack-v1" : "",
         foreground: themePayload.foreground,
         background: themePayload.background,
         cursor: themePayload.cursor,
@@ -19853,7 +19977,7 @@ const ghosttyInitPromise = initGhostty(runtimeAssetURL("./ghostty-vt.wasm")).the
                 session.fastIntegritySequence = 1;
                 session.fastIntegrityCursor = deltaFromCursor ?? 0n;
                 session.historyReplayTargetCursor = deltaToCursor;
-                if (channel === "fast" && !isClientInstanceName(session.name) && session.fastIntegrityEnabled !== true) {
+                if (channel === "fast" && !isClientInstanceName(session.name) && !usesMultiplexedTransport && session.fastIntegrityEnabled !== true) {
                   replayController.beginLegacy({
                     requestID: String(session.terminalReplayGeneration || ""),
                     connectionEpoch,
@@ -19874,7 +19998,7 @@ const ghosttyInitPromise = initGhostty(runtimeAssetURL("./ghostty-vt.wasm")).the
                   });
                   session.replayControllerLegacyActive = false;
                 }
-                session.queueReplayControllerActive = channel === "queue" && deltaFromCursor === deltaToCursor;
+                session.queueReplayControllerActive = usesMultiplexedTransport && deltaFromCursor === deltaToCursor;
                 session.queueReplayControllerLegacy = false;
                 session.serverBaseCursor = serverBaseCursor;
                 session.resetOnNextReplay = false;
@@ -20031,7 +20155,7 @@ const ghosttyInitPromise = initGhostty(runtimeAssetURL("./ghostty-vt.wasm")).the
                 const replayControllerRequired = (
                   channel === "fast" && !isClientInstanceName(session.name) && session.fastIntegrityEnabled === true
                 ) || (
-                  channel === "queue" && session.queueReplayControllerActive
+                  usesMultiplexedTransport && session.queueReplayControllerActive
                 );
                 if (replayControllerRequired && session.historyProtocolActive) {
                   try {
@@ -20062,7 +20186,7 @@ const ghosttyInitPromise = initGhostty(runtimeAssetURL("./ghostty-vt.wasm")).the
                 finishSessionHistoryReplayIfReady(session) || flushSessionOutput(session);
                 return;
               case "queue-turn-complete":
-                if (channel === "queue") {
+                if (channel === "queue" || channel === "fast") {
                   const appliedCursor = String(message.applied_cursor || "").trim();
                   const appliedSequence = String(message.applied_sequence || "").trim();
                   const receivedCursor = String(session.queueTurnReceivedCursor ?? "").trim();
@@ -20200,7 +20324,7 @@ const ghosttyInitPromise = initGhostty(runtimeAssetURL("./ghostty-vt.wasm")).the
             return;
           }
         }
-        if (channel === "queue" && replayController.phase === "replaying" && session.historyProtocolActive) {
+        if (usesMultiplexedTransport && replayController.phase === "replaying" && session.historyProtocolActive) {
           const metadata = event.queueMetadata || {};
           if (metadata.sequence === undefined || metadata.sequence === null) {
             replayController.reset();
@@ -20255,8 +20379,8 @@ const ghosttyInitPromise = initGhostty(runtimeAssetURL("./ghostty-vt.wasm")).the
           if (session.cacheV2RecoveryMetrics) {
             session.cacheV2RecoveryMetrics.serverReplayBytes += outputPayload.byteLength;
           }
-          if (channel === "queue") {
-          const metadata = event.queueMetadata || {};
+          if (usesMultiplexedTransport) {
+            const metadata = event.queueMetadata || {};
           if (metadata.endCursor !== undefined && metadata.sequence !== undefined) {
             session.queueTurnReceivedCursor = metadata.endCursor;
             session.queueTurnReceivedSequence = metadata.sequence;
@@ -20264,7 +20388,7 @@ const ghosttyInitPromise = initGhostty(runtimeAssetURL("./ghostty-vt.wasm")).the
         }
         writeSessionOutput(session, outputPayload, {
             connectionEpoch,
-            deferRender: channel === "queue" && sessionReplayIsCommitted(session),
+            deferRender: usesMultiplexedTransport && sessionReplayIsCommitted(session),
           });
         } catch (error) {
           rejectHistorySync(error?.message || "terminal history output range failed");
@@ -20330,6 +20454,9 @@ const ghosttyInitPromise = initGhostty(runtimeAssetURL("./ghostty-vt.wasm")).the
           : schedulerCloseReason === "network_offline"
           ? "offline"
           : "reconnecting";
+      const sharedPhysicalTransportLost = !isClientInstanceName(session.name)
+        && currentMultiplexedConnection
+        && terminalUnifiedClosedConnections.has(currentMultiplexedConnection);
       const retryableTransportClose = !intentionallyClosed && (channel === "queue"
         || isRetryableTerminalTransportError(schedulerCloseReason)
         || isRetryableTerminalTransportError(event.reason));
@@ -20365,6 +20492,9 @@ const ghosttyInitPromise = initGhostty(runtimeAssetURL("./ghostty-vt.wasm")).the
         flushSessionOutput(session);
       }
       if (channel === "queue") {
+        if (sharedPhysicalTransportLost) {
+          return;
+        }
         if (!session.closed && terminalTopologyController?.isQueueAllowed()) {
           if (intentionallyParked) {
             scheduleTerminalQueueSync();
@@ -20372,14 +20502,20 @@ const ghosttyInitPromise = initGhostty(runtimeAssetURL("./ghostty-vt.wasm")).the
             scheduleTerminalQueuePaneRetry(
               session,
               `${terminalLocationDescription(session)}: ${schedulerCloseReason || event.reason || "queue_transport_closed"}`,
+              { immediate: true },
             );
           }
         }
         return;
       }
       const fastPhysicalTransportLost = !isClientInstanceName(session.name)
-        && Number.isInteger(Number(session.fastTopologySlot))
-        && terminalFastConnections[Number(session.fastTopologySlot)]?.snapshot?.().physicalReadyState === WebSocket.CLOSED;
+        && (
+          sharedPhysicalTransportLost
+          || (
+            Number.isInteger(Number(session.fastTopologySlot))
+            && terminalFastConnections[Number(session.fastTopologySlot)]?.snapshot?.().physicalReadyState === WebSocket.CLOSED
+          )
+        );
       if (!fastPhysicalTransportLost) {
         terminalConnectionScheduler?.notifyClosed(session, leaseID, {
           reason: schedulerCloseReason || "server_close",
@@ -20608,10 +20744,6 @@ const ghosttyInitPromise = initGhostty(runtimeAssetURL("./ghostty-vt.wasm")).the
       window.clearTimeout(terminalQueueReconnectTimer);
       terminalQueueReconnectTimer = 0;
     }
-    if (terminalQueuePhysicalKeepAliveTimer) {
-      window.clearInterval(terminalQueuePhysicalKeepAliveTimer);
-      terminalQueuePhysicalKeepAliveTimer = 0;
-    }
     // An intentional transport shutdown must not delay the next topology epoch.
     resetTerminalQueuePhysicalReconnectBackoff();
     terminalQueueExpectedCloseReason = String(reason || "queue_gate_closed");
@@ -20626,6 +20758,17 @@ const ghosttyInitPromise = initGhostty(runtimeAssetURL("./ghostty-vt.wasm")).the
     const connection = terminalQueueConnection;
     terminalQueueConnection = null;
     terminalQueueTargetName = "";
+    if (connection && connection === terminalUnifiedConnection) {
+      for (const tab of tabs.values()) {
+        for (const pane of tab.panes.values()) {
+          if (pane.connectionChannel === "queue") {
+            detachTerminalQueueSession(pane, reason);
+          }
+        }
+      }
+      terminalQueueClosingPromise = null;
+      return;
+    }
     if (connection) {
       const closingPromise = Promise.resolve(connection.closed).finally(() => {
         if (terminalQueueClosingPromise === closingPromise) {
@@ -20638,118 +20781,34 @@ const ghosttyInitPromise = initGhostty(runtimeAssetURL("./ghostty-vt.wasm")).the
     }
   };
 
-  const startTerminalQueuePhysicalKeepAlive = (connection) => {
-    if (terminalQueuePhysicalKeepAliveTimer) {
-      window.clearInterval(terminalQueuePhysicalKeepAliveTimer);
-      terminalQueuePhysicalKeepAliveTimer = 0;
-    }
-    if (!connection) {
-      return;
-    }
-    terminalQueuePhysicalKeepAliveTimer = window.setInterval(() => {
-      if (terminalQueueConnection !== connection || connection.snapshot().physicalReadyState !== WebSocket.OPEN) {
-        return;
-      }
-      const socket = connection.getPhysicalSocket?.();
-      if (!socket || socket.readyState !== WebSocket.OPEN) {
-        return;
-      }
-      try {
-        socket.send(JSON.stringify({ type: "queue-ping" }));
-      } catch (error) {
-        appendDebugWarning("终端队列通道保活失败，准备独立重试", error?.message || String(error));
-        connection.close(4001, "queue_keepalive_failed");
-      }
-    }, 10 * 1000);
-  };
-
   const ensureTerminalQueueConnection = () => {
     if (terminalQueueClosingPromise) {
       return null;
     }
     if (
+      terminalUnifiedConnection
+      && terminalUnifiedTargetName === activeName
+      && terminalUnifiedConnection.snapshot().physicalReadyState !== WebSocket.CLOSING
+      && terminalUnifiedConnection.snapshot().physicalReadyState !== WebSocket.CLOSED
+    ) {
+      terminalQueueTargetName = activeName;
+      terminalQueueConnection = terminalUnifiedConnection;
+      return terminalUnifiedConnection;
+    }
+    if (
       terminalQueueConnection
       && terminalQueueTargetName === activeName
+      && terminalQueueConnection.snapshot().physicalReadyState !== WebSocket.CLOSING
+      && terminalQueueConnection.snapshot().physicalReadyState !== WebSocket.CLOSED
     ) {
       return terminalQueueConnection;
     }
     if (terminalQueueConnection) {
       closeTerminalQueueConnection("queue_target_changed");
-      return null;
     }
-    const socketURL = webSocketURL("./ws");
-    socketURL.searchParams.set("mode", "queue");
-    socketURL.searchParams.set("protocol_version", "1");
-    socketURL.searchParams.set("name", activeName);
-    socketURL.searchParams.set("client_id", serverRevisionClientID);
-    terminalQueueTargetName = activeName;
-    terminalQueueExpectedCloseReason = "";
-    terminalQueuePhysicalReadyState = WebSocket.CLOSED;
-    const connection = createTerminalQueueConnection({
-      url: socketURL.toString(),
-      keepAliveWhenEmpty: true,
-      onStateChange: (state) => {
-        if (terminalQueueConnection !== connection) {
-          return;
-        }
-        const physicalStateChanged = terminalQueuePhysicalReadyState !== state.physicalReadyState;
-        terminalQueuePhysicalReadyState = state.physicalReadyState;
-        if (terminalNetworkMonitor) {
-          syncTerminalNetworkMonitorSockets();
-        }
-        if (debugLogEnabled && state.logicalCount > 0) {
-          appendDebugLog(
-            "info",
-            "终端队列通道状态",
-            `physical=${state.physicalReadyState}, panes=${state.logicalCount}`,
-          );
-        }
-        if (!physicalStateChanged) {
-          return;
-        }
-        appendDebugLog(
-          "info",
-          "终端队列物理通道状态",
-          `physical=${state.physicalReadyState}, panes=${state.logicalCount}`,
-        );
-        if (state.physicalReadyState === WebSocket.OPEN) {
-          resetTerminalQueuePhysicalReconnectBackoff();
-          terminalTopologyController?.queueTransportOpened({
-            eventEpoch: terminalQueueTopologyEpoch,
-            attemptID: terminalQueueTopologyAttemptID,
-          });
-        } else if (state.physicalReadyState === WebSocket.CLOSED) {
-          const eventEpoch = terminalQueueTopologyEpoch;
-          const attemptID = terminalQueueTopologyAttemptID;
-          terminalQueueConnection = null;
-          terminalQueueTargetName = "";
-          recordTerminalQueuePhysicalReconnectFailure();
-          const expectedReason = terminalQueueExpectedCloseReason;
-          terminalQueueExpectedCloseReason = "";
-          // Queue is an independent physical transport. Its failure must not
-          // invalidate healthy Fast sockets or advance the global topology
-          // epoch. The controller keeps the Queue candidates and starts one
-          // backoff-controlled Queue replacement for this same epoch.
-          if (!intentionalTerminalTransportCloseReasons.has(expectedReason)) {
-            terminalTopologyController?.queueTransportClosed({
-              eventEpoch,
-              attemptID,
-              retryable: navigator.onLine !== false && !disposed,
-              reason: "queue_transport_closed",
-            });
-          }
-        }
-      },
-      onProtocolError: (error, identity) => {
-        appendDebugError(
-          "终端队列协议错误",
-          `${identity?.paneID || "unknown"}: ${error?.message || String(error)}`,
-        );
-      },
-    });
-    terminalQueueConnection = connection;
-    startTerminalQueuePhysicalKeepAlive(connection);
-    return connection;
+    // Unified owns the only physical socket. Queue initialization must wait
+    // for Fast bootstrap to create that socket instead of opening a second one.
+    return null;
   };
 
   const startPendingTerminalTopologyQueueTransport = ({ afterBackoff = false } = {}) => {
@@ -25435,6 +25494,7 @@ const ghosttyInitPromise = initGhostty(runtimeAssetURL("./ghostty-vt.wasm")).the
     setNetworkBanner(false);
     showToast("网络已恢复，正在重连。");
     terminalConnectionScheduler?.setOnline(true);
+    probeTerminalUnifiedHealth("network_online");
     waitForTerminalPhysicalClosures().then(() => {
       if (disposed || navigator.onLine === false) {
         return;
@@ -25463,9 +25523,8 @@ const ghosttyInitPromise = initGhostty(runtimeAssetURL("./ghostty-vt.wasm")).the
       }
       resizeActiveTab({ forceFullRender: true, hideUntilRender: true });
       claimTerminalSize(activeSession());
-      if (terminalPhysicalTopologyNeedsRecovery()) {
-        scheduleTerminalTransportRecovery("visibility_resume");
-      }
+      probeTerminalUnifiedHealth("visibility_resume")
+        || retryUnavailableTerminalUnifiedTransport("visibility_resume");
       reconnectVisibleSessions({ allowHidden: true, probe: true });
       refreshActivity({ silent: true }).catch(() => {});
       if (debugModeEnabled && deviceBackdrop && !deviceBackdrop.hidden) {
@@ -25477,9 +25536,8 @@ const ghosttyInitPromise = initGhostty(runtimeAssetURL("./ghostty-vt.wasm")).the
   window.addEventListener("focus", () => {
     resizeActiveTab({ forceFullRender: true });
     claimTerminalSize(activeSession());
-    if (terminalPhysicalTopologyNeedsRecovery()) {
-      scheduleTerminalTransportRecovery("window_focus");
-    }
+    probeTerminalUnifiedHealth("window_focus")
+      || retryUnavailableTerminalUnifiedTransport("window_focus");
     reconnectVisibleSessions({ allowHidden: true, probe: true });
     refreshActivity({ silent: true }).catch(() => {});
   });
@@ -25490,9 +25548,8 @@ const ghosttyInitPromise = initGhostty(runtimeAssetURL("./ghostty-vt.wasm")).the
     }
     resizeActiveTab({ forceFullRender: true, hideUntilRender: true });
     claimTerminalSize(activeSession());
-    if (terminalPhysicalTopologyNeedsRecovery()) {
-      scheduleTerminalTransportRecovery("pageshow_resume");
-    }
+    probeTerminalUnifiedHealth("pageshow_resume")
+      || retryUnavailableTerminalUnifiedTransport("pageshow_resume");
     reconnectVisibleSessions({ allowHidden: true, probe: true });
     refreshActivity({ silent: true }).catch(() => {});
   });

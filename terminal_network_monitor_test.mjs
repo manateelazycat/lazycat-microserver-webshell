@@ -46,6 +46,17 @@ test("network monitor counts UTF-8 and binary WebSocket payload bytes in decimal
   assert.equal(terminalNetworkMegabytes(1_500_000), 1.5);
 });
 
+test("unified targets expose exactly one physical channel", () => {
+  const monitor = createTerminalNetworkMonitor({ layout: "unified", now: () => 0 });
+  const unified = new FakeWebSocket(1);
+  assert.equal(monitor.attachSocket(unified, { kind: "unified" }).index, 0);
+  assert.equal(monitor.attachSocket(new FakeWebSocket(1), { kind: "unified" }), null);
+  const state = monitor.snapshot();
+  assert.equal(state.layout, "unified");
+  assert.deepEqual(state.channels.map((channel) => channel.label), ["统一通道"]);
+  assert.equal(state.channels[0].state, "open");
+});
+
 test("network monitor exposes one direct channel and one physical queue channel", () => {
   let now = 0;
   const monitor = createTerminalNetworkMonitor({ now: () => now });

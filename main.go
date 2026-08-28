@@ -906,7 +906,7 @@ func observeServerRevisionState(ctx context.Context, scope agentScope, clientID,
 }
 
 func (s *pluginServer) handleWebSocket(w http.ResponseWriter, r *http.Request) {
-	if strings.TrimSpace(r.URL.Query().Get("mode")) == "queue" {
+	if strings.TrimSpace(r.URL.Query().Get("mode")) == "queue" || strings.TrimSpace(r.URL.Query().Get("mode")) == "unified" {
 		if err := s.attachPersistentPaneQueue(w, r); err != nil {
 			log.Printf("websocket queue attach failed: %v", err)
 		}

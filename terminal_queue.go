@@ -55,6 +55,7 @@ type terminalQueueSubscription struct {
 	HistoryReplayMode      string                              `json:"history_replay_mode,omitempty"`
 	FlowControl            string                              `json:"flow_control,omitempty"`
 	CheckpointCapabilities []terminalQueueCheckpointCapability `json:"checkpoint_capabilities,omitempty"`
+	Priority               int                                 `json:"priority,omitempty"`
 	Foreground             string                              `json:"foreground,omitempty"`
 	Background             string                              `json:"background,omitempty"`
 	Cursor                 string                              `json:"cursor,omitempty"`
@@ -68,6 +69,8 @@ type terminalQueueClientMessage struct {
 	ChannelGeneration uint64                      `json:"channel_generation,omitempty"`
 	Subscriptions     []terminalQueueSubscription `json:"subscriptions,omitempty"`
 	Control           json.RawMessage             `json:"control,omitempty"`
+	Data              string                      `json:"data,omitempty"`
+	Priority          int                         `json:"priority,omitempty"`
 }
 
 type terminalQueueServerMessage struct {
@@ -124,6 +127,7 @@ type terminalQueuePaneStream struct {
 	mu              sync.Mutex
 	active          bool
 	overloaded      bool
+	priority        int
 	terminalControl bool
 	nextSequence    uint64
 	binarySequence  uint64
@@ -172,7 +176,7 @@ func (s *pluginServer) attachPersistentPaneQueue(w http.ResponseWriter, r *http.
 	if transportRole == "" {
 		transportRole = "queue"
 	}
-	if transportRole != "queue" && transportRole != "fast" {
+	if transportRole != "queue" && transportRole != "fast" && transportRole != "unified" {
 		http.Error(w, "unsupported terminal transport role", http.StatusBadRequest)
 		return nil
 	}
@@ -293,6 +297,18 @@ func (s *pluginServer) attachPersistentPaneQueue(w http.ResponseWriter, r *http.
 			if err := broker.handlePaneControl(message); err != nil {
 				broker.writePaneError(message.PaneID, message.StreamID, message.ChannelGeneration, err)
 			}
+		case "pane-input":
+			message.Control, _ = json.Marshal(map[string]any{
+				"type": "input",
+				"data": message.Data,
+			})
+			if err := broker.handlePaneControl(message); err != nil {
+				broker.writePaneError(message.PaneID, message.StreamID, message.ChannelGeneration, err)
+			}
+		case "set-priority":
+			if err := broker.setPriority(message); err != nil {
+				broker.writePaneError(message.PaneID, message.StreamID, message.ChannelGeneration, err)
+			}
 		case "queue-ping":
 			_ = writeJSON(terminalQueueServerMessage{
 				Type:            "queue-pong",
@@ -305,7 +321,7 @@ func (s *pluginServer) attachPersistentPaneQueue(w http.ResponseWriter, r *http.
 func newTerminalQueueBroker(ctx context.Context, scope agentScope, clientID, transportRole string, writer func(int, []byte) error) *terminalQueueBroker {
 	brokerCtx, cancel := context.WithCancel(ctx)
 	role := strings.TrimSpace(transportRole)
-	if role != "fast" {
+	if role != "fast" && role != "unified" {
 		role = "queue"
 	}
 	maxSubscriptions := terminalQueueMaxSubscriptions
@@ -319,7 +335,7 @@ func newTerminalQueueBroker(ctx context.Context, scope agentScope, clientID, tra
 		clientID:           strings.TrimSpace(clientID),
 		transportRole:      role,
 		maxSubscriptions:   maxSubscriptions,
-		allowOrdinaryInput: role == "fast",
+		allowOrdinaryInput: role == "fast" || role == "unified",
 		writeMessage:       writer,
 		streams:            make(map[string]*terminalQueuePaneStream),
 		wake:               make(chan struct{}, 1),
@@ -360,7 +376,14 @@ func (b *terminalQueueBroker) streamSnapshot() []*terminalQueuePaneStream {
 		streams = append(streams, stream)
 	}
 	b.mu.Unlock()
-	sort.Slice(streams, func(i, j int) bool { return streams[i].order < streams[j].order })
+	sort.Slice(streams, func(i, j int) bool {
+		leftPriority, leftOrder := streams[i].priorityAndOrder()
+		rightPriority, rightOrder := streams[j].priorityAndOrder()
+		if leftPriority != rightPriority {
+			return leftPriority < rightPriority
+		}
+		return leftOrder < rightOrder
+	})
 	return streams
 }
 
@@ -631,6 +654,7 @@ func (b *terminalQueueBroker) startPaneStream(subscription terminalQueueSubscrip
 		stdin:        stdin,
 		stdout:       stdout,
 		active:       true,
+		priority:     clampTerminalStreamPriority(subscription.Priority),
 		exited:       make(chan struct{}),
 	}
 	command.Stderr = &stream.stderr
@@ -657,6 +681,38 @@ func (b *terminalQueueBroker) startPaneStream(subscription terminalQueueSubscrip
 	}
 	stream.enqueueControl(map[string]any{"type": "agent-preparing"})
 	return stream, nil
+}
+
+func clampTerminalStreamPriority(value int) int {
+	if value < 0 {
+		return 0
+	}
+	if value > 3 {
+		return 3
+	}
+	return value
+}
+
+func (s *terminalQueuePaneStream) priorityAndOrder() (int, uint64) {
+	s.mu.Lock()
+	priority := s.priority
+	s.mu.Unlock()
+	return priority, s.order
+}
+
+func (b *terminalQueueBroker) setPriority(message terminalQueueClientMessage) error {
+	paneID := strings.TrimSpace(message.PaneID)
+	b.mu.Lock()
+	stream := b.streams[paneID]
+	b.mu.Unlock()
+	if stream == nil || !stream.matchesIdentity(message.StreamID, message.ChannelGeneration) {
+		return errors.New("unified pane stream is not active")
+	}
+	stream.mu.Lock()
+	stream.priority = clampTerminalStreamPriority(message.Priority)
+	stream.mu.Unlock()
+	b.signalWriter()
+	return nil
 }
 
 func (b *terminalQueueBroker) handlePaneControl(message terminalQueueClientMessage) error {

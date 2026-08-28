@@ -250,7 +250,7 @@ func TestRuntimeTabActivationPresentationRecoveryGuard(t *testing.T) {
 		"session.replayPresentationCheckpointPending",
 		"replay_presentation_checkpoint_skipped",
 		"session.replayPresentationCheckpointTimer",
-		`flow_control: channel === "queue" ? "turn-ack-v1" : ""`,
+		`flow_control: usesMultiplexedTransport ? "turn-ack-v1" : ""`,
 		`case "queue-turn-complete":`,
 		`type: "queue-turn-ack"`,
 		"data: `${pending.cursor.toString()}:${pending.sequence}`",
@@ -2982,8 +2982,8 @@ func TestRuntimeWebSocketURLUsesWebSocketProtocols(t *testing.T) {
 		`const socketUrl = webSocketURL("./ws");`,
 		`currentSocket = new WebSocket(socketUrl.toString());`,
 		`currentSocket = multiplexedConnection.open({`,
-		`socketURL.searchParams.set("mode", "queue");`,
-		`socketUrl.searchParams.set("transport_role", channel);`,
+		`socketURL.searchParams.set("mode", "unified");`,
+		`socketUrl.searchParams.set("transport_role", "unified");`,
 	}
 	for _, want := range wantSnippets {
 		if !strings.Contains(source, want) {
@@ -3927,22 +3927,51 @@ func TestRuntimeTerminalConnectionSchedulerGuard(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadFile(runtime/static/terminal_queue_connection.js) error = %v", err)
 	}
+	unifiedData, err := os.ReadFile("runtime/static/terminal_unified_connection.js")
+	if err != nil {
+		t.Fatalf("ReadFile(runtime/static/terminal_unified_connection.js) error = %v", err)
+	}
 	serviceWorkerData, err := os.ReadFile("runtime/static/service-worker.js")
 	if err != nil {
 		t.Fatalf("ReadFile(runtime/static/service-worker.js) error = %v", err)
 	}
+	terminalUnifiedHealthData, err := os.ReadFile("runtime/static/terminal_unified_health.js")
+	if err != nil {
+		t.Fatalf("ReadFile(runtime/static/terminal_unified_health.js) error = %v", err)
+	}
 	mainSource := string(mainData)
 	schedulerSource := string(schedulerData)
 	queueSource := string(queueData)
+	unifiedSource := string(unifiedData)
+	unifiedHealthSource := string(terminalUnifiedHealthData)
 	serviceWorkerSource := string(serviceWorkerData)
+
+	for _, want := range []string{
+		"export const createTerminalUnifiedHealthWatchdog = ({",
+		"current.ping?.()",
+		"unified_pong_timeout",
+		"state === socketClosed",
+		"isPaused()",
+	} {
+		if !strings.Contains(unifiedHealthSource, want) {
+			t.Fatalf("unified health watchdog guard missing %q", want)
+		}
+	}
 
 	for _, want := range []string{
 		`import { createTerminalConnectionScheduler } from "./terminal_connection_scheduler.js";`,
 		`import { createTerminalTopologyController } from "./terminal_topology_controller.js";`,
-		"createTerminalQueueConnection,",
+		`import { createTerminalUnifiedHealthWatchdog } from "./terminal_unified_health.js";`,
 		"createTerminalQueueStartupLatch,",
-		"const terminalFastWebSocketCapacity = 1;",
-		"const terminalClientDirectWebSocketCapacity = 3;",
+		"const terminalUnifiedHealthCheckIntervalMs = 4 * 1000;",
+		"const terminalUnifiedPongTimeoutMs = 12 * 1000;",
+		"const startTerminalUnifiedHealthWatchdog = (connection) => {",
+		"terminalUnifiedHealthWatchdog.setConnection(connection);",
+		"terminalUnifiedHealthWatchdog?.start();",
+		"terminalUnifiedHealthWatchdog?.probe(\"transport_open\");",
+		"handleTerminalUnifiedPhysicalDisconnect(observedConnection, Math.max(0, slot), reason);",
+		"terminalConnectionScheduler?.invalidateTransport?.(normalizedReason, { immediate: true });",
+		"onPhysicalClose: ({ connection: closedConnection, reason }) => {",
 		"const terminalQueueStartupDeadlineMs = 40 * 1000;",
 		"const requestSessionConnection = (session, {",
 		"const syncTerminalConnectionDemands = ({",
@@ -3959,7 +3988,11 @@ func TestRuntimeTerminalConnectionSchedulerGuard(t *testing.T) {
 		"let terminalQueueClosingPromise = null;",
 		"let terminalFastConnections = [null];",
 		"const ensureTerminalFastConnection = (slot, targetName) => {",
-		"terminalFastConnections.forEach((connection, slot) => {",
+		"terminalUnifiedConnection = connection;",
+		"createTerminalUnifiedConnection({",
+		"terminalUnifiedConnection.snapshot().physicalReadyState !== WebSocket.CLOSING",
+		"terminalQueueConnection.snapshot().physicalReadyState !== WebSocket.CLOSED",
+		"terminalFastConnections[normalizedSlot] = connection;",
 		"case \"reset-fast-transports\":",
 		"if (terminalQueueClosingPromise) {",
 		"const closingPromise = Promise.resolve(connection.closed).finally(() => {",
@@ -3967,7 +4000,9 @@ func TestRuntimeTerminalConnectionSchedulerGuard(t *testing.T) {
 		"keepAliveWhenEmpty: true,",
 		"connectTerminalQueueSession(pane);",
 		`case "queue-turn-complete":`,
-		`deferRender: channel === "queue" && sessionReplayIsCommitted(session),`,
+		"let currentMultiplexedConnection = null;",
+		"currentMultiplexedConnection = multiplexedConnection;",
+		"terminalUnifiedClosedConnections.has(currentMultiplexedConnection);",
 		`detachTerminalQueueSession(session, "promote_to_fast");`,
 		`session.connectionChannel === "fast"`,
 		`session.connectionChannel === "queue"`,
@@ -4022,6 +4057,10 @@ func TestRuntimeTerminalConnectionSchedulerGuard(t *testing.T) {
 		"HistoryGeneration string `json:\"history_generation,omitempty\"`",
 		"Sequence:          entry.binarySequence,",
 		"Checksum:          terminalPayloadChecksum(entry.payload),",
+		"transportRole != \"queue\" && transportRole != \"fast\" && transportRole != \"unified\"",
+		"allowOrdinaryInput: role == \"fast\" || role == \"unified\"",
+		"case \"pane-input\":",
+		"case \"set-priority\":",
 	} {
 		if !strings.Contains(string(serverQueueSource), want) {
 			t.Fatalf("Queue server integrity envelope missing %q", want)
@@ -4051,6 +4090,56 @@ func TestRuntimeTerminalConnectionSchedulerGuard(t *testing.T) {
 			t.Fatalf("terminal queue connection guard missing %q", want)
 		}
 	}
+	for _, want := range []string{
+		"export const terminalUnifiedTransportProtocolVersion = terminalQueueProtocolVersion;",
+		"export const createTerminalUnifiedConnection = ({",
+		"keepAliveWhenEmpty: true,",
+		`physicalRole: "unified"`,
+	} {
+		if !strings.Contains(unifiedSource, want) {
+			t.Fatalf("terminal unified connection guard missing %q", want)
+		}
+	}
+	if strings.Contains(mainSource, `terminalUnifiedHealthWatchdog.probe("transport_created")`) {
+		t.Fatal("unified watchdog must not treat the not-yet-started cold transport as CLOSED")
+	}
+	if strings.Contains(mainSource, "createTerminalQueueConnection({") {
+		t.Fatal("ordinary container runtime must not create a second Queue physical WebSocket")
+	}
+	if strings.Contains(mainSource, `socketURL.searchParams.set("mode", "queue");`) {
+		t.Fatal("ordinary container runtime must use the unified physical endpoint")
+	}
+	for _, want := range []string{
+		`const retryUnavailableTerminalUnifiedTransport = (reason = "lifecycle_resume") => {`,
+		`probeTerminalUnifiedHealth("visibility_resume")`,
+		`retryUnavailableTerminalUnifiedTransport("visibility_resume")`,
+		`probeTerminalUnifiedHealth("window_focus")`,
+		`retryUnavailableTerminalUnifiedTransport("window_focus")`,
+		`probeTerminalUnifiedHealth("pageshow_resume")`,
+		`retryUnavailableTerminalUnifiedTransport("pageshow_resume")`,
+		`terminalUnifiedHealthWatchdog?.setConnection(null);`,
+		`terminalUnifiedHealthWatchdog.setConnection(connection);`,
+		`terminalUnifiedHealthWatchdog?.start();`,
+	} {
+		if !strings.Contains(mainSource, want) {
+			t.Fatalf("unified lifecycle recovery guard missing %q", want)
+		}
+	}
+	for _, forbidden := range []string{
+		`scheduleTerminalTransportRecovery("visibility_resume")`,
+		`scheduleTerminalTransportRecovery("window_focus")`,
+		`scheduleTerminalTransportRecovery("pageshow_resume")`,
+	} {
+		if strings.Contains(mainSource, forbidden) {
+			t.Fatalf("lifecycle recovery must not reset the whole unified topology: %q", forbidden)
+		}
+	}
+	connectSessionBlock := sourceBetween(t, mainSource,
+		"  const connectSession = async (session, {",
+		"  const terminalQueueStreamID = (session, generation) => {")
+	if strings.Contains(connectSessionBlock, "terminalUnifiedClosedConnections.has(connection)") {
+		t.Fatal("logical close handler must use its captured multiplexed connection, not an undefined physical variable")
+	}
 	if strings.Contains(mainSource, `schedulerCloseReason === "queue_resync"`) {
 		t.Fatal("runtime must not retain the obsolete queue_resync close reason")
 	}
@@ -4065,6 +4154,12 @@ func TestRuntimeTerminalConnectionSchedulerGuard(t *testing.T) {
 	}
 	if !strings.Contains(serviceWorkerSource, "`${assetBase}terminal_queue_connection.js`,") {
 		t.Fatal("service worker must precache the terminal queue connection")
+	}
+	if !strings.Contains(serviceWorkerSource, "`${assetBase}terminal_unified_connection.js`,") {
+		t.Fatal("service worker must precache the terminal unified connection")
+	}
+	if !strings.Contains(serviceWorkerSource, "`${assetBase}terminal_unified_health.js`,") {
+		t.Fatal("service worker must precache the terminal unified health watchdog")
 	}
 	if !strings.Contains(serviceWorkerSource, "`${assetBase}terminal_topology_controller.js`,") {
 		t.Fatal("service worker must precache the terminal topology controller")
@@ -4223,23 +4318,23 @@ func TestRuntimeTerminalTopologyControllerOwnsFastQueueHandoff(t *testing.T) {
 		"let terminalQueuePhysicalReadyState = WebSocket.CLOSED;",
 		"const resetTerminalQueuePhysicalReconnectBackoff = () => {",
 		"const recordTerminalQueuePhysicalReconnectFailure = () => {",
-		"const physicalStateChanged = terminalQueuePhysicalReadyState !== state.physicalReadyState;",
-		"if (!physicalStateChanged) {",
-		"resetTerminalQueuePhysicalReconnectBackoff();",
-		"recordTerminalQueuePhysicalReconnectFailure();",
-		"const startPendingTerminalTopologyQueueTransport = ({ afterBackoff = false } = {}) => {",
-		"if (terminalQueueReconnectAttempts > 0 && !afterBackoff) {",
-		"startPendingTerminalTopologyQueueTransport({ afterBackoff: true });",
+		"terminalUnifiedConnection.snapshot().physicalReadyState !== WebSocket.CLOSING",
+		"terminalQueueConnection.snapshot().physicalReadyState !== WebSocket.CLOSED",
+		"terminalQueueConnection = terminalUnifiedConnection;",
+		"Unified owns the only physical socket.",
 	} {
 		if !strings.Contains(source, want) {
 			t.Fatalf("queue physical reconnect guard missing %q", want)
 		}
 	}
 	if strings.Contains(queueTransportBlock, `scheduleTerminalTransportRecovery("queue_transport_closed")`) {
-		t.Fatal("Queue physical close must not reset the global Fast/Queue topology")
+		t.Fatal("Queue logical state must not reset the unified physical transport")
 	}
-	if !strings.Contains(queueTransportBlock, `terminalTopologyController?.queueTransportClosed({`) {
-		t.Fatal("Queue physical close must stay on the Queue-only retry path")
+	if strings.Contains(queueTransportBlock, "createTerminalQueueConnection({") {
+		t.Fatal("Queue ensure path must not create a second physical WebSocket")
+	}
+	if strings.Contains(queueTransportBlock, "terminalTopologyController?.queueTransportClosed({") {
+		t.Fatal("Unified physical close must not use the obsolete Queue-only retry path")
 	}
 	if strings.Contains(queueTransportBlock, "session.replayComplete") {
 		t.Fatal("queue physical reconnect state must not be mutated from logical pane replay")
@@ -4448,9 +4543,10 @@ func TestRuntimeTerminalNetworkMonitorIsOptIn(t *testing.T) {
 		"const networkMonitorStorageKey = `${storagePrefix}.networkMonitor`;",
 		`let networkMonitorEnabled = window.localStorage.getItem(networkMonitorStorageKey) === "true";`,
 		"const terminalNetworkMonitorShouldRun = () => debugModeEnabled && networkMonitorEnabled && !disposed;",
-		`: ["直连通道", "队列通道"]`,
+		`["统一通道"]`,
+		"terminalNetworkMonitor.setLayout(isClientInstanceName(activeName) ? \"direct\" : \"unified\");",
 		`terminalNetworkMonitorModulePromise ||= import("./terminal_network_monitor.js");`,
-		"terminalNetworkMonitor.attachSocket(socket, { kind: \"fast\", slot });",
+		"terminalNetworkMonitor.attachSocket(unifiedSocket, { kind: \"unified\" });",
 		"terminalNetworkMonitor.attachSocket(queueSocket, { kind: \"queue\" });",
 		"terminalNetworkMonitor?.dispose();",
 		"window.clearInterval(terminalNetworkMonitorSampleTimer);",

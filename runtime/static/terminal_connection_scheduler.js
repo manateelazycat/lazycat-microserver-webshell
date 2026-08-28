@@ -428,7 +428,7 @@ export const createTerminalConnectionScheduler = ({
   // once. Clear those leases as a batch without calling disconnect again on
   // already-closed logical sockets; the topology owner will request fresh
   // leases after it creates the next physical transport generation.
-  const invalidateTransport = (reason = "network_failure") => {
+  const invalidateTransport = (reason = "network_failure", { immediate = false } = {}) => {
     let invalidated = false;
     for (const record of records.values()) {
       if (!record.lease) {
@@ -438,7 +438,12 @@ export const createTerminalConnectionScheduler = ({
       record.lastError = new Error(String(reason || "network_failure"));
       invalidated = true;
       if (record.demand && !record.disposed && online) {
-        scheduleBackoff(record);
+        if (immediate) {
+          clearRetry(record);
+          record.status = "queued";
+        } else {
+          scheduleBackoff(record);
+        }
       } else {
         record.status = record.disposed ? "disposed" : "parked";
       }

@@ -210,6 +210,8 @@ export const createTerminalQueueConnection = ({
   WebSocketImpl = globalThis.WebSocket,
   onStateChange = () => {},
   onProtocolError = () => {},
+  onPhysicalError = () => {},
+  onPhysicalClose = () => {},
   keepAliveWhenEmpty = false,
 } = {}) => {
   if (!url || typeof WebSocketImpl !== "function") {
@@ -222,9 +224,11 @@ export const createTerminalQueueConnection = ({
   let disposed = false;
   let subscriptionUpdatePending = false;
   let physicalErrorDispatched = false;
+  let physicalLastPongAt = 0;
   let resolveClosed;
   const closed = new Promise((resolve) => { resolveClosed = resolve; });
   let closedResolved = false;
+  let api = null;
 
   const resolveFinalClose = () => {
     if (closedResolved) {
@@ -238,8 +242,9 @@ export const createTerminalQueueConnection = ({
     physicalReadyState,
     logicalCount: logicalStreams.size,
     paneIDs: Array.from(logicalStreams.values(), (entry) => entry.identity.paneID),
+    physicalLastPongAt,
+    physicalRole: "queue",
   });
-
   const emitState = () => onStateChange(snapshot());
 
   const sendPhysical = (payload) => {
@@ -306,6 +311,11 @@ export const createTerminalQueueConnection = ({
       return false;
     }
     physicalErrorDispatched = true;
+    onPhysicalError({
+      message: String(message || "terminal queue connection failed"),
+      originalEvent,
+      connection: api,
+    });
     entry.listeners.dispatch("error", {
       type: "error",
       message: String(message || "terminal queue connection failed"),
@@ -465,6 +475,9 @@ export const createTerminalQueueConnection = ({
         }
         if (message.type === "pane-control") {
           routePaneControl(message);
+        } else if (message.type === "queue-pong") {
+          physicalLastPongAt = Date.now();
+          emitState();
         } else if (message.type === "queue-state" && message.state === "agent-preparing") {
           for (const entry of logicalStreams.values()) {
             entry.listeners.dispatch("message", {
@@ -497,11 +510,13 @@ export const createTerminalQueueConnection = ({
       physicalSocket = null;
       physicalReadyState = socketClosed;
       disposed = true;
-      closeAllLogical({
+      const closeEvent = {
         code: Number(event.code || 1006),
         reason: String(event.reason || "terminal queue connection closed"),
         wasClean: event.wasClean === true,
-      });
+      };
+      onPhysicalClose({ ...closeEvent, connection: api });
+      closeAllLogical(closeEvent);
       // The close event is the authoritative physical transport transition.
       // Emit it after logical streams are notified so the owner can discard
       // stale topology leases and create a fresh connection instance.
@@ -619,6 +634,28 @@ export const createTerminalQueueConnection = ({
     return logicalSocket;
   };
 
+  const setPriority = (identityOrPaneID, priority = 0) => {
+    const identity = typeof identityOrPaneID === "string"
+      ? Array.from(logicalStreams.values()).find((entry) => entry.identity.paneID === identityOrPaneID)?.identity
+      : identityOrPaneID;
+    if (!identity) {
+      return false;
+    }
+    return sendPhysical({
+      type: "set-priority",
+      protocol_version: terminalQueueProtocolVersion,
+      pane_id: identity.paneID,
+      stream_id: identity.streamID,
+      channel_generation: identity.channelGeneration,
+      priority: Math.max(0, Math.min(3, Math.floor(Number(priority) || 0))),
+    });
+  };
+
+  const ping = () => sendPhysical({
+    type: "queue-ping",
+    protocol_version: terminalQueueProtocolVersion,
+  });
+
   const close = (code = 1000, reason = "terminal queue disposed") => {
     if (disposed) {
       return;
@@ -645,10 +682,12 @@ export const createTerminalQueueConnection = ({
     return snapshot();
   };
 
-  return {
+  api = {
     connect,
     open,
     close,
+    setPriority,
+    ping,
     closed,
     snapshot,
     getPhysicalSocket() {
@@ -659,4 +698,5 @@ export const createTerminalQueueConnection = ({
       return Array.from(logicalStreams.values()).some((entry) => entry.identity.paneID === normalized);
     },
   };
+  return api;
 };

@@ -45,7 +45,11 @@ export const createTerminalNetworkMonitor = ({
   now = defaultNow,
   onStateChange = () => {},
 } = {}) => {
-  let currentLayout = layout === "direct" ? "direct" : "multiplexed";
+  let currentLayout = layout === "direct"
+    ? "direct"
+    : layout === "unified"
+      ? "unified"
+      : "multiplexed";
   let disposed = false;
   let lastSampleAt = now();
   let lastSampleReceivedBytes = 0;
@@ -70,12 +74,17 @@ export const createTerminalNetworkMonitor = ({
     if (currentLayout === "direct") {
       return `直连通道 ${channel.index + 1}`;
     }
+    if (currentLayout === "unified") {
+      return "统一通道";
+    }
     return channel.index === 2 ? "队列通道" : "直连通道";
   };
 
   const visibleChannels = () => currentLayout === "direct"
     ? channels
-    : [channels[0], channels[2]];
+    : currentLayout === "unified"
+      ? [channels[0]]
+      : [channels[0], channels[2]];
 
   const totals = () => visibleChannels().reduce((result, channel) => ({
     receivedBytes: result.receivedBytes + channel.receivedBytes,
@@ -166,6 +175,9 @@ export const createTerminalNetworkMonitor = ({
   };
 
   const availableChannel = (kind, slot = null) => {
+    if (kind === "unified") {
+      return currentLayout === "unified" && !channels[0].socket ? channels[0] : null;
+    }
     if (kind === "queue") {
       return currentLayout === "multiplexed" && !channels[2].socket ? channels[2] : null;
     }
@@ -190,7 +202,11 @@ export const createTerminalNetworkMonitor = ({
     if (attachments.has(socket)) {
       return attachments.get(socket).handle;
     }
-    const normalizedKind = kind === "queue" ? "queue" : "fast";
+    const normalizedKind = kind === "queue"
+      ? "queue"
+      : kind === "unified"
+        ? "unified"
+        : "fast";
     const channel = availableChannel(normalizedKind, slot);
     const requestedSlot = slot === null || slot === undefined ? -1 : Math.floor(Number(slot));
     const requestedChannel = requestedSlot >= 0 && requestedSlot < channels.length
@@ -291,7 +307,11 @@ export const createTerminalNetworkMonitor = ({
   };
 
   const setLayout = (nextLayout) => {
-    const normalized = nextLayout === "direct" ? "direct" : "multiplexed";
+    const normalized = nextLayout === "direct"
+      ? "direct"
+      : nextLayout === "unified"
+        ? "unified"
+        : "multiplexed";
     if (currentLayout === normalized) {
       return snapshot();
     }

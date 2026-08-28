@@ -28,6 +28,8 @@ const appShellAssets = [
   `${assetBase}tab_activation_scheduler.js`,
   `${assetBase}terminal_long_screenshot.js`,
   `${assetBase}terminal_queue_connection.js`,
+  `${assetBase}terminal_unified_connection.js`,
+  `${assetBase}terminal_unified_health.js`,
   `${assetBase}themes.json`,
   `${assetBase}ios_terminal_host.js`,
   `${assetBase}claude_fullscreen_context_menu_adapter.js`,

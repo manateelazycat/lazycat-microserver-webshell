@@ -419,6 +419,63 @@ func TestTerminalQueueRejectsOrdinaryInput(t *testing.T) {
 	}
 }
 
+func TestTerminalUnifiedTransportAllowsOrdinaryInputAcrossMultipleStreams(t *testing.T) {
+	broker := newTerminalQueueBroker(context.Background(), agentScope{}, "", "unified", func(int, []byte) error { return nil })
+	for _, paneID := range []string{"pane-1", "pane-2", "pane-3"} {
+		var stdin bytes.Buffer
+		stream := &terminalQueuePaneStream{
+			broker:       broker,
+			subscription: terminalQueueSubscription{PaneID: paneID, StreamID: "stream-" + paneID, ChannelGeneration: 1},
+			stdin:        terminalQueueTestWriteCloser{Buffer: &stdin},
+			active:       true,
+		}
+		broker.streams[paneID] = stream
+		control, _ := json.Marshal(terminalControlMessage{Type: "input", Data: paneID + "\n"})
+		err := broker.handlePaneControl(terminalQueueClientMessage{
+			Type:              "pane-control",
+			PaneID:            paneID,
+			StreamID:          "stream-" + paneID,
+			ChannelGeneration: 1,
+			Control:           control,
+		})
+		if err != nil {
+			t.Fatalf("ordinary unified input for %s rejected: %v", paneID, err)
+		}
+		if stdin.Len() == 0 {
+			t.Fatalf("ordinary unified input for %s was not forwarded", paneID)
+		}
+	}
+	if broker.maxSubscriptions != terminalQueueMaxSubscriptions || !broker.allowOrdinaryInput {
+		t.Fatalf("unified broker policy = max %d, ordinary=%v", broker.maxSubscriptions, broker.allowOrdinaryInput)
+	}
+}
+
+func TestTerminalUnifiedPriorityOrdersActivePaneWithoutRemovingOthers(t *testing.T) {
+	broker := newTerminalQueueBroker(context.Background(), agentScope{}, "", "unified", func(int, []byte) error { return nil })
+	for index, paneID := range []string{"pane-1", "pane-2", "pane-3"} {
+		broker.streams[paneID] = &terminalQueuePaneStream{
+			broker:       broker,
+			subscription: terminalQueueSubscription{PaneID: paneID, StreamID: "stream-" + paneID, ChannelGeneration: 1},
+			active:       true,
+			priority:     2,
+			order:        uint64(index + 1),
+		}
+	}
+	message := terminalQueueClientMessage{
+		PaneID:            "pane-3",
+		StreamID:          "stream-pane-3",
+		ChannelGeneration: 1,
+		Priority:          0,
+	}
+	if err := broker.setPriority(message); err != nil {
+		t.Fatalf("setPriority() error = %v", err)
+	}
+	ordered := broker.streamSnapshot()
+	if len(ordered) != 3 || ordered[0].subscription.PaneID != "pane-3" {
+		t.Fatalf("priority order = %v", []string{ordered[0].subscription.PaneID, ordered[1].subscription.PaneID, ordered[2].subscription.PaneID})
+	}
+}
+
 func TestTerminalFastTransportAllowsOneOrdinaryInputStream(t *testing.T) {
 	broker := newTerminalQueueBroker(context.Background(), agentScope{}, "", "fast", func(int, []byte) error { return nil })
 	var stdin bytes.Buffer

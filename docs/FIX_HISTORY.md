@@ -58,8 +58,8 @@
 ### 终端历史与渲染
 
 - LightOS 实例终端历史以 persistent agent 保存的原始 PTY 字节为可信来源；浏览器渲染状态不是历史权威。
-- 容器实例的单个 WebShell 页面最多维持 2 条页面级浏览器终端 WebSocket：1 条 Fast 直连通道和 1 条共享 Queue 通道。tab 与 pane 统一为逻辑调度对象；切换 tab、Fast 交接和 Queue 成员替换只更新逻辑 stream，不关闭健康物理 transport。首次初始化须按全局视觉顺序串行分配 Fast 和 Queue FIFO；Fast 未完成启动首帧前绝不能创建 Queue。Queue 的 `CONNECTING`、`OPEN`、`CLOSING` 都占用物理连接槽，真实物理 close 确认前不得创建替代 transport。`client:` target 暂不使用 Queue，继续保留其独立的直连调度。
-- Fast 与 Queue 复用只发生在浏览器与 Provider 之间。Provider 为每个逻辑 pane 复用现有 agent attach、持续 drain 上游并按 pane 公平轮转；persistent agent 不修改，继续维护全部 PTY、任务、历史和 cursor。Fast transport 每条只绑定一个 pane 并允许普通输入，Queue 普通输入仍需先提升到 Fast；同一 pane 任意时刻只能由一个有效 channel generation 写入 Ghostty。后台 tab 的 Queue pane 在 replay/cursor 连续后即可释放 FIFO，不得等待不可测量 Canvas 阻塞后续 pane。
+- 普通容器实例的单个 WebShell 页面只维持 1 条页面级 Unified 终端 WebSocket。全部 pane 通过显式 logical stream 复用该物理连接；当前迁移阶段仍复用原 Fast/Queue 的逻辑启动、replay 和 per-pane retry 状态，但两种逻辑角色必须引用同一个 `UnifiedTerminalConnection`，不得创建第二条物理终端 WebSocket。Queue gate 只允许控制逻辑成员何时加入，不能关闭健康 Unified transport。`CONNECTING`、`OPEN`、`CLOSING` 都占用唯一物理槽，旧 socket 真实 close 前不得创建替代 transport。`client:` target 暂未升级 unified 协议，继续保留最多 3 条独立直连调度。
+- Unified 复用只发生在浏览器与 Provider 之间。Provider 为每个逻辑 pane 复用现有 agent attach、持续 drain 上游并按 pane 公平轮转；persistent agent 不修改，继续维护全部 PTY、任务、历史和 cursor。Unified broker 允许每个有效 logical stream 发送普通输入和 generated control，输入必须按 pane identity/generation 校验并经该 stream 的串行 agent writer。活动 pane 优先级只影响轮转顺序，不移除或暂停其他 pane；同一 pane 任意时刻仍只能由一个有效 channel generation 写入 Ghostty。
 - 历史流使用 `history_generation` 和绝对 byte cursor 表示范围。服务端根据本地范围选择 `snapshot`、`delta` 或 `current`，所有 chunk 必须连续。
 - 容器实例使用 Cache API v2 保存按账号 scope、完整 selector、workspace generation、tab、pane 和 history generation 隔离的不可变 PTY 字节块，并以 commit-last manifest 暴露已持久化 cursor。缓存无效时可以丢弃并从 agent 重建，但不能把不连续缓存拼接到新 generation。
 - 容器页面从网络 workspace 响应取得完整账号 scope、selector、workspace、tab 和 pane 身份后，以 8 块滚动预读窗口从 Cache API 读取该精确身份下的 PTY 字节。历史区间和恢复期间排队的实时字节通过 Ghostty 专用 replay 写入完整解析，但不调度中间 Canvas render；WASM 输入缓冲区按实例复用。只有服务端 replay complete、cursor 连续、实时队列追平、fit 当前且最终 full render 成功后才显示；新增缓存字节的持久化在后台完成，不阻塞最终 Canvas。第一批字节不是首帧。窗口、字体、主题变化和跨设备单击恢复尺寸仅在确认 cols/rows 或 canvas backing store 变化后使用 presentation hold 保留旧帧；这些操作复用当前内存终端状态，不进入历史 replay 写入。hold 覆盖期间 Ghostty 继续按正常节流渲染，当前状态的 full render 成功后立即替换，不等待 PTY 输出安静，也不重新回放历史。切换 tab 前保存有效帧，激活后用当前状态的 full render 替换，不能显示黑屏。
@@ -97,7 +97,7 @@
 | 工作区恢复 | 最后 selector/tab 持久恢复；用户明确返回首页时清除恢复意图 | 超过 30 秒、WebView 重载、无效 URL、浏览器前进后退 |
 | 设置 | PATCH 只更新显式字段，保留其他设置；null 与空值语义稳定 | 字体、scrollback、line height、移动/桌面快捷键 |
 | 客户端终端 | 浏览器不可见票据和服务凭据；每次连接前重新验证可见性 | 下线、过期票据、403/401、Device API 失败、附件代理 |
-| 浏览器连接池 | 容器页面最多 2 Fast + 1 Queue；首次创建 Queue 前两条 Fast 都完成启动首帧，tab 切换和优先级交接只替换逻辑 stream，物理 close 确认前不得复用 slot | 首次进入、多 tab/32 分屏、Fast `CONNECTING/CLOSING`、点击提升、tab 切换、Queue 断线/重连 |
+| 浏览器连接池 | 普通容器只有 1 条 Unified 物理终端 WebSocket；Fast/Queue 迁移态逻辑必须共享同一 connection object；tab/pane 切换只改逻辑优先级，物理 close 确认前不得复用唯一槽；`client:` target 暂保留最多 3 条直连 | 首次进入、多 tab/32 分屏、Unified `CONNECTING/CLOSING`、逻辑成员替换、输入路由、断线/重连、折叠屏恢复 |
 | 依赖边界 | 不引入 `tmux`、`xterm.js` 或其改名/复制实现 | Go/npm/构建依赖、脚本、vendor、示例代码迁入 |
 
 ## 验证基线
@@ -1346,3 +1346,27 @@ git diff --check
 - 回归 guard：新增 `TestRuntimeTerminalConfirmedIMEDeleteUsesNativeMutation`，固定 256 字符删除缓冲、后退删除分支位于通用 composing 分支之前、删除路径不得调用 `preventDefault()` 或重写 textarea、必须使用删除保持定时器和 `\x7f` 输出，并固定 host capture 先于 Ghostty 同元素监听器接管 `beforeinput`。
 - 验证结果：已通过 JavaScript 语法检查、相关 Go runtime guard 和 `git diff --check`；真实 Android WebView/豆包输入法仍需复验英文确认、确认后的空格、长按退格连续删除和中文预编辑删除。
 - 禁止复现：确认态长按删除不得每次立即重写 textarea 哨兵；不得让页面 capture 与 Ghostty `InputHandler` 同时消费同一 `beforeinput`；不得以全局删除空格破坏用户在终端中输入的真实空格；不得破坏中文预编辑的原生 composition mutation。
+
+### LCMD-20260828-01：普通容器终端物理连接收敛为 Unified transport
+
+- 日期：2026-08-28
+- 来源：用户确认统一单长连接方案；折叠屏展开/收起后全部 WebShell 会话黑屏的故障范围分析。
+- 影响模块：`terminal_queue.go`、`main.go`、`runtime/static/main.js`、`terminal_queue_connection.js`、新增 `terminal_unified_connection.js`、Network Monitor、Service Worker 和连接协议测试。
+- 错误现象与架构问题：此前普通容器使用 `1 Fast + 1 Queue` 两条页面级物理 WebSocket。虽然大多数 pane 已通过 Queue 复用，活动 pane仍需要独立 Fast transport；Fast close、Queue 保活、promotion、topology epoch 和页面恢复共同参与状态迁移。移动 WebView 或折叠屏生命周期导致 Fast 短暂异常时，故障可能被升级成全拓扑恢复，使所有 pane同时进入 replay/presentation hold 并表现为集中黑屏。
+- 根因：物理 transport 角色与 logical pane 优先级耦合。活动 pane的低延迟需求被实现成单独物理连接，而不是同一复用连接内的输入权限和调度优先级；因此 Fast/Queue 各有连接和恢复状态，tab/pane交接还要跨 channel generation。
+- 实施方案：Provider 现有 Queue broker 新增 `unified` role，复用 `LCQ1`、per-pane cursor/sequence/checksum、持续 agent drain、有界缓冲、turn ACK 和独立 resync，同时允许最多 1024 个 logical stream 发送普通输入；每个输入继续校验 pane/stream/channel generation 并经 stream 的串行 agent frame writer。新增 `set-priority` 提示，Provider 按优先级和稳定 order 排序每轮，但每个 pane仍受既有 byte/time budget 限制。浏览器新增 `UnifiedTerminalConnection`，在普通容器迁移态让原 Fast/Queue logical stream 共享同一 connection object 和唯一 `transport_role=unified` WebSocket；Queue gate 关闭时只移除 Queue logical stream，不关闭健康 Unified socket。Network Monitor 新增只含“统一通道”的单槽布局，Service Worker 预缓存新模块。`visibilitychange`、window focus 和 `pageshow` 不再因唯一 Fast logical owner 短暂缺失调用 page-wide `invalidateTransport/transportFailure`，只对不可用的 Unified owner 执行独立重试；纯 viewport/方向变化继续只处理 geometry 和 presentation。`client:` target 暂保留旧直连兼容路径。
+- 安全边界：本阶段不删除成熟的 Fast/Queue logical replay、Cache v2、per-pane retry 和 presentation gate，只先合并物理故障域；同一 pane仍只有一个有效 generation 写入 Ghostty。历史 replay 继续完全隐藏；单 pane cursor/attach/overload 错误不得关闭统一物理连接；普通输入在身份不匹配时必须拒绝。旧 Queue/Fast 服务端角色继续兼容灰度客户端，同一页面只能创建一种物理 topology。
+- 回归 guard：`terminal_queue_connection_test.mjs` 新增三个 logical pane 只创建一个物理 socket、普通 pane control 和 priority hint；`terminal_queue_test.go` 覆盖 unified 多 stream 普通输入和活动优先级不移除其他 pane；`terminal_network_monitor_test.mjs` 固定 unified 只有一个物理监视槽；`TestRuntimeTerminalConnectionSchedulerGuard` 和 Service Worker guard 固定 Unified 模块、共享 connection object、lifecycle 不得全 topology reset 与资源预缓存。
+- 验证结果：`node --test *_test.mjs`（149/149）、`go test ./... -count=1`、`go test -race ./... -count=1`、相关 JavaScript 语法检查、`git diff --check` 和 `lzc-cli project release` 通过；已生成 `/home/ponzs/Desktop/os-dev/lazycat-microserver-webshell/cloud.lazycat.webshell.lcmd-v1.0.39.lpk`。真实 Android、鸿蒙和 Lazycat 折叠屏设备仍需验证三分屏持续输出、输入延迟、连续展开/收起及网络断线恢复。迁移后还需阶段性删除 Fast/Queue logical promotion/topology gate，并完成后台 tab 模型持续更新、仅可见 tab Canvas 绘制的最终架构。
+- 禁止复现：普通容器不得为 Fast 和 Queue 创建两个不同的物理 WebSocket；不得因 Queue logical 成员为空关闭仍承载 Fast logical stream 的 Unified socket；不得把 priority hint 变成暂停后台 pane；不得为了单连接取消 per-pane cursor/generation/identity 校验或展示历史回放；`client:` 未完成协议升级前不得伪装为 unified。
+
+### LCMD-20260828-02：Unified 首连和新增 pane 重试回调导致终端卡死
+
+- 日期：2026-08-28
+- 来源：用户真机调试日志；首次进入后创建新 tab/分屏，终端无法输入并且后续 pane 黑屏。
+- 错误现象：Unified transport 冷启动时反复出现 `unified_transport_created_closed`，随后 `terminal_queue_connection.js` 抛出 `ReferenceError: connection is not defined`。修复第一处后，新 tab/分屏的 logical close 仍可能触发同样未定义变量，导致 Fast lease 卡在 closing，后续 pane 无法取得连接和输入状态。
+- 根因：物理健康 watchdog 在 logical stream 尚未真正创建物理 WebSocket 时，把正常初始 `CLOSED` 当作故障并立即触发 topology recovery；物理错误回调还在连接对象完成初始化前引用 `api`。同时，logical close handler 将物理连接变量名写成未定义的 `connection`，并且 physical `error`、`close`、wrapper `closed.finally` 多条路径没有统一 owner-first 去重。
+- 实施方案：Unified watchdog 只有在物理连接进入 `CONNECTING`/`OPEN` 后启动；固定每 4 秒检查、物理 ping/pong、12 秒 pong/状态迁移超时，健康 OPEN 不重试。`terminal_queue_connection.js` 使用延迟初始化的 API 引用，并在 physical close 时先通知 `onPhysicalClose` owner，再 fan-out logical close。`main.js` 捕获 `currentMultiplexedConnection`，由 `handleTerminalUnifiedPhysicalDisconnect()` 使用 WeakSet 只处理一次；异常恢复先建立旧 socket close fence，再以 scheduler `invalidateTransport(..., { immediate: true })` 清除 backoff并立即重建。新 tab/分屏的正常 logical handoff 不进入物理恢复，仍按原 lease/replay/输入就绪流程完成。
+- 回归 guard：`terminal_unified_health_test.mjs` 覆盖 4 秒周期、健康 pong、CLOSED/缺失立即恢复、pong 超时、CONNECTING 超时、后台暂停和 ping 失败；`terminal_queue_connection_test.mjs` 覆盖物理 ping/pong、physical close owner-first、三 pane 单 socket；`terminal_connection_scheduler_test.mjs` 覆盖 immediate transport invalidation；`TestRuntimeTerminalConnectionSchedulerGuard` 固定 watchdog 只在真实 transport 建立后启动、物理 close owner、逻辑 close 使用 captured connection；静态资源 guard 固定 watchdog 进入 Service Worker。
+- 验证结果：Node 全量 159/159（本次新增后定向 58 项通过）、`go test ./... -count=1`、`go test -race ./... -count=1`、JavaScript 语法检查、`git diff --check` 和 `lzc-cli project release` 通过。LPK 需要安装后重新验证首次进入、创建 tab、创建分屏、连续输入和物理断线复活。
+- 禁止复现：不得在 socket 尚未由 logical stream 启动前把 `CLOSED` 当成异常；不得在模块 API 初始化前引用 wrapper 变量；不得让 physical error/close/finally 各自重建连接；不得让 logical handoff 误触发 physical recovery；不得在重试前清空 last-known-good frame、展示历史回放或丢弃 pane 的 cursor/generation。

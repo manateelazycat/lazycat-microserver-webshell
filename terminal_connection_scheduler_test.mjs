@@ -329,6 +329,20 @@ test("physical transport invalidation clears leases without disconnecting dead s
   assert.equal(harness.connections.length, 4);
 });
 
+test("physical transport immediate invalidation clears backoff and reconnects in the same task", () => {
+  const harness = createHarness({ capacity: 2 });
+  harness.scheduler.setGeneration(1);
+  const panes = [session("pane-1"), session("pane-2")];
+  panes.forEach((pane) => {
+    harness.scheduler.register(pane);
+    harness.scheduler.request(pane, demand(1));
+  });
+  assert.equal(harness.scheduler.invalidateTransport("unified_closed", { immediate: true }), true);
+  assert.equal(harness.scheduler.snapshot().counts.backoff, 0);
+  assert.equal(harness.scheduler.snapshot().activeCount, 2);
+  assert.equal(harness.connections.length, 4);
+});
+
 test("unregister clears demand and retry timers", () => {
   const harness = createHarness({ capacity: 1 });
   harness.scheduler.setGeneration(1);

@@ -1,8 +1,10 @@
 # WebSocket 三通道复用方案与执行计划
 
-状态：页面级 `1 Fast + 1 Queue` transport 复用已实施，自动化回归通过，真实多设备压力验收待完成。本文早期的双 Fast 段落保留为历史设计记录；当前实现基线以本文顶部最新状态和 [FIX_HISTORY.md](FIX_HISTORY.md) 的最新条目为准。
+状态：普通容器 Unified transport 已完成第一批迁移态接入；最终删除 Fast/Queue 逻辑角色和真实设备验收待继续
 
-最后更新：2026-08-21
+最后更新：2026-08-28
+
+> 本文记录 `1 Fast + 1 Queue` 的历史复用实现和迁移过程。新的单物理连接目标、阶段计划和最终验收标准以根目录 [TERMINAL_UNIFIED_WEBSOCKET_EXECUTION_PLAN.md](../TERMINAL_UNIFIED_WEBSOCKET_EXECUTION_PLAN.md) 为准；普通容器当前代码已进入 Unified 迁移态，不能将下文旧的双物理连接数量当作最终契约。
 
 ## 1. 问题与目标
 
