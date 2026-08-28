@@ -9,83 +9,6 @@ const socketOpen = 1;
 const socketClosing = 2;
 const socketClosed = 3;
 
-export const terminalQueueGateAllowsCreation = ({
-  fastCapacity = 1,
-  fastReadyStates = [],
-  queueCandidateCount = 0,
-  queueClosing = false,
-} = {}) => {
-  const requiredFast = Math.max(1, Math.floor(Number(fastCapacity) || 0));
-  const states = Array.from(fastReadyStates || [], (state) => String(state || ""));
-  // Queue creation is gated by the single physical Fast transport. A logical
-  // pane may still be finishing replay or an invisible Canvas commit after
-  // its transport is open, and that must not block the physical Queue slot.
-  return !queueClosing
-    && Math.floor(Number(queueCandidateCount) || 0) > 0
-    && states.length === requiredFast
-    && states.every((state) => state === "open");
-};
-
-export const createTerminalQueueTaskQueue = () => {
-  let tail = Promise.resolve();
-  let pending = 0;
-
-  const enqueue = (task) => {
-    if (typeof task !== "function") {
-      return Promise.reject(new TypeError("terminal queue task must be a function"));
-    }
-    pending += 1;
-    const run = tail.then(() => task());
-    tail = run.catch(() => {});
-    return run.finally(() => {
-      pending = Math.max(0, pending - 1);
-    });
-  };
-
-  return {
-    enqueue,
-    snapshot: () => ({ pending }),
-  };
-};
-
-export const createTerminalQueueStartupLatch = ({
-  timeoutMs,
-  setTimer = (callback, delay) => setTimeout(callback, delay),
-  clearTimer = (timer) => clearTimeout(timer),
-  onTimeout = () => {},
-} = {}) => {
-  const safeTimeoutMs = Math.max(1, Math.floor(Number(timeoutMs) || 0));
-  let settled = false;
-  let outcome = "";
-  let timer = 0;
-  let resolvePromise;
-  const promise = new Promise((resolve) => {
-    resolvePromise = resolve;
-  });
-  const settle = (nextOutcome) => {
-    if (settled) {
-      return false;
-    }
-    settled = true;
-    outcome = String(nextOutcome || "failed");
-    if (timer) {
-      clearTimer(timer);
-      timer = 0;
-    }
-    resolvePromise(outcome);
-    return true;
-  };
-  timer = setTimer(() => {
-    onTimeout();
-    settle("timed_out");
-  }, safeTimeoutMs);
-  return {
-    promise,
-    settle,
-    snapshot: () => ({ settled, outcome }),
-  };
-};
-
 const normalizeIdentity = (descriptor = {}) => {
   const paneID = String(descriptor.pane_id || descriptor.paneID || "").trim();
   const streamID = String(descriptor.stream_id || descriptor.streamID || "").trim();
@@ -257,7 +180,8 @@ export const createTerminalQueueConnection = ({
 
   const sendSubscriptions = () => {
     subscriptionUpdatePending = false;
-    const subscriptions = Array.from(logicalStreams.values(), (entry) => ({ ...entry.subscription }));
+    const entries = Array.from(logicalStreams.values());
+    const subscriptions = entries.map((entry) => ({ ...entry.subscription }));
     if (!sendPhysical({
       type: "replace-subscriptions",
       protocol_version: terminalQueueProtocolVersion,
@@ -265,6 +189,9 @@ export const createTerminalQueueConnection = ({
     })) {
       subscriptionUpdatePending = true;
       return false;
+    }
+    for (const entry of entries) {
+      entry.lastSentPriority = Math.max(0, Math.min(3, Math.floor(Number(entry.subscription.priority) || 0)));
     }
     return true;
   };
@@ -477,7 +404,6 @@ export const createTerminalQueueConnection = ({
           routePaneControl(message);
         } else if (message.type === "queue-pong") {
           physicalLastPongAt = Date.now();
-          emitState();
         } else if (message.type === "queue-state" && message.state === "agent-preparing") {
           for (const entry of logicalStreams.values()) {
             entry.listeners.dispatch("message", {
@@ -552,6 +478,7 @@ export const createTerminalQueueConnection = ({
       expectedCursor: null,
       expectedSequence: null,
       sequenceMode: null,
+      lastSentPriority: null,
       listeners,
       socket: null,
     };
@@ -635,20 +562,29 @@ export const createTerminalQueueConnection = ({
   };
 
   const setPriority = (identityOrPaneID, priority = 0) => {
-    const identity = typeof identityOrPaneID === "string"
-      ? Array.from(logicalStreams.values()).find((entry) => entry.identity.paneID === identityOrPaneID)?.identity
-      : identityOrPaneID;
-    if (!identity) {
+    const entry = typeof identityOrPaneID === "string"
+      ? Array.from(logicalStreams.values()).find((candidate) => candidate.identity.paneID === identityOrPaneID)
+      : logicalStreams.get(streamKey(identityOrPaneID || {}));
+    if (!entry) {
       return false;
     }
-    return sendPhysical({
+    const nextPriority = Math.max(0, Math.min(3, Math.floor(Number(priority) || 0)));
+    entry.subscription.priority = nextPriority;
+    if (entry.lastSentPriority === nextPriority) {
+      return true;
+    }
+    const sent = sendPhysical({
       type: "set-priority",
       protocol_version: terminalQueueProtocolVersion,
-      pane_id: identity.paneID,
-      stream_id: identity.streamID,
-      channel_generation: identity.channelGeneration,
-      priority: Math.max(0, Math.min(3, Math.floor(Number(priority) || 0))),
+      pane_id: entry.identity.paneID,
+      stream_id: entry.identity.streamID,
+      channel_generation: entry.identity.channelGeneration,
+      priority: nextPriority,
     });
+    if (sent) {
+      entry.lastSentPriority = nextPriority;
+    }
+    return sent;
   };
 
   const ping = () => sendPhysical({

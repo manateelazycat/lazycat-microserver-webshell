@@ -58,7 +58,7 @@
 ### 终端历史与渲染
 
 - LightOS 实例终端历史以 persistent agent 保存的原始 PTY 字节为可信来源；浏览器渲染状态不是历史权威。
-- 普通容器实例的单个 WebShell 页面只维持 1 条页面级 Unified 终端 WebSocket。全部 pane 通过显式 logical stream 复用该物理连接；当前迁移阶段仍复用原 Fast/Queue 的逻辑启动、replay 和 per-pane retry 状态，但两种逻辑角色必须引用同一个 `UnifiedTerminalConnection`，不得创建第二条物理终端 WebSocket。Queue gate 只允许控制逻辑成员何时加入，不能关闭健康 Unified transport。`CONNECTING`、`OPEN`、`CLOSING` 都占用唯一物理槽，旧 socket 真实 close 前不得创建替代 transport。`client:` target 暂未升级 unified 协议，继续保留最多 3 条独立直连调度。
+- 普通容器实例的单个 WebShell 页面只维持 1 条页面级 Unified 终端 WebSocket。全部 pane 通过 `terminal_unified_membership.js` 维护 target-scoped logical membership，并使用 `UnifiedTerminalConnection` 复用该物理连接。创建/关闭 pane才增删 logical stream；tab 切换、pane 聚焦、输入和 resize 只更新 priority 或 pane自身状态，不关闭 logical stream，不经过 Fast slot、promotion、Queue gate 或 topology reset。每个 pane具有独立 stream ID、channel generation、history generation、cursor、sequence、checksum、retry 和 resync；单 pane异常不得关闭其他 logical stream。`CONNECTING`、`OPEN`、`CLOSING` 都占用唯一物理槽，旧 socket 真实 close 或达到 close fence 前不得创建替代 transport。`client:` target 暂未升级 unified 协议，继续保留最多 3 条独立直连调度。
 - Unified 复用只发生在浏览器与 Provider 之间。Provider 为每个逻辑 pane 复用现有 agent attach、持续 drain 上游并按 pane 公平轮转；persistent agent 不修改，继续维护全部 PTY、任务、历史和 cursor。Unified broker 允许每个有效 logical stream 发送普通输入和 generated control，输入必须按 pane identity/generation 校验并经该 stream 的串行 agent writer。活动 pane 优先级只影响轮转顺序，不移除或暂停其他 pane；同一 pane 任意时刻仍只能由一个有效 channel generation 写入 Ghostty。
 - 历史流使用 `history_generation` 和绝对 byte cursor 表示范围。服务端根据本地范围选择 `snapshot`、`delta` 或 `current`，所有 chunk 必须连续。
 - 容器实例使用 Cache API v2 保存按账号 scope、完整 selector、workspace generation、tab、pane 和 history generation 隔离的不可变 PTY 字节块，并以 commit-last manifest 暴露已持久化 cursor。缓存无效时可以丢弃并从 agent 重建，但不能把不连续缓存拼接到新 generation。
@@ -1370,3 +1370,44 @@ git diff --check
 - 回归 guard：`terminal_unified_health_test.mjs` 覆盖 4 秒周期、健康 pong、CLOSED/缺失立即恢复、pong 超时、CONNECTING 超时、后台暂停和 ping 失败；`terminal_queue_connection_test.mjs` 覆盖物理 ping/pong、physical close owner-first、三 pane 单 socket；`terminal_connection_scheduler_test.mjs` 覆盖 immediate transport invalidation；`TestRuntimeTerminalConnectionSchedulerGuard` 固定 watchdog 只在真实 transport 建立后启动、物理 close owner、逻辑 close 使用 captured connection；静态资源 guard 固定 watchdog 进入 Service Worker。
 - 验证结果：Node 全量 159/159（本次新增后定向 58 项通过）、`go test ./... -count=1`、`go test -race ./... -count=1`、JavaScript 语法检查、`git diff --check` 和 `lzc-cli project release` 通过。LPK 需要安装后重新验证首次进入、创建 tab、创建分屏、连续输入和物理断线复活。
 - 禁止复现：不得在 socket 尚未由 logical stream 启动前把 `CLOSED` 当成异常；不得在模块 API 初始化前引用 wrapper 变量；不得让 physical error/close/finally 各自重建连接；不得让 logical handoff 误触发 physical recovery；不得在重试前清空 last-known-good frame、展示历史回放或丢弃 pane 的 cursor/generation。
+
+### LCMD-20260828-03：移除普通容器 Fast/Queue logical topology
+
+- 日期：2026-08-28
+- 来源：Unified 单物理连接版本完成手动基础验收后，按执行计划进入旧逻辑迁移层退役阶段。
+- 架构问题：物理连接虽然已经统一，但浏览器仍通过唯一 Fast lease、Queue gate、promotion、bootstrap phase 和 topology controller 决定 pane 何时加入同一 socket。tab/pane 聚焦仍会关闭一个 logical stream再建立另一个 logical stream，保留了旧双角色的状态数量和 handoff 故障面；新增 pane还要等待 Fast replay/Queue FIFO，与“全 workspace pane 常驻 Unified membership”的最终模型不一致。
+- 实施方案：新增 `terminal_unified_membership.js`，按 target维护全 workspace pane registry。所有具有已知终端尺寸的 pane 始终作为 `unified` logical stream 注册；创建/关闭 pane才改变 membership revision，tab 切换、聚焦和输入只通过 `set-priority` 更新优先级。普通容器不再注册 connection scheduler lease，不再使用 Fast slot、promotion、Queue gate、Queue startup FIFO 或 topology reset；每个 pane独立分配 `unifiedStreamID`、channel generation 和 retry timer，logical resync只关闭并重建当前 pane。物理 error/close仍由唯一 Unified owner、watchdog 和 close fence恢复全部 membership。删除 `terminal_topology_controller.js` 及其测试，删除 Queue gate/task queue/startup latch 辅助代码；Network Monitor 只保留 `unified` 单槽和 `client:` `direct` 三槽。`client:` target 的三直连 scheduler保持兼容，不纳入本阶段协议升级。
+- 安全边界：LCQ1、turn ACK、cursor、sequence、checksum、history generation、Cache v2、resize transaction、presentation gate和 persistent Agent/PTY 权威均保持不变；底层 `terminal_queue_connection.js` 名称仅表示沿用的 versioned wire implementation，不再表示浏览器 Queue logical role。历史 replay仍必须完整解析且只呈现最终帧；单 pane重同步不得关闭其他 pane或物理 socket。
+- 回归 guard：新增 `terminal_unified_membership_test.mjs`，覆盖三 pane常驻、tab/focus 只改变 priority、不改变 revision、pane/target 增删和无尺寸 pane过滤；更新 `TestRuntimeTerminalConnectionSchedulerGuard`，禁止 `main.js` 和 Service Worker恢复 topology controller、Fast connection array、Queue connection/gate、promotion和 Queue channel，并固定 scheduler仅在创建 `client:` session时注册；删除旧 topology/FIFO测试。Unified connection测试继续固定多 pane单物理 socket、priority、owner-first close和 logical close保活。
+- 验证结果：Node 全量 137/137、`go test ./... -count=1`、`go test -race ./... -count=1`、相关 JavaScript 语法检查、`git diff --check` 和 `lzc-cli project release` 已通过；新 LPK 的 `content.tar` 包含 `terminal_unified_membership.js` 且不再包含 `terminal_topology_controller.js`。目标设备创建/关闭多 tab/pane、单 pane resync和断网恢复仍需安装本包后验收。
+- 禁止复现：普通容器不得重新引入 Fast/Queue membership角色、Fast lease/promotion、Queue gate/FIFO或 topology reset；不得因 tab/focus/input改变 logical membership；不得让单 pane retry关闭 Unified physical socket；不得把 `client:` 三直连兼容路径误用于普通容器。
+
+### LCMD-20260828-04：Unified demand 路由条件丢失导致 main.js 无法加载
+
+- 日期：2026-08-28
+- 来源：用户安装 Fast/Queue logical topology 退役版本后，浏览器控制台报告 `Uncaught SyntaxError: Unexpected token ';' main.js:11122`，终端页面无法初始化。
+- 错误现象：`syncTerminalConnectionDemands()` 中 `client:` scheduler 分支缺少 `if (isClientInstanceName(activeName)) {`，残留的右花括号提前结束函数；浏览器在后续 `};` 处停止解析，因此所有 WebShell 会话均未进入加载流程。
+- 根因：将 connection scheduler 改为仅供 `client:` 懒创建时，精确文本替换误删了条件行但保留分支主体和右花括号。原静态 guard 只分别确认 scheduler 和 Unified 调用字符串存在，没有验证它们位于同一个完整函数内且调用顺序受 target 分支保护；`node --check` 又因文件外层异步回调的花括号被错误配平而未拦截该结构破坏。
+- 实施方案：恢复 `if (isClientInstanceName(activeName))` 分支，使 `client:` 调用 `syncClientTerminalConnectionDemands()` 后返回，普通容器继续调用 `refreshTerminalUnifiedMembership()`。新增函数级 source boundary guard，固定 disposed gate、client target guard、client scheduler调用和 Unified membership刷新顺序；同时使用 `node --input-type=module --check` 和本机 Chrome加载静态模块验证浏览器解析。
+- 回归结果：Node 全量 137/137、Go 全量、Go race、script/module 两种 Node 解析、Chrome实际模块加载和 `git diff --check` 均通过；已重新生成 `cloud.lazycat.webshell.lcmd-v1.0.39.lpk`，SHA-256 为 `f81cd330e5f2f464c4aa7b7bee3fe24c76c4e79125564d02b065b39c89ee7616`。
+- 禁止复现：不得用零散字符串存在性代替函数结构验证；修改 target 分支或花括号后必须同时执行模块模式解析和浏览器解析；普通容器不得进入 client scheduler，`client:` target 不得落入 Unified membership路径。
+
+### LCMD-20260828-05：Unified pong 状态回调形成空闲流量循环
+
+- 日期：2026-08-28
+- 来源：用户反馈所有会话静态、没有任务和输出时，Network Monitor 仍显示流量每秒快速增长。
+- 错误现象：普通容器所有 pane 无输出时，统一 WebSocket 持续发送和接收大量 `queue-ping`/`queue-pong`，同时反复发送 `set-priority` 和订阅相关控制帧；流量与实际终端输出不匹配。
+- 根因：Unified watchdog 的健康探针本应按 4 秒周期发送一次 `queue-ping`。Provider 返回 `queue-pong` 后，`terminal_queue_connection.js` 更新 `physicalLastPongAt` 并调用 `emitState()`；`main.js` 将每次状态回调中 `physicalReadyState === OPEN` 都误判为“刚打开”，立即再次 `probe("transport_open")`。于是形成无延迟的 `ping -> pong -> OPEN state callback -> ping` 循环。每次回调又会执行 Unified membership 同步，向每个 pane 重复发送 priority 控制帧。正常 4 秒保活本身只有极少字节，不能造成该流量量级。
+- 实施方案：`queue-pong` 只更新时间戳，不再产生物理状态回调；Unified owner 增加 `observedPhysicalReadyState`，仅在非 OPEN到OPEN的真实状态边沿执行首个 health probe 和 membership sync；`setPriority` 为每个 logical stream 增加最后发送优先级缓存，同一优先级不再重复发送控制帧。
+- 回归 guard：连接测试验证 pong 更新健康时间但不增加状态通知；Unified 多 pane测试验证重复 priority 不增加物理 socket发送帧；运行时 guard固定真实 OPEN边沿判断；全量测试继续覆盖 4 秒 watchdog、健康 pong、物理恢复和单物理 socket。
+- 验证结果：定向 Node 31/31、Node 全量 137/137、Go 全量、Go race、script/module 两种语法检查和 `git diff --check` 均通过；已重新生成 `cloud.lazycat.webshell.lcmd-v1.0.39.lpk`，SHA-256 为 `b86a903a910184a2b106929663fefbcd8865ca7004de23b51c960c0b82830c6c`。
+- 禁止复现：pong、普通业务消息和无输出状态不得触发立即重连、membership重发或 priority 重发；保活只能由独立 4 秒 watchdog驱动；不得把每次 `OPEN` 状态快照当作 OPEN 边沿。
+
+### LCMD-20260828-06：Network Monitor Unified 明细与总计重复
+
+- 日期：2026-08-28
+- 来源：用户要求移除普通容器 Network Monitor 中与总计数据完全相同的 Unified 通道明细，并增加标题右侧连接状态指示。
+- 实施方案：Unified 模式继续跟踪唯一物理 socket并累计总接收、总发送、总速率和总使用量，但 `snapshot().channels` 不再暴露重复的 Unified 明细行；`client:` 的三个直连通道仍保留明细。Network Monitor 标题增加状态小圆点：正常为绿色，异常为红色，连接中或重试中为灰色，悬停和无障碍标签同步显示状态。
+- 回归 guard：Unified 测试验证不渲染通道行但总字节和速率仍准确；状态测试覆盖正常、异常、连接中和重试中；静态 guard固定状态点 DOM、Unified 空明细数组、隐藏通道仍参与总计和状态聚合。
+- 验证结果：定向 Node 6/6、Node 全量 138/138、Go 全量、Go race、script/module 两种语法检查和 `git diff --check` 均通过；已重新生成 `cloud.lazycat.webshell.lcmd-v1.0.39.lpk`，SHA-256 为 `600f3451d6cefa4fc108490f523bf64a842ace3f1591468ff547d8cb6da67f57`。
+- 禁止复现：移除 Unified 明细不得清空或停止采样物理 socket；标题状态不得根据流量大小猜测网络状态，必须使用真实连接状态。

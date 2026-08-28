@@ -1,6 +1,6 @@
 # WebShell 单物理长连接统一复用执行方案与计划
 
-状态：阶段 0 已完成，阶段 1 已完成首批 Provider 与浏览器统一连接基础能力；阶段 3 已完成首批物理健康检查与生命周期恢复，普通容器统一 transport 灰度接入进行中
+状态：阶段 0 已完成，阶段 1 已完成首批 Provider 能力，阶段 2 已完成浏览器 Unified logical registry 和 Fast/Queue logical topology 退役；阶段 3 已完成首批物理健康检查与生命周期恢复
 
 最后更新：2026-08-28
 
@@ -27,20 +27,16 @@ WebShell 终端传输统一为一条页面级物理 WebSocket。页面内全部 
 
 ### 2.1 当前实现
 
-普通容器当前采用页面级 `1 Fast + 1 Queue`：
+普通容器当前使用页面级 `1 Unified`：
 
 ```text
-Fast
-  -> 唯一活动 pane
-  -> 允许普通用户输入
-
-Queue
-  -> 其他 tab/pane
-  -> 一个物理 WebSocket 复用多个 logical stream
-  -> 按 pane 公平轮转
+Unified physical WebSocket
+  -> 全 workspace pane logical membership
+  -> 每 pane 独立 generation/cursor/retry/resync
+  -> active pane 只更新 priority
 ```
 
-现有 Queue 已经具备以下基础能力：
+浏览器已删除 Fast slot、promotion、Queue gate、startup FIFO 和 topology controller。现有 Unified wire path 继续具备：
 
 - `replace-subscriptions` 原子同步逻辑成员；
 - 每 pane 的 `stream_id` 和 `channel_generation`；
@@ -52,15 +48,13 @@ Queue
 - Cache v2、history delta/snapshot 和最终 presentation commit；
 - Queue 物理连接保活及独立退避。
 
-当前复杂度主要集中在：
+当前剩余复杂度主要集中在：
 
-- Fast 物理连接和 Queue 物理连接拥有不同生命周期；
-- 当前 pane 在 Queue 和 Fast 之间提升、降级和换绑；
-- Fast ready 是 Queue 创建和初始化的前置条件；
-- topology epoch、Fast attempt、scheduler lease、channel generation 和 handoff 同时参与状态判断；
-- tab、焦点、输入、resize、visibility 和 pageshow 可能同时触发连接需求重算；
-- Fast 短暂异常存在升级为页面级 topology reset 的风险；
-- 折叠屏或 WebView 生命周期事件可能把一次物理异常放大为全部会话恢复和黑屏。
+- subscription revision ACK 和 stale revision fencing 尚未完成；
+- per-pane credit 和明确控制帧优先级尚未完成；
+- 后台 pane 模型持续更新与 Canvas presentation 抑制仍需最终验收；
+- `client:` target 仍保留最多三条独立直连兼容；
+- 12/32 pane、折叠屏、弱网和高输出压力验收尚未完成。
 
 ### 2.2 最终决策
 
@@ -328,10 +322,11 @@ subscription_revision
 
 ### 6.1 新增统一连接模块
 
-建议新增版本化模块：
+当前版本化模块：
 
 ```text
 runtime/static/terminal_unified_connection.js
+runtime/static/terminal_unified_membership.js
 ```
 
 模块职责仅包括：
@@ -371,27 +366,27 @@ runtime/static/terminal_unified_connection.js
 - per-pane retry/resync 状态；
 - terminal network monitor。
 
-### 6.3 旧模块退役策略
+### 6.3 旧模块退役结果
 
-灰度期间不能直接删除旧模块。按 feature flag 选择且一次只能实例化一套：
+基础手动验收通过后已完成普通容器旧 logical topology 退役，不再保留页面运行时 feature flag 双实例化：
 
 ```text
-terminal_unified_transport_v2 = on
-  -> UnifiedTerminalConnection
+普通容器
+  -> UnifiedTerminalConnection + UnifiedMembership
 
-terminal_unified_transport_v2 = off
-  -> 现有 TerminalTopologyController + Fast/Queue
+client: target
+  -> 独立 direct scheduler 兼容路径
 ```
 
-统一方案完成全量验收后，再删除或降级以下旧职责：
+已删除或收敛：
 
-- `terminal_connection_scheduler.js` 的 Fast 租约调度；
-- `terminal_topology_controller.js` 的 Fast/Queue topology；
-- `terminal_queue_connection.js` 中只服务于 Queue 角色和普通输入拒绝的分支；
-- `main.js` 中 Fast 物理状态、Queue gate、promotion 和 topology reset；
-- Network Monitor 中 Fast/Queue 双通道展示。
+- `terminal_connection_scheduler.js` 仅由 `client:` target 懒创建，不参与普通容器；
+- 删除 `terminal_topology_controller.js` 及其 Fast/Queue topology 测试；
+- `terminal_queue_connection.js` 删除 Queue gate、startup FIFO/latch，只作为 Unified 复用的 versioned LCQ1 wire implementation；
+- `main.js` 删除 Fast 物理状态、Queue gate、promotion 和 topology reset；
+- Network Monitor 删除 Fast/Queue 双通道布局，只保留 Unified 单槽和 client direct 三槽。
 
-若 `terminal_queue_connection.js` 被演进为 unified 模块，应通过新文件/新导出保持职责清晰，不在旧 Queue API 中长期堆叠兼容分支。
+Provider 继续兼容旧 Queue/Fast role，避免旧客户端在升级窗口内失效；浏览器普通容器不再请求或实例化这些角色。
 
 ## 7. Provider 改造
 
@@ -449,12 +444,12 @@ terminal_unified_transport_v2 = off
 
 ### 阶段 1：Provider Unified Broker
 
-状态：已完成首批 unified role、普通输入和优先级提示实现；subscription revision、credit 和完整 broker 迁移待继续
+状态：已完成 unified role、普通输入、优先级提示和全 workspace pane订阅；subscription revision、credit 和完整 broker fencing 待继续
 
 任务：
 
 - [x] 在现有 Queue broker 上新增 `unified` transport role，复用当前 versioned envelope。
-- [ ] 实现全 workspace pane 订阅，不区分 Fast/Queue 成员。
+- [x] 实现全 workspace pane订阅，不区分 Fast/Queue 成员。
 - [x] 实现普通 `pane-input`/`pane-control` 输入和 per-pane 串行 writer。
 - [ ] 实现控制优先、活动 pane加权和其他 pane公平轮转。
 - [x] 保留现有 per-pane turn ACK、buffer、cursor、sequence 和 resync。
@@ -466,16 +461,16 @@ terminal_unified_transport_v2 = off
 
 ### 阶段 2：浏览器 Unified Connection
 
-状态：已完成首批单物理连接模块和迁移态接入；Fast/Queue 逻辑状态退役待继续
+状态：已完成单物理连接、全 pane logical registry 和 Fast/Queue 逻辑状态退役；subscription revision 待继续
 
 任务：
 
 - [x] 新增 `terminal_unified_connection.js` 及独立 Node 行为测试。
 - [x] 复用经验证的单物理 socket 状态机、真实 close fence 和 keep-alive。
-- [ ] 实现全 pane logical registry、subscription revision 和 envelope 路由。
+- [x] 实现全 pane logical registry 和 envelope 路由；subscription revision 待阶段 1 fencing 一并完成。
 - [x] 将普通输入、generated response、resize、theme、ping 和 output 接入 unified stream。
 - [x] 复用现有有界 output drain、turn ACK、cursor 和 generation gate。
-- [ ] 保证 tab 切换、pane 聚焦和分屏调整不修改 logical membership。
+- [x] 保证 tab 切换、pane 聚焦和分屏调整不修改 logical membership。
 - [x] Network Monitor 在 unified 模式只显示一个物理通道。
 - [x] Service Worker 增加新版本化模块资源；旧客户端缓存不能加载半套协议。
 
@@ -504,7 +499,7 @@ terminal_unified_transport_v2 = off
 
 ### 阶段 4：灰度切流与旧拓扑退役
 
-状态：未开始
+状态：普通容器默认 Unified 和旧逻辑 topology 退役已完成；灰度、`client:` 适配和稳定观察期待继续
 
 任务：
 
@@ -513,8 +508,8 @@ terminal_unified_transport_v2 = off
 - [ ] 对比连接数、输入延迟、调度等待、长任务、CPU、内存、断线率和 resync 率。
 - [x] 普通容器默认停止创建独立 Fast/Queue 物理 transport，只创建 Unified transport。
 - [ ] 完成 `client:` target unified 适配，或明确阻塞原因和临时 fallback 可见提示。
-- [ ] 删除 Fast slot、promotion、Fast -> Queue gate 和双物理恢复状态。
-- [ ] 更新 Network Monitor、现有设计文档和 `docs/FIX_HISTORY.md`。
+- [x] 删除 Fast slot、promotion、Fast -> Queue gate 和双物理恢复状态。
+- [x] 更新 Network Monitor、现有设计文档和 `docs/FIX_HISTORY.md`。
 - [ ] 清理旧 feature flag 前完成至少一个稳定版本观察期。
 
 完成标准：默认路径不再实例化 Fast/Queue topology；目标环境稳定运行；回退窗口结束后旧状态机和无用静态资源被删除。

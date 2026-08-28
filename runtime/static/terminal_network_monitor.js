@@ -41,15 +41,11 @@ export const terminalNetworkPayloadBytes = (payload) => {
 export const terminalNetworkMegabytes = (bytes) => Math.max(0, Number(bytes) || 0) / 1_000_000;
 
 export const createTerminalNetworkMonitor = ({
-  layout = "multiplexed",
+  layout = "unified",
   now = defaultNow,
   onStateChange = () => {},
 } = {}) => {
-  let currentLayout = layout === "direct"
-    ? "direct"
-    : layout === "unified"
-      ? "unified"
-      : "multiplexed";
+  let currentLayout = layout === "direct" ? "direct" : "unified";
   let disposed = false;
   let lastSampleAt = now();
   let lastSampleReceivedBytes = 0;
@@ -74,28 +70,39 @@ export const createTerminalNetworkMonitor = ({
     if (currentLayout === "direct") {
       return `直连通道 ${channel.index + 1}`;
     }
-    if (currentLayout === "unified") {
-      return "统一通道";
-    }
-    return channel.index === 2 ? "队列通道" : "直连通道";
+    return "统一通道";
   };
 
-  const visibleChannels = () => currentLayout === "direct"
-    ? channels
-    : currentLayout === "unified"
-      ? [channels[0]]
-      : [channels[0], channels[2]];
+  const renderedChannels = () => currentLayout === "direct" ? channels : [];
 
-  const totals = () => visibleChannels().reduce((result, channel) => ({
+  const totals = () => channels.reduce((result, channel) => ({
     receivedBytes: result.receivedBytes + channel.receivedBytes,
     sentBytes: result.sentBytes + channel.sentBytes,
   }), { receivedBytes: 0, sentBytes: 0 });
+
+  const monitorStatus = () => {
+    const states = channels.map((channel) => channel.state);
+    if (states.includes("error")) {
+      return "error";
+    }
+    if (states.includes("connecting")) {
+      return "connecting";
+    }
+    if (states.includes("closing")) {
+      return "retrying";
+    }
+    if (states.includes("open")) {
+      return "open";
+    }
+    return "idle";
+  };
 
   const snapshot = () => {
     const total = totals();
     return {
       layout: currentLayout,
-      channels: visibleChannels().map((channel) => ({
+      status: monitorStatus(),
+      channels: renderedChannels().map((channel) => ({
         index: channel.index,
         label: channelLabel(channel),
         kind: channel.kind,
@@ -178,10 +185,10 @@ export const createTerminalNetworkMonitor = ({
     if (kind === "unified") {
       return currentLayout === "unified" && !channels[0].socket ? channels[0] : null;
     }
-    if (kind === "queue") {
-      return currentLayout === "multiplexed" && !channels[2].socket ? channels[2] : null;
+    if (currentLayout !== "direct") {
+      return null;
     }
-    const limit = currentLayout === "direct" ? 3 : 2;
+    const limit = 3;
     const requestedSlot = slot === null || slot === undefined ? -1 : Math.floor(Number(slot));
     if (requestedSlot >= 0 && requestedSlot < limit) {
       return !channels[requestedSlot].socket ? channels[requestedSlot] : null;
@@ -202,11 +209,7 @@ export const createTerminalNetworkMonitor = ({
     if (attachments.has(socket)) {
       return attachments.get(socket).handle;
     }
-    const normalizedKind = kind === "queue"
-      ? "queue"
-      : kind === "unified"
-        ? "unified"
-        : "fast";
+    const normalizedKind = kind === "unified" ? "unified" : "fast";
     const channel = availableChannel(normalizedKind, slot);
     const requestedSlot = slot === null || slot === undefined ? -1 : Math.floor(Number(slot));
     const requestedChannel = requestedSlot >= 0 && requestedSlot < channels.length
@@ -307,11 +310,7 @@ export const createTerminalNetworkMonitor = ({
   };
 
   const setLayout = (nextLayout) => {
-    const normalized = nextLayout === "direct"
-      ? "direct"
-      : nextLayout === "unified"
-        ? "unified"
-        : "multiplexed";
+    const normalized = nextLayout === "direct" ? "direct" : "unified";
     if (currentLayout === normalized) {
       return snapshot();
     }

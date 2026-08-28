@@ -950,12 +950,50 @@ body.split-resize-active * {
 }
 
 .terminal-network-monitor-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   font-weight: 700;
 }
+
+.terminal-network-monitor-status-dot {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  border: 1px solid color-mix(in srgb, #94a3b8 70%, transparent);
+  border-radius: 50%;
+  background: #94a3b8;
+  box-shadow: 0 0 0 1px color-mix(in srgb, #94a3b8 18%, transparent);
+}
+
+.terminal-network-monitor-status-dot[data-state="open"] {
+  border-color: #22c55e;
+  background: #22c55e;
+  box-shadow: 0 0 0 1px color-mix(in srgb, #22c55e 24%, transparent);
+}
+
+.terminal-network-monitor-status-dot[data-state="error"] {
+  border-color: #ef4444;
+  background: #ef4444;
+  box-shadow: 0 0 0 1px color-mix(in srgb, #ef4444 24%, transparent);
+}
+
+.terminal-network-monitor-status-dot[data-state="connecting"],
+.terminal-network-monitor-status-dot[data-state="retrying"],
+.terminal-network-monitor-status-dot[data-state="idle"] {
+  border-color: #94a3b8;
+  background: #94a3b8;
+}
+
 
 .terminal-network-monitor-channels {
   display: grid;
   gap: 5px;
+}
+
+.terminal-network-monitor-channels[hidden] {
+  display: none;
 }
 
 .terminal-network-monitor-channel {

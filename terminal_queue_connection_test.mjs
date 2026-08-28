@@ -2,11 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-  createTerminalQueueTaskQueue,
-  createTerminalQueueStartupLatch,
   createTerminalQueueConnection,
   decodeTerminalQueueBinaryFrame,
-  terminalQueueGateAllowsCreation,
   terminalQueueProtocolVersion,
 } from "./runtime/static/terminal_queue_connection.js";
 import {
@@ -104,19 +101,23 @@ test.beforeEach(() => {
   FakeWebSocket.instances = [];
 });
 
-test("unified ping sends a physical probe and pong updates physical health", async () => {
+test("unified ping sends one physical probe and pong updates health without another state emission", async () => {
+  const states = [];
   const connection = createTerminalUnifiedConnection({
     url: "ws://example/ws?mode=unified&transport_role=unified",
     WebSocketImpl: FakeWebSocket,
+    onStateChange: (state) => states.push(state),
   });
   connection.connect();
   const physical = FakeWebSocket.instances[0];
   physical.emit("open");
+  const stateCountBeforePong = states.length;
   assert.equal(connection.ping(), true);
   assert.equal(JSON.parse(physical.sent.at(-1)).type, "queue-ping");
   assert.equal(connection.snapshot().physicalLastPongAt, 0);
   physical.emit("message", { data: JSON.stringify({ type: "queue-pong", protocol_version: 1 }) });
   assert.ok(connection.snapshot().physicalLastPongAt > 0);
+  assert.equal(states.length, stateCountBeforePong);
 });
 
 test("physical close notifies the physical owner before logical streams", async () => {
@@ -158,8 +159,11 @@ test("unified connection multiplexes three live panes over one physical socket",
   assert.equal(JSON.parse(paneControl).type, "pane-control");
   assert.equal(JSON.parse(paneControl).pane_id, "pane-1");
 
-  assert.equal(connection.setPriority("pane-2", 0), true);
+  assert.equal(connection.setPriority("pane-2", 1), true);
   assert.equal(JSON.parse(physical.sent.at(-1)).type, "set-priority");
+  const sentAfterPriorityChange = physical.sent.length;
+  assert.equal(connection.setPriority("pane-2", 1), true);
+  assert.equal(physical.sent.length, sentAfterPriorityChange);
 
   sockets[0].close();
   sockets[1].close();
@@ -168,109 +172,27 @@ test("unified connection multiplexes three live panes over one physical socket",
 });
 
 
-test("queue creation is gated by the single physical Fast channel", () => {
-  assert.equal(terminalQueueGateAllowsCreation({
-    fastReadyStates: ["ready"],
-    queueCandidateCount: 10,
-  }), false);
-  assert.equal(terminalQueueGateAllowsCreation({
-    fastReadyStates: ["starting"],
-    queueCandidateCount: 10,
-  }), false);
-  assert.equal(terminalQueueGateAllowsCreation({
-    fastReadyStates: ["ready"],
-    queueCandidateCount: 10,
-  }), false);
-  assert.equal(terminalQueueGateAllowsCreation({
-    fastReadyStates: ["open"],
-    queueCandidateCount: 0,
-  }), false);
-  assert.equal(terminalQueueGateAllowsCreation({
-    fastReadyStates: ["open"],
-    queueCandidateCount: 10,
-    queueClosing: true,
-  }), false);
-  assert.equal(terminalQueueGateAllowsCreation({
-    fastReadyStates: ["open"],
-    queueCandidateCount: 10,
-  }), true);
-});
-
-test("queue cache tasks run in FIFO order without concurrent local reads", async () => {
-  const queue = createTerminalQueueTaskQueue();
-  const started = [];
-  let active = 0;
-  let peakActive = 0;
-  let releaseFirst;
-  const firstGate = new Promise((resolve) => { releaseFirst = resolve; });
-
-  const first = queue.enqueue(async () => {
-    started.push("first");
-    active += 1;
-    peakActive = Math.max(peakActive, active);
-    await firstGate;
-    active -= 1;
-    return "first";
+test("closing one unified logical stream preserves the physical socket and siblings", async () => {
+  const connection = createTerminalUnifiedConnection({
+    url: "/ws?mode=unified&transport_role=unified",
+    WebSocketImpl: FakeWebSocket,
   });
-  const second = queue.enqueue(async () => {
-    started.push("second");
-    active += 1;
-    peakActive = Math.max(peakActive, active);
-    active -= 1;
-    return "second";
-  });
-
+  const first = connection.open(subscription("pane-1"));
+  const second = connection.open(subscription("pane-2"));
+  const physical = FakeWebSocket.instances[0];
+  physical.emit("open");
   await Promise.resolve();
-  assert.deepEqual(started, ["first"]);
-  assert.equal(queue.snapshot().pending, 2);
-  releaseFirst();
-  assert.deepEqual(await Promise.all([first, second]), ["first", "second"]);
-  assert.deepEqual(started, ["first", "second"]);
-  assert.equal(peakActive, 1);
-  assert.equal(queue.snapshot().pending, 0);
-});
 
-test("a failed queue cache task releases the next FIFO task", async () => {
-  const queue = createTerminalQueueTaskQueue();
-  const started = [];
+  first.close(4001, "logical_resync");
+  await Promise.resolve();
 
-  const failed = queue.enqueue(async () => {
-    started.push("failed");
-    throw new Error("cache read failed");
-  });
-  const next = queue.enqueue(async () => {
-    started.push("next");
-    return "ready";
-  });
-
-  await assert.rejects(failed, /cache read failed/);
-  assert.equal(await next, "ready");
-  assert.deepEqual(started, ["failed", "next"]);
-  assert.equal(queue.snapshot().pending, 0);
-});
-
-test("a finite Queue startup timeout settles once and releases the next FIFO item", async () => {
-  const queue = createTerminalQueueTaskQueue();
-  let runTimeout;
-  let clearedTimer = false;
-  const first = queue.enqueue(async () => {
-    const latch = createTerminalQueueStartupLatch({
-      timeoutMs: 40_000,
-      setTimer: (callback) => {
-        runTimeout = callback;
-        return 1;
-      },
-      clearTimer: () => { clearedTimer = true; },
-    });
-    runTimeout();
-    assert.equal(await latch.promise, "timed_out");
-    assert.equal(latch.settle("ready"), false);
-    return "timed_out";
-  });
-  const second = queue.enqueue(async () => "next-pane");
-  assert.deepEqual(await Promise.all([first, second]), ["timed_out", "next-pane"]);
-  assert.equal(clearedTimer, true);
-  assert.equal(queue.snapshot().pending, 0);
+  assert.equal(physical.readyState, FakeWebSocket.OPEN);
+  assert.equal(second.readyState, FakeWebSocket.OPEN);
+  assert.equal(connection.snapshot().logicalCount, 1);
+  assert.equal(connection.snapshot().paneIDs[0], "pane-2");
+  const replace = JSON.parse(physical.sent.at(-1));
+  assert.equal(replace.type, "replace-subscriptions");
+  assert.deepEqual(replace.subscriptions.map((item) => item.pane_id), ["pane-2"]);
 });
 
 test("logical streams share one physical websocket and replace subscriptions", async () => {

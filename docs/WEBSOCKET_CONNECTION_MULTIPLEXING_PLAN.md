@@ -1,10 +1,10 @@
 # WebSocket 三通道复用方案与执行计划
 
-状态：普通容器 Unified transport 已完成第一批迁移态接入；最终删除 Fast/Queue 逻辑角色和真实设备验收待继续
+状态：历史方案已退役；普通容器已完成 Unified 单物理连接和全 pane logical membership 收敛
 
 最后更新：2026-08-28
 
-> 本文记录 `1 Fast + 1 Queue` 的历史复用实现和迁移过程。新的单物理连接目标、阶段计划和最终验收标准以根目录 [TERMINAL_UNIFIED_WEBSOCKET_EXECUTION_PLAN.md](../TERMINAL_UNIFIED_WEBSOCKET_EXECUTION_PLAN.md) 为准；普通容器当前代码已进入 Unified 迁移态，不能将下文旧的双物理连接数量当作最终契约。
+> 本文记录 `1 Fast + 1 Queue` 的历史复用实现和迁移过程。新的单物理连接目标、阶段计划和最终验收标准以根目录 [TERMINAL_UNIFIED_WEBSOCKET_EXECUTION_PLAN.md](../TERMINAL_UNIFIED_WEBSOCKET_EXECUTION_PLAN.md) 为准；普通容器当前代码已删除 Fast/Queue logical topology，所有 pane 常驻同一个 Unified membership。下文的双物理连接、Fast promotion、Queue gate 和 topology controller 只保留为历史背景，不能作为当前契约或重新实现。
 
 ## 1. 问题与目标
 
@@ -205,7 +205,7 @@ Provider 按 pane 保存尚未写入 Queue WebSocket 的有界数据和 cursor�
 
 ### 阶段 2：浏览器 1 Fast + 1 Queue 调度器
 
-状态：已实施页面级 transport 版本。实现位于 `runtime/static/terminal_connection_scheduler.js`、`terminal_queue_connection.js`、`terminal_topology_controller.js`、Provider `terminal_queue.go` 和 `main.js`。
+状态：历史实现已退役。原模块 `terminal_topology_controller.js`、Fast/Queue logical handoff、Queue gate 和 startup FIFO 已删除；当前实现由 `terminal_unified_membership.js`、`terminal_unified_connection.js`、Provider `terminal_queue.go` 的 unified role 和 `main.js` 接管。
 
 1. 将现有最多 3 个 pane 专属租约改造为 1 个稳定 `fast` transport 加 1 个稳定 `queue` transport，两条物理连接均按页面 target 生命周期管理。
 2. 调度器按 `Fast -> Queue` 的物理顺序启动。Fast 先完成逻辑启动；Fast 物理 socket 确认 `OPEN`、逻辑 replay ready 且存在其他 pane 后，才创建 Queue WebSocket和发送 `replace-subscriptions`。后台 pane 的 Canvas 首帧不阻塞 Queue；当前工作区只有一个 pane 时永远不创建 Queue。
