@@ -229,8 +229,43 @@ func TestRuntimeCrossClientResizeDoesNotAutoReclaim(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadFile(workspace.go) error = %v", err)
 	}
-	if !strings.Contains(string(workspaceData), `resize_owner_active`) || !strings.Contains(string(workspaceData), `!message.Claim`) {
-		t.Fatal("server resize owner guard is missing")
+	workspaceSource := string(workspaceData)
+	for _, want := range []string{
+		`resize_owner_active`,
+		`!message.Claim`,
+		`resizeOwner                *paneClient`,
+		`ownerActive && !message.Claim && epoch != currentEpoch && source != owner`,
+		`ownerReleased := p.resizeOwner == client`,
+		`p.resizeOwner = nil`,
+		`"type":         "resize-owner-released"`,
+	} {
+		if !strings.Contains(workspaceSource, want) {
+			t.Fatalf("server resize owner lifecycle guard missing %q", want)
+		}
+	}
+	agentData, err := os.ReadFile("agent.go")
+	if err != nil {
+		t.Fatalf("ReadFile(agent.go) error = %v", err)
+	}
+	attachBlock := sourceBetween(t, string(agentData),
+		"func (d *agentDaemon) handleAttach(",
+		"func runAgentRequestClient(")
+	if strings.Contains(attachBlock, "pane.resize(request.Cols, request.Rows)") {
+		t.Fatal("attaching a device must not resize the shared PTY outside resize owner arbitration")
+	}
+	for _, want := range []string{
+		`const handleTerminalResizeOwnerReleased = (session, message) => {`,
+		`case "resize-owner-released":`,
+		`forceSizeSync: true,`,
+		`const recoverStalledPanePresentation = (session, now = Date.now()) => {`,
+		`terminalPresentationStallTimeoutMs`,
+		`terminalPresentationStallReconnectLimit`,
+		`recycleTerminalUnifiedSession(session, "presentation stalled after replay commit", { immediate: true });`,
+		`recoverVisiblePanePresentations();`,
+	} {
+		if !strings.Contains(source, want) {
+			t.Fatalf("cross-device resize/presentation recovery guard missing %q", want)
+		}
 	}
 }
 

@@ -27,7 +27,7 @@ import (
 )
 
 const (
-	agentProtocolVersion = "lcmd-webshell-agent-v7"
+	agentProtocolVersion = "lcmd-webshell-agent-v8"
 
 	agentFrameBinary         = byte('B')
 	agentFrameText           = byte('T')
@@ -546,9 +546,6 @@ func (d *agentDaemon) handleAttach(ctx context.Context, conn net.Conn, reader *b
 		}
 		_ = writeAgentControlFrame(conn, map[string]any{"type": "process-exit", "message": err.Error(), "exit_code": -1})
 		return
-	}
-	if request.Cols > 0 && request.Rows > 0 {
-		_ = pane.resize(request.Cols, request.Rows)
 	}
 	history, client, allowGeneratedInputDuringReplay, err := pane.attachClient(syncRequest)
 	if err != nil {

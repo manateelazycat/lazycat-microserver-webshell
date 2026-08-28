@@ -464,6 +464,8 @@ const ghosttyInitPromise = initGhostty(runtimeAssetURL("./ghostty-vt.wasm")).the
   const terminalReplayFailureLimit = 3;
   const terminalReplayCheckpointDelayMs = 48;
   const terminalPresentationValidationMaxMs = 250;
+  const terminalPresentationStallTimeoutMs = 12 * 1000;
+  const terminalPresentationStallReconnectLimit = 2;
   const terminalOutputQueueSoftLimitBytes = 1 * 1024 * 1024;
   const terminalOutputMeasureChunkChars = 32 * 1024;
   const terminalOutputMeasureBuffer = new Uint8Array(terminalOutputMeasureChunkChars * 4);
@@ -7391,6 +7393,9 @@ const ghosttyInitPromise = initGhostty(runtimeAssetURL("./ghostty-vt.wasm")).the
     session.presentedHistoryCursor = session.appliedHistoryCursor;
     session.presentationValidationAttempts = 0;
     session.presentationDeferredReason = "";
+    session.presentationStallStartedAt = 0;
+    session.presentationStallLastAttemptAt = 0;
+    session.presentationStallReconnectAttempts = 0;
     clearPaneFullRenderValidation(session);
     clearPanePresentationRetry(session);
     recordTerminalSessionEvent(session, "full_render_complete");
@@ -7657,6 +7662,41 @@ const ghosttyInitPromise = initGhostty(runtimeAssetURL("./ghostty-vt.wasm")).the
       viewport: captureTerminalViewport(session.term),
     };
     return applyTerminalResizeFence(session);
+  };
+
+  const handleTerminalResizeOwnerReleased = (session, message) => {
+    if (!session || session.closed) {
+      return;
+    }
+    const epoch = normalizeTerminalResizeEpoch(message?.resize_epoch);
+    const appliedEpoch = normalizeTerminalResizeEpoch(session.appliedResizeEpoch);
+    if (epoch && appliedEpoch && BigInt(epoch) < BigInt(appliedEpoch)) {
+      return;
+    }
+    if (epoch) {
+      session.appliedResizeEpoch = epoch;
+    }
+    session.serverCols = Math.max(0, Math.floor(Number(message?.cols) || 0));
+    session.serverRows = Math.max(0, Math.floor(Number(message?.rows) || 0));
+    session.serverPixelWidth = Math.max(0, Math.floor(Number(message?.pixel_width) || 0));
+    session.serverPixelHeight = Math.max(0, Math.floor(Number(message?.pixel_height) || 0));
+    session.sizeClaimRequired = true;
+    recordTerminalSessionEvent(session, "resize_owner_released", {
+      appliedResizeEpoch: epoch,
+    });
+    if (session.tabId !== activeTabId || !isPaneVisibleForSizing(session)) {
+      return;
+    }
+    window.requestAnimationFrame(() => {
+      if (session.closed || session.resizeAckPending || session.tabId !== activeTabId) {
+        return;
+      }
+      schedulePaneResize(session, {
+        forceFullRender: true,
+        hideUntilRender: true,
+        forceSizeSync: true,
+      }, { immediate: true });
+    });
   };
 
   const handleTerminalResizeApplied = (session, message) => {
@@ -8204,6 +8244,62 @@ const ghosttyInitPromise = initGhostty(runtimeAssetURL("./ghostty-vt.wasm")).the
       }
     }, delay);
     return true;
+  };
+
+  const recoverStalledPanePresentation = (session, now = Date.now()) => {
+    if (
+      !session
+      || session.closed
+      || session.name !== activeName
+      || session.tabId !== activeTabId
+      || !sessionReplayIsCommitted(session)
+      || !isPaneVisibleForSizing(session)
+    ) {
+      if (session) {
+        session.presentationStallStartedAt = 0;
+        session.presentationStallLastAttemptAt = 0;
+      }
+      return false;
+    }
+    if (panePresentationIsCurrent(session)) {
+      session.presentationStallStartedAt = 0;
+      session.presentationStallLastAttemptAt = 0;
+      session.presentationStallReconnectAttempts = 0;
+      return false;
+    }
+    if (Number(session.presentationStallStartedAt || 0) <= 0) {
+      session.presentationStallStartedAt = now;
+    }
+    if (now - Number(session.presentationStallLastAttemptAt || 0) >= activityPollIntervalMs) {
+      session.presentationStallLastAttemptAt = now;
+      recordTerminalSessionEvent(session, "presentation_watchdog_probe");
+      ensurePanePresentation(session, {
+        reason: "presentation_watchdog",
+        forceHistory: true,
+      });
+    }
+    if (
+      now - Number(session.presentationStallStartedAt || now) < terminalPresentationStallTimeoutMs
+      || session.socket?.readyState !== WebSocket.OPEN
+      || Number(session.presentationStallReconnectAttempts || 0) >= terminalPresentationStallReconnectLimit
+    ) {
+      return true;
+    }
+    session.presentationStallStartedAt = 0;
+    session.presentationStallReconnectAttempts = Number(session.presentationStallReconnectAttempts || 0) + 1;
+    recordTerminalSessionEvent(session, "presentation_watchdog_resync", {
+      attempt: session.presentationStallReconnectAttempts,
+    });
+    recycleTerminalUnifiedSession(session, "presentation stalled after replay commit", { immediate: true });
+    return true;
+  };
+
+  const recoverVisiblePanePresentations = () => {
+    const tab = currentTab();
+    const now = Date.now();
+    for (const pane of tab?.panes.values() || []) {
+      recoverStalledPanePresentation(pane, now);
+    }
   };
 
   const installTerminalCanvasRecovery = (session) => {
@@ -13804,6 +13900,7 @@ const ghosttyInitPromise = initGhostty(runtimeAssetURL("./ghostty-vt.wasm")).the
   };
 
   const refreshActivity = async ({ silent = true } = {}) => {
+    recoverVisiblePanePresentations();
     const requestName = activeName;
     const generation = activeInstanceGeneration;
     if (!requestName) {
@@ -19728,6 +19825,13 @@ const ghosttyInitPromise = initGhostty(runtimeAssetURL("./ghostty-vt.wasm")).the
               });
             }
             switch (message.type) {
+              case "resize-owner-released":
+                if (!validateReplayMessage(message)) {
+                  rejectMismatchedReplay(message);
+                  return;
+                }
+                handleTerminalResizeOwnerReleased(session, message);
+                return;
               case "resize-applied":
                 if (!validateReplayMessage(message)) {
                   rejectMismatchedReplay(message);
@@ -21008,6 +21112,9 @@ const ghosttyInitPromise = initGhostty(runtimeAssetURL("./ghostty-vt.wasm")).the
       fullRenderValidationTimer: 0,
       presentationValidationAttempts: 0,
       presentationDeferredReason: "",
+      presentationStallStartedAt: 0,
+      presentationStallLastAttemptAt: 0,
+      presentationStallReconnectAttempts: 0,
       presentationFramePending: false,
       presentationFrameReason: "",
       presentationRetryTimer: 0,

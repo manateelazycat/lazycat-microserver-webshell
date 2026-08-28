@@ -2135,6 +2135,7 @@ func TestTerminalPaneResizeEpochIsMonotonicIdempotentAndOrdered(t *testing.T) {
 	defer ptyFile.Close()
 	defer ttyFile.Close()
 	client := &paneClient{send: make(chan paneOutbound, 8), done: make(chan struct{})}
+	otherClient := &paneClient{send: make(chan paneOutbound, 8), done: make(chan struct{})}
 	pane := &terminalPane{
 		id:       "pane-epoch",
 		selector: "demo@owner",
@@ -2160,26 +2161,36 @@ func TestTerminalPaneResizeEpochIsMonotonicIdempotentAndOrdered(t *testing.T) {
 	}
 	assertResizeControlMessage(t, <-client.send, "resize-applied", "10")
 
+	pane.mu.Lock()
+	pane.clients[otherClient] = struct{}{}
+	pane.mu.Unlock()
 	passive := terminalControlMessage{Type: "resize", ResizeEpoch: "11", Cols: 52, Rows: 24, PixelWidth: 416, PixelHeight: 384}
-	if err := pane.applyResize(passive, client); err == nil {
+	if err := pane.applyResize(passive, otherClient); err == nil {
 		t.Fatal("passive resize from another device should not displace the active owner")
 	}
-	assertResizeControlMessageReason(t, <-client.send, "resize-error", "11", "resize_owner_active")
+	assertResizeControlMessageReason(t, <-otherClient.send, "resize-error", "11", "resize_owner_active")
 
-	if err := pane.applyResize(terminalControlMessage{Type: "resize", ResizeEpoch: "9", Cols: 80, Rows: 24}, client); err == nil {
+	pane.detachClient(client)
+	assertResizeControlMessage(t, <-otherClient.send, "resize-owner-released", "10")
+	if err := pane.applyResize(passive, otherClient); err != nil {
+		t.Fatalf("passive resize should be accepted after the owner detaches: %v", err)
+	}
+	assertResizeControlMessage(t, <-otherClient.send, "resize-applied", "11")
+
+	if err := pane.applyResize(terminalControlMessage{Type: "resize", ResizeEpoch: "9", Cols: 80, Rows: 24}, otherClient); err == nil {
 		t.Fatal("stale epoch resize should return an error")
 	}
-	assertResizeControlMessage(t, <-client.send, "resize-error", "9")
+	assertResizeControlMessage(t, <-otherClient.send, "resize-error", "9")
 
-	if err := pane.applyResize(terminalControlMessage{Type: "resize", ResizeEpoch: "10", Cols: 80, Rows: 24}, client); err == nil {
+	if err := pane.applyResize(terminalControlMessage{Type: "resize", ResizeEpoch: "11", Cols: 80, Rows: 24}, otherClient); err == nil {
 		t.Fatal("conflicting epoch resize should return an error")
 	}
-	assertResizeControlMessage(t, <-client.send, "resize-error", "10")
+	assertResizeControlMessage(t, <-otherClient.send, "resize-error", "11")
 
 	pane.mu.Lock()
 	defer pane.mu.Unlock()
-	if pane.resizeEpoch != 10 || pane.cols != 111 || pane.rows != 57 {
-		t.Fatalf("resize state = epoch %d size %dx%d, want epoch 10 size 111x57", pane.resizeEpoch, pane.cols, pane.rows)
+	if pane.resizeEpoch != 11 || pane.cols != 52 || pane.rows != 24 {
+		t.Fatalf("resize state = epoch %d size %dx%d, want epoch 11 size 52x24", pane.resizeEpoch, pane.cols, pane.rows)
 	}
 }
 

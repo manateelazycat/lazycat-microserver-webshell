@@ -1443,3 +1443,14 @@ git diff --check
 - 回归 guard：Go静态 guard分别截取网络监视器和调试日志 CSS块，要求存在 `--terminal-bg`/`--terminal-fg` 主题公式，并禁止固定青色调色板重新进入两个面板；现有状态点和错误标签 guard继续固定语义色和DOM结构。
 - 验证结果：Node全量 142/142、Go全量、Go race、script/module语法检查、`git diff --check` 和 `lzc-cli project release` 均通过；已重新生成 `cloud.lazycat.webshell.lcmd-v1.0.39.lpk`，SHA-256 为 `e1a7071816d7c72a9d545f6e4e06514b29b23ce3cf58059d5d0f69762c5dee2c`。
 - 禁止复现：网络监视器和调试日志不得维护独立固定主题；主题变化只通过既有 CSS变量即时生效，不得为调试面板增加单独的主题状态或重渲染逻辑。
+
+### LCMD-20260828-10：跨设备 attach 越权改写 PTY 尺寸并造成偶发永久黑屏
+
+- 日期：2026-08-28
+- 来源：用户多设备真机反馈；多台手机与 PC 同时使用终端时，极小概率首次进入后永久黑屏，调整窗口、字号或重开页面后恢复；所有手机关闭后，PC 有时仍会自动变成手机的终端尺寸。
+- 错误现象：共享 pane 的连接和历史回放可能已经完成，但最终 Canvas 一直无法提交；另一个仍在线设备会在没有本地窗口变化或用户操作时收到移动端网格下的 TUI 重绘。手动 resize、字号变化或重载会重新建立 Ghostty 网格、PTY尺寸和 presentation generation，因而表面恢复。
+- 根因：Agent `handleAttach` 在注册客户端前无条件执行 `pane.resize(request.Cols, request.Rows)`。这条 attach 初始化路径绕过 `resize_epoch`、`claim` 和 `resize_owner_active` 仲裁，也不向其他连接广播 `resize-applied`；手机迟到重连或 Unified logical stream重建可静默把共享 PTY改为手机尺寸，使 PC 的本地 Ghostty网格与 PTY网格分裂。现有 owner又只由非零 epoch隐式表示，未绑定实际 `paneClient` 生命周期；owner设备 detach后 epoch永久保留，其他在线设备的被动尺寸同步仍会被当成抢占。尺寸/epoch分裂后，首帧可能长期停在 resize ACK/fence和 presentation gate之间，而 attach readiness watchdog在 replay已提交后不再处理这种“连接健康但没有最终帧”的状态。
+- 实施方案：删除 Agent attach 对已有 PTY的直接 resize，并把 Agent协议提升到 v8，确保升级后替换旧常驻 Agent。`terminalPane` 新增绑定真实 `paneClient` 的 resize owner；显式 claim可以转移 owner，同一 owner连接可以继续被动更新，其他活跃连接仍不得被动抢占。resize与 detach共用 `resizeMu`串行，防止最后一个迟到 resize在 detach后重新写回失效 owner；owner detach时立即清除并向剩余客户端广播 `resize-owner-released`，可见设备下一帧通过正常 resize scheduler被动提交本机尺寸，不发送 `claim:true`。无 epoch的旧 input/resize路径继续受保护，不能利用 owner释放绕过仲裁。前端活动轮询增加有界 presentation watchdog：仅对当前可见、replay已提交但最终帧仍不完整的 pane重新进入 presentation gate；持续 12 秒仍无成功帧时只重建该 Unified logical stream，最多连续两次，不关闭物理 socket、不影响其他 pane，成功 full render后立即清零计数。
+- 回归 guard：扩展 `TestTerminalPaneResizeEpochIsMonotonicIdempotentAndOrdered`，覆盖设备 A claim、设备 B被动请求被拒、A detach广播 owner released、B随后被动接管以及 stale/conflict epoch仍被拒；完整 Go测试继续固定旧 input不能改写 epoch-aware owner。运行时静态 guard禁止 `handleAttach`恢复 `pane.resize(request.Cols, request.Rows)`，固定 `paneClient` owner、detach清理/广播、前端 owner released处理、12秒有界 presentation watchdog和单 logical stream resync。`./scripts/test-multi-device-resize.sh`继续覆盖跨设备 owner、ACK与 claim scheduler。
+- 验证结果：Node全量 142/142、Go全量、Go race、script/module语法检查、`./scripts/test-multi-device-resize.sh`、`git diff --check` 和 `lzc-cli project release` 均通过；已重新生成 `cloud.lazycat.webshell.lcmd-v1.0.39.lpk`，SHA-256 为 `4df3e09925d846f7e2e0e72fd194d0e62f4490eb4a2452df50399f3c0a1ed49a`。真实 PC+多手机关闭/重连仍需安装本包复验。
+- 禁止复现：任何 attach、history replay、后台恢复或 logical stream重建不得直接改写共享 PTY尺寸；非零 epoch不能脱离真实连接永久充当 owner；owner detach与最后 resize必须串行；presentation watchdog不得关闭 Unified物理连接、影响其他 pane、暴露历史回放、无上限重试或把合法全黑终端按像素内容误判为故障。

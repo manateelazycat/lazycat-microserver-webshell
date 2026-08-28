@@ -104,6 +104,7 @@ type terminalPane struct {
 	pixelWidth                 int
 	pixelHeight                int
 	resizeEpoch                uint64
+	resizeOwner                *paneClient
 	tty                        string
 	busy                       bool
 	command                    string
@@ -2320,9 +2321,29 @@ func (p *terminalPane) attachClient(syncRequest historySyncRequest) (paneHistory
 }
 
 func (p *terminalPane) detachClient(client *paneClient) {
+	p.resizeMu.Lock()
+	defer p.resizeMu.Unlock()
 	p.mu.Lock()
 	delete(p.clients, client)
+	ownerReleased := p.resizeOwner == client
+	if ownerReleased {
+		p.resizeOwner = nil
+	}
+	clients := make([]*paneClient, 0, len(p.clients))
+	if ownerReleased {
+		for attached := range p.clients {
+			clients = append(clients, attached)
+		}
+	}
+	cols := p.cols
+	rows := p.rows
+	pixelWidth := p.pixelWidth
+	pixelHeight := p.pixelHeight
+	epoch := p.resizeEpoch
 	p.mu.Unlock()
+	if ownerReleased {
+		p.enqueueResizeOwnerReleased(epoch, cols, rows, pixelWidth, pixelHeight, clients)
+	}
 }
 
 func (p *terminalPane) writeInput(data []byte) error {
@@ -2363,12 +2384,21 @@ func (p *terminalPane) applyLegacyInputResize(cols, rows, pixelWidth, pixelHeigh
 	currentRows := p.rows
 	currentPixelWidth := p.pixelWidth
 	currentPixelHeight := p.pixelHeight
+	owner := p.resizeOwner
 	p.mu.Unlock()
-	if currentEpoch != 0 && (normalizeCols(cols) != currentCols || normalizeRows(rows) != currentRows || (pixelWidth > 0 && normalizeTerminalPixelDimension(pixelWidth) != currentPixelWidth) || (pixelHeight > 0 && normalizeTerminalPixelDimension(pixelHeight) != currentPixelHeight)) {
+	if currentEpoch != 0 && (owner == nil || owner != source) && (normalizeCols(cols) != currentCols || normalizeRows(rows) != currentRows || (pixelWidth > 0 && normalizeTerminalPixelDimension(pixelWidth) != currentPixelWidth) || (pixelHeight > 0 && normalizeTerminalPixelDimension(pixelHeight) != currentPixelHeight)) {
 		p.enqueueResizeError(source, currentEpoch, "resize_owner_active")
 		return errors.New("resize owner is active")
 	}
-	return p.resizeWithPixelsUnlocked(cols, rows, pixelWidth, pixelHeight)
+	if err := p.resizeWithPixelsUnlocked(cols, rows, pixelWidth, pixelHeight); err != nil {
+		return err
+	}
+	if source != nil {
+		p.mu.Lock()
+		p.resizeOwner = source
+		p.mu.Unlock()
+	}
+	return nil
 }
 
 func (p *terminalPane) updateTerminalThemeColors(foreground, background, cursor string) {
@@ -2528,9 +2558,18 @@ func (p *terminalPane) applyResize(message terminalControlMessage, source *paneC
 		defer p.resizeMu.Unlock()
 		p.mu.Lock()
 		legacyEpoch := p.resizeEpoch
+		owner := p.resizeOwner
 		p.mu.Unlock()
-		if legacyEpoch == 0 {
-			return p.resizeWithPixelsUnlocked(message.Cols, message.Rows, message.PixelWidth, message.PixelHeight)
+		if legacyEpoch == 0 || (owner != nil && owner == source) {
+			if err := p.resizeWithPixelsUnlocked(message.Cols, message.Rows, message.PixelWidth, message.PixelHeight); err != nil {
+				return err
+			}
+			if source != nil {
+				p.mu.Lock()
+				p.resizeOwner = source
+				p.mu.Unlock()
+			}
+			return nil
 		}
 		p.enqueueResizeError(source, legacyEpoch, "resize_owner_active")
 		return errors.New("resize owner is active")
@@ -2565,10 +2604,14 @@ func (p *terminalPane) applyResize(message terminalControlMessage, source *paneC
 		p.enqueueResizeError(source, epoch, "resize_epoch_conflict")
 		return errors.New("resize epoch conflict")
 	}
-	// A resize sent during attach or passive layout synchronization must not
-	// displace the device that currently owns the shared PTY geometry. Only an
-	// explicit user interaction may claim a different size once an epoch exists.
-	if currentEpoch != 0 && !message.Claim && epoch != currentEpoch {
+	// A resize from an attached client owns the shared PTY geometry until
+	// that client detaches. A stale epoch alone must not keep an offline
+	// device as the owner forever.
+	p.mu.Lock()
+	ownerActive := p.resizeOwner != nil
+	owner := p.resizeOwner
+	p.mu.Unlock()
+	if ownerActive && !message.Claim && epoch != currentEpoch && source != owner {
 		p.enqueueResizeError(source, epoch, "resize_owner_active")
 		return errors.New("resize owner is active")
 	}
@@ -2580,6 +2623,9 @@ func (p *terminalPane) applyResize(message terminalControlMessage, source *paneC
 	}
 	p.mu.Lock()
 	p.resizeEpoch = epoch
+	if source != nil {
+		p.resizeOwner = source
+	}
 	currentCols = p.cols
 	currentRows = p.rows
 	currentPixelWidth = p.pixelWidth
@@ -2592,6 +2638,25 @@ func (p *terminalPane) applyResize(message terminalControlMessage, source *paneC
 	p.enqueueResizeApplied(epoch, currentCols, currentRows, currentPixelWidth, currentPixelHeight, clients)
 	p.outputMu.Unlock()
 	return nil
+}
+
+func (p *terminalPane) enqueueResizeOwnerReleased(epoch uint64, cols, rows, pixelWidth, pixelHeight int, clients []*paneClient) {
+	payload, err := json.Marshal(map[string]any{
+		"type":         "resize-owner-released",
+		"selector":     p.selector,
+		"pane_id":      p.id,
+		"resize_epoch": formatTerminalResizeEpoch(epoch),
+		"cols":         cols,
+		"rows":         rows,
+		"pixel_width":  pixelWidth,
+		"pixel_height": pixelHeight,
+	})
+	if err != nil {
+		return
+	}
+	for _, client := range clients {
+		client.enqueue(paneOutbound{messageType: websocket.TextMessage, payload: payload})
+	}
 }
 
 func (p *terminalPane) enqueueResizeApplied(epoch uint64, cols, rows, pixelWidth, pixelHeight int, clients []*paneClient) {
