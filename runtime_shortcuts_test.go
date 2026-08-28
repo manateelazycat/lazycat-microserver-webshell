@@ -1119,6 +1119,9 @@ func TestRuntimeDeviceManagementStaticGuards(t *testing.T) {
 		`id="settingsDebugModeToggle"`,
 		`id="settingsDebugOptions" hidden`,
 		`id="settingsOnlineDevicesButton"`,
+		`id="settingsDeviceHeartbeatToggle"`,
+		"设备心跳",
+		"定期上报当前设备在线状态，默认关闭",
 		`class="settings-debug-action"`,
 		"在线设备",
 		"查看当前正在连接的设备",
@@ -1136,6 +1139,15 @@ func TestRuntimeDeviceManagementStaticGuards(t *testing.T) {
 	}
 	if strings.Contains(index, `id="settingsOnlineDevicesToggle"`) {
 		t.Fatalf("runtime device management must not render online devices as a checkbox toggle")
+	}
+	onlineDevicesButton := strings.Index(index, `id="settingsOnlineDevicesButton"`)
+	deviceHeartbeatToggle := strings.Index(index, `id="settingsDeviceHeartbeatToggle"`)
+	performanceMeterToggle := strings.Index(index, `id="settingsPerformanceMeterToggle"`)
+	if onlineDevicesButton < 0 || deviceHeartbeatToggle < onlineDevicesButton || performanceMeterToggle < deviceHeartbeatToggle {
+		t.Fatal("device heartbeat toggle must appear directly after online devices in debug options")
+	}
+	if strings.Contains(sourceBetween(t, index, `id="settingsDeviceHeartbeatToggle"`, `id="settingsPerformanceMeterToggle"`), " checked") {
+		t.Fatal("device heartbeat toggle must default to disabled")
 	}
 
 	mainData, err := os.ReadFile("runtime/static/main.js")
@@ -1158,6 +1170,16 @@ func TestRuntimeDeviceManagementStaticGuards(t *testing.T) {
 		"const closeDevicePanel = () => {",
 		"stopDeviceListRefresh();",
 		`const settingsOnlineDevicesButton = document.getElementById("settingsOnlineDevicesButton");`,
+		`const settingsDeviceHeartbeatToggle = document.getElementById("settingsDeviceHeartbeatToggle");`,
+		"const deviceHeartbeatStorageKey = `${storagePrefix}.deviceHeartbeat`;",
+		`let deviceHeartbeatEnabled = window.localStorage.getItem(deviceHeartbeatStorageKey) === "true";`,
+		"settingsDeviceHeartbeatToggle.checked = deviceHeartbeatEnabled;",
+		"settingsDeviceHeartbeatToggle.disabled = !debugModeEnabled;",
+		"if (debugModeEnabled && deviceHeartbeatEnabled) {",
+		"if (disposed || !debugModeEnabled || !deviceHeartbeatEnabled || navigator.onLine === false) {",
+		"if (!debugModeEnabled || !deviceHeartbeatEnabled) {",
+		`settingsDeviceHeartbeatToggle?.addEventListener("change", () => {`,
+		`window.localStorage.setItem(deviceHeartbeatStorageKey, deviceHeartbeatEnabled ? "true" : "false");`,
 		`deviceBack?.addEventListener("click", closeDevicePanel);`,
 		"const deviceListContentSignature = (devices) => JSON.stringify",
 		"joined_at: String(device?.joined_at || \"\").trim(),",
@@ -1280,6 +1302,7 @@ func TestRuntimeDebugModeControlsDebugTools(t *testing.T) {
 		"applyPerformanceTaskMeterVisibility();",
 		"applyTerminalNetworkMonitorVisibility();",
 		"stopDeviceHeartbeat();",
+		"if (debugModeEnabled && deviceHeartbeatEnabled) {",
 		"closeDevicePanel();",
 		"if (!debugModeEnabled) {\n      return;\n    }\n    closeContextMenu();",
 		"performanceMeterEnabled = settingsPerformanceMeterToggle.checked;",
@@ -3973,10 +3996,10 @@ func TestRuntimeConnectionStateDiagnosticsAndOneShotRevisionGuard(t *testing.T) 
 		"window.removeEventListener(\"error\", handleDebugWindowError, true);",
 		"window.removeEventListener(\"unhandledrejection\", handleDebugUnhandledRejection);",
 		"const handleDeviceHeartbeatError = (error) => {",
-		"if (disposed || !debugModeEnabled || navigator.onLine === false)",
+		"if (disposed || !debugModeEnabled || !deviceHeartbeatEnabled || navigator.onLine === false)",
 		"const stopDeviceHeartbeat = () => {",
 		"postDeviceHeartbeat().catch(handleDeviceHeartbeatError);",
-		"if (debugModeEnabled) {\n      startDeviceHeartbeat();\n    }",
+		"if (debugModeEnabled && deviceHeartbeatEnabled) {\n      startDeviceHeartbeat();\n    }",
 		"const scheduleInitialServerRevisionCheck = () => {",
 		"serverRevisionInitialCheckTimer = window.setTimeout(() => {",
 		"scheduleInitialServerRevisionCheck();",

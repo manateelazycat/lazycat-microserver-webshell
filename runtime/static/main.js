@@ -225,6 +225,7 @@ const ghosttyInitPromise = initGhostty(runtimeAssetURL("./ghostty-vt.wasm")).the
   const settingsDebugModeToggle = document.getElementById("settingsDebugModeToggle");
   const settingsDebugLogToggle = document.getElementById("settingsDebugLogToggle");
   const settingsNetworkMonitorToggle = document.getElementById("settingsNetworkMonitorToggle");
+  const settingsDeviceHeartbeatToggle = document.getElementById("settingsDeviceHeartbeatToggle");
   const settingsDebugOptions = document.getElementById("settingsDebugOptions");
   const settingsOnlineDevicesButton = document.getElementById("settingsOnlineDevicesButton");
   const settingsPerformanceMeterToggle = document.getElementById("settingsPerformanceMeterToggle");
@@ -374,6 +375,7 @@ const ghosttyInitPromise = initGhostty(runtimeAssetURL("./ghostty-vt.wasm")).the
   const touchShortcutFeedbackStorageKey = `${storagePrefix}.touchShortcutFeedback`;
   const debugModeStorageKey = `${storagePrefix}.debugMode`;
   const debugLogStorageKey = `${storagePrefix}.debugLog`;
+  const deviceHeartbeatStorageKey = `${storagePrefix}.deviceHeartbeat`;
   const networkMonitorStorageKey = `${storagePrefix}.networkMonitor`;
   const performanceMeterStorageKey = `${storagePrefix}.performanceMeter`;
   const performanceTasksStorageKey = `${storagePrefix}.performanceTasks`;
@@ -736,6 +738,7 @@ const ghosttyInitPromise = initGhostty(runtimeAssetURL("./ghostty-vt.wasm")).the
   let mobileDoubleTapReminderEnabled = true;
   let debugModeEnabled = window.localStorage.getItem(debugModeStorageKey) === "true";
   let debugLogEnabled = window.localStorage.getItem(debugLogStorageKey) === "true";
+  let deviceHeartbeatEnabled = window.localStorage.getItem(deviceHeartbeatStorageKey) === "true";
   let networkMonitorEnabled = window.localStorage.getItem(networkMonitorStorageKey) === "true";
   let terminalUnifiedRefreshPending = false;
   let debugLogEntries = [];
@@ -2038,6 +2041,13 @@ const ghosttyInitPromise = initGhostty(runtimeAssetURL("./ghostty-vt.wasm")).the
     renderTerminalNetworkMonitor();
   };
 
+  const syncSettingsDeviceHeartbeatToggle = () => {
+    if (settingsDeviceHeartbeatToggle) {
+      settingsDeviceHeartbeatToggle.checked = deviceHeartbeatEnabled;
+      settingsDeviceHeartbeatToggle.disabled = !debugModeEnabled;
+    }
+  };
+
   const syncSettingsPerformanceMeterToggle = () => {
     if (settingsPerformanceMeterToggle) {
       settingsPerformanceMeterToggle.checked = performanceMeterEnabled;
@@ -2069,6 +2079,7 @@ const ghosttyInitPromise = initGhostty(runtimeAssetURL("./ghostty-vt.wasm")).the
     syncSettingsDebugModeControls();
     syncSettingsDebugLogToggle();
     syncSettingsNetworkMonitorToggle();
+    syncSettingsDeviceHeartbeatToggle();
     syncSettingsPerformanceMeterToggle();
     syncSettingsPerformanceTasksToggle();
     syncSettingsMobileRemoteDesktopToggle();
@@ -2082,12 +2093,14 @@ const ghosttyInitPromise = initGhostty(runtimeAssetURL("./ghostty-vt.wasm")).the
     applyPerformanceMeterVisibility();
     applyPerformanceTaskMeterVisibility();
     applyTerminalNetworkMonitorVisibility();
-    if (debugModeEnabled) {
+    if (debugModeEnabled && deviceHeartbeatEnabled) {
       startDeviceHeartbeat();
     } else {
       sendDeviceOfflineBeacon();
       stopDeviceHeartbeat();
-      closeDevicePanel();
+      if (!debugModeEnabled) {
+        closeDevicePanel();
+      }
     }
   };
 
@@ -4897,7 +4910,7 @@ const ghosttyInitPromise = initGhostty(runtimeAssetURL("./ghostty-vt.wasm")).the
   const deviceOfflineAPIURL = () => new URL("./api/devices/offline", window.location.href).toString();
 
   const postDeviceHeartbeat = async () => {
-    if (disposed || !debugModeEnabled || navigator.onLine === false) {
+    if (disposed || !debugModeEnabled || !deviceHeartbeatEnabled || navigator.onLine === false) {
       return;
     }
     if (deviceHeartbeatInFlight) {
@@ -4953,7 +4966,7 @@ const ghosttyInitPromise = initGhostty(runtimeAssetURL("./ghostty-vt.wasm")).the
   };
 
   const startDeviceHeartbeat = () => {
-    if (!debugModeEnabled) {
+    if (!debugModeEnabled || !deviceHeartbeatEnabled) {
       stopDeviceHeartbeat();
       return;
     }
@@ -5102,7 +5115,9 @@ const ghosttyInitPromise = initGhostty(runtimeAssetURL("./ghostty-vt.wasm")).the
     if (deviceBackdrop) {
       deviceBackdrop.hidden = false;
     }
-    postDeviceHeartbeat().catch(handleDeviceHeartbeatError);
+    if (debugModeEnabled && deviceHeartbeatEnabled) {
+      postDeviceHeartbeat().catch(handleDeviceHeartbeatError);
+    }
     startDeviceListRefresh();
     window.setTimeout(() => {
       if (isMobileLayout()) {
@@ -24296,6 +24311,17 @@ const ghosttyInitPromise = initGhostty(runtimeAssetURL("./ghostty-vt.wasm")).the
     applyTerminalNetworkMonitorVisibility();
     syncSettingsNetworkMonitorToggle();
   });
+  settingsDeviceHeartbeatToggle?.addEventListener("change", () => {
+    deviceHeartbeatEnabled = settingsDeviceHeartbeatToggle.checked;
+    window.localStorage.setItem(deviceHeartbeatStorageKey, deviceHeartbeatEnabled ? "true" : "false");
+    if (debugModeEnabled && deviceHeartbeatEnabled) {
+      startDeviceHeartbeat();
+    } else {
+      sendDeviceOfflineBeacon();
+      stopDeviceHeartbeat();
+    }
+    syncSettingsDeviceHeartbeatToggle();
+  });
   debugLogCopy?.addEventListener("click", async () => {
     const text = debugLogClipboardText();
     if (!text) {
@@ -24969,7 +24995,7 @@ const ghosttyInitPromise = initGhostty(runtimeAssetURL("./ghostty-vt.wasm")).the
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden) {
       rememberWorkspaceRestoreState();
-      if (debugModeEnabled) {
+      if (debugModeEnabled && deviceHeartbeatEnabled) {
         postDeviceHeartbeat().catch(handleDeviceHeartbeatError);
       }
       resizeActiveTab({ forceFullRender: true, hideUntilRender: true });
@@ -24978,7 +25004,7 @@ const ghosttyInitPromise = initGhostty(runtimeAssetURL("./ghostty-vt.wasm")).the
         || retryUnavailableTerminalUnifiedTransport("visibility_resume");
       reconnectVisibleSessions({ allowHidden: true, probe: true });
       refreshActivity({ silent: true }).catch(() => {});
-      if (debugModeEnabled && deviceBackdrop && !deviceBackdrop.hidden) {
+      if (debugModeEnabled && deviceHeartbeatEnabled && deviceBackdrop && !deviceBackdrop.hidden) {
         refreshDeviceList().catch(() => {});
       }
       updateSelectionSheet();
@@ -24994,7 +25020,7 @@ const ghosttyInitPromise = initGhostty(runtimeAssetURL("./ghostty-vt.wasm")).the
   });
   window.addEventListener("pageshow", () => {
     rememberWorkspaceRestoreState();
-    if (debugModeEnabled) {
+    if (debugModeEnabled && deviceHeartbeatEnabled) {
       postDeviceHeartbeat().catch(handleDeviceHeartbeatError);
     }
     resizeActiveTab({ forceFullRender: true, hideUntilRender: true });
