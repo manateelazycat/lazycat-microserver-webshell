@@ -69,6 +69,18 @@ func TestTerminalResizeSchedulerBehavior(t *testing.T) {
 	}
 }
 
+func TestTerminalFrameReleaseSchedulerBehavior(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node is unavailable")
+	}
+	command := exec.Command(node, "--test", "terminal_frame_release_scheduler_test.mjs")
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("terminal frame release scheduler tests failed: %v\n%s", err, output)
+	}
+}
+
 func TestTabActivationSchedulerBehavior(t *testing.T) {
 	node, err := exec.LookPath("node")
 	if err != nil {
@@ -606,6 +618,9 @@ func TestRuntimeContainerCacheV2AndPWAContract(t *testing.T) {
 	workerSource := string(workerData)
 	if !strings.Contains(workerSource, "${assetBase}tab_activation_scheduler.js") {
 		t.Fatal("service worker must precache the tab activation scheduler")
+	}
+	if !strings.Contains(workerSource, "${assetBase}terminal_frame_release_scheduler.js") {
+		t.Fatal("service worker must precache the terminal frame release scheduler")
 	}
 	if !strings.Contains(workerSource, "${assetBase}terminal_resize_scheduler.js") {
 		t.Fatal("service worker must precache the terminal resize scheduler")
@@ -3584,13 +3599,44 @@ func TestRuntimeTerminalCanvasResidueGuard(t *testing.T) {
 		"const setActiveTab = (tabId, { focus = true, remember = true, rememberRecent = true } = {}) => {",
 		"const renderLeaf = (tab, node) => {")
 	preserveIndex := strings.Index(tabSwitchBlock, "preserveTabTerminalFrames(previousTab);")
+	preserveTargetIndex := strings.Index(tabSwitchBlock, "preserveTabTerminalFrames(tab, { onlyIfStale: true });")
 	activateIndex := strings.Index(tabSwitchBlock, "activeTabId = tab.id;")
 	visualIndex := strings.Index(tabSwitchBlock, `item.button?.classList.toggle("active", isActive);`)
 	deferredIndex := strings.Index(tabSwitchBlock, "tabActivationScheduler.schedule(tab.id, [")
-	if preserveIndex < 0 || activateIndex < 0 || visualIndex < 0 || deferredIndex < 0 ||
-		preserveIndex > activateIndex || activateIndex > visualIndex || visualIndex > deferredIndex ||
+	if preserveIndex < 0 || preserveTargetIndex < 0 || activateIndex < 0 || visualIndex < 0 || deferredIndex < 0 ||
+		preserveIndex > preserveTargetIndex || preserveTargetIndex > activateIndex || activateIndex > visualIndex || visualIndex > deferredIndex ||
 		!strings.Contains(tabSwitchBlock, "pane.terminalFrameHeld") {
-		t.Fatal("tab switching must preserve the prior frame, commit visual selection, then defer terminal activation")
+		t.Fatal("tab switching must preserve both outgoing and incoming frames before visual selection, then defer terminal activation")
+	}
+	if !strings.Contains(tabSwitchBlock, "const presentationCurrent = panePresentationStateIsCurrent(pane);") {
+		t.Fatal("tab activation must use hidden-safe presentation state instead of measurable visibility")
+	}
+	if !strings.Contains(tabSwitchBlock, "pane.activationFitPending = !presentationCurrent;") {
+		t.Fatal("tab activation must preserve current panes without forcing a full render")
+	}
+	if strings.Contains(tabSwitchBlock, "pane.activationFitPending = !wasActive || !panePresentationIsCurrent(pane);") {
+		t.Fatal("tab activation must not unconditionally invalidate a target pane")
+	}
+	if !strings.Contains(tabSwitchBlock, "const presentationCurrent = panePresentationStateIsCurrent(pane);") {
+		t.Fatal("tab activation must use hidden-safe presentation state instead of measurable visibility")
+	}
+	if !strings.Contains(tabSwitchBlock, "pane.activationFitPending = !presentationCurrent;") {
+		t.Fatal("tab activation must preserve current panes without forcing a full render")
+	}
+	if !strings.Contains(tabSwitchBlock, "if (!presentationCurrent) {") {
+		t.Fatal("tab activation must only clear readiness for stale panes")
+	}
+	if !strings.Contains(tabSwitchBlock, "if (!wasActive && pane.terminalFrameHeld)") {
+		t.Fatal("stale tab activation must retain the held frame while entering presentation recovery")
+	}
+	if strings.Contains(tabSwitchBlock, "pane.terminalFrameHeld);\n          pane.resizePresentationHold") {
+		t.Fatal("tab activation must not clear readiness merely because a held frame is already protecting the pane")
+	}
+	visibleResizeBlock := sourceBetween(t, mainSource,
+		"const scheduleVisibleTabResize = (tab, { immediate = false } = {}) => {",
+		"const scheduleActiveTabWindowResize = () => {")
+	if !strings.Contains(visibleResizeBlock, "if (panePresentationStateIsCurrent(pane) && !pane.activationFitPending) {") {
+		t.Fatal("tab activation resize must skip a pane whose hidden-safe presentation state is current")
 	}
 	for _, forbidden := range []string{
 		"scheduleVisibleTabResize(tab, { immediate: true });",
@@ -3615,6 +3661,44 @@ func TestRuntimeTerminalCanvasResidueGuard(t *testing.T) {
 	} {
 		if !strings.Contains(holdBlock, want) {
 			t.Fatalf("held terminal overview frame identity guard missing %q", want)
+		}
+	}
+	for _, want := range []string{
+		"const panePresentationStateIsCurrent = (session) => {",
+		"const panePresentationIsCurrent = (session) => {",
+		"return isPaneMeasurable(session)",
+		"terminalCanvasMatchesExpectedSize(session)",
+	} {
+		if !strings.Contains(mainSource, want) {
+			t.Fatalf("presentation current checks must separate hidden state from measurable geometry: missing %q", want)
+		}
+	}
+	frameReleaseBlock := sourceBetween(t, mainSource,
+		"const scheduleSessionTerminalFrameRelease = (session) => {",
+		"const setPaneRenderReady = (session, ready) => {")
+	for _, want := range []string{
+		"terminalFrameReleaseScheduler.schedule(session, {",
+		"session.tabId === activeTabId",
+		"Number(session.renderGeneration || 0) === renderGeneration",
+		"panePresentationIsCurrent(session)",
+		"release: () => releaseSessionTerminalFrame(session)",
+	} {
+		if !strings.Contains(frameReleaseBlock, want) {
+			t.Fatalf("terminal frame release must wait for a current composited presentation: missing %q", want)
+		}
+	}
+	setReadyBlock := sourceBetween(t, mainSource,
+		"const setPaneRenderReady = (session, ready) => {",
+		"const panePresentationIsCurrent = (session) => {")
+	if strings.Contains(setReadyBlock, "releaseSessionTerminalFrame(session);") {
+		t.Fatal("render completion must not synchronously remove the last-known-good frame")
+	}
+	for _, want := range []string{
+		"terminalFrameReleaseScheduler.cancel(session);",
+		"scheduleSessionTerminalFrameRelease(session);",
+	} {
+		if !strings.Contains(setReadyBlock, want) {
+			t.Fatalf("render readiness must coordinate delayed held-frame release: missing %q", want)
 		}
 	}
 	previewBlock := sourceBetween(t, mainSource,
@@ -4147,7 +4231,16 @@ func TestRuntimeTerminalNetworkMonitorIsOptIn(t *testing.T) {
 	if !strings.Contains(queueSource, "getPhysicalSocket() {") {
 		t.Fatal("terminal queue connection must expose its physical socket only for opt-in instrumentation")
 	}
+	if strings.Contains(styleSource, ".terminal-pane {\n  position: absolute;\n  inset: 0;\n  display: none;") {
+		t.Fatal("tab switching must not tear down terminal pane layout with display:none")
+	}
 	for _, want := range []string{
+		".terminal-pane {",
+		"visibility: hidden;",
+		"pointer-events: none;",
+		".terminal-pane.active {",
+		"visibility: visible;",
+		"pointer-events: auto;",
 		".terminal-network-monitor-title {",
 		".terminal-network-monitor-status-dot {",
 		".terminal-network-monitor-status-dot[data-state=\"open\"] {",
@@ -4157,13 +4250,42 @@ func TestRuntimeTerminalNetworkMonitorIsOptIn(t *testing.T) {
 		".terminal-network-monitor-summary {",
 		"font-variant-numeric: tabular-nums;",
 		".debug-log-panel {",
-		"border: 1px solid color-mix(in srgb, #22d3ee 42%, transparent);",
-		"background: color-mix(in srgb, #062c33 88%, var(--terminal-bg));",
+		"border: 1px solid color-mix(in srgb, var(--terminal-fg) 28%, transparent);",
+		"background: color-mix(in srgb, var(--terminal-bg) 86%, transparent);",
+		"color: var(--terminal-fg);",
 		".debug-log-entry-level-error {",
 		".debug-log-entry-message {",
 	} {
 		if !strings.Contains(styleSource, want) {
 			t.Fatalf("runtime terminal network monitor style guard missing %q", want)
+		}
+	}
+	networkThemeBlock := sourceBetween(t, styleSource,
+		".terminal-network-monitor {",
+		".debug-log-panel {")
+	debugThemeBlock := sourceBetween(t, styleSource,
+		".debug-log-panel {",
+		".terminal-composition-preview {")
+	for _, block := range []struct {
+		name   string
+		source string
+	}{
+		{name: "network monitor", source: networkThemeBlock},
+		{name: "debug log", source: debugThemeBlock},
+	} {
+		for _, want := range []string{
+			"border: 1px solid color-mix(in srgb, var(--terminal-fg) 28%, transparent);",
+			"background: color-mix(in srgb, var(--terminal-bg) 86%, transparent);",
+			"color: var(--terminal-fg);",
+		} {
+			if !strings.Contains(block.source, want) {
+				t.Fatalf("%s must follow the active terminal theme: missing %q", block.name, want)
+			}
+		}
+		for _, forbidden := range []string{"#22d3ee", "#062c33", "#cffafe", "#fde68a"} {
+			if strings.Contains(block.source, forbidden) {
+				t.Fatalf("%s must not retain the fixed cyan palette %q", block.name, forbidden)
+			}
 		}
 	}
 	if strings.Contains(styleSource, "background: color-mix(in srgb, #450a0a 88%, var(--terminal-bg));") {

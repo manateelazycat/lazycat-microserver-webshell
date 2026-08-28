@@ -1411,3 +1411,35 @@ git diff --check
 - 回归 guard：Unified 测试验证不渲染通道行但总字节和速率仍准确；状态测试覆盖正常、异常、连接中和重试中；静态 guard固定状态点 DOM、Unified 空明细数组、隐藏通道仍参与总计和状态聚合。
 - 验证结果：定向 Node 6/6、Node 全量 138/138、Go 全量、Go race、script/module 两种语法检查和 `git diff --check` 均通过；已重新生成 `cloud.lazycat.webshell.lcmd-v1.0.39.lpk`，SHA-256 为 `600f3451d6cefa4fc108490f523bf64a842ace3f1591468ff547d8cb6da67f57`。
 - 禁止复现：移除 Unified 明细不得清空或停止采样物理 socket；标题状态不得根据流量大小猜测网络状态，必须使用真实连接状态。
+
+### LCMD-20260828-07：tab 激活时旧 Canvas 与新 presentation 之间闪黑
+
+- 日期：2026-08-28
+- 来源：用户真机复验；切换已有 tab 时终端内容先立即出现，随后短暂变黑，再恢复为完整终端画面。
+- 错误现象：tab 的连接、PTY 输出和历史状态均正常，但一次切换出现“旧内容可见 -> 背景色黑帧 -> 新完整帧”的视觉闪烁；无需重连或点击即可自行恢复。
+- 根因：目标 tab 的 DOM 会先从 `display:none` 切为可见，随后激活 resize/presentation 要求一次最终 full render。Ghostty `onRender` 表示 Canvas 绘制已完成，但旧实现立即在同一回调中清除 `terminal-frame-hold`；Android/WebView 尚未把新 Canvas 合成到屏幕时，覆盖层已消失，因而短暂露出终端背景色。目标 tab 在变为可见前也没有统一预捕获 last-known-good frame，使该窗口更容易直接暴露 live Canvas。
+- 实施方案：新增模块化 `terminal_frame_release_scheduler.js`。进入 tab 前同时保存切出与切入 tab 的 last-known-good frame；新的 full render 通过既有 snapshot、fit、replay、resize epoch和 content generation校验后，hold frame仍跨越两次 `requestAnimationFrame`，让 live Canvas至少获得一次浏览器合成机会，再做 latest-only 释放。释放前复核 active tab、render generation和当前 presentation；新 hold、`renderReady=false`、快速切换、resize/replay或 pane销毁都会取消旧释放任务。历史 replay和 resize中间帧继续被 hold覆盖，不放宽任何 presentation gate。
+- 回归 guard：新增 `terminal_frame_release_scheduler_test.mjs`，覆盖双 RAF、取消旧释放、latest-only替换和 generation变化时保帧；Go guard固定目标 tab在 DOM 激活前预捕获、禁止 `setPaneRenderReady(true)` 同步释放 hold、固定 active tab/render generation/current presentation三重门禁，并要求 Service Worker预缓存新模块。
+- 验证结果：定向 Node 13/13、Node 全量 142/142、Go 全量、Go race、script/module 两种语法检查、`git diff --check` 和 `lzc-cli project release` 均通过；已重新生成 `cloud.lazycat.webshell.lcmd-v1.0.39.lpk`，SHA-256 为 `1c52a12e55b336e30dd2b758226be4113f4d1641d14e26d82ff724bdf0da97ef`。
+- 禁止复现：不得在 Ghostty `onRender` 回调内同步移除唯一 last-known-good frame；不得先显示目标 tab再准备 hold；不得用固定延时替代浏览器绘制边界；过期 tab、旧 generation或非当前 presentation不得释放覆盖层。
+
+### LCMD-20260828-08：tab 闪烁的根因是 `display:none` 破坏 Canvas 布局连续性
+
+- 日期：2026-08-28
+- 来源：`LCMD-20260828-07` 真机复验；延迟释放 last-known-good frame 后切换 tab 仍然出现“显示、黑屏、恢复”。
+- 更正：上一条修复只延后了 hold 覆盖层的释放，未消除非活动 `.terminal-pane` 使用 `display:none` 的根因。隐藏 tab 在切换时会被移出布局，重新显示后才恢复尺寸测量；激活 resize/presentation 与 WebView 合成跨越不同布局帧，仍可能让 live Canvas短暂显示背景色。目标 pane 在隐藏状态下的 `panePresentationIsCurrent()` 也因不可测量而被误判为过期，进一步触发不必要的 full render。
+- 实施方案：所有 `.terminal-pane` 始终保留布局盒，非活动 tab 使用 `visibility:hidden` 和 `pointer-events:none`，活动 tab只切换为 `visibility:visible` 和可交互状态。新增 hidden-safe 的 `panePresentationStateIsCurrent()`，区分终端状态是否当前与 pane 当前是否可测量；切 tab时已有当前 presentation不再强制 fit/full render，只有状态确实过期的 pane才进入 presentation恢复。保留前一条双 RAF、generation和当前 tab校验，继续保证新帧合成后才释放 hold。
+- 回归 guard：静态 guard禁止 terminal pane恢复 `display:none`，固定非活动 pane的 visibility/pointer-events隔离；固定 tab激活使用 hidden-safe presentation state、当前 pane跳过 resize以及过期 pane才清理 readiness。Node全量测试继续覆盖 frame release scheduler的双 RAF、取消、latest-only和状态变化保帧。
+- 验证结果：Node 142/142、Go全量、Go race、script/module语法检查和 `git diff --check` 均通过；真实 Android/WebView和折叠屏连续切换仍需安装最新包复验。
+- 禁止复现：不得用 `display:none` 切换承载终端 Canvas 的 pane；不得因为隐藏 pane暂时不可测量而把有效 presentation标记为过期；当前 presentation有效时不得因 tab激活无条件触发 resize、Canvas backing store重建或 full render。
+
+### LCMD-20260828-09：网络监视器和调试日志未跟随终端主题
+
+- 日期：2026-08-28
+- 来源：用户要求网络监视器和错误/调试日志像性能监视器一样跟随当前终端主题。
+- 错误现象：切换终端主题后，性能监视器会使用当前终端背景色和前景色，但网络监视器与调试日志仍保持固定青色边框、深青背景和浅青正文，与当前主题不一致。
+- 根因：性能监视器已经完全使用 `--terminal-bg` 和 `--terminal-fg`，网络监视器和调试日志则仍混入 `#22d3ee`、`#062c33`、`#cffafe` 和 `#fde68a` 固定调色板。
+- 实施方案：网络监视器和调试日志的基础面板统一复用性能监视器的主题公式：前景色 28% 边框、终端背景色 86% 面板背景、终端前景色正文；分隔线、次要文字、日志计数、按钮边框和 hover背景均从 `--terminal-fg` 按透明度派生。连接正常/异常/重试状态点与红色错误标签继续保留语义色，避免状态辨识依赖主题色。
+- 回归 guard：Go静态 guard分别截取网络监视器和调试日志 CSS块，要求存在 `--terminal-bg`/`--terminal-fg` 主题公式，并禁止固定青色调色板重新进入两个面板；现有状态点和错误标签 guard继续固定语义色和DOM结构。
+- 验证结果：Node全量 142/142、Go全量、Go race、script/module语法检查、`git diff --check` 和 `lzc-cli project release` 均通过；已重新生成 `cloud.lazycat.webshell.lcmd-v1.0.39.lpk`，SHA-256 为 `e1a7071816d7c72a9d545f6e4e06514b29b23ce3cf58059d5d0f69762c5dee2c`。
+- 禁止复现：网络监视器和调试日志不得维护独立固定主题；主题变化只通过既有 CSS变量即时生效，不得为调试面板增加单独的主题状态或重渲染逻辑。

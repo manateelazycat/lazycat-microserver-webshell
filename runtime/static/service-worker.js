@@ -23,6 +23,7 @@ const appShellAssets = [
   `${assetBase}terminal_history_cache.js`,
   `${assetBase}terminal_size_sync.js`,
   `${assetBase}terminal_resize_scheduler.js`,
+  `${assetBase}terminal_frame_release_scheduler.js`,
   `${assetBase}terminal_connection_scheduler.js`,
   `${assetBase}terminal_unified_membership.js`,
   `${assetBase}tab_activation_scheduler.js`,

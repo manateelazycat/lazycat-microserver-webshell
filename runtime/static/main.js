@@ -31,6 +31,7 @@ import {
   terminalSizeDiffersFromServer,
 } from "./terminal_size_sync.js";
 import { createTerminalResizeScheduler } from "./terminal_resize_scheduler.js";
+import { createTerminalFrameReleaseScheduler } from "./terminal_frame_release_scheduler.js";
 import { createTerminalConnectionScheduler } from "./terminal_connection_scheduler.js";
 import { createTabActivationScheduler } from "./tab_activation_scheduler.js";
 import { createTerminalLongScreenshot } from "./terminal_long_screenshot.js";
@@ -718,6 +719,7 @@ const ghosttyInitPromise = initGhostty(runtimeAssetURL("./ghostty-vt.wasm")).the
   let nextTabSeq = 1;
   let nextPaneSeq = 1;
   const tabActivationScheduler = createTabActivationScheduler();
+  const terminalFrameReleaseScheduler = createTerminalFrameReleaseScheduler();
   let contextTarget = null;
   let lastTerminalTouchContextMenuCandidate = null;
   const terminalLocalMouseClaimedEvents = new WeakSet();
@@ -7061,6 +7063,7 @@ const ghosttyInitPromise = initGhostty(runtimeAssetURL("./ghostty-vt.wasm")).the
   };
 
   const holdSessionTerminalFrame = (session) => {
+    terminalFrameReleaseScheduler.cancel(session);
     const source = session?.term?.canvas || session?.term?.renderer?.getCanvas?.();
     const hold = session?.terminalFrameHold;
     if (!(source instanceof HTMLCanvasElement) || !(hold instanceof HTMLCanvasElement) || source.width <= 0 || source.height <= 0) {
@@ -7079,17 +7082,23 @@ const ghosttyInitPromise = initGhostty(runtimeAssetURL("./ghostty-vt.wasm")).the
         || 1,
     );
     const sourceRect = source.getBoundingClientRect?.();
+    const sourceStyleWidth = String(source.style?.width || "").trim();
+    const sourceStyleHeight = String(source.style?.height || "").trim();
     const cssWidth = Math.max(
       1,
-      Number(sourceRect?.width)
-        || Number.parseFloat(source.style?.width)
-        || source.width / ratio,
+      Number(sourceRect?.width) > 0
+        ? Number(sourceRect.width)
+        : /^\d+(?:\.\d+)?px$/i.test(sourceStyleWidth)
+          ? Number.parseFloat(sourceStyleWidth)
+          : source.width / ratio,
     );
     const cssHeight = Math.max(
       1,
-      Number(sourceRect?.height)
-        || Number.parseFloat(source.style?.height)
-        || source.height / ratio,
+      Number(sourceRect?.height) > 0
+        ? Number(sourceRect.height)
+        : /^\d+(?:\.\d+)?px$/i.test(sourceStyleHeight)
+          ? Number.parseFloat(sourceStyleHeight)
+          : source.height / ratio,
     );
     hold.width = Math.max(1, Math.round(cssWidth));
     hold.height = Math.max(1, Math.round(cssHeight));
@@ -7104,6 +7113,7 @@ const ghosttyInitPromise = initGhostty(runtimeAssetURL("./ghostty-vt.wasm")).the
   };
 
   const releaseSessionTerminalFrame = (session) => {
+    terminalFrameReleaseScheduler.cancel(session);
     if (session) {
       session.terminalFrameHoldIdentity = null;
     }
@@ -7121,6 +7131,7 @@ const ghosttyInitPromise = initGhostty(runtimeAssetURL("./ghostty-vt.wasm")).the
     if (!session || session.closed) {
       return false;
     }
+    terminalFrameReleaseScheduler.cancel(session);
     session.presentationCommitPending = false;
     session.resizePresentationHold = true;
     recordTerminalSessionEvent(session, "presentation_hold");
@@ -7220,17 +7231,47 @@ const ghosttyInitPromise = initGhostty(runtimeAssetURL("./ghostty-vt.wasm")).the
     }
   };
 
+  const scheduleSessionTerminalFrameRelease = (session) => {
+    const hold = session?.terminalFrameHold;
+    if (
+      !session
+      || session.closed
+      || session.terminalFrameHeld !== true
+      || !(hold instanceof HTMLCanvasElement)
+      || hold.width <= 0
+      || hold.height <= 0
+    ) {
+      return false;
+    }
+    const renderGeneration = Number(session.renderGeneration || 0);
+    return terminalFrameReleaseScheduler.schedule(session, {
+      shouldRelease: () => (
+        !session.closed
+        && session.tabId === activeTabId
+        && session.renderReady
+        && Number(session.renderGeneration || 0) === renderGeneration
+        && panePresentationIsCurrent(session)
+        && session.terminalFrameHeld === true
+      ),
+      release: () => releaseSessionTerminalFrame(session),
+    });
+  };
+
   const setPaneRenderReady = (session, ready) => {
     if (!session?.shellEl) {
       return;
     }
-    const becameReady = ready === true && !session.renderReady;
-    session.renderReady = ready === true;
+    const nextReady = ready === true;
+    if (!nextReady) {
+      terminalFrameReleaseScheduler.cancel(session);
+    }
+    const becameReady = nextReady && !session.renderReady;
+    session.renderReady = nextReady;
     session.presentationPending = !session.renderReady;
     session.shellEl.dataset.renderReady = session.renderReady ? "true" : "false";
     session.shellEl.dataset.hasPresentedFrame = session.hasPresentedFrame ? "true" : "false";
     if (session.renderReady) {
-      releaseSessionTerminalFrame(session);
+      scheduleSessionTerminalFrameRelease(session);
       hideSessionTerminalPreview(session);
       clearSessionCacheV2PreparedPreview(session);
       flushPendingInput(session);
@@ -7249,7 +7290,7 @@ const ghosttyInitPromise = initGhostty(runtimeAssetURL("./ghostty-vt.wasm")).the
     }
   };
 
-  const panePresentationIsCurrent = (session) => {
+  const panePresentationStateIsCurrent = (session) => {
     if (!session?.renderSnapshot || !session.renderReady || session.resizeAckPending) {
       return false;
     }
@@ -7260,6 +7301,14 @@ const ghosttyInitPromise = initGhostty(runtimeAssetURL("./ghostty-vt.wasm")).the
       && session.presentedReplayGeneration === session.terminalReplayGeneration
       && session.presentedContentGeneration === session.terminalContentGeneration
       && (!session.appliedResizeEpoch || session.presentedResizeEpoch === session.appliedResizeEpoch);
+  };
+
+  const panePresentationIsCurrent = (session) => {
+    if (!panePresentationStateIsCurrent(session)) {
+      return false;
+    }
+    return isPaneMeasurable(session)
+      && terminalCanvasMatchesExpectedSize(session);
   };
 
   const markPaneSyncPending = (session) => {
@@ -9414,9 +9463,13 @@ const ghosttyInitPromise = initGhostty(runtimeAssetURL("./ghostty-vt.wasm")).the
     }
   };
 
-  const preserveTabTerminalFrames = (tab) => {
+  const preserveTabTerminalFrames = (tab, { onlyIfStale = false } = {}) => {
     for (const pane of tab?.panes?.values?.() || []) {
-      if (pane.hasPresentedFrame && !pane.terminalFrameHeld) {
+      if (
+        pane.hasPresentedFrame
+        && !pane.terminalFrameHeld
+        && (!onlyIfStale || !panePresentationStateIsCurrent(pane))
+      ) {
         holdSessionTerminalFrame(pane);
       }
     }
@@ -11592,6 +11645,10 @@ const ghosttyInitPromise = initGhostty(runtimeAssetURL("./ghostty-vt.wasm")).the
     }
     const resizeVisiblePanes = () => {
       for (const pane of tab.panes.values()) {
+        if (panePresentationStateIsCurrent(pane) && !pane.activationFitPending) {
+          connectPendingSession(pane);
+          continue;
+        }
         const presentationCurrent = panePresentationIsCurrent(pane);
         schedulePaneResize(pane, {
           forceFullRender: !presentationCurrent || !pane.hasPresentedFrame,
@@ -11601,7 +11658,9 @@ const ghosttyInitPromise = initGhostty(runtimeAssetURL("./ghostty-vt.wasm")).the
       connectPendingSessionsForTab(tab);
       if (tab.id === activeTabId) {
         for (const pane of tab.panes.values()) {
-          schedulePanePresentationFrame(pane, "tab_activated");
+          if (!panePresentationIsCurrent(pane)) {
+            schedulePanePresentationFrame(pane, "tab_activated");
+          }
         }
       }
     };
@@ -21412,6 +21471,7 @@ const ghosttyInitPromise = initGhostty(runtimeAssetURL("./ghostty-vt.wasm")).the
       const wasActive = previousTabId === tab.id;
       if (!wasActive) {
         preserveTabTerminalFrames(previousTab);
+        preserveTabTerminalFrames(tab, { onlyIfStale: true });
       }
       activeTabId = tab.id;
       const activePane = tab.panes.get(tab.activePaneId);
@@ -21433,16 +21493,16 @@ const ghosttyInitPromise = initGhostty(runtimeAssetURL("./ghostty-vt.wasm")).the
         item.button?.setAttribute("tabindex", isActive ? "0" : "-1");
       }
       for (const pane of tab.panes.values()) {
-        pane.activationFitPending = !wasActive || !panePresentationIsCurrent(pane);
+        const presentationCurrent = panePresentationStateIsCurrent(pane);
+        pane.activationFitPending = !presentationCurrent;
         if (!wasActive && Number(pane.measuredFitGeneration || 0) <= 0) {
           pane.connectionMeasurementAttempts = 0;
         }
-        if (!wasActive && pane.terminalFrameHeld) {
-          pane.resizePresentationHold = true;
-          pane.presentationCommitPending = false;
-          setPaneRenderReady(pane, false);
-        }
-        if (!panePresentationIsCurrent(pane)) {
+        if (!presentationCurrent) {
+          if (!wasActive && pane.terminalFrameHeld) {
+            pane.resizePresentationHold = true;
+            pane.presentationCommitPending = false;
+          }
           setPaneRenderReady(pane, false);
         }
       }
@@ -22137,6 +22197,7 @@ const ghosttyInitPromise = initGhostty(runtimeAssetURL("./ghostty-vt.wasm")).the
     pane.cacheV2NetworkQueue = [];
     pane.cacheV2NetworkQueueBytes = 0;
     hideSessionTerminalPreview(pane);
+    terminalFrameReleaseScheduler.cancel(pane);
     releaseSessionTerminalFrame(pane);
     clearSessionCacheV2PreparedPreview(pane);
     clearSessionCacheV2OverviewPreview(pane);
@@ -24855,6 +24916,7 @@ const ghosttyInitPromise = initGhostty(runtimeAssetURL("./ghostty-vt.wasm")).the
     }
     disposed = true;
     tabActivationScheduler.dispose();
+    terminalFrameReleaseScheduler.dispose();
     closeTerminalUnifiedConnection("page_disposed");
     instancesLoader.dispose();
     clearWorkspaceRefreshRetry();
