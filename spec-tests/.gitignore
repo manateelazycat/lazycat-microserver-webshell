@@ -1,0 +1,7 @@
+__pycache__/
+reports/
+.state/
+artifacts/
+**/artifacts/
+node_modules/
+.DS_Store

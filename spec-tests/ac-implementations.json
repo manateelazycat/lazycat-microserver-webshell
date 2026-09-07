@@ -1,0 +1,182 @@
+{
+  "webshell/01-multi-device-resize-sync/SC-MULTI-DEVICE-RESIZE-SYNC": {
+    "test_id": "tests-auto/01-multi-device-resize-sync/test.mjs",
+    "description": "tests-auto/01-multi-device-resize-sync/README.md",
+    "steps": [
+      "Given 两个授权浏览器打开同一终端",
+      "When 用户交替调整窗口并在一次连接恢复期间输入命令",
+      "Then 终端尺寸适应最后使用的窗口，连接恢复后输入按顺序执行且不重复"
+    ],
+    "evidence_granularity": "scenario"
+  },
+  "webshell/02-terminal-input/SC-TERMINAL-INPUT": {
+    "test_id": "tests-auto/02-terminal-input/test.mjs",
+    "description": "tests-auto/02-terminal-input/README.md",
+    "steps": [
+      "Given 用户已打开可交互终端",
+      "When 用户连续执行命令、取消运行中的命令并输入大段文本",
+      "Then 输入得到对应输出，控制操作及大段文本输入后终端仍可继续使用"
+    ],
+    "evidence_granularity": "scenario"
+  },
+  "webshell/03-terminal-ime/SC-TERMINAL-IME": {
+    "test_id": "tests-auto/03-terminal-ime/test.mjs",
+    "description": "tests-auto/03-terminal-ime/README.md",
+    "steps": [
+      "Given 终端输入区域已获得焦点",
+      "When 用户组合输入文本、插入空格、连续退格并粘贴文本",
+      "Then 已确认文本按编辑后的内容提交，不重复且不丢失"
+    ],
+    "evidence_granularity": "scenario"
+  },
+  "webshell/04-terminal-viewport/SC-TERMINAL-VIEWPORT": {
+    "test_id": "tests-auto/04-terminal-viewport/test.mjs",
+    "description": "tests-auto/04-terminal-viewport/README.md",
+    "steps": [
+      "Given 用户在移动布局中打开已有内容的终端",
+      "When 用户打开和收起软键盘并改变屏幕方向或窗口尺寸",
+      "Then 终端内容保持可见，布局恢复且可以继续输入"
+    ],
+    "evidence_granularity": "scenario"
+  },
+  "webshell/05-terminal-output/SC-TERMINAL-OUTPUT": {
+    "test_id": "tests-auto/05-terminal-output/test.mjs",
+    "description": "tests-auto/05-terminal-output/README.md",
+    "steps": [
+      "Given 用户已打开持续可交互的终端",
+      "When 终端持续输出大量内容，用户同时输入并调整窗口或切换标签",
+      "Then 输出保持完整可见，操作后终端仍可继续交互"
+    ],
+    "evidence_granularity": "scenario"
+  },
+  "webshell/06-workspace-tabs/SC-WORKSPACE-TABS": {
+    "test_id": "tests-auto/06-workspace-tabs/test.mjs",
+    "description": "tests-auto/06-workspace-tabs/README.md",
+    "steps": [
+      "Given 用户已打开包含终端的工作区",
+      "When 用户创建标签、修改标签名称并刷新页面",
+      "Then 新标签能打开终端，修改后的名称在刷新后仍保留"
+    ],
+    "evidence_granularity": "scenario"
+  },
+  "webshell/07-workspace-retry/SC-WORKSPACE-RETRY": {
+    "test_id": "tests-auto/07-workspace-retry/test.mjs",
+    "description": "tests-auto/07-workspace-retry/README.md",
+    "steps": [
+      "Given 用户的工作区仍存在且可访问",
+      "When 页面的一次工作区读取失败后再次读取成功",
+      "Then 工作区恢复显示可用终端，用户无需重新创建工作区"
+    ],
+    "evidence_granularity": "scenario"
+  },
+  "webshell/08-terminal-click-jitter/SC-TERMINAL-CLICK-JITTER": {
+    "test_id": "tests-auto/08-terminal-click-jitter/test.mjs",
+    "description": "tests-auto/08-terminal-click-jitter/README.md",
+    "steps": [
+      "Given 桌面终端已有稳定内容且窗口尺寸不变",
+      "When 用户在同一终端连续点击",
+      "Then 已有画面持续可见，终端位置和尺寸保持稳定"
+    ],
+    "evidence_granularity": "scenario"
+  },
+  "webshell/09-terminal-interaction-jitter/SC-TERMINAL-INTERACTION-JITTER": {
+    "test_id": "tests-auto/09-terminal-interaction-jitter/test.mjs",
+    "description": "tests-auto/09-terminal-interaction-jitter/README.md",
+    "steps": [
+      "Given 桌面终端已有稳定内容",
+      "When 用户点击终端、输入命令并拖动选择文本",
+      "Then 命令产生对应输出，输入和选择期间画面不跳动或短暂隐藏"
+    ],
+    "evidence_granularity": "scenario"
+  },
+  "webshell/10-terminal-geometry-jitter/SC-TERMINAL-GEOMETRY-JITTER": {
+    "test_id": "tests-auto/10-terminal-geometry-jitter/test.mjs",
+    "description": "tests-auto/10-terminal-geometry-jitter/README.md",
+    "steps": [
+      "Given 用户已打开具有稳定内容的终端",
+      "When 用户调整字号、行距和窗口大小并切换标签",
+      "Then 终端画面持续可见并适应调整后的显示区域"
+    ],
+    "evidence_granularity": "scenario"
+  },
+  "webshell/11-service-worker-retirement/SC-SERVICE-WORKER-RETIREMENT": {
+    "test_id": "tests-auto/11-service-worker-retirement/test.mjs",
+    "description": "tests-auto/11-service-worker-retirement/README.md",
+    "steps": [
+      "Given 浏览器曾使用旧版离线页面缓存",
+      "When 用户通过正常导航打开当前版本页面",
+      "Then 旧缓存与离线控制被清理，当前页面能重新打开真实终端"
+    ],
+    "evidence_granularity": "scenario"
+  },
+  "webshell/12-overview-preview-persistence/SC-OVERVIEW-PREVIEW-PERSISTENCE": {
+    "test_id": "tests-auto/12-overview-preview-persistence/test.mjs",
+    "description": "tests-auto/12-overview-preview-persistence/README.md",
+    "steps": [
+      "Given 工作区多个标签已有可见内容和已保存预览",
+      "When 用户刷新页面并在后台标签尚未完成实时呈现时打开总览",
+      "Then 总览仍能显示对应标签上次保存的预览"
+    ],
+    "evidence_granularity": "scenario"
+  },
+  "webshell/13-split-divider-render-isolation/SC-SPLIT-DIVIDER-RENDER-ISOLATION": {
+    "test_id": "tests-auto/13-split-divider-render-isolation/test.mjs",
+    "description": "tests-auto/13-split-divider-render-isolation/README.md",
+    "steps": [
+      "Given 左右分屏分别显示密集内容和空白终端",
+      "When 用户连续来回拖动分割条并释放",
+      "Then 两侧画面各自保持独立，尺寸随拖动更新且最终比例符合释放位置"
+    ],
+    "evidence_granularity": "scenario"
+  },
+  "webshell/14-terminal-input-lock-lifecycle/SC-TERMINAL-INPUT-LOCK-LIFECYCLE": {
+    "test_id": "tests-auto/14-terminal-input-lock-lifecycle/test.mjs",
+    "description": "tests-auto/14-terminal-input-lock-lifecycle/README.md",
+    "steps": [
+      "Given 两个授权页面连接同一终端，其中一个使用旧客户端输入锁行为",
+      "When 旧客户端发出锁定请求后另一个页面输入命令",
+      "Then 另一个页面仍得到对应输出并可继续操作同一终端"
+    ],
+    "evidence_granularity": "scenario"
+  },
+  "webshell/15-vite-cold-start/SC-VITE-COLD-START": {
+    "test_id": "tests-auto/15-vite-cold-start/test.mjs",
+    "description": "tests-auto/15-vite-cold-start/README.md",
+    "steps": [
+      "Given 浏览器尚未缓存当前版本的页面资源",
+      "When 用户首次打开当前版本 WebShell",
+      "Then 所需页面资源成功加载并显示可交互的终端"
+    ],
+    "evidence_granularity": "scenario"
+  },
+  "webshell/16-attachment-native-paste/SC-ATTACHMENT-NATIVE-PASTE": {
+    "test_id": "tests-auto/16-attachment-native-paste/test.mjs",
+    "description": "tests-auto/16-attachment-native-paste/README.md",
+    "steps": [
+      "Given 用户打开支持附件且可交互的终端",
+      "When 用户粘贴文本、提交附件或在手动上传后粘贴附件路径",
+      "Then 文本或附件路径仅提交到原目标一次，上传路径不会自动执行命令"
+    ],
+    "evidence_granularity": "scenario"
+  },
+  "webshell/17-client-tab-replay-recovery/SC-CLIENT-TAB-REPLAY-RECOVERY": {
+    "test_id": "tests-auto/17-client-tab-replay-recovery/test.mjs",
+    "description": "tests-auto/17-client-tab-replay-recovery/README.md",
+    "steps": [
+      "Given 授权且在线的客户端终端拥有多个含不同历史长度的标签",
+      "When 用户刷新、切换标签并重连后继续输入",
+      "Then 每个标签恢复自己的终端内容并响应后续输入"
+    ],
+    "evidence_granularity": "scenario"
+  },
+  "webshell/18-cross-device-tab-sync/SC-CROSS-DEVICE-TAB-SYNC": {
+    "test_id": "tests-auto/18-cross-device-tab-sync/test.mjs",
+    "description": "tests-auto/18-cross-device-tab-sync/README.md",
+    "steps": [
+      "Given 两个授权浏览器窗口打开同一工作区，标签数量一致",
+      "When 用户在其中一个窗口新建一个标签",
+      "Then 另一个窗口自动同步新增标签，两个窗口的标签数量均比操作前增加一个且保持一致"
+    ],
+    "evidence_granularity": "scenario"
+  }
+}

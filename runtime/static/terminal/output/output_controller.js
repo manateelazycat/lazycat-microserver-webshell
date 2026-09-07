@@ -11,6 +11,7 @@ import {
 export const TERMINAL_OUTPUT_FLUSH_FALLBACK_MS = 32;
 export const TERMINAL_OUTPUT_FLUSH_BUDGET_BYTES = 128 * 1024;
 export const TERMINAL_OUTPUT_FLUSH_MAX_ENTRIES = 8;
+export const TERMINAL_OUTPUT_FLUSH_MAX_BATCHES = 8;
 export const TERMINAL_OUTPUT_FLUSH_TIME_BUDGET_MS = 12;
 export const TERMINAL_REPLAY_WRITE_BATCH_BYTES = 512 * 1024;
 // Check the wall-clock budget between parser calls, not only while partitioning.
@@ -73,6 +74,7 @@ export function createTerminalOutputController({
   flushFallbackMs = TERMINAL_OUTPUT_FLUSH_FALLBACK_MS,
   flushBudgetBytes = TERMINAL_OUTPUT_FLUSH_BUDGET_BYTES,
   flushMaxEntries = TERMINAL_OUTPUT_FLUSH_MAX_ENTRIES,
+  flushMaxBatches = TERMINAL_OUTPUT_FLUSH_MAX_BATCHES,
   flushTimeBudgetMs = TERMINAL_OUTPUT_FLUSH_TIME_BUDGET_MS,
   replayWriteBatchBytes = TERMINAL_REPLAY_WRITE_BATCH_BYTES,
   queueSoftLimitBytes = TERMINAL_OUTPUT_QUEUE_SOFT_LIMIT_BYTES,
@@ -282,16 +284,22 @@ export function createTerminalOutputController({
       const budgetBytes = requestedBudgetBytes || (queue[0]?.replayOutput
         ? replayWriteBatchBytes
         : flushBudgetBytes);
-      const entryLimit = requestedEntryLimit || (force || queue[0]?.replayOutput ? 0 : flushMaxEntries);
+      // Small transport frames must coalesce before the default work limit is
+      // applied. Eight 110-byte frames per animation tick cannot keep up with
+      // normal PTY output. Explicit entry limits still bound resize/ACK drains.
+      const entryLimit = requestedEntryLimit;
+      const batchLimit = force || queue[0]?.replayOutput ? 0 : flushMaxBatches;
       const timeBudgetMs = requestedTimeBudgetMs || (force ? 0 : flushTimeBudgetMs);
       const unlimited = force && !requestedBudgetBytes && !requestedEntryLimit && !requestedTimeBudgetMs;
       const drainStartedAt = now();
       let wrote = false;
       let consumed = 0;
+      let flushedBatches = 0;
       while (state.outputQueue.length > 0) {
         const pending = state.outputQueue;
         if (consumed > 0 && (
           (entryLimit > 0 && consumed >= entryLimit)
+          || (batchLimit > 0 && flushedBatches >= batchLimit)
           || (!unlimited && flushedBytes + pending[0].byteLength > budgetBytes)
           || (timeBudgetMs > 0 && now() - drainStartedAt >= timeBudgetMs)
         )) break;
@@ -326,6 +334,7 @@ export function createTerminalOutputController({
         state.outputQueue = pending.slice(batchEntries);
         state.outputQueueSize = Math.max(0, state.outputQueueSize - batch.byteLength);
         const data = coalesceTerminalOutputBatch(batch.chunks, batch.kind, batch.byteLength);
+        flushedBatches += 1;
         if (writeBatch(state, data, batch.replayOutput, batch.allowGeneratedInput, batch.suppressRender)) {
           if (state.closed || state.outputQueueGeneration !== first.queueGeneration) break;
           wrote = true;

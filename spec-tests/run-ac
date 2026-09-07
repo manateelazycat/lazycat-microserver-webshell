@@ -1,0 +1,133 @@
+#!/bin/sh
+set -eu
+
+fail() {
+    printf '%s\n' "spec-workflow: $*" >&2
+    exit 1
+}
+
+entrypoint_dir=$(CDPATH= cd -- "$(dirname "$0")" && pwd -P) || fail "cannot determine the entrypoint directory"
+case "$(basename "$0")" in
+    run-ac.sh) launcher_dir="$entrypoint_dir/spec-tests" ;;
+    run-ac) launcher_dir="$entrypoint_dir" ;;
+    *) fail "run-ac must be invoked through the project run-ac.sh or spec-tests/run-ac entrypoint" ;;
+esac
+[ -d "$launcher_dir" ] || fail "cannot determine the spec-tests directory"
+project_root=$(CDPATH= cd -- "$launcher_dir/.." && pwd -P) || fail "cannot determine the project root"
+lock_path="$launcher_dir/run-ac.lock"
+
+[ -f "$lock_path" ] || fail "missing $lock_path; ask the spec-workflow Agent to install the run-ac runtime"
+
+module=
+version=
+protocol=
+seen_module=0
+seen_version=0
+seen_protocol=0
+while IFS= read -r raw_line || [ -n "$raw_line" ]; do
+    line=$(printf '%s\n' "$raw_line" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
+    case "$line" in
+        ''|\#*) continue ;;
+    esac
+    case "$line" in
+        *=*)
+            key=${line%%=*}
+            value=${line#*=}
+            ;;
+        *) fail "invalid lock entry: $raw_line" ;;
+    esac
+    [ -n "$key" ] && [ -n "$value" ] || fail "invalid lock entry: $raw_line"
+    case "$key" in
+        module)
+            [ "$seen_module" -eq 0 ] || fail "duplicate lock entry: module"
+            module=$value
+            seen_module=1
+            ;;
+        version)
+            [ "$seen_version" -eq 0 ] || fail "duplicate lock entry: version"
+            version=$value
+            seen_version=1
+            ;;
+        protocol)
+            [ "$seen_protocol" -eq 0 ] || fail "duplicate lock entry: protocol"
+            protocol=$value
+            seen_protocol=1
+            ;;
+        *) fail "unknown lock entry: $key" ;;
+    esac
+done < "$lock_path"
+
+[ "$seen_module" -eq 1 ] && [ -n "$module" ] || fail "run-ac.lock is missing module"
+[ "$seen_version" -eq 1 ] && [ -n "$version" ] || fail "run-ac.lock is missing version"
+[ "$seen_protocol" -eq 1 ] && [ "$protocol" = "spec-executor.v1" ] || fail "run-ac.lock must use protocol spec-executor.v1"
+
+case "$module" in
+    [A-Za-z0-9]*) ;;
+    *) fail "run-ac.lock module contains unsupported characters" ;;
+esac
+case "$module" in
+    *[!A-Za-z0-9./_-]*|*..*|*//*|*/) fail "run-ac.lock module contains unsupported characters" ;;
+esac
+case "$version" in
+    *[!A-Za-z0-9._-]*) fail "run-ac.lock version contains unsupported characters" ;;
+esac
+
+kernel=$(uname -s 2>/dev/null || printf '%s' unknown)
+machine=$(uname -m 2>/dev/null || printf '%s' unknown)
+case "$kernel:$machine" in
+    Linux:x86_64|Linux:amd64) platform=linux-amd64 ;;
+    Linux:aarch64|Linux:arm64) platform=linux-arm64 ;;
+    Darwin:x86_64|Darwin:amd64) platform=darwin-amd64 ;;
+    Darwin:arm64|Darwin:aarch64) platform=darwin-arm64 ;;
+    *)
+        platform=$(printf '%s-%s' "$kernel" "$machine" | tr '[:upper:]' '[:lower:]')
+        case "$platform" in
+            *[!a-z0-9-]*) fail "unsupported platform: ${kernel:-unknown}/${machine:-unknown}" ;;
+        esac
+        ;;
+esac
+
+if [ -n "${SPEC_WORKFLOW_CACHE_DIR:-}" ]; then
+    cache_root=$SPEC_WORKFLOW_CACHE_DIR
+elif [ -n "${XDG_CACHE_HOME:-}" ]; then
+    cache_root=$XDG_CACHE_HOME/spec-workflow/run-ac
+elif [ -n "${HOME:-}" ]; then
+    cache_root=$HOME/.cache/spec-workflow/run-ac
+else
+    fail "HOME or SPEC_WORKFLOW_CACHE_DIR is required for the run-ac cache"
+fi
+cache_dir="$cache_root/$version/$platform"
+cache_binary="$cache_dir/run-ac"
+
+if [ -e "$cache_binary" ]; then
+    [ -f "$cache_binary" ] && [ -x "$cache_binary" ] || fail "cached run-ac runtime is not executable: $cache_binary"
+else
+    command -v go >/dev/null 2>&1 || fail "go is required to install the run-ac runtime; ask the spec-workflow Agent to prepare Go"
+    mkdir -p "$cache_dir" || fail "cannot create run-ac cache directory: $cache_dir"
+    build_dir=$(mktemp -d "$cache_dir/.run-ac-build.XXXXXX") || fail "cannot create a temporary run-ac build directory"
+    cleanup() {
+        rm -rf "$build_dir"
+    }
+    trap cleanup EXIT HUP INT TERM
+    mkdir -p "$build_dir/bin" || fail "cannot create a temporary run-ac bin directory"
+    printf '%s\n' "run-ac: installing runtime $module@$version into the user cache" >&2
+    if ! (cd "$build_dir" && GOWORK=off GOBIN="$build_dir/bin" go install -trimpath -ldflags "-s -w -X main.runtimeVersion=$version" "$module@$version"); then
+        fail "go install failed for $module@$version"
+    fi
+    built_binary="$build_dir/bin/run-ac"
+    [ -f "$built_binary" ] && [ -x "$built_binary" ] || fail "go install did not produce an executable run-ac"
+    mv "$built_binary" "$cache_binary" || fail "cannot place the run-ac runtime in the user cache"
+    trap - EXIT HUP INT TERM
+    cleanup
+fi
+
+has_project_root=0
+for argument in "$@"; do
+    case "$argument" in
+        --project-root|--project-root=*) has_project_root=1 ;;
+    esac
+done
+if [ "$has_project_root" -eq 0 ]; then
+    set -- "$@" --project-root "$project_root"
+fi
+exec "$cache_binary" "$@"

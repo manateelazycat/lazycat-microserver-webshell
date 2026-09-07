@@ -1,0 +1,5 @@
+# spec-tests/run-ac 是项目提交的启动器；实际通用运行时由 run-ac.lock 固定并缓存。
+spec_dir: spec
+executor:
+  type: spec-executor.v1
+  path: spec-tests/project-ac-executor

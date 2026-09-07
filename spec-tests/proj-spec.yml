@@ -1,0 +1,5 @@
+# Project AC Executor is the only project-specific execution boundary.
+spec_dir: spec
+executor:
+  type: spec-executor.v1
+  path: spec-tests/project-ac-executor
