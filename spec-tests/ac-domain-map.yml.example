@@ -1,0 +1,9 @@
+# 此文件位于 spec-tests/ac-domain-map.yml；Agent 按目标项目路径改写此映射，描述代码路径与 domain 的归属关系。
+domains:
+  example:
+    paths:
+      - src/example/**
+
+rules:
+  - path_domain: spec/{domain}/**
+  - path_domain: spec-tests/{domain}/**

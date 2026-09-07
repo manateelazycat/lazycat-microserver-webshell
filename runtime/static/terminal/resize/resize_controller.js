@@ -2154,6 +2154,21 @@ export function createTerminalResizeController({
   };
 
   return Object.freeze({
+    snapshot: (session) => Object.freeze({
+      connectionEpoch: Number(session?.connectionEpoch || 0),
+      requestedResizeEpoch: String(session?.requestedResizeEpoch || ""),
+      appliedResizeEpoch: String(session?.appliedResizeEpoch || ""),
+      presentedResizeEpoch: String(session?.presentedResizeEpoch || ""),
+      cols: Number(session?.term?.cols || 0),
+      rows: Number(session?.term?.rows || 0),
+      resizeAckPending: session?.resizeAckPending === true,
+      resizeFenceActive: session?.resizeFenceActive === true,
+      resizeOutputSettleActive: session?.resizeOutputSettleActive === true,
+      pendingResizeTarget: Boolean(session?.pendingResizeTarget),
+      pendingSizeClaim: session?.pendingSizeClaim === true,
+      liveGeometryActive: liveGeometrySessions.has(session),
+      liveGeometrySourceActive: hasActiveLiveGeometrySource(session),
+    }),
     beginConnection,
     normalizeEpoch: normalizeTerminalResizeEpoch,
     size,

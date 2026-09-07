@@ -1,0 +1,4 @@
+# 由 spec-workflow 管理的 run-ac 源码版本锁。
+module=gitee.com/linakesi/spec-workflow/run-ac
+version=1fcddb810e7f5281d06744dd4cba94e8414e9ec3
+protocol=spec-executor.v1

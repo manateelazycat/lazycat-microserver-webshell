@@ -458,6 +458,8 @@ export function startGlobalRuntime() {
     window.__testsAutoTerminalTimelineSnapshot = () => getAllSessions().map((session) => ({
       paneID: String(session?.id || ""),
       tabID: String(session?.tabId || ""),
+      resize: terminalResize?.snapshot(session) || null,
+      inputReady: terminalInput?.isReady(session) === true,
       events: diagnostics.terminalTimelineSnapshot(session),
     }));
   }

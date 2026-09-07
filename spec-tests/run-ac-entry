@@ -1,0 +1,20 @@
+#!/bin/sh
+set -eu
+entrypoint_dir=$(CDPATH= cd -- "$(dirname "$0")" && pwd -P)
+case "$(basename "$0")" in
+  run-ac.sh) launcher="$entrypoint_dir/spec-tests/run-ac" ;;
+  *) launcher="$entrypoint_dir/run-ac" ;;
+esac
+explicit=0
+show_help=0
+for arg in "$@"; do
+  case "$arg" in --selector|--selector=*|--all|--auto|--help|-h|--version) explicit=1 ;; esac
+  case "$arg" in --help|-h) show_help=1 ;; esac
+done
+if [ "$show_help" -eq 1 ]; then
+  help_text=$("$launcher" "$@") || exit $?
+  printf '%s\n' "$help_text" | sed 's/^Run without options to show this help; choose --selector, --all, or --auto to execute\.$/This project defaults to --all; use --selector to limit the test modules./'
+  exit 0
+fi
+if [ "$explicit" -eq 0 ]; then set -- --all "$@"; fi
+exec python3 "$(dirname "$launcher")/timed-run" "$launcher" "$@"

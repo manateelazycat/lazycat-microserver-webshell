@@ -1,0 +1,153 @@
+#!/usr/bin/env python3
+"""The sole spec-executor.v1 boundary; spec-tests owns real environment behavior."""
+from __future__ import annotations
+import argparse
+import json
+import math
+from pathlib import Path
+import signal
+import subprocess
+import sys
+from uuid import uuid4
+
+ROOT = Path(__file__).resolve().parents[1]
+REGISTRY = ROOT / 'spec-tests/ac-implementations.json'
+TESTS_ROOT = ROOT / 'spec-tests'
+
+
+def emit(value):
+    print(json.dumps(value, ensure_ascii=False, separators=(',', ':')), flush=True)
+
+
+class Parser(argparse.ArgumentParser):
+    def error(self, message):
+        # Argument values can contain credentials. Name the problem without echoing them.
+        raise ValueError('Invalid executor parameters; consult ./run-ac.sh --help')
+
+
+def arguments(argv):
+    parser = Parser(add_help=False)
+    parser.add_argument('--action', required=True, choices=('help', 'discover', 'run'))
+    parser.add_argument('--scenarios-file')
+    parser.add_argument('--url')
+    parser.add_argument('--env-file')
+    parser.add_argument('--timeout', type=float, default=300)
+    args = parser.parse_args(argv)
+    if not math.isfinite(args.timeout) or not 1 <= args.timeout <= 3600:
+        raise ValueError('--timeout must be between 1 and 3600 seconds')
+    return args
+
+
+def registry():
+    data = json.loads(REGISTRY.read_text())
+    if not isinstance(data, dict):
+        raise ValueError('Invalid AC implementation registry')
+    for scenario, implementation in data.items():
+        filename = implementation['test_id']
+        if len(scenario.split('/')) != 3 or Path(filename).is_absolute() or '..' in Path(filename).parts:
+            raise ValueError('Invalid scenario or test_id in registry')
+        if not implementation.get('steps') or not all(isinstance(step, str) for step in implementation['steps']):
+            raise ValueError('Registry requires complete contract steps')
+    return data
+
+
+def environment_options(args):
+    options = []
+    for flag, value in [('--url', args.url), ('--env-file', args.env_file)]:
+        if value is not None:
+            options += [flag, value]
+    return options
+
+
+def run_selected(args, implementations):
+    if not args.scenarios_file:
+        raise ValueError('--scenarios-file is required for run')
+    payload = json.loads(Path(args.scenarios_file).read_text())
+    selected = payload.get('scenarios')
+    if not isinstance(selected, list) or not selected:
+        raise ValueError('Selection must contain at least one scenario')
+    seen = set()
+    for item in selected:
+        scenario = item.get('global_id')
+        if scenario in seen or scenario not in implementations:
+            raise ValueError('Selection contains duplicate or unimplemented scenarios')
+        seen.add(scenario)
+        if [step.get('message') for step in item.get('steps', [])] != implementations[scenario]['steps']:
+            raise ValueError('AC steps changed; review the module mapping before running')
+        item['test_id'] = implementations[scenario]['test_id']
+    tests = TESTS_ROOT
+    suite = tests / 'tests-auto/test-all.sh'
+    if not suite.is_file():
+        raise ValueError('spec-tests/tests-auto/test-all.sh is unavailable')
+    report_dir = ROOT / 'spec-tests/reports' / uuid4().hex
+    report_dir.mkdir(parents=True)
+    selection = report_dir / 'selection.json'
+    selection.write_text(json.dumps(payload, ensure_ascii=False, indent=2))
+    # One project-level orchestration, including for an exact selector.
+    # stderr is inherited so AC_PROGRESS reaches run-ac while the suite runs.
+    child = subprocess.Popen(['bash', str(suite), '--scenarios-file', str(selection),
+        '--artifacts-dir', str(report_dir), '--timeout', str(args.timeout), '--json',
+        *environment_options(args)], cwd=tests, stdout=subprocess.PIPE, text=True)
+    try:
+        output, _ = child.communicate()
+    except KeyboardInterrupt:
+        child.send_signal(signal.SIGINT)
+        output, _ = child.communicate()
+    try:
+        response = json.loads(output)
+    except ValueError:
+        raise ValueError('test-all.sh did not return a structured suite result')
+    (report_dir / 'executor.json').write_text(json.dumps(response, ensure_ascii=False, indent=2))
+    results = response.get('results')
+    if not isinstance(results, list) or response.get('status') not in ('passed', 'failed'):
+        raise ValueError('Invalid suite response')
+    if not results and response.get('status') == 'failed':
+        emit(response)
+        return 1
+    if len(results) != len(seen) or {item.get('scenario') for item in results} != seen:
+        raise ValueError('Suite results do not cover the exact selected ACs')
+    for item in results:
+        if item.get('status') not in ('passed', 'failed', 'skipped'):
+            raise ValueError('Invalid module status')
+        if item.get('test_id') != implementations[item['scenario']]['test_id']:
+            raise ValueError('Suite result does not match its module')
+    passed = all(item['status'] == 'passed' for item in results)
+    if (child.returncode == 0) != passed or (response['status'] == 'passed') != passed:
+        raise ValueError('Suite status and exit code disagree')
+    emit(response)
+    return 0 if passed else 1
+
+
+def main(argv):
+    try:
+        args = arguments(argv)
+        if args.action == 'help':
+            emit({'description': 'Build the latest local frontend, then run selected modules through test-all.sh; default selects all modules.', 'options': [
+                {'name': '--url', 'value': '<url>', 'description': 'Authorized WebShell target; otherwise WEBSHELL_TEST_URL'},
+                {'name': '--env-file', 'value': '<path>', 'description': 'Local uncommitted environment file; shell variables take precedence'},
+                {'name': '--timeout', 'value': '<seconds>', 'description': 'Per-scenario deadline including setup', 'default': '300'}]})
+            return 0
+        implementations = registry()
+        if args.action == 'discover':
+            # Do not probe credentials, targets or project options during discovery.
+            discovery_root = TESTS_ROOT
+            missing = [item['test_id'] for item in implementations.values() if not (discovery_root / item['test_id']).is_file()]
+            if missing:
+                raise ValueError('Registered scenario files are missing from spec-tests')
+            discovered = {str(path.relative_to(discovery_root)) for path in (discovery_root / 'tests-auto').glob('[0-9][0-9]-*/test.mjs')}
+            registered = [item['test_id'] for item in implementations.values()]
+            if len(set(registered)) != len(registered) or discovered != set(registered):
+                raise ValueError('tests-auto modules and AC registry differ; add the missing module REQ/AC and mapping instead of silently omitting tests')
+            emit({'status': 'passed', 'implementations': [{'scenario': scenario, 'test_id': item['test_id']} for scenario, item in sorted(implementations.items())]})
+            return 0
+        return run_selected(args, implementations)
+    except (ValueError, OSError, KeyError, TypeError) as error:
+        # Never expose raw JSON documents, command lines or secret file contents.
+        message = str(error) if type(error) is ValueError else 'Executor configuration or environment is invalid; check paths and registry'
+        print(message, file=sys.stderr)
+        emit({'status': 'failed', 'results': [], 'error': message})
+        return 1
+
+
+if __name__ == '__main__':
+    raise SystemExit(main(sys.argv[1:]))

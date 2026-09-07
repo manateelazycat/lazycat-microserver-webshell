@@ -1,0 +1,4 @@
+# 由 spec-workflow 生成；实际项目中的 run-ac.lock 会锁定具体源码版本。
+module=gitee.com/linakesi/spec-workflow/run-ac
+version=<git-tag-or-commit>
+protocol=spec-executor.v1

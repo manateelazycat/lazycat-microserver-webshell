@@ -1,0 +1,8 @@
+domains:
+  webshell:
+    paths:
+      - runtime/static/**
+      - '*.go'
+      - spec/webshell/**
+      - spec-tests/**
+      - run-ac.sh

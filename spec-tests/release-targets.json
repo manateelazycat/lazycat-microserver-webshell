@@ -1,0 +1,5 @@
+{
+  "desktop-browser": { "platform": "web", "purpose": "桌面浏览器的真实用户操作", "input": "keyboard" },
+  "android-emulator": { "platform": "android", "target": "mobile", "kind": "emulator", "purpose": "Android Chrome、触摸及真实系统输入法", "input": "system-ime" },
+  "android-device": { "platform": "android", "target": "mobile", "kind": "device", "purpose": "Android 物理设备的发布验收与设备特有故障", "input": "system-ime" }
+}
