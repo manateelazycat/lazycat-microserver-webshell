@@ -25,22 +25,10 @@ const resolveTestURL = async (page, windowName) => {
   const instances = await response.json();
   const selectors = new Set(instances.filter((instance) => instance.status === "running").map(instanceSelector));
   if (requestedName && selectors.has(requestedName) && (config.targetKind !== "client" || requestedName.startsWith("client:"))) return requestedURL.toString();
-  if (config.targetKind === "client" || requestedName.startsWith("client:")) {
-    const client = !requestedName.startsWith("client:") && instances.find((instance) => (
-      instanceSelector(instance).startsWith("client:") && instance.status === "running"
-    ));
-    if (!client) throw new Error("CLIENT_TARGET_UNAVAILABLE: no authorized running client: terminal; container fallback is forbidden");
-    requestedURL.searchParams.set("name", instanceSelector(client));
-    requestedURL.searchParams.delete("tab");
-    return requestedURL.toString();
-  }
-  const fallback = instances.find((instance) => instance.status === "running");
-  if (!fallback) throw new Error(`requested instance ${requestedName || "(empty)"} is unavailable and no running fallback exists`);
-  const fallbackName = instanceSelector(fallback);
-  requestedURL.searchParams.set("name", fallbackName);
-  requestedURL.searchParams.delete("tab");
-  await eventLog({ status: "pass", window: windowName, action: "select-running-instance", requestedName, selectedName: fallbackName });
-  return requestedURL.toString();
+  await eventLog({ status: "error", window: windowName, action: "configured-target-unavailable", requestedName });
+  throw new Error(config.targetKind === "client"
+    ? "CLIENT_TARGET_UNAVAILABLE: explicitly configure an authorized running client: target"
+    : "Configured terminal target is unavailable; automatic instance selection is forbidden");
 };
 
 return { loginIfNeeded, resolveTestURL };

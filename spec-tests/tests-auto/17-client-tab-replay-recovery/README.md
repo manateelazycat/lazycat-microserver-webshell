@@ -72,3 +72,7 @@ node tests-auto/run-playwright.mjs tests-auto/17-client-tab-replay-recovery/test
 - `lzc-cli project lint`：无警告；`lzc-cli project release -o dist/cloud.lazycat.webshell.lcmd-1.0.40-replay-hotfix.lpk`：成功。包为 linux/amd64，版本 1.0.40，39,309,824 字节；包内 10 个前端文件逐一与浏览器测试的资源 SHA-256 一致，内容 revision 独立重算一致，Cookie 认证开启，未嵌入测试文件或认证信息。
 - LPK SHA-256：`2d51aff39ca0d40470c65a66181f590bf5312f843f1c8ff23ed43a67f37ec9f1`。包校验结果在 `artifacts/lpk-verification.json`。
 - 本轮仅生成本地补丁与安装包，未向客户设备安装、重启服务或发布应用商店；现有工作区的未提交修改保留。交付包基于当前工作区，包含实施前已有的 resize 连接迁移等改动，本次业务补丁集中在 output/rendering/transport 四个控制器文件。
+
+## 旧帧回归观察
+
+稳定状态新增检查 hold 覆盖层已退出，避免底层 Canvas 已绘制但仍被旧帧遮住时假通过。本轮仅获授权测试 debug 容器，未运行真实 client: 目标；不宣称客户端验证完成。

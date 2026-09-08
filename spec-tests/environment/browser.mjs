@@ -253,7 +253,8 @@ const createWindow = async (name, viewport, position, onCreated, beforeNavigate)
     const sourceURL = String(message.location()?.url || "");
     const ignorableFaviconError = message.type() === "error" && /\/favicon\.ico(?:$|[?#])/.test(sourceURL);
     if (text.includes("resize-error")) state.resizeErrors += 1;
-    if (message.type() === "error" && !ignorableFaviconError) state.fatalErrors.push(`console error: ${text}`);
+    const expectedOffline = state.networkOffline === true && text.includes("net::ERR_INTERNET_DISCONNECTED");
+    if (message.type() === "error" && !ignorableFaviconError && !expectedOffline) state.fatalErrors.push(`console error: ${text}`);
     eventLog({ status: "info", window: name, action: "console", type: message.type(), sourceURL, message: text });
   });
   page.on("pageerror", (error) => {
@@ -267,11 +268,13 @@ const createWindow = async (name, viewport, position, onCreated, beforeNavigate)
     const assetFailure = !aborted && request.url().includes("/assets/");
     const apiFailure = !aborted && request.url().includes("/api/");
     if (assetFailure) state.assetRequestFailures.push(message);
-    if (assetFailure || apiFailure) state.fatalErrors.push(`requestfailed: ${message}`);
+    const expectedOffline = state.networkOffline === true && errorText.includes("ERR_INTERNET_DISCONNECTED");
+    if ((assetFailure || apiFailure) && !expectedOffline) state.fatalErrors.push(`requestfailed: ${message}`);
     eventLog({
       status: assetFailure || apiFailure ? "error" : "info",
       window: name,
       action: "requestfailed",
+      expectedOffline,
       message,
     });
   });
@@ -391,14 +394,28 @@ const workspaceAction = async (state, action, payload = {}) => state.page.evalua
   return response.json();
 }, { action, payload });
 
+const readWorkspace = async (state) => {
+  const endpoint = new URL("./api/workspace", state.page.url());
+  endpoint.searchParams.set("name", new URL(config.url).searchParams.get("name"));
+  const response = await state.page.request.get(endpoint.toString());
+  if (!response.ok()) throw new Error("Cannot observe test workspace ownership");
+  return response.json();
+};
+
 let tabCreation;
 const createIsolatedTab = async (state) => {
   if (closing) throw new Error("Environment was released before creating a test tab");
+  const before = await readWorkspace(state);
+  const previousIDs = new Set(before.tabs.map((tab) => tab.id));
   const tabID = await (tabCreation = workspaceAction(state, "create_tab").then((workspace) => {
-    const id = String(workspace.active_tab_id || "").trim();
-    if (!id) throw new Error("create_tab returned no active_tab_id");
-    state.testTabID = id;
-    return id;
+    const added = workspace.tabs.filter((tab) => !previousIDs.has(tab.id));
+    if (added.length !== 1 || workspace.workspace_generation !== before.workspace_generation) {
+      throw new Error("Cannot uniquely identify the new test tab; refusing an existing tab");
+    }
+    state.testTabID = added[0].id;
+    state.expectedPaneID = added[0].panes[0].id;
+    state.testWorkspaceGeneration = workspace.workspace_generation;
+    return state.testTabID;
   }));
   if (closing) throw new Error("Environment was released while creating a test tab");
   const url = new URL(state.page.url());
@@ -406,8 +423,10 @@ const createIsolatedTab = async (state) => {
   state.testTabID = tabID;
   await state.page.goto(url.toString(), { waitUntil: "domcontentloaded", timeout: 60_000 });
   await state.verifyFrontend(true);
-  await state.page.waitForSelector(".terminal-pane.active .terminal-host", { timeout: 60_000 });
-  await state.page.waitForTimeout(1_000);
+  await state.page.waitForFunction(({ tabID, paneID }) => (
+    new URL(location.href).searchParams.get("tab") === tabID
+    && document.querySelector(".terminal-pane.active .pane-shell")?.dataset.paneId === paneID
+  ), { tabID, paneID: state.expectedPaneID }, { timeout: 60_000 });
   await eventLog({ status: "pass", window: state.name, action: "create-isolated-tab", tabID });
   return url.toString();
 };
@@ -458,7 +477,16 @@ const close = () => closing ||= (async () => {
     }
   }
   if (states.desktop?.testTabID && states.desktop.page && !states.desktop.page.isClosed()) {
-    await attempt("close isolated tab", () => workspaceAction(states.desktop, "close_tab", { tab_id: states.desktop.testTabID }));
+    await attempt("close isolated tab", async () => {
+      const state = states.desktop;
+      const current = await readWorkspace(state);
+      const tab = current.tabs.find((item) => item.id === state.testTabID);
+      if (current.workspace_generation !== state.testWorkspaceGeneration
+        || (tab && !tab.panes.some((pane) => pane.id === state.expectedPaneID))) {
+        throw new Error("Test resource ownership changed; refusing to close an unrelated tab");
+      }
+      if (tab) await workspaceAction(state, "close_tab", { tab_id: state.testTabID });
+    });
   }
   for (const state of Object.values(states)) {
     if (!state.browser.isConnected()) continue; // A module may deliberately close its auxiliary window.
@@ -478,6 +506,9 @@ const open = async () => {
     if (options.desktopOnly !== true) {
       states.mobile = await createWindow("mobile", { width: 390, height: 844 }, { x: 1450, y: 0 }, (state) => { states.mobile = state; }, options.beforeNavigate);
       states.mobile.activePaneID = await states.mobile.page.locator(".terminal-pane.active .pane-shell").first().getAttribute("data-pane-id");
+      if (states.mobile.activePaneID !== states.desktop.expectedPaneID) {
+        throw new Error("Mobile window did not open the recorded test pane");
+      }
     }
     assertNoFatalErrors();
     return api;
@@ -486,6 +517,16 @@ const open = async () => {
     throw error;
   }
 };
-const api = { config, states, artifactsDir, eventLog, activity, paneSize, waitForResizeApplied, refreshResizeFrames, refreshTerminalOutput, assertNoFatalErrors, open, close };
+const setNetworkOnline = async (state, online) => {
+  if (online) {
+    await state.context.setOffline(false);
+    state.networkOffline = false;
+  } else {
+    state.networkOffline = true;
+    await state.context.setOffline(true);
+  }
+  await eventLog({ status: "info", action: "network-condition", window: state.name, online });
+};
+const api = { config, states, artifactsDir, eventLog, activity, paneSize, waitForResizeApplied, refreshResizeFrames, refreshTerminalOutput, assertNoFatalErrors, open, close, setNetworkOnline };
 return api;
 }

@@ -91,3 +91,7 @@ node tests-auto/run-playwright.mjs tests-auto/01-multi-device-resize-sync/test.m
 
 - mobile 是桌面 Chrome 的移动 viewport/touch context，不等同于 Android/iOS 真实 WebView。
 - 网络/ACK 时序的稳定失败由 Node 测试精确构造；真实场景通过多轮设备接管和连接恢复扩大竞态覆盖，但不使用 mock Provider/PTY。
+
+## 本次恢复风险回归（2026-09-07）
+
+补强真实截图/OCR 和旧帧最终退出检查，同时验证真实 shell 计数结果按顺序且不重复。最终 reports/b1d5a5fc6cad45288af213f4fd3804f8 通过，用时 27.896 秒；桌面与移动布局各自的截图中，两条计数结果按顺序各出现一次，保帧覆盖层已退出。移动布局不能代替 Android 原生键盘。17 仅保留覆盖层检查，因本轮只授权 debug 容器而未执行 client: 场景。
