@@ -230,7 +230,6 @@ export function startGlobalRuntime() {
     mobileSelectionAutoScrollIntervalMs,
     mobileSelectionAutoScrollMaxLines,
     mobileKeyboardDoubleTapDelayMs,
-    mobileKeyboardFocusAllowWindowMs,
     mobileKeyboardFocusPrompt,
     desktopSelectionCopyMoveThresholdPx,
     terminalSizeReassertIntervalMs,
@@ -1039,16 +1038,10 @@ export function startGlobalRuntime() {
     isTouchLayout: () => isTouchShortcutLayout(),
     requiresTouchKeyboardDoubleTap: () => requiresTouchKeyboardDoubleTap(),
     isDeferredTouchClickSession: (session) => isGrokTerminalSession(session),
-    blurInput: (session) => terminalIME?.blurInput(session),
-    requestTouchKeyboard: (session) => terminalIME?.focusInput(session, {
-      requestMobileKeyboard: true,
-      forceMobileFocusTransition: true,
-    }),
-    setTouchKeyboardFocusAllowance: (session, until) => terminalIME?.setFocusAllowance(session, until),
+    isKeyboardClaimed: (event) => terminalIME?.isKeyboardClaimed(event) === true,
     registerSessionCleanup: (session, cleanup) => terminalSessionController?.addCleanup(session, cleanup),
     moveThresholdPx: touchShortcutMoveThresholdPx,
-    doubleTapDelayMs: mobileKeyboardDoubleTapDelayMs,
-    focusAllowWindowMs: mobileKeyboardFocusAllowWindowMs,
+    tapDurationMs: mobileKeyboardDoubleTapDelayMs,
   });
 
   terminalSelection = createTerminalSelectionController({
@@ -1062,6 +1055,7 @@ export function startGlobalRuntime() {
     isMobileMenuOpen: () => terminalInteraction?.isMobileOpen() === true,
     refreshMobileMenu: () => renderMobileActionSheet(),
     blurInput: (session) => terminalIME?.blurInput(session),
+    isKeyboardClaimed: (event) => terminalIME?.isKeyboardClaimed(event) === true,
     activateSession: (session) => {
       const tab = tabs.get(session?.tabId);
       if (tab && session?.id) {
@@ -1598,7 +1592,15 @@ export function startGlobalRuntime() {
     windowObject: window,
     documentObject: document,
     navigatorObject: navigator,
+    appendDiagnosticLog: (level, title, details, options) => appendDebugLog(level, title, details, options),
+    getViewportSnapshot: () => terminalViewport?.snapshot(),
     getActiveSession: () => activeSession(),
+    activateSession: (session) => {
+      const tab = tabs.get(session?.tabId);
+      if (tab?.id === getActiveTabId()) {
+        setActivePane(tab, session.id, { focus: false, resize: false, syncConnection: false });
+      }
+    },
     getTerminalFontSize: () => settings?.getTerminalFontSize(),
     getTerminalFontFamily: () => terminalOptionsBase.fontFamily,
     getTheme: () => appearance.getActiveTheme(),
@@ -1608,7 +1610,12 @@ export function startGlobalRuntime() {
     updateActiveTabTitle: () => updateMobileActiveTabTitle(),
     captureInputViewportLock: (session) => terminalViewport?.captureInputLock(session),
     releaseInputViewportLock: (session, options) => terminalViewport?.releaseInputLock(session, options),
-    scheduleKeyboardDismissRecovery: () => terminalViewport?.scheduleKeyboardDismissRecovery(),
+    scheduleKeyboardDismissRecovery: (options) => terminalViewport?.scheduleKeyboardDismissRecovery(options),
+    cancelKeyboardDismissRecovery: () => terminalViewport?.cancelKeyboardDismissRecovery(),
+    cancelTouchInteraction: (session) => {
+      terminalSelection?.cancelTouchInteraction(session);
+      terminalTUIAdapterInstaller?.cancelTouchInteraction(session);
+    },
     reassertSize: (session, options) => terminalResize?.reassertSize(session, options),
     claimCurrentDeviceSize: (session) => terminalResize?.claimForCurrentDevice(session),
     scrollToBottom: (session) => scrollTerminalToBottomForUserInput(session),
@@ -1623,7 +1630,6 @@ export function startGlobalRuntime() {
     registerSessionCleanup: (session, cleanup) => terminalSessionController?.addCleanup(session, cleanup),
     moveThresholdPx: touchShortcutMoveThresholdPx,
     doubleTapDelayMs: mobileKeyboardDoubleTapDelayMs,
-    focusAllowWindowMs: mobileKeyboardFocusAllowWindowMs,
   });
 
   mobileShortcutsController = createMobileShortcutsController({
@@ -1650,7 +1656,6 @@ export function startGlobalRuntime() {
     HTMLElementCtor: globalThis.HTMLElement,
     performanceObject: globalThis.performance,
     touchMoveThresholdPx: touchShortcutMoveThresholdPx,
-    keyboardFocusAllowWindowMs: mobileKeyboardFocusAllowWindowMs,
   });
 
   terminalOutput = createTerminalOutputController({

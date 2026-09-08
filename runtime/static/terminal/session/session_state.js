@@ -109,7 +109,6 @@ const createInputAndOutputState = () => ({
   outputFlushTimer: 0,
   suppressGeneratedTerminalInputUntil: 0,
   processingGeneratedTerminalResponses: false,
-  allowMobileKeyboardFocusUntil: 0,
   composingIME: false,
   compositionPreviousText: "",
   compositionText: "",

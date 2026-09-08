@@ -17,7 +17,7 @@
 
 ## 状态与生命周期
 
-controller 独占 sticky modifier、触感反馈偏好、按钮交互状态和渲染 generation；lifecycle 独占动态按钮 listener、重复 timeout/interval。每次 `render()` 先撤销上一批按钮资源；`dispose()` 幂等并使迟到 timer/事件失效。IME focus allowance 只通过注入的公开方法调用。
+controller 独占 sticky modifier、触感反馈偏好、按钮交互状态和渲染 generation；lifecycle 独占动态按钮 listener、重复 timeout/interval。每次 `render()` 先撤销上一批按钮资源；`dispose()` 幂等并使迟到 timer/事件失效。快捷栏通过 `shouldPreserveInputFocus()` 保持当前输入，不维护额外的聚焦许可时限，也不将 DOM 焦点视为系统键盘显示证据。
 
 ## 文件清单
 

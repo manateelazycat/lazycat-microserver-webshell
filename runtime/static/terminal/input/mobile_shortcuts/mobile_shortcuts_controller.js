@@ -43,7 +43,6 @@ export function createMobileShortcutsController({
   touchMoveThresholdPx = 8,
   repeatInitialDelayMs = 320,
   repeatIntervalMs = 80,
-  keyboardFocusAllowWindowMs = 600,
 } = {}) {
   const lifecycle = createMobileShortcutsLifecycle({ windowObject });
   const rows = mobileShortcutRows || Array.from(
@@ -200,14 +199,8 @@ export function createMobileShortcutsController({
     event?.stopImmediatePropagation?.();
   };
 
-  const rememberShortcutSession = (state, shortcut) => {
+  const rememberShortcutSession = (state) => {
     state.shortcutSession = getActiveSession();
-    if (
-      terminalIME?.shouldPreserveKeyboardForShortcut?.(shortcut)
-      && terminalIME?.isKeyboardActive?.(state.shortcutSession)
-    ) {
-      terminalIME.setFocusAllowance?.(state.shortcutSession, now() + keyboardFocusAllowWindowMs);
-    }
   };
 
   const invokeAction = (action, session) => {
@@ -381,8 +374,8 @@ export function createMobileShortcutsController({
       ) {
         return;
       }
-      rememberShortcutSession(state, shortcut);
-      if (!terminalIME?.isKeyboardActive?.(state.shortcutSession)) {
+      rememberShortcutSession(state);
+      if (!terminalIME?.shouldPreserveInputFocus?.(state.shortcutSession)) {
         return;
       }
       if (event.cancelable) {
@@ -396,7 +389,7 @@ export function createMobileShortcutsController({
         return;
       }
       event.preventDefault?.();
-      rememberShortcutSession(state, shortcut);
+      rememberShortcutSession(state);
     });
 
     lifecycle.listen(button, "pointerdown", (event) => {
@@ -412,8 +405,8 @@ export function createMobileShortcutsController({
       state.touchStartY = event.clientY;
       state.touchMoved = false;
       state.repeatTriggered = false;
-      rememberShortcutSession(state, shortcut);
-      if (terminalIME?.isKeyboardActive?.(state.shortcutSession)) {
+      rememberShortcutSession(state);
+      if (terminalIME?.shouldPreserveInputFocus?.(state.shortcutSession)) {
         const row = button.closest?.(".mobile-shortcut-row");
         state.touchScrollRow = isHTMLElement(row) ? row : null;
         state.touchScrollStartLeft = state.touchScrollRow?.scrollLeft || 0;

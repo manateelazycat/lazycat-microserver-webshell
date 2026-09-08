@@ -10,7 +10,6 @@ export const TERMINAL_RUNTIME_CONFIG = Object.freeze({
   mobileSelectionAutoScrollIntervalMs: 50,
   mobileSelectionAutoScrollMaxLines: 4,
   mobileKeyboardDoubleTapDelayMs: 320,
-  mobileKeyboardFocusAllowWindowMs: 600,
   mobileKeyboardFocusPrompt: "双击屏幕开启键盘输入",
   desktopSelectionCopyMoveThresholdPx: 4,
   terminalSizeReassertIntervalMs: 250,

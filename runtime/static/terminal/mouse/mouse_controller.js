@@ -8,8 +8,7 @@ import {
 } from "./mouse_model.js";
 
 const defaultMoveThresholdPx = 8;
-const defaultDoubleTapDelayMs = 320;
-const defaultFocusAllowWindowMs = 600;
+const defaultTapDurationMs = 320;
 const defaultMaxWheelSteps = 10;
 
 export function createTerminalMouseController({
@@ -23,14 +22,11 @@ export function createTerminalMouseController({
   isTouchLayout = () => false,
   requiresTouchKeyboardDoubleTap = () => false,
   isDeferredTouchClickSession = () => false,
-  blurInput = () => {},
-  requestTouchKeyboard = () => {},
-  setTouchKeyboardFocusAllowance = () => {},
+  isKeyboardClaimed = () => false,
   registerSessionCleanup = () => {},
   now = () => globalThis.performance?.now?.() || Date.now(),
   moveThresholdPx = defaultMoveThresholdPx,
-  doubleTapDelayMs = defaultDoubleTapDelayMs,
-  focusAllowWindowMs = defaultFocusAllowWindowMs,
+  tapDurationMs = defaultTapDurationMs,
   maxWheelSteps = defaultMaxWheelSteps,
 } = {}) {
   const lifecycle = lifecycleFactory({ documentObject });
@@ -40,6 +36,7 @@ export function createTerminalMouseController({
   const sessions = new Set();
   let started = false;
   let disposed = false;
+  const eventTime = (event) => Number.isFinite(event?.timeStamp) && event.timeStamp >= 0 ? event.timeStamp : now();
 
   const start = () => {
     if (started || disposed) {
@@ -143,16 +140,13 @@ export function createTerminalMouseController({
       lastX: 0,
       lastY: 0,
     };
-    const touchKeyboardState = {
+    const deferredTouchState = {
       active: false,
       startedAt: 0,
       startX: 0,
       startY: 0,
       moved: false,
       wheelRemainderY: 0,
-      lastTapAt: 0,
-      lastTapX: 0,
-      lastTapY: 0,
     };
 
     const sendMouseSequence = (event, action, button = -1) => {
@@ -180,7 +174,7 @@ export function createTerminalMouseController({
     });
 
     const flushDeferredTouchWheel = (event, touch) => {
-      if (!touchKeyboardState.moved || !touchKeyboardState.wheelRemainderY) {
+      if (!deferredTouchState.moved || !deferredTouchState.wheelRemainderY) {
         return;
       }
       const renderer = session.term?.renderer;
@@ -188,7 +182,7 @@ export function createTerminalMouseController({
         moveThresholdPx,
         Number(renderer?.getMetrics?.().height) || Number(renderer?.charHeight) || 18,
       );
-      const rawSteps = touchKeyboardState.wheelRemainderY / rowHeight;
+      const rawSteps = deferredTouchState.wheelRemainderY / rowHeight;
       const wholeSteps = rawSteps > 0 ? Math.floor(rawSteps) : Math.ceil(rawSteps);
       if (!wholeSteps) {
         return;
@@ -202,7 +196,7 @@ export function createTerminalMouseController({
       for (let index = 0; index < stepCount; index += 1) {
         sendMouseSequence(wheelEvent, "wheel");
       }
-      touchKeyboardState.wheelRemainderY -= direction * stepCount * rowHeight;
+      deferredTouchState.wheelRemainderY -= direction * stepCount * rowHeight;
     };
 
     const changedTouchForActiveMouse = (event) => {
@@ -218,33 +212,30 @@ export function createTerminalMouseController({
       touchMouseState.lastY = 0;
     };
 
-    const resetTouchKeyboardState = (clearTapHistory = false) => {
-      touchKeyboardState.active = false;
-      touchKeyboardState.startedAt = 0;
-      touchKeyboardState.startX = 0;
-      touchKeyboardState.startY = 0;
-      touchKeyboardState.moved = false;
-      touchKeyboardState.wheelRemainderY = 0;
-      if (clearTapHistory) {
-        touchKeyboardState.lastTapAt = 0;
-        touchKeyboardState.lastTapX = 0;
-        touchKeyboardState.lastTapY = 0;
-      }
+    const resetDeferredTouchState = () => {
+      deferredTouchState.active = false;
+      deferredTouchState.startedAt = 0;
+      deferredTouchState.startX = 0;
+      deferredTouchState.startY = 0;
+      deferredTouchState.moved = false;
+      deferredTouchState.wheelRemainderY = 0;
     };
 
-    const finishDeferredTouchKeyboardTap = (event, touch) => {
-      const currentTime = now();
-      const previousTapAt = touchKeyboardState.lastTapAt;
-      const previousTapX = touchKeyboardState.lastTapX;
-      const previousTapY = touchKeyboardState.lastTapY;
+    const finishDeferredTouchTap = (event, touch) => {
+      if (isKeyboardClaimed(event)) {
+        resetDeferredTouchState();
+        return;
+      }
+      const currentTime = eventTime(event);
       const isTap = (
         event.type === "touchend"
-        && touchKeyboardState.active
+        && deferredTouchState.active
         && touch
-        && !touchKeyboardState.moved
-        && Math.abs(touch.clientX - touchKeyboardState.startX) < moveThresholdPx
-        && Math.abs(touch.clientY - touchKeyboardState.startY) < moveThresholdPx
-        && currentTime - touchKeyboardState.startedAt <= doubleTapDelayMs
+        && !deferredTouchState.moved
+        && Math.abs(touch.clientX - deferredTouchState.startX) < moveThresholdPx
+        && Math.abs(touch.clientY - deferredTouchState.startY) < moveThresholdPx
+        && currentTime >= deferredTouchState.startedAt
+        && currentTime - deferredTouchState.startedAt <= tapDurationMs
         && requiresTouchKeyboardDoubleTap()
         && isDeferredTouchClickSession(session)
         && trackingState(session)
@@ -254,27 +245,7 @@ export function createTerminalMouseController({
         sendMouseSequence(mouseEvent, "press", 0);
         sendMouseSequence(mouseEvent, "release", 0);
       }
-      resetTouchKeyboardState(false);
-      if (!isTap) {
-        resetTouchKeyboardState(true);
-        return;
-      }
-      const dx = touch.clientX - previousTapX;
-      const dy = touch.clientY - previousTapY;
-      const isDoubleTap = (
-        previousTapAt > 0
-        && currentTime - previousTapAt <= doubleTapDelayMs
-        && Math.hypot(dx, dy) < moveThresholdPx * 2
-      );
-      touchKeyboardState.lastTapAt = currentTime;
-      touchKeyboardState.lastTapX = touch.clientX;
-      touchKeyboardState.lastTapY = touch.clientY;
-      if (!isDoubleTap) {
-        return;
-      }
-      resetTouchKeyboardState(true);
-      setTouchKeyboardFocusAllowance(session, currentTime + focusAllowWindowMs);
-      requestTouchKeyboard(session);
+      resetDeferredTouchState();
     };
 
     const handleMouseDown = (event) => {
@@ -376,7 +347,7 @@ export function createTerminalMouseController({
         || !state
       ) {
         resetTouchMouseState();
-        resetTouchKeyboardState(true);
+        resetDeferredTouchState();
         return;
       }
       const touch = event.touches[0];
@@ -389,16 +360,14 @@ export function createTerminalMouseController({
       touchMouseState.lastY = touch.clientY;
       touchMouseState.deferredClick = requiresTouchKeyboardDoubleTap() && isDeferredTouchClickSession(session);
       if (touchMouseState.deferredClick) {
-        setTouchKeyboardFocusAllowance(session, 0);
-        blurInput(session);
-        touchKeyboardState.active = true;
-        touchKeyboardState.startedAt = now();
-        touchKeyboardState.startX = touch.clientX;
-        touchKeyboardState.startY = touch.clientY;
-        touchKeyboardState.moved = false;
-        touchKeyboardState.wheelRemainderY = 0;
+        deferredTouchState.active = true;
+        deferredTouchState.startedAt = eventTime(event);
+        deferredTouchState.startX = touch.clientX;
+        deferredTouchState.startY = touch.clientY;
+        deferredTouchState.moved = false;
+        deferredTouchState.wheelRemainderY = 0;
       } else {
-        resetTouchKeyboardState(true);
+        resetDeferredTouchState();
         sendMouseSequence(mouseEventFromTouch(event, touch), "press", 0);
       }
     };
@@ -416,12 +385,12 @@ export function createTerminalMouseController({
       touchMouseState.lastX = touch.clientX;
       touchMouseState.lastY = touch.clientY;
       if (touchMouseState.deferredClick) {
-        touchKeyboardState.wheelRemainderY += previousY - touch.clientY;
+        deferredTouchState.wheelRemainderY += previousY - touch.clientY;
         if (
-          Math.abs(touch.clientX - touchKeyboardState.startX) >= moveThresholdPx
-          || Math.abs(touch.clientY - touchKeyboardState.startY) >= moveThresholdPx
+          Math.abs(touch.clientX - deferredTouchState.startX) >= moveThresholdPx
+          || Math.abs(touch.clientY - deferredTouchState.startY) >= moveThresholdPx
         ) {
-          touchKeyboardState.moved = true;
+          deferredTouchState.moved = true;
         }
         flushDeferredTouchWheel(event, touch);
         return;
@@ -440,7 +409,7 @@ export function createTerminalMouseController({
         touchMouseState.lastY = touch.clientY;
       }
       if (touchMouseState.deferredClick) {
-        finishDeferredTouchKeyboardTap(event, touch);
+        finishDeferredTouchTap(event, touch);
       } else {
         sendMouseSequence(mouseEventFromTouch(event, touch), "release", 0);
       }
@@ -465,7 +434,7 @@ export function createTerminalMouseController({
       mouseState.activeButton = -1;
       mouseState.lastMoveSequence = "";
       resetTouchMouseState();
-      resetTouchKeyboardState(true);
+      resetDeferredTouchState();
     });
   };
 

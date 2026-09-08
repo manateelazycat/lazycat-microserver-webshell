@@ -19,7 +19,8 @@
 - `isGeometryClaimPending()`：供 presentation 读取的只读门禁；包含已排队 generation，也能在 viewport listener 尚未消费事件时通过最新浏览器 geometry 识别结构变化。
 - `sync()` / `syncPan(session)`：同步 visual viewport 或单个 pane 的光标平移。
 - `captureInputLock(session)` / `releaseInputLock(session)`：IME focus 生命周期使用的视口锁。
-- `scheduleKeyboardDismissRecovery()`：浏览器 blur 后的有界多次恢复。
+- `scheduleKeyboardDismissRecovery({ hadInputFocus })`：真实输入失焦或现有键盘 inset 需要清理时的有界恢复；同一时刻只保留一组定时任务。
+- `cancelKeyboardDismissRecovery()`：新输入请求或 textarea 获焦时取消旧的收起恢复及过期输入锁释放帧。
 - `handleLayoutChange()`：强制 PC/触摸布局变化后清理并重新计算。
 - `snapshot()`：返回键盘状态、geometry generation、pending 状态和最后 geometry 的只读诊断快照，不允许外部修改内部状态。
 
@@ -27,7 +28,7 @@
 
 `viewport_controller.js` 是 geometry signature/generation、viewport 高度、参考高度、inset、安全偏移、键盘 active、resize suppression、方向和当前 input lock session 的唯一修改者。`session.inputViewportLock` 只能由本 controller 通过公开 capture/release 命令修改；IME 只能请求命令，不能自行构造或推进锁状态。
 
-resize 只能调用 `isResizeSuppressed()`，不能写 viewport 状态。presentation 只能读取 `isGeometryClaimPending()` 并延迟自己的被动 geometry 修复，不能推进 generation 或发起 claim。IME 只能读取 `isKeyboardActive()` 并调用锁与 dismiss recovery。selection、overview、移动菜单和标题只接收同步通知，不得反向推进 viewport generation。
+resize 只能调用 `isResizeSuppressed()`，不能写 viewport 状态。presentation 只能读取 `isGeometryClaimPending()` 并延迟自己的被动 geometry 修复，不能推进 generation 或发起 claim。IME 只能读取 `isKeyboardActive()` 并调用锁、dismiss recovery 及其取消命令。selection、overview、移动菜单和标题只接收同步通知，不得反向推进 viewport generation。
 
 ## 生命周期
 

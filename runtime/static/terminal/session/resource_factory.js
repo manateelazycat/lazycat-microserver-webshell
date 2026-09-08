@@ -44,7 +44,12 @@ export function createTerminalSessionResourceFactory({
     if (term.options) {
       term.options.mobilePixelScroll = getMobilePixelScroll() === true;
     }
+    // IME installs the application's focus entrypoint after creation. Ghostty
+    // must not focus a detached host or enqueue a later host-focus callback.
+    term.focus = () => {};
     term.open(terminalHost);
+    terminalHost.removeAttribute("contenteditable");
+    terminalHost.removeAttribute("tabindex");
 
     const terminalFrameHold = documentObject.createElement("canvas");
     terminalFrameHold.className = "terminal-frame-hold";

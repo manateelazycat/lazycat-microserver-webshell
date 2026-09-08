@@ -1,7 +1,8 @@
 /**
  * Composes tool-specific fullscreen TUI adapters for a terminal session.
  * Identity detection and gesture mechanics stay in the tool/common modules;
- * this controller only supplies application actions and owns no session data.
+ * this controller supplies application actions and cancellation commands;
+ * gesture state remains in each adapter.
  */
 export function createTerminalTUIAdapterInstaller({
   ElementCtor = globalThis.Element,
@@ -33,6 +34,21 @@ export function createTerminalTUIAdapterInstaller({
   longPressDelayMs = 450,
   desktopSelectionMoveThresholdPx = 4,
 } = {}) {
+  const touchCancellations = new WeakMap();
+  const registerTouchCancellation = (session, cancel) => {
+    if (typeof cancel !== "function") return;
+    let callbacks = touchCancellations.get(session);
+    if (!callbacks) {
+      callbacks = new Set();
+      touchCancellations.set(session, callbacks);
+    }
+    callbacks.add(cancel);
+    registerCleanup(session, () => {
+      callbacks.delete(cancel);
+      if (!callbacks.size) touchCancellations.delete(session);
+    });
+  };
+
   const isElement = (value) => (
     typeof ElementCtor === "function"
       ? value instanceof ElementCtor
@@ -75,7 +91,7 @@ export function createTerminalTUIAdapterInstaller({
     stopSelectionAutoScroll: (state) => getTerminalSelection()?.stopAutoScroll(state),
     clearSelectionIfTapOutside: (touch) => getTerminalSelection()?.clearIfTapOutside(session, touch) === true,
     hasSelection: () => getTerminalSelection()?.hasSelection(session) === true,
-    consumeKeyboardClaim: (event) => getTerminalIME()?.consumeKeyboardClaim(event) === true,
+    isKeyboardClaimed: (event) => getTerminalIME()?.isKeyboardClaimed(event) === true,
     prepareMouseInput: () => {
       const resize = getTerminalResize();
       if (typeof resize?.claimForCurrentDevice === "function") {
@@ -103,7 +119,7 @@ export function createTerminalTUIAdapterInstaller({
     if (!shell || !host || !session?.term) {
       return false;
     }
-    installer(touchOptions(session, host, candidate));
+    registerTouchCancellation(session, installer(touchOptions(session, host, candidate)));
     return true;
   };
 
@@ -113,10 +129,11 @@ export function createTerminalTUIAdapterInstaller({
     if (!shell || !host || !session?.term) {
       return false;
     }
-    installClaudeFullscreenTouchAdapter({
+    const cancel = installClaudeFullscreenTouchAdapter({
       ...touchOptions(session, host),
       shouldStart: (event) => touchOptions(session, host).shouldStart(event) && isClaudeTouchSession(session),
     });
+    registerTouchCancellation(session, cancel);
     return true;
   };
 
@@ -181,6 +198,9 @@ export function createTerminalTUIAdapterInstaller({
   };
 
   return Object.freeze({
+    cancelTouchInteraction(session) {
+      touchCancellations.get(session)?.forEach(cancel => cancel());
+    },
     installClaudeContextMenu,
     installClaudeDesktopSelection,
     installClaudeTouch,

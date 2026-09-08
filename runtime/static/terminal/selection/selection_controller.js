@@ -29,6 +29,7 @@ export function createTerminalSelectionController({
   isMobileMenuOpen = () => false,
   refreshMobileMenu = () => {},
   blurInput = () => {},
+  isKeyboardClaimed = () => false,
   activateSession = () => {},
   markContextMenuCandidate = () => {},
   hasMouseTracking = () => false,
@@ -51,6 +52,7 @@ export function createTerminalSelectionController({
   const fullBufferSelections = new WeakSet();
   const cleanupRegisteredSessions = new WeakSet();
   const installedSessions = new WeakSet();
+  const touchCancellations = new WeakMap();
   const observedSessions = new WeakSet();
   let started = false;
   let disposed = false;
@@ -426,6 +428,20 @@ export function createTerminalSelectionController({
     return applySelection(session, selection.start, nextEnd);
   };
 
+  const registerTouchCancellation = (session, cancel) => {
+    let callbacks = touchCancellations.get(session);
+    if (!callbacks) {
+      callbacks = new Set();
+      touchCancellations.set(session, callbacks);
+    }
+    callbacks.add(cancel);
+    lifecycle.addSessionCleanup(session, () => {
+      cancel();
+      callbacks.delete(cancel);
+      if (!callbacks.size) touchCancellations.delete(session);
+    });
+  };
+
   const bindSelectionHandle = (session, handle, role) => {
     let dragState = null;
     lifecycle.listenSession(session, handle, "touchstart", (event) => {
@@ -473,7 +489,7 @@ export function createTerminalSelectionController({
     };
     lifecycle.listenSession(session, handle, "touchend", finish, { passive: false });
     lifecycle.listenSession(session, handle, "touchcancel", finish, { passive: false });
-    lifecycle.addSessionCleanup(session, () => {
+    registerTouchCancellation(session, () => {
       stopAutoScroll(dragState);
       dragState = null;
     });
@@ -612,6 +628,10 @@ export function createTerminalSelectionController({
       if (!state) {
         return;
       }
+      if (isKeyboardClaimed(event)) {
+        resetTouchSelectionState(state);
+        return;
+      }
       const wasSelecting = state.selecting;
       const endTouch = primaryTouch(event);
       const shouldClearSelection = !wasSelecting && clearIfTapOutside(session, endTouch);
@@ -628,7 +648,7 @@ export function createTerminalSelectionController({
     };
     lifecycle.listenSession(session, session.shellEl, "touchend", finishTouchSelection, { capture: true, passive: false });
     lifecycle.listenSession(session, session.shellEl, "touchcancel", finishTouchSelection, { capture: true, passive: false });
-    lifecycle.addSessionCleanup(session, () => resetTouchSelectionState());
+    registerTouchCancellation(session, () => resetTouchSelectionState());
 
     const scrollDisposable = session.term.onScroll?.(() => update());
     if (scrollDisposable && typeof scrollDisposable.dispose === "function") {
@@ -707,6 +727,10 @@ export function createTerminalSelectionController({
     },
 
     installSession,
+
+    cancelTouchInteraction(session) {
+      touchCancellations.get(session)?.forEach(cancel => cancel());
+    },
 
     isFullBufferSelection(session) {
       return !disposed && Boolean(session && fullBufferSelections.has(session));

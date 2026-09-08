@@ -18,7 +18,7 @@ TUI adapter 只能通过 controller 的 `hasTracking()`、`claimEvent()`、`send
 
 ## 状态所有权
 
-`mouse_controller.js` 独占本地事件所有权 `WeakSet`、每个 session 的 active button、最后 move 序列、touch identifier 和工具无关的延迟点击/双击键盘兼容状态。调用方只注入 pane 激活、selection 清除、尺寸重申、输入发送和键盘请求命令。
+`mouse_controller.js` 独占本地事件所有权 `WeakSet`、每个 session 的 active button、最后 move 序列、touch identifier 和工具无关的延迟点击/滚动状态。调用方只注入 pane 激活、selection 清除、尺寸重申、输入发送和 `isKeyboardClaimed(event)` 查询。键盘双击由 IME 统一判断；本模块不持有第二套双击历史或聚焦许可，不再自行 focus/blur。已被认领的键盘手势不额外发送延迟点击；已经发出的普通 mouse press 仍配对 release。
 
 `mouse_lifecycle.js` 独占 shell/document listener 和清理函数。`mouse_model.js` 不持有 DOM、timer、session、socket 或可变全局状态。
 
