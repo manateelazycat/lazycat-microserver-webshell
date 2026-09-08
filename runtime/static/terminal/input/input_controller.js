@@ -389,11 +389,14 @@ export function createTerminalInputController({
     if (!isReady(session) || !checkConnectionHealth(session, { connect: true })) {
       return false;
     }
-    for (const data of session.pendingInput || []) {
-      send(session, data);
+    while (session.pendingInput.length > 0) {
+      const data = session.pendingInput[0];
+      if (!send(session, data)) {
+        return false;
+      }
+      session.pendingInput.shift();
+      session.pendingInputSize = Math.max(0, session.pendingInputSize - textEncoder.encode(data).length);
     }
-    session.pendingInput = [];
-    session.pendingInputSize = 0;
     clearPendingInputExpiry(session);
     flushInputBuffer(session);
     scheduleQueuedInputPump(session);
@@ -441,8 +444,15 @@ export function createTerminalInputController({
       scheduleActivityRefresh(450);
     }
     if (isReady(session) && checkConnectionHealth(session, { connect: true, force: userInput, allowHidden: userInput })) {
-      send(session, data, { immediate: /[\r\n\x03\x04]/.test(data) });
-      return true;
+      // An ACK can open the input gate before presentation/onReady flushes the
+      // characters queued during resize/replay. Never let new input overtake them.
+      if (session.pendingInput.length > 0) {
+        flushPending(session);
+      }
+      if (session.pendingInput.length === 0
+        && send(session, data, { immediate: /[\r\n\x03\x04]/.test(data) })) {
+        return true;
+      }
     }
     if (!enqueuePending(session, data, { parked: connectionWasParked })) {
       appendDebugError(

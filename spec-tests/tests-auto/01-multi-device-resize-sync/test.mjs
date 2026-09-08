@@ -1,4 +1,6 @@
 import path from "node:path";
+import { randomInt } from "node:crypto";
+import { waitForVisibleOutput } from "../../environment/observe.mjs";
 
 const epochAfter = (candidate, previous) => {
   if (!/^\d+$/.test(String(candidate || ""))) return false;
@@ -174,7 +176,8 @@ const waitForReplayedClaimAndSocket = async (state, frameCountBefore, socketsBef
   }, frameCountBefore);
 };
 
-export async function run({ config, states, artifactsDir, eventLog, activity, paneSize, waitForResizeApplied, refreshResizeFrames, refreshTerminalOutput, assertNoFatalErrors }) {
+export async function run(environment) {
+  const { config, states, artifactsDir, eventLog, activity, paneSize, waitForResizeApplied, refreshResizeFrames, refreshTerminalOutput, assertNoFatalErrors } = environment;
   const { desktop, mobile } = states;
   const terminal = (state) => state.page.locator(".terminal-pane.active .terminal-host").first();
   const marker = `AUTO_MULTI_DEVICE_${Date.now()}`;
@@ -245,13 +248,16 @@ export async function run({ config, states, artifactsDir, eventLog, activity, pa
   };
   await mobile.page.setViewportSize(reconnectViewport);
   await mobile.page.waitForFunction(() => window.__testsAutoResizeReconnect?.closed === true, null, { timeout: 10_000 });
-  const reconnectMarker = `AUTO_RESIZE_RECONNECT_${Date.now()}`;
+  const nonce = randomInt(100000, 999999);
+  const reconnectMarker = "SYNC" + nonce + "1END";
+  const secondMarker = "SYNC" + nonce + "2END";
   await mobile.page.evaluate(() => {
     const textarea = document.querySelector(".terminal-pane.active .terminal-host textarea");
     if (!(textarea instanceof HTMLTextAreaElement)) throw new Error("terminal textarea unavailable during resize reconnect");
     textarea.focus({ preventScroll: true });
   });
-  await mobile.page.keyboard.insertText(`printf '%s\\n' '${reconnectMarker}'`);
+  const countedCommand = "WS_RECOVERY_COUNT=$(( ${WS_RECOVERY_COUNT:-0} + 1 )); printf '\\nSYNC%s%sEND\\n' '" + nonce + "' \"$WS_RECOVERY_COUNT\"";
+  await mobile.page.keyboard.insertText(countedCommand + "; " + countedCommand);
   await mobile.page.keyboard.press("Enter");
   const reconnectDiagnostics = await waitForReplayedClaimAndSocket(
     mobile,
@@ -280,6 +286,15 @@ export async function run({ config, states, artifactsDir, eventLog, activity, pa
     resizeErrorsBefore: reconnectErrorsBefore,
   });
   previous = reconnectClaimResult.applied;
+  for (const window of ["desktop", "mobile"]) {
+    const observed = await waitForVisibleOutput(environment, secondMarker, "reconnect-" + window, 20000, { window });
+    const lines = observed.text.split(/\r?\n/).map((line) => line.replace(/[ \t]/g, ""));
+    if (lines.filter((line) => line === reconnectMarker).length !== 1
+      || lines.filter((line) => line === secondMarker).length !== 1
+      || lines.indexOf(reconnectMarker) >= lines.indexOf(secondMarker)) {
+      throw new Error("reconnect output is not visible exactly once in submission order: " + window);
+    }
+  }
   await eventLog({
     status: "pass",
     window: "mobile",

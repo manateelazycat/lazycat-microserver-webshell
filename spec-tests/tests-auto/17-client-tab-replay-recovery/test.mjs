@@ -79,7 +79,10 @@ export async function beforeNavigate({ page }) {
 const stable = (page, paneID) => page.waitForFunction((id) => {
   const shell = document.querySelector(`.terminal-pane.active .pane-shell[data-pane-id="${CSS.escape(id)}"]`);
   const canvas = shell?.querySelector("canvas:not(.terminal-frame-hold)");
+  const hold = shell?.querySelector(".terminal-frame-hold");
   return shell?.dataset.renderReady === "true" && shell.dataset.hasPresentedFrame === "true"
+    && shell.dataset.terminalFrameHeld !== "true"
+    && (!hold || hold.hidden || getComputedStyle(hold).display === "none")
     && canvas?.width > 0 && canvas?.height > 0 && getComputedStyle(canvas).visibility === "visible";
 }, paneID, { timeout: 20000 });
 

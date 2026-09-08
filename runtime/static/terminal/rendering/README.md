@@ -38,3 +38,7 @@ live geometry 期间 `renderLiveGeometryNow()` 只提交当前 session 的真实
 相关测试为 `terminal_presentation_controller_test.mjs`、`terminal_renderer_adapter_test.mjs`、`terminal_runtime_controller_test.mjs`、`kitty_graphics_test.mjs`、`terminal_render_snapshot_test.mjs`、`terminal_frame_release_scheduler_test.mjs` 及 runtime Canvas residue guard。presentation 测试必须覆盖 viewport claim pending 时不调度被动 resize、live geometry 不进入 hold、output render 不重复绘制和隐藏 pane 不创建 retry/validation 循环。最小回归是字体/行高变化、连续背景、Powerline、块光标、pixel scroll、快速切 tab、resize、折叠/跨屏、主题变化、runtime reset、Canvas context 恢复和断网恢复；live geometry 确认真实 Canvas 连续可见，其余原子恢复确认旧帧持续保留到当前 identity/generation 的最终完整画面提交。
 
 任何 renderer patch 都不得清空终端、触发 replay/reset、改变 resize owner，或显示 history replay、snapshot、原子 resize、重连的中间过程。
+
+## 旧帧停滞调查
+
+永久旧帧尚未稳定复现。保留原有 presentation/hold 释放逻辑；本轮未验证的候选变更已撤回。调查用例与条件位于 spec-tests/investigations/network-presentation-recovery，后续由真实失败截图、cursor、resize/connection epoch 和 trace 再决定修复，不认定断网为根因。

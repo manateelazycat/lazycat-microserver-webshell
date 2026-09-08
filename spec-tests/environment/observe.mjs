@@ -12,17 +12,35 @@ export async function observeTerminal(environment, { window = "desktop", name = 
   if (!state?.page) throw new Error("Browser window is not available");
   const screenshot = path.join(environment.artifactsDir, `${name}.png`);
   await state.page.locator(".terminal-pane.active .terminal-host").first().screenshot({ path: screenshot, timeout: 5000 });
-  const { stdout: text } = await execute("tesseract", [screenshot, "stdout", "-l", "eng", "--psm", "6"], { timeout: 5000, maxBuffer: 256 * 1024 });
+  const ocrImage = path.join(environment.artifactsDir, name + "-ocr.png");
+  // Preserve the original screenshot; normalize contrast and enlarge the same pixels for OCR.
+  await execute("magick", [screenshot, "-colorspace", "Gray", "-negate", "-filter", "point", "-resize", "300%", ocrImage], { timeout: 5000 });
+  const { stdout: text } = await execute("tesseract", [ocrImage, "stdout", "-l", "eng", "--psm", "6"], { timeout: 5000, maxBuffer: 256 * 1024 });
   const transcript = path.join(environment.artifactsDir, `${name}.txt`);
   await fs.writeFile(transcript, text);
-  return { screenshot, transcript, text };
+  return { screenshot, ocrImage, transcript, text };
 }
 
-export async function waitForVisibleOutput(environment, expected, name, timeout = 15_000) {
+export async function waitForLiveTerminal(page, timeout = 15_000) {
+  await page.waitForFunction(() => {
+    const shell = document.querySelector(".terminal-pane.active .pane-shell");
+    const canvas = shell?.querySelector("canvas:not(.terminal-frame-hold)");
+    const hold = shell?.querySelector(".terminal-frame-hold");
+    return shell?.dataset.renderReady === "true"
+      && shell.dataset.hasPresentedFrame === "true"
+      && shell.dataset.terminalFrameHeld !== "true"
+      && (!hold || hold.hidden || getComputedStyle(hold).display === "none")
+      && canvas?.width > 0 && canvas?.height > 0
+      && getComputedStyle(canvas).visibility === "visible";
+  }, null, { timeout });
+}
+
+export async function waitForVisibleOutput(environment, expected, name, timeout = 15_000, { window = "desktop" } = {}) {
   const deadline = Date.now() + timeout;
+  await waitForLiveTerminal(environment.states[window].page, timeout);
   let observation;
   do {
-    observation = await observeTerminal(environment, { name });
+    observation = await observeTerminal(environment, { name, window });
     if (observation.text.split(/\r?\n/).some((line) => line.replace(/[ \t]/g, "") === expected)) return observation;
     await new Promise((resolve) => setTimeout(resolve, 250));
   } while (Date.now() < deadline);

@@ -563,7 +563,13 @@ func (d *agentDaemon) handleAttach(ctx context.Context, conn net.Conn, reader *b
 	fastSequence := uint64(1)
 	fastCursor := history.deltaFrom
 	go func() {
-		defer close(writerDone)
+		defer func() {
+			// A closed/overflowed subscriber must also wake the attach reader.
+			// Otherwise the Provider can keep an apparently healthy stream whose
+			// agent writer has exited and will never produce output again.
+			_ = conn.Close()
+			close(writerDone)
+		}()
 		_ = writeAgentControlFrame(conn, map[string]any{
 			"type":                               "agent-attach-ready",
 			"server_unix_ms":                     historyReadyAt.UnixMilli(),
@@ -610,6 +616,7 @@ func (d *agentDaemon) handleAttach(ctx context.Context, conn net.Conn, reader *b
 		frameType, payload, err := readAgentFrame(reader)
 		if err != nil {
 			client.close()
+			_ = conn.Close()
 			<-writerDone
 			return
 		}
@@ -636,6 +643,7 @@ func (d *agentDaemon) handleAttach(ctx context.Context, conn net.Conn, reader *b
 			}
 		case agentFrameDetach:
 			client.close()
+			_ = conn.Close()
 			<-writerDone
 			return
 		}
@@ -699,19 +707,31 @@ func runAgentAttachClient(socketPath, selector, accountID, paneID string, cols, 
 	if _, err := conn.Write(append(data, '\n')); err != nil {
 		return err
 	}
-	done := make(chan error, 1)
+	outputDone := make(chan error, 1)
 	go func() {
 		_, err := io.Copy(os.Stdout, conn)
-		done <- err
+		outputDone <- err
 	}()
-	_, copyErr := io.Copy(conn, os.Stdin)
-	if unixConn, ok := conn.(*net.UnixConn); ok {
-		_ = unixConn.CloseWrite()
+	inputDone := make(chan error, 1)
+	go func() {
+		_, err := io.Copy(conn, os.Stdin)
+		if unixConn, ok := conn.(*net.UnixConn); ok {
+			_ = unixConn.CloseWrite()
+		}
+		inputDone <- err
+	}()
+	select {
+	case err := <-outputDone:
+		// This function owns the attach CLI process. EOF must finish it even
+		// when Provider stdin is idle, so the Provider can observe stdout EOF.
+		// Returning from main also retires the process's blocked stdin reader.
+		return err
+	case err := <-inputDone:
+		if err != nil {
+			return err
+		}
+		return <-outputDone
 	}
-	if copyErr != nil {
-		return copyErr
-	}
-	return <-done
 }
 
 func writeAgentHistoryReplay(w io.Writer, identity terminalReplayIdentity, history paneHistorySnapshot, allowGeneratedInput bool, integrity bool, sequence, cursor *uint64) bool {
