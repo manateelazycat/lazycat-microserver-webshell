@@ -22,7 +22,7 @@ const (
 	DirEnv     = "WEBSHELL_FONT_DIR"
 	MaxBytes   = 50 << 20
 
-	DefaultTerminalScrollback        = 2000
+	DefaultTerminalScrollback        = 5000
 	MinTerminalScrollback            = 100
 	MaxTerminalScrollback            = 100000
 	DefaultTerminalLineHeightPercent = 100

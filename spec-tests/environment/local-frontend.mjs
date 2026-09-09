@@ -3,7 +3,7 @@ import { readFrontendAsset } from "./frontend-build.mjs";
 const mime = { ".js": "text/javascript", ".css": "text/css", ".wasm": "application/wasm", ".json": "application/json", ".svg": "image/svg+xml", ".png": "image/png", ".woff2": "font/woff2" };
 
 export async function installLocalFrontend(context, config, build, fail, eventLog) {
-  const app = new URL("/webshell/", config.url);
+  const app = new URL("./", config.url);
   const base = `${app.pathname}assets/local-${build.buildDigest.slice(0, 16)}/`;
   const index = (await readFrontendAsset(build, "index.html")).toString("utf8")
     .replaceAll("__LCMD_ASSET_BASE__", base)

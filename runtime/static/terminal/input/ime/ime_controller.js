@@ -1,4 +1,5 @@
 import { createTerminalIMELifecycle } from "./ime_lifecycle.js";
+import { createKeyboardDiagnostics } from "./keyboard_diagnostics.js";
 import {
   isAndroidPlatform,
   isBackwardDeleteInputType,
@@ -16,6 +17,9 @@ export function createTerminalIMEController({
   documentObject = globalThis.document,
   navigatorObject = globalThis.navigator,
   getActiveSession = () => null,
+  activateSession = noop,
+  appendDiagnosticLog = noop,
+  getViewportSnapshot = () => null,
   getTerminalFontSize = () => 16,
   getTerminalFontFamily = () => "monospace",
   getTheme = () => ({ foreground: "#ffffff", background: "#000000" }),
@@ -26,6 +30,8 @@ export function createTerminalIMEController({
   captureInputViewportLock = noop,
   releaseInputViewportLock = noop,
   scheduleKeyboardDismissRecovery = noop,
+  cancelKeyboardDismissRecovery = noop,
+  cancelTouchInteraction = noop,
   reassertSize = noop,
   claimCurrentDeviceSize = noop,
   scrollToBottom = noop,
@@ -40,7 +46,6 @@ export function createTerminalIMEController({
   registerSessionCleanup = noop,
   moveThresholdPx = 8,
   doubleTapDelayMs = 320,
-  focusAllowWindowMs = 600,
   nativeDeleteIdleResetMs = 900,
   lifecycleFactory = createTerminalIMELifecycle,
 } = {}) {
@@ -49,7 +54,9 @@ export function createTerminalIMEController({
   const cleanupRegistered = new WeakSet();
   const installedSessions = new WeakSet();
   const claimedTouchEnds = new WeakSet();
+  const touchGestureCancellations = new WeakMap();
   const now = () => Number(windowObject.performance?.now?.() || Date.now());
+  const eventTime = (event) => Number.isFinite(event?.timeStamp) && event.timeStamp >= 0 ? event.timeStamp : now();
   const isHTMLElement = (value) => {
     const HTMLElementImpl = windowObject.HTMLElement || globalThis.HTMLElement;
     return typeof HTMLElementImpl === "function" && value instanceof HTMLElementImpl;
@@ -58,16 +65,25 @@ export function createTerminalIMEController({
     const ElementImpl = windowObject.Element || globalThis.Element;
     return typeof ElementImpl === "function" && value instanceof ElementImpl;
   };
+  const keyboardDiagnostics = createKeyboardDiagnostics({
+    windowObject, documentObject, navigatorObject, getActiveSession,
+    getViewportSnapshot, appendLog: appendDiagnosticLog,
+  });
 
   const moveTextareaCaretToEnd = (textarea) => {
     try {
       const end = textarea.value.length;
-      textarea.setSelectionRange(end, end);
+      if (textarea.selectionStart !== end || textarea.selectionEnd !== end) {
+        textarea.setSelectionRange(end, end);
+      }
     } catch (error) {
     }
   };
 
-  const resetHostViewport = (session, { clean = false } = {}) => {
+  const resetHostViewport = (session, { clean = false, source = "" } = {}) => {
+    // Mobile output changes Canvas content only. Native input/scroll events
+    // still run the host guard when the browser actually changes its scroll.
+    if (source === "output" && requiresTouchKeyboardDoubleTap()) return;
     const host = session?.terminalHost;
     if (!host) {
       return;
@@ -212,9 +228,30 @@ export function createTerminalIMEController({
     setCompositionPreviewVisible(session, true);
   };
 
+  const syncInputLayout = (session) => {
+    const textarea = session?.term?.textarea;
+    const mobile = requiresTouchKeyboardDoubleTap();
+    if (textarea && textarea.classList.contains("terminal-input-mobile") !== mobile) {
+      textarea.classList.toggle("terminal-input-mobile", mobile);
+      session.terminalInputAnchor = null;
+      keyboardDiagnostics.record(session, "input.layout-changed", { mobile });
+    }
+    return mobile;
+  };
+
   const positionInput = (session) => {
     const term = session?.term;
     const textarea = term?.textarea;
+    if (!textarea || session.closed || disposed) return;
+    const mobile = syncInputLayout(session);
+    // The mobile input's CSS anchor needs neither a mounted host nor a WASM
+    // cursor. Only composition preview follows terminal output and geometry.
+    if (mobile && !session.composingIME) {
+      if (session.compositionPreview && !session.compositionPreview.hidden) {
+        setCompositionPreviewVisible(session, false);
+      }
+      return;
+    }
     const renderer = term?.renderer;
     const cursor = term?.wasmTerm?.getCursor?.();
     const metrics = renderer?.getMetrics?.();
@@ -228,6 +265,13 @@ export function createTerminalIMEController({
     const previewLeft = cursorX * width;
     const previewTop = cursorY * height;
     const hostWidth = Math.max(width, Number(session.terminalHost?.clientWidth) || (Number(term.cols) || 1) * width);
+    if (mobile) {
+      syncCompositionPreview(session, {
+        x: previewLeft, y: previewTop, width, height,
+        maxWidth: Math.max(width, hostWidth - previewLeft),
+      });
+      return;
+    }
     const hostHeight = Math.max(height, Number(session.terminalHost?.clientHeight) || (Number(term.rows) || 1) * height);
     const preserveAnchor = documentObject.activeElement === textarea;
     const previousAnchor = preserveAnchor ? session.terminalInputAnchor : null;
@@ -284,35 +328,60 @@ export function createTerminalIMEController({
   };
 
   const requestAndroidSoftKeyboard = (textarea) => {
-    if (!isAndroidPlatform(navigatorObject) || documentObject.activeElement !== textarea) {
-      return false;
+    keyboardDiagnostics.record(getActiveSession(), "android.keyboard-api-check", {
+      android: isAndroidPlatform(navigatorObject), policy: textarea.virtualKeyboardPolicy,
+      inputMode: textarea.inputMode, showAvailable: typeof navigatorObject.virtualKeyboard?.show,
+    });
+    if (!isAndroidPlatform(navigatorObject) || documentObject.activeElement !== textarea
+      || textarea.virtualKeyboardPolicy !== "manual" || textarea.inputMode === "none") {
+      return;
     }
     const keyboard = navigatorObject.virtualKeyboard;
     if (!keyboard || typeof keyboard.show !== "function") {
-      return false;
+      return;
     }
     try {
-      const result = keyboard.show();
-      result?.catch?.(() => {});
-      return true;
+      // show() has no success return value. Keep automatic focus as the
+      // default; only a separately configured manual policy uses this API.
+      keyboard.show();
+      keyboardDiagnostics.record(getActiveSession(), "android.keyboard-api-called");
     } catch (error) {
-      return false;
+      keyboardDiagnostics.record(getActiveSession(), "android.keyboard-api-error", { errorType: error?.name });
     }
   };
 
-  const blurInput = (session) => {
+  const stopTouchScroll = (session) => {
+    const term = session?.term;
+    if (!term) return;
+    term.stopTouchInertia?.();
+    term.finishTouchScroll?.();
+    term.finishScrollbarDrag?.();
+    term.touchScrollMoved = false;
+    if (term.scrollAnimationFrame) windowObject.cancelAnimationFrame(term.scrollAnimationFrame);
+    term.scrollAnimationFrame = undefined;
+    term.scrollAnimationStartTime = undefined;
+    term.scrollAnimationStartY = undefined;
+    term.scrollAnimationLastFrameTime = undefined;
+  };
+
+  const blurInput = (session, { preserveTouchGesture = false } = {}) => {
+    keyboardDiagnostics.record(session, "blur.request", { preserveTouchGesture });
+    if (!preserveTouchGesture) touchGestureCancellations.get(session)?.();
     const textarea = session?.term?.textarea;
     const host = session?.terminalHost;
     const shell = session?.shellEl;
-    textarea?.blur?.();
-    host?.blur?.();
-    shell?.blur?.();
     const activeElement = documentObject.activeElement;
-    if (isHTMLElement(activeElement) && (host?.contains(activeElement) || shell?.contains(activeElement))) {
+    if (isHTMLElement(activeElement) && (activeElement === textarea || activeElement === host
+      || activeElement === shell || shell?.contains(activeElement))) {
       activeElement.blur();
+      // The textarea's blur listener owns its recovery. Other focused host
+      // elements only need recovery if keyboard viewport state still exists.
+      if (activeElement !== textarea) scheduleKeyboardDismissRecovery();
+      updateActiveTabTitle();
+      return true;
     }
-    updateActiveTabTitle();
-    scheduleKeyboardDismissRecovery();
+    if (session === getActiveSession() && isKeyboardViewportActive()) scheduleKeyboardDismissRecovery();
+    return false;
   };
 
   const focusInput = (session, {
@@ -321,22 +390,36 @@ export function createTerminalIMEController({
     focusSource = "user",
   } = {}) => {
     const textarea = session?.term?.textarea;
-    if (!textarea || disposed) {
+    keyboardDiagnostics.record(session, "focus.request", {
+      requestMobileKeyboard, forceMobileFocusTransition, focusSource,
+      connected: textarea?.isConnected, closed: session?.closed, disposed,
+      touchLayout: requiresTouchKeyboardDoubleTap(),
+    });
+    if (!textarea || disposed || session.closed || !textarea.isConnected) {
+      keyboardDiagnostics.record(session, "focus.rejected", { reason: "missing-disposed-closed-or-detached" });
       return false;
     }
-    if (requiresTouchKeyboardDoubleTap() && focusSource === "system") {
-      if (documentObject.activeElement !== textarea) {
-        return false;
-      }
-      positionInput(session);
-      resetHostViewport(session, { clean: true });
-      updateActiveTabTitle();
-      return true;
+    const touchLayout = requiresTouchKeyboardDoubleTap();
+    if (requestMobileKeyboard && session !== getActiveSession()) {
+      activateSession(session);
     }
-    if (requiresTouchKeyboardDoubleTap() && now() > Number(session?.allowMobileKeyboardFocusUntil || 0)) {
-      blurInput(session);
+    if (session !== getActiveSession()) {
+      keyboardDiagnostics.record(session, "focus.rejected", { reason: "inactive-session-after-activation" });
       return false;
     }
+    if (touchLayout && (!requestMobileKeyboard || focusSource === "system")
+      && documentObject.activeElement !== textarea) {
+      keyboardDiagnostics.record(session, "focus.rejected", { reason: "system-or-no-keyboard-request" });
+      return false;
+    }
+    if (requestMobileKeyboard) {
+      keyboardDiagnostics.record(session, "focus.cancel-interactions.begin");
+      touchGestureCancellations.get(session)?.();
+      cancelTouchInteraction(session);
+      stopTouchScroll(session);
+      keyboardDiagnostics.record(session, "focus.cancel-interactions.end");
+    }
+    cancelKeyboardDismissRecovery();
     const activateAndroidKeyboard = requestMobileKeyboard && isAndroidPlatform(navigatorObject);
     if (
       activateAndroidKeyboard
@@ -349,17 +432,31 @@ export function createTerminalIMEController({
     if (documentObject.activeElement !== textarea) {
       session.terminalInputAnchor = null;
     }
-    positionInput(session);
+    if (requestMobileKeyboard && touchLayout) {
+      syncInputLayout(session);
+    } else {
+      positionInput(session);
+    }
     const previousPointerEvents = textarea.style.pointerEvents;
     if (activateAndroidKeyboard) {
       textarea.style.pointerEvents = "auto";
     }
     try {
       try {
+        keyboardDiagnostics.record(session, "focus.dom-call", {
+          inlineStyle: {
+            top: textarea.style.top, transform: textarea.style.transform,
+            width: textarea.style.width, height: textarea.style.height,
+            pointerEvents: textarea.style.pointerEvents,
+          },
+          fixedMobileAnchor: textarea.classList.contains("terminal-input-mobile"),
+        });
         textarea.focus({ preventScroll: true });
       } catch (error) {
+        keyboardDiagnostics.record(session, "focus.preventScroll-error", { errorType: error?.name });
         textarea.focus();
       }
+      keyboardDiagnostics.record(session, "focus.dom-return");
       prepareTextareaForInput(session);
       if (requestMobileKeyboard) {
         requestAndroidSoftKeyboard(textarea);
@@ -369,8 +466,10 @@ export function createTerminalIMEController({
         textarea.style.pointerEvents = previousPointerEvents || "none";
       }
     }
-    resetHostViewport(session, { clean: true });
+    if (!requestMobileKeyboard || !touchLayout) resetHostViewport(session, { clean: true });
     updateActiveTabTitle();
+    keyboardDiagnostics.record(session, "focus.complete");
+    if (requestMobileKeyboard) keyboardDiagnostics.probe(session, "after-focus-request");
     return documentObject.activeElement === textarea;
   };
 
@@ -811,6 +910,7 @@ export function createTerminalIMEController({
       return;
     }
     host.removeAttribute("contenteditable");
+    host.removeAttribute("tabindex");
     detachHostCompositionListeners(session);
     const stopHostEditableInput = (event) => {
       if (event.target !== host) {
@@ -853,21 +953,73 @@ export function createTerminalIMEController({
     textarea.setAttribute("rows", "1");
     textarea.setAttribute("wrap", "off");
     term.focus = () => focusInput(session, { focusSource: "system" });
+    const pageFocusTouchEnds = new WeakSet();
+    let pageFocusMouse = null;
+    // Let the browser perform its default mouse focus for this initial tap,
+    // while skipping application handlers (including Ghostty's direct focus).
+    // stopImmediatePropagation intentionally does NOT cancel the default action.
+    for (const type of ["mousedown", "mouseup", "click"]) {
+      lifecycle.listen(session, shell, type, (event) => {
+        if (!pageFocusMouse || !requiresTouchKeyboardDoubleTap()) return;
+        if (now() - pageFocusMouse.at > 1000) {
+          pageFocusMouse = null;
+          return;
+        }
+        if (event.sourceCapabilities?.firesTouchEvents === false
+          || !event.isTrusted || event.button !== 0
+          || !isElement(event.target) || event.target.closest(".terminal-host") !== host
+          || Math.hypot(event.clientX - pageFocusMouse.x, event.clientY - pageFocusMouse.y) >= moveThresholdPx * 2) return;
+        event.stopImmediatePropagation();
+        keyboardDiagnostics.record(session, "tap.page-default-mouse", {
+          ageMs: now() - pageFocusMouse.at,
+          firesTouchEvents: event.sourceCapabilities?.firesTouchEvents,
+        }, event);
+        if (type === "click") pageFocusMouse = null;
+      }, { capture: true, passive: true });
+    }
+    // Keep Ghostty's scrolling cleanup, but let IME exclusively decide whether
+    // a touch opens the keyboard. In particular, a first tap must not focus
+    // the textarea only for a later listener to blur it again.
+    const ghosttyTouchEnd = term.handleTouchEnd;
+    if (typeof ghosttyTouchEnd === "function") {
+      host.removeEventListener("touchend", ghosttyTouchEnd, { capture: true });
+      lifecycle.listen(session, host, "touchend", (event) => {
+        if (requiresTouchKeyboardDoubleTap()) {
+          if (pageFocusTouchEnds.has(event)) {
+            term.finishTouchScroll?.();
+            keyboardDiagnostics.record(session, "tap.page-default-host", {}, event);
+            return;
+          }
+          if (claimedTouchEnds.has(event)) {
+            stopTouchScroll(session);
+            if (event.cancelable) event.preventDefault();
+            return;
+          }
+          if (term.touchScrollActive && !term.touchScrollMoved && !term.isDraggingScrollbar) {
+            term.finishTouchScroll?.();
+            if (event.cancelable) event.preventDefault();
+            return;
+          }
+        }
+        ghosttyTouchEnd.call(term, event);
+      }, { capture: true, passive: false });
+    }
     lifecycle.listen(session, textarea, "focus", () => {
-      positionInput(session);
+      keyboardDiagnostics.record(session, "textarea.focus");
+      cancelKeyboardDismissRecovery();
+      if (requiresTouchKeyboardDoubleTap()) syncInputLayout(session);
+      else positionInput(session);
       updateActiveTabTitle();
     });
     lifecycle.listen(session, textarea, "blur", () => {
+      keyboardDiagnostics.record(session, "textarea.blur");
       session.terminalInputAnchor = null;
       releaseInputViewportLock(session);
       updateActiveTabTitle();
-      scheduleKeyboardDismissRecovery();
+      scheduleKeyboardDismissRecovery({ hadInputFocus: true });
     });
-    let lastMobileTapAt = 0;
-    let lastMobileTapX = 0;
-    let lastMobileTapY = 0;
+    let lastMobileTap = null;
     let mobileTapTouchState = null;
-    let mobileTapFinishState = null;
     lifecycle.listen(session, host, "keydown", () => {
       if (shouldReassertInputSize(session)) {
         reassertSize(session);
@@ -951,6 +1103,7 @@ export function createTerminalIMEController({
     }, { capture: true });
     const isTerminalTouchTarget = (target) => isElement(target) && target.closest(".terminal-host") === host;
     const claimCurrentDeviceTerminalSize = (event) => {
+      if (event.pointerType === "mouse") pageFocusMouse = null;
       if (
         !isTerminalTouchTarget(event.target)
         || event.isPrimary === false
@@ -965,24 +1118,33 @@ export function createTerminalIMEController({
       if (event.pointerType === "touch" || event.pointerType === "pen") {
         return;
       }
-      if (requiresTouchKeyboardDoubleTap()) {
-        session.allowMobileKeyboardFocusUntil = now() + focusAllowWindowMs;
-      }
-      lifecycle.frame(session, () => focusInput(session));
+      if (requiresTouchKeyboardDoubleTap()) focusInput(session, { requestMobileKeyboard: true });
+      else lifecycle.frame(session, () => focusInput(session));
     });
     const startMobileTap = (event) => {
-      mobileTapFinishState = null;
+      keyboardDiagnostics.record(session, "tap.start", {
+        touchLayout: requiresTouchKeyboardDoubleTap(), terminalTarget: isTerminalTouchTarget(event.target),
+      }, event);
       if (!requiresTouchKeyboardDoubleTap() || event.touches.length !== 1 || !isTerminalTouchTarget(event.target)) {
         mobileTapTouchState = null;
+        lastMobileTap = null;
         return;
       }
       claimCurrentDeviceSize(session);
-      blurInput(session);
+      keyboardDiagnostics.record(session, "tap.size-claim-return", {}, event);
       const touch = event.touches[0];
-      mobileTapTouchState = { startX: touch.clientX, startY: touch.clientY, moved: false };
+      mobileTapTouchState = {
+        identifier: touch.identifier,
+        startX: touch.clientX,
+        startY: touch.clientY,
+        moved: false,
+      };
     };
     const moveMobileTap = (event) => {
-      if (!mobileTapTouchState || event.touches.length !== 1) {
+      if (!mobileTapTouchState) return;
+      if (event.touches.length !== 1 || event.touches[0].identifier !== mobileTapTouchState.identifier) {
+        mobileTapTouchState = null;
+        lastMobileTap = null;
         return;
       }
       const touch = event.touches[0];
@@ -990,33 +1152,59 @@ export function createTerminalIMEController({
         Math.abs(touch.clientX - mobileTapTouchState.startX) >= moveThresholdPx
         || Math.abs(touch.clientY - mobileTapTouchState.startY) >= moveThresholdPx
       ) {
+        if (!mobileTapTouchState.moved) keyboardDiagnostics.record(session, "tap.move-rejected", {
+          dx: touch.clientX - mobileTapTouchState.startX, dy: touch.clientY - mobileTapTouchState.startY,
+        }, event);
+        if (!mobileTapTouchState.moved) blurInput(session, { preserveTouchGesture: true });
         mobileTapTouchState.moved = true;
+        lastMobileTap = null;
       }
     };
     const finishMobileTap = (event) => {
+      keyboardDiagnostics.record(session, "tap.end", {
+        touchLayout: requiresTouchKeyboardDoubleTap(),
+        state: mobileTapTouchState ? { ...mobileTapTouchState } : null,
+        previousTap: lastMobileTap ? { ...lastMobileTap } : null,
+      }, event);
       if (!requiresTouchKeyboardDoubleTap() || !mobileTapTouchState) {
+        keyboardDiagnostics.record(session, "tap.rejected", { reason: "no-touch-layout-or-start-state" }, event);
         mobileTapTouchState = null;
+        lastMobileTap = null;
         return;
       }
       const touch = event.changedTouches?.[0] || event.touches?.[0] || null;
       const state = mobileTapTouchState;
       mobileTapTouchState = null;
-      if (!touch || state.moved) {
-        mobileTapFinishState = null;
+      const currentTime = eventTime(event);
+      if (
+        !touch || touch.identifier !== state.identifier || state.moved
+        || Math.abs(touch.clientX - state.startX) >= moveThresholdPx
+        || Math.abs(touch.clientY - state.startY) >= moveThresholdPx
+      ) {
+        keyboardDiagnostics.record(session, "tap.rejected", { reason: "missing-touch-identifier-or-movement" }, event);
+        lastMobileTap = null;
         return;
       }
-      const currentTime = now();
-      const dx = touch.clientX - lastMobileTapX;
-      const dy = touch.clientY - lastMobileTapY;
-      const isDoubleTap = currentTime - lastMobileTapAt <= doubleTapDelayMs && Math.hypot(dx, dy) < moveThresholdPx * 2;
-      lastMobileTapAt = currentTime;
-      lastMobileTapX = touch.clientX;
-      lastMobileTapY = touch.clientY;
-      mobileTapFinishState = { event, isDoubleTap };
+      const elapsed = lastMobileTap ? currentTime - lastMobileTap.at : Infinity;
+      const isDoubleTap = elapsed >= 0 && elapsed <= doubleTapDelayMs
+        && Math.hypot(touch.clientX - lastMobileTap.x, touch.clientY - lastMobileTap.y) < moveThresholdPx * 2;
+      keyboardDiagnostics.record(session, "tap.classified", {
+        isDoubleTap, elapsedMs: Number.isFinite(elapsed) ? elapsed : null,
+        distancePx: lastMobileTap ? Math.hypot(touch.clientX - lastMobileTap.x, touch.clientY - lastMobileTap.y) : null,
+        doubleTapDelayMs, moveThresholdPx,
+      }, event);
       if (!isDoubleTap) {
+        lastMobileTap = { at: currentTime, x: touch.clientX, y: touch.clientY };
+        blurInput(session, { preserveTouchGesture: true });
+        if (!documentObject.hasFocus() && !event.defaultPrevented
+          && !term.touchScrollMoved && !term.isDraggingScrollbar) {
+          pageFocusTouchEnds.add(event);
+          pageFocusMouse = { at: now(), x: touch.clientX, y: touch.clientY };
+          keyboardDiagnostics.record(session, "tap.page-default-offered", {}, event);
+        }
         return;
       }
-      session.allowMobileKeyboardFocusUntil = currentTime + focusAllowWindowMs;
+      lastMobileTap = null;
       claimedTouchEnds.add(event);
       focusInput(session, {
         requestMobileKeyboard: true,
@@ -1026,23 +1214,21 @@ export function createTerminalIMEController({
         event.preventDefault();
       }
     };
-    const settleMobileTap = (event) => {
-      const finishState = mobileTapFinishState;
-      mobileTapFinishState = null;
-      if (finishState?.event === event && !finishState.isDoubleTap) {
-        blurInput(session);
-      }
-    };
     const cancelMobileTap = () => {
+      keyboardDiagnostics.record(session, "tap.state-cleared", {
+        hadStart: Boolean(mobileTapTouchState), hadPreviousTap: Boolean(lastMobileTap),
+      });
       mobileTapTouchState = null;
-      mobileTapFinishState = null;
+      lastMobileTap = null;
     };
+    touchGestureCancellations.set(session, cancelMobileTap);
     lifecycle.listen(session, shell, "touchstart", startMobileTap, { capture: true, passive: true });
     lifecycle.listen(session, shell, "touchmove", moveMobileTap, { capture: true, passive: true });
     lifecycle.listen(session, shell, "touchend", finishMobileTap, { capture: true, passive: false });
-    lifecycle.listen(session, shell, "touchend", settleMobileTap);
     lifecycle.listen(session, shell, "touchcancel", cancelMobileTap, { capture: true, passive: true });
+    prepareTextareaForInput(session);
     positionInput(session);
+    lifecycle.frame(session, () => positionInput(session));
   };
 
   const installHostViewportGuard = (session) => {
@@ -1069,6 +1255,8 @@ export function createTerminalIMEController({
     setComposing(session, false);
     session.pendingCompositionInput = null;
     session.terminalInputAnchor = null;
+    touchGestureCancellations.get(session)?.();
+    touchGestureCancellations.delete(session);
     installedSessions.delete(session);
     return lifecycle.disposeSession(session);
   };
@@ -1093,6 +1281,12 @@ export function createTerminalIMEController({
       installInputFocus(session);
       installKeyOverrides(session);
       installHostViewportGuard(session);
+      keyboardDiagnostics.record(session, "session.installed", {
+        connected: session.term?.textarea?.isConnected,
+        hostTabIndex: session.terminalHost?.getAttribute("tabindex"),
+        hostContentEditable: session.terminalHost?.getAttribute("contenteditable"),
+      });
+      keyboardDiagnostics.probe(session, "session-installed");
       return true;
     },
     resetHostViewport,
@@ -1116,35 +1310,28 @@ export function createTerminalIMEController({
       if (!targetSession?.term?.textarea) {
         return false;
       }
-      targetSession.allowMobileKeyboardFocusUntil = now() + focusAllowWindowMs;
       return focusInput(targetSession, { requestMobileKeyboard: true });
     },
     focusForNativePaste(session = getActiveSession()) {
       if (!session?.term || session.closed) {
         return false;
       }
-      if (requiresTouchKeyboardDoubleTap()) {
-        session.allowMobileKeyboardFocusUntil = now() + focusAllowWindowMs;
-      }
       return focusInput(session, { requestMobileKeyboard: true });
     },
     shouldPreserveKeyboardForShortcut(shortcut) {
       return String(shortcut?.action || "") !== "open_mobile_menu";
     },
-    isKeyboardActive(session = getActiveSession()) {
+    // Shortcut interaction protection includes focus while the keyboard is
+    // opening. It is deliberately not a claim that the OS keyboard is visible.
+    shouldPreserveInputFocus(session = getActiveSession()) {
       if (!isTouchShortcutLayout()) {
         return false;
       }
       const textarea = session?.term?.textarea;
       return Boolean(textarea && (documentObject.activeElement === textarea || isKeyboardViewportActive()));
     },
-    setFocusAllowance(session, until) {
-      if (session) {
-        session.allowMobileKeyboardFocusUntil = Number(until || 0);
-      }
-    },
-    consumeKeyboardClaim(event) {
-      return claimedTouchEnds.delete(event);
+    isKeyboardClaimed(event) {
+      return claimedTouchEnds.has(event);
     },
     disposeSession,
     dispose() {
@@ -1156,6 +1343,7 @@ export function createTerminalIMEController({
         disposeSession(session);
       }
       lifecycle.dispose();
+      keyboardDiagnostics.dispose();
       return true;
     },
   });

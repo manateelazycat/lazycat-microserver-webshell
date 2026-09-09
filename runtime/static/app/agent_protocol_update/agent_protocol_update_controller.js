@@ -2,6 +2,7 @@ import { createAgentProtocolUpdateAPI } from "./agent_protocol_update_api.js";
 import { createAgentProtocolUpdateView } from "./agent_protocol_update_view.js";
 
 const confirmationMessage = "将更新并重启当前终端服务。当前所有终端会话及正在运行的任务会被中断。确认继续吗？";
+const translate = (key) => typeof globalThis.$t === "function" ? globalThis.$t(key) : key;
 
 export function createAgentProtocolUpdateController({
   windowObject = globalThis.window,
@@ -70,10 +71,10 @@ export function createAgentProtocolUpdateController({
     let confirmed = false;
     try {
       confirmed = await openDialog({
-        title: "更新终端服务协议",
-        message: confirmationMessage,
-        okText: "确认更新",
-        cancelText: "取消",
+        title: translate("更新终端服务协议"),
+        message: translate(confirmationMessage),
+        okText: translate("确认更新"),
+        cancelText: translate("取消"),
         danger: true,
         initialFocus: "cancel",
       }) === true;
@@ -107,11 +108,11 @@ export function createAgentProtocolUpdateController({
       };
       render();
       appendDebugLog("终端服务协议更新完成", currentProtocolVersion || "unknown");
-      showToast("终端服务协议已更新，1 秒后重新连接。");
+      showToast(translate("终端服务协议已更新，1 秒后重新连接。"));
       scheduleForcedReload();
       return true;
     } catch (error) {
-      const message = String(error?.message || "终端服务协议更新失败").trim();
+      const message = String(error?.message || translate("终端服务协议更新失败")).trim();
       appendDebugError("终端服务协议更新失败", message);
       showToast(message);
       return false;

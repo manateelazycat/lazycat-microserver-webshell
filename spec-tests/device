@@ -12,7 +12,7 @@ if (!informational && args.some((arg) => ["open", "replay", "test", "batch", "mc
 }
 const { config, env } = await deviceConfiguration();
 const child = spawn(path.join(projectRoot, "node_modules/.bin/agent-device"),
-  ["--state-dir", config.agentDeviceStateDir, ...process.argv.slice(2)], { cwd: projectRoot, env, stdio: "inherit" });
+  process.argv.slice(2), { cwd: projectRoot, env, stdio: "inherit" });
 process.once("SIGINT", () => child.kill("SIGINT"));
 process.once("SIGTERM", () => child.kill("SIGTERM"));
 child.once("error", () => { console.error("agent-device could not start; run npm ci in spec-tests"); process.exitCode = 1; });

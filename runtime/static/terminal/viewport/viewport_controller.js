@@ -102,8 +102,10 @@ export function createTerminalMobileViewportController({
     const preview = session?.compositionPreview;
     for (const node of [canvas, textarea, preview]) {
       if (isHTMLElement(node)) {
-        node.style.transform = transform;
-        node.style.willChange = transform ? "transform" : "";
+        const nodeTransform = node === textarea && isTouchShortcutLayout() ? "" : transform;
+        const willChange = nodeTransform ? "transform" : "";
+        if (node.style.transform !== nodeTransform) node.style.transform = nodeTransform;
+        if (node.style.willChange !== willChange) node.style.willChange = willChange;
       }
     }
     return panY;
@@ -424,7 +426,7 @@ export function createTerminalMobileViewportController({
   };
 
   const runMobileKeyboardDismissRecoveryPass = (seq, { force = false } = {}) => {
-    if (seq !== mobileKeyboardDismissRecoverySeq || !usesMobileViewportInsets()) {
+    if (disposed || seq !== mobileKeyboardDismissRecoverySeq || !usesMobileViewportInsets() || isTerminalTextareaFocused()) {
       return;
     }
     syncMobileVisualViewport({ detectOrientation: false });
@@ -433,16 +435,27 @@ export function createTerminalMobileViewportController({
     }
   };
 
-  const scheduleMobileKeyboardDismissRecovery = () => {
-    if (!usesMobileViewportInsets()) {
+  const cancelMobileKeyboardDismissRecovery = ({ cancelInputRelease = true } = {}) => {
+    mobileKeyboardDismissRecoverySeq += 1;
+    for (const delay of mobileKeyboardDismissRecoveryDelays) {
+      lifecycle.clearTimeout(`mobile-keyboard-dismiss:${delay}`);
+    }
+    if (cancelInputRelease) lifecycle.clearFrame("terminal-input-lock-release");
+  };
+
+  const scheduleMobileKeyboardDismissRecovery = ({ hadInputFocus = false } = {}) => {
+    if (disposed || !usesMobileViewportInsets() || isTerminalTextareaFocused()) {
       return false;
     }
-    mobileKeyboardDismissRecoverySeq += 1;
+    if (!hadInputFocus && !mobileKeyboardViewportActive && mobileKeyboardInsetBottom === 0) {
+      return false;
+    }
+    cancelMobileKeyboardDismissRecovery({ cancelInputRelease: false });
     const seq = mobileKeyboardDismissRecoverySeq;
     const lastDelay = mobileKeyboardDismissRecoveryDelays[mobileKeyboardDismissRecoveryDelays.length - 1] || 0;
     for (const delay of mobileKeyboardDismissRecoveryDelays) {
       lifecycle.timeout(
-        `mobile-keyboard-dismiss:${seq}:${delay}`,
+        `mobile-keyboard-dismiss:${delay}`,
         () => runMobileKeyboardDismissRecoveryPass(seq, { force: delay === lastDelay }),
         delay,
       );
@@ -725,6 +738,7 @@ export function createTerminalMobileViewportController({
     captureInputLock: captureTerminalInputViewportLock,
     releaseInputLock: releaseTerminalInputViewportLock,
     scheduleKeyboardDismissRecovery: scheduleMobileKeyboardDismissRecovery,
+    cancelKeyboardDismissRecovery: cancelMobileKeyboardDismissRecovery,
     handleLayoutChange() {
       if (isForcePCModeActive()) {
         lifecycle.clearTimeout("mobile-keyboard-dock-move");
@@ -740,6 +754,8 @@ export function createTerminalMobileViewportController({
       keyboardActive: mobileKeyboardViewportActive,
       resizeSuppressed: isMobileKeyboardResizeSuppressed(),
       orientation: lastMobileViewportOrientation,
+      dismissRecoverySequence: mobileKeyboardDismissRecoverySeq,
+      resizeSuppressedUntil: mobileKeyboardResizeSuppressedUntil,
       geometryGeneration: viewportGeometryGeneration,
       geometryPending: Boolean(pendingViewportGeometry),
       geometry: lastViewportGeometry,

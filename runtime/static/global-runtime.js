@@ -153,6 +153,7 @@ import {
   createServerRevisionController,
 } from "./app/index.js";
 import { createSVGIconFactory } from "./ui/icons/index.js";
+import { createI18nRuntime } from "./i18n.js";
 import {
   isIndependentClient,
   openConfigurationPage,
@@ -164,6 +165,14 @@ const ghosttyWASMURL = new URL("./ghostty-vt.wasm", import.meta.url).toString();
 const params = new URLSearchParams(globalThis.window?.location?.search || "");
 
 export function startGlobalRuntime() {
+  const i18n = createI18nRuntime({
+    root: document,
+    autoApply: true,
+    observe: true,
+  });
+  if (typeof globalThis !== "undefined") {
+    globalThis.$t = i18n.t;
+  }
   restoreInitialWorkspaceLocation({ windowObject: window, searchParams: params });
   const isEmbedMode = params.has("embed");
   document.body?.classList.toggle("is-embed-mode", isEmbedMode);
@@ -230,7 +239,6 @@ export function startGlobalRuntime() {
     mobileSelectionAutoScrollIntervalMs,
     mobileSelectionAutoScrollMaxLines,
     mobileKeyboardDoubleTapDelayMs,
-    mobileKeyboardFocusAllowWindowMs,
     mobileKeyboardFocusPrompt,
     desktopSelectionCopyMoveThresholdPx,
     terminalSizeReassertIntervalMs,
@@ -1039,16 +1047,10 @@ export function startGlobalRuntime() {
     isTouchLayout: () => isTouchShortcutLayout(),
     requiresTouchKeyboardDoubleTap: () => requiresTouchKeyboardDoubleTap(),
     isDeferredTouchClickSession: (session) => isGrokTerminalSession(session),
-    blurInput: (session) => terminalIME?.blurInput(session),
-    requestTouchKeyboard: (session) => terminalIME?.focusInput(session, {
-      requestMobileKeyboard: true,
-      forceMobileFocusTransition: true,
-    }),
-    setTouchKeyboardFocusAllowance: (session, until) => terminalIME?.setFocusAllowance(session, until),
+    isKeyboardClaimed: (event) => terminalIME?.isKeyboardClaimed(event) === true,
     registerSessionCleanup: (session, cleanup) => terminalSessionController?.addCleanup(session, cleanup),
     moveThresholdPx: touchShortcutMoveThresholdPx,
-    doubleTapDelayMs: mobileKeyboardDoubleTapDelayMs,
-    focusAllowWindowMs: mobileKeyboardFocusAllowWindowMs,
+    tapDurationMs: mobileKeyboardDoubleTapDelayMs,
   });
 
   terminalSelection = createTerminalSelectionController({
@@ -1062,6 +1064,7 @@ export function startGlobalRuntime() {
     isMobileMenuOpen: () => terminalInteraction?.isMobileOpen() === true,
     refreshMobileMenu: () => renderMobileActionSheet(),
     blurInput: (session) => terminalIME?.blurInput(session),
+    isKeyboardClaimed: (event) => terminalIME?.isKeyboardClaimed(event) === true,
     activateSession: (session) => {
       const tab = tabs.get(session?.tabId);
       if (tab && session?.id) {
@@ -1330,7 +1333,7 @@ export function startGlobalRuntime() {
     connectPendingSession: (session) => terminalTransportRuntime?.connectPendingSession(session),
     checkSessionHealth: (session, options) => terminalSessionConnection?.checkHealth(session, options),
     syncConnectionDemands: (options) => terminalTransportRuntime?.syncConnectionDemands(options),
-    postWorkspaceAction: (action, payload) => postWorkspaceAction(action, payload),
+    postWorkspaceAction: (action, payload, options) => postWorkspaceAction(action, payload, options),
     showToast: (message) => showToast(message),
     lifecycleOptions: { windowObject: window },
   });
@@ -1529,6 +1532,7 @@ export function startGlobalRuntime() {
     isApplyingWorkspaceState,
     isCurrentSession: (session) => isCurrentInstanceSession(session),
     isReplayRetryPaused: (session) => terminalReplay.isRetryPaused(session),
+    isReplayCommitted: (session) => terminalReplay.isCommitted(session),
     getUnifiedTransport: () => terminalUnifiedTransport,
     resizeSession: (session, options) => terminalResize.resizePane(session, options),
     isSessionMeasurable: (session) => terminalResize.isMeasurable(session),
@@ -1598,7 +1602,15 @@ export function startGlobalRuntime() {
     windowObject: window,
     documentObject: document,
     navigatorObject: navigator,
+    appendDiagnosticLog: (level, title, details, options) => appendDebugLog(level, title, details, options),
+    getViewportSnapshot: () => terminalViewport?.snapshot(),
     getActiveSession: () => activeSession(),
+    activateSession: (session) => {
+      const tab = tabs.get(session?.tabId);
+      if (tab?.id === getActiveTabId()) {
+        setActivePane(tab, session.id, { focus: false, resize: false, syncConnection: false });
+      }
+    },
     getTerminalFontSize: () => settings?.getTerminalFontSize(),
     getTerminalFontFamily: () => terminalOptionsBase.fontFamily,
     getTheme: () => appearance.getActiveTheme(),
@@ -1608,7 +1620,12 @@ export function startGlobalRuntime() {
     updateActiveTabTitle: () => updateMobileActiveTabTitle(),
     captureInputViewportLock: (session) => terminalViewport?.captureInputLock(session),
     releaseInputViewportLock: (session, options) => terminalViewport?.releaseInputLock(session, options),
-    scheduleKeyboardDismissRecovery: () => terminalViewport?.scheduleKeyboardDismissRecovery(),
+    scheduleKeyboardDismissRecovery: (options) => terminalViewport?.scheduleKeyboardDismissRecovery(options),
+    cancelKeyboardDismissRecovery: () => terminalViewport?.cancelKeyboardDismissRecovery(),
+    cancelTouchInteraction: (session) => {
+      terminalSelection?.cancelTouchInteraction(session);
+      terminalTUIAdapterInstaller?.cancelTouchInteraction(session);
+    },
     reassertSize: (session, options) => terminalResize?.reassertSize(session, options),
     claimCurrentDeviceSize: (session) => terminalResize?.claimForCurrentDevice(session),
     scrollToBottom: (session) => scrollTerminalToBottomForUserInput(session),
@@ -1623,7 +1640,6 @@ export function startGlobalRuntime() {
     registerSessionCleanup: (session, cleanup) => terminalSessionController?.addCleanup(session, cleanup),
     moveThresholdPx: touchShortcutMoveThresholdPx,
     doubleTapDelayMs: mobileKeyboardDoubleTapDelayMs,
-    focusAllowWindowMs: mobileKeyboardFocusAllowWindowMs,
   });
 
   mobileShortcutsController = createMobileShortcutsController({
@@ -1650,7 +1666,6 @@ export function startGlobalRuntime() {
     HTMLElementCtor: globalThis.HTMLElement,
     performanceObject: globalThis.performance,
     touchMoveThresholdPx: touchShortcutMoveThresholdPx,
-    keyboardFocusAllowWindowMs: mobileKeyboardFocusAllowWindowMs,
   });
 
   terminalOutput = createTerminalOutputController({
@@ -1754,7 +1769,7 @@ export function startGlobalRuntime() {
     beginTabInteractiveResize: (tab) => terminalResize?.beginTabInteractiveResize(tab),
     updateTabInteractiveResize: (tab) => terminalResize?.updateTabInteractiveResize(tab),
     endTabInteractiveResize: (tab) => terminalResize?.endTabInteractiveResize(tab),
-    postWorkspaceAction: (action, payload) => postWorkspaceAction(action, payload),
+    postWorkspaceAction: (action, payload, options) => postWorkspaceAction(action, payload, options),
     showToast: (message) => showToast(message),
   });
 

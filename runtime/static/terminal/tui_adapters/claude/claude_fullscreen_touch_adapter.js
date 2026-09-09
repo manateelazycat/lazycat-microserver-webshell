@@ -17,7 +17,7 @@ export const installClaudeFullscreenTouchAdapter = ({
   stopSelectionAutoScroll,
   clearSelectionIfTapOutside,
   hasSelection,
-  consumeKeyboardClaim,
+  isKeyboardClaimed,
   prepareMouseInput,
   rowHeight,
   sendWheel,
@@ -177,7 +177,7 @@ export const installClaudeFullscreenTouchAdapter = ({
       return;
     }
     const touch = activeTouch(event, true);
-    const keyboardClaimed = consumeKeyboardClaim(event);
+    const keyboardClaimed = isKeyboardClaimed(event);
     stopEvent(event, { preventDefault: !keyboardClaimed });
     if (event.type === "touchcancel" || !touch) {
       const wasSelecting = snapshot.phase === "selecting";
@@ -221,4 +221,5 @@ export const installClaudeFullscreenTouchAdapter = ({
     shell.removeEventListener("touchcancel", finishTouch, { capture: true });
     clearState();
   });
+  return clearState;
 };

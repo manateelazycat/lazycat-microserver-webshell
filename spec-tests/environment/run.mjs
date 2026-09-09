@@ -47,7 +47,7 @@ try {
   if (typeof scenario.run !== "function") throw new Error("Scenario must export run(environment)");
   timer = setTimeout(() => abort(new Error(`Scenario exceeded ${timeout} seconds`)), timeout * 1000);
   const execution = async () => {
-    environment = await createEnvironment({ ...options, desktopOnly: scenario.desktopOnly, targetKind: scenario.targetKind, beforeNavigate: scenario.beforeNavigate, serviceWorkers:scenario.serviceWorkers,
+    environment = await createEnvironment({ ...options, desktopOnly: scenario.desktopOnly, performanceMode: scenario.performanceMode, targetKind: scenario.targetKind, beforeNavigate: scenario.beforeNavigate, serviceWorkers:scenario.serviceWorkers,
       onEvent: (event) => {
         if (["skip", "skipped"].includes(event.status) || String(event.action).includes("-skipped")) skippedEvents.push(event);
       },

@@ -10,6 +10,7 @@ export function createTerminalTransportRuntimeLifecycle({
   const measurementFrames = new WeakMap();
   const measurementAttempts = new WeakMap();
   let syncScheduled = false;
+  let syncTimer = 0;
   let disposed = false;
 
   const clearPriorityDecay = (session) => {
@@ -159,6 +160,8 @@ export function createTerminalTransportRuntimeLifecycle({
       return false;
     }
     disposed = true;
+    if (syncTimer) windowObject?.clearTimeout?.(syncTimer);
+    syncTimer = 0;
     syncScheduled = false;
     for (const session of sessions) {
       clearPriorityDecay(session);
@@ -182,6 +185,14 @@ export function createTerminalTransportRuntimeLifecycle({
     scheduleMeasurement,
     schedulePriorityDecay,
     scheduleSync,
+    scheduleDeferredSync(callback, delay = 250) {
+      if (disposed || syncTimer) return false;
+      syncTimer = windowObject?.setTimeout?.(() => {
+        syncTimer = 0;
+        if (!disposed) callback();
+      }, delay) || 0;
+      return Boolean(syncTimer);
+    },
     scheduleUnifiedRetry,
   });
 }

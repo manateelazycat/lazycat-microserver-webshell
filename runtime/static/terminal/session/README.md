@@ -32,6 +32,7 @@ controller 公开：
 
 - `session_controller.js` 唯一持有 pane ID 序列，并组合 state 与 lifecycle。
 - `session_state.js` 只创建初始状态；每次调用都生成独立数组、Promise 和子控制器。
+- `terminalExitRetained` 记录当前页面已经观察到 Agent 保留的异常退出终态；它阻止后续 workspace apply 重新连接同一失效 pane，但不阻止刷新页面后的首次历史回放。
 - `session_lifecycle.js` 通过模块私有 `WeakMap`/`WeakSet` 持有 cleanup 与 disposed 状态。
 - transport、replay 和 `client:` 兼容历史字段暂时保持扁平；input、output、resize 和 presentation 字段虽然仍由 session state 提供初值，但只允许对应 controller 修改，其他模块必须使用公开 API。`resizeConnectionEpoch` 与 `resizeConnectionTransitionPending` 也只由 resize controller 修改；session state 仅把它们初始化为无连接状态，transport 不直接写入。
 
@@ -54,7 +55,7 @@ controller 公开：
 ## 文件清单
 
 - `index.js`：唯一公开入口。
-- `resource_factory.js`：创建 pane DOM、Ghostty Terminal/FitAddon、保帧 Canvas 和 IME 节点；不拥有 session 状态或资源清理。
+- `resource_factory.js`：创建 pane DOM、Ghostty Terminal/FitAddon、保帧 Canvas 和 IME 节点；不拥有 session 状态或资源清理。资源创建时禁止初始化聚焦，host 移除 contenteditable/tabindex，之后由 IME 安装唯一输入聚焦入口。
 - `session_controller.js`：ID、初始尺寸、资源 factory、state 和 lifecycle 的组合控制器，并提供单个/批量销毁入口。
 - `session_installation_controller.js`：presentation、output、IME、renderer、selection、TUI、mouse、clipboard、应用 paste、resize、input、context menu 和 transport 的显式安装编排；terminal host 的 paste listener 只把事件转发给注入的应用 paste controller，并维护 presentation-ready 到 input/diagnostics/transport 的局部接线。
 - `session_installation_lifecycle.js`：pane 激活、focus 和 terminal host 原生 paste 转发 listener 的注册、迟到回调 guard 与清理。

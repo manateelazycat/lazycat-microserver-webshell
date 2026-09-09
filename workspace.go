@@ -121,6 +121,7 @@ type terminalPane struct {
 	exited                     bool
 	exitCode                   int
 	exitText                   string
+	exitRetained               bool
 	done                       chan struct{}
 }
 
@@ -131,6 +132,7 @@ type paneClient struct {
 
 	mu          sync.Mutex
 	queuedBytes int
+	pending     []paneOutbound
 }
 
 type paneOutbound struct {
@@ -204,6 +206,30 @@ type paneSummary struct {
 	ActivityCheckedAt int64  `json:"activity_checked_at,omitempty"`
 	Exited            bool   `json:"exited"`
 	ExitCode          int    `json:"exit_code"`
+	ExitMessage       string `json:"exit_message,omitempty"`
+	ExitRetained      bool   `json:"exit_retained,omitempty"`
+}
+
+type paneExitSnapshot struct {
+	exited   bool
+	exitCode int
+	message  string
+	retained bool
+}
+
+func (e paneExitSnapshot) controlPayload(selector, paneID string) map[string]any {
+	payload := map[string]any{
+		"type":          "process-exit",
+		"exit_code":     e.exitCode,
+		"authoritative": true,
+		"selector":      selector,
+		"pane_id":       paneID,
+		"retained":      e.retained,
+	}
+	if e.message != "" {
+		payload["message"] = e.message
+	}
+	return payload
 }
 
 type workspaceActionRequest struct {
@@ -1149,7 +1175,29 @@ func (w *terminalWorkspace) updateLayoutLocked(tabID string, layout *layoutNode,
 	return nil
 }
 
-func (w *terminalWorkspace) handlePaneExited(paneID string) {
+func (w *terminalWorkspace) retainFailedFinalPane(paneID string, exitCode int) bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	for _, tab := range w.tabs {
+		if tab.hasPane(paneID) {
+			// Keep an abnormally exited final pane as a stable failure result. If it
+			// were removed, ensureWorkspaceLocked would create another default pane
+			// on the next state request and a startup failure would oscillate forever.
+			if exitCode != 0 && len(w.tabs) == 1 && len(tab.PaneIDs) == 1 {
+				if pane := w.panes[paneID]; pane != nil {
+					pane.mu.Lock()
+					pane.exitRetained = true
+					pane.mu.Unlock()
+				}
+				return true
+			}
+			return false
+		}
+	}
+	return false
+}
+
+func (w *terminalWorkspace) removePaneAfterExit(paneID string) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	for _, tab := range w.tabs {
@@ -1385,14 +1433,19 @@ if [ -n "$xdg_runtime_dir" ]; then
 else
   unset XDG_RUNTIME_DIR
 fi
-if command -v setpriv >/dev/null 2>&1; then
+current_uid=$(id -u 2>/dev/null || true)
+current_gid=$(id -g 2>/dev/null || true)
+if [ "$current_uid" = "$uid" ] && [ "$current_gid" = "$gid" ]; then
+  exec env HOME="$home" USER="$user" LOGNAME="$user" SHELL="$__webshell_shell" XDG_CONFIG_HOME="$xdg_config_home" "$__webshell_shell"
+fi
+if command -v setpriv >/dev/null 2>&1 && setpriv --reuid "$uid" --regid "$gid" --init-groups /bin/sh -c ':' 2>/dev/null; then
   exec env HOME="$home" USER="$user" LOGNAME="$user" SHELL="$__webshell_shell" XDG_CONFIG_HOME="$xdg_config_home" setpriv --reuid "$uid" --regid "$gid" --init-groups "$__webshell_shell"
 fi
 if command -v su >/dev/null 2>&1; then
   export HOME="$home" USER="$user" LOGNAME="$user" SHELL="$__webshell_shell"
   exec su -s "$__webshell_shell" "$user"
 fi
-echo "setpriv or su is required for webshell login session."
+echo "webshell cannot switch to the configured login user: setpriv is not permitted and su is unavailable."
 exit 127
 `
 }
@@ -2213,18 +2266,6 @@ func (p *terminalPane) markExited(err error) {
 	if err != nil && !errors.Is(err, os.ErrProcessDone) {
 		exitText = err.Error()
 	}
-	payload := map[string]any{
-		"type":          "process-exit",
-		"exit_code":     exitCode,
-		"authoritative": true,
-		"selector":      p.selector,
-		"pane_id":       p.id,
-	}
-	if exitText != "" {
-		payload["message"] = exitText
-	}
-	data, _ := json.Marshal(payload)
-
 	var clients []*paneClient
 	p.mu.Lock()
 	if !p.exited {
@@ -2236,11 +2277,16 @@ func (p *terminalPane) markExited(err error) {
 		}
 	}
 	p.mu.Unlock()
+	retained := p.workspace.retainFailedFinalPane(p.id, exitCode)
+	exit := paneExitSnapshot{exited: true, exitCode: exitCode, message: exitText, retained: retained}
+	data, _ := json.Marshal(exit.controlPayload(p.selector, p.id))
 
 	for _, client := range clients {
 		client.enqueue(paneOutbound{messageType: websocket.TextMessage, payload: data, closeAfter: true})
 	}
-	p.workspace.handlePaneExited(p.id)
+	if !retained {
+		p.workspace.removePaneAfterExit(p.id)
+	}
 	close(p.done)
 }
 
@@ -2252,16 +2298,13 @@ func newHistoryGeneration() (string, error) {
 	return hex.EncodeToString(data), nil
 }
 
-func (p *terminalPane) attachClient(syncRequest historySyncRequest) (paneHistorySnapshot, *paneClient, bool, error) {
+func (p *terminalPane) attachClient(syncRequest historySyncRequest) (paneHistorySnapshot, *paneClient, bool, paneExitSnapshot, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if p.exited {
-		return paneHistorySnapshot{}, nil, false, errors.New("pane has exited")
-	}
 	if p.historyGeneration == "" {
 		generation, err := newHistoryGeneration()
 		if err != nil {
-			return paneHistorySnapshot{}, nil, false, fmt.Errorf("create history generation: %w", err)
+			return paneHistorySnapshot{}, nil, false, paneExitSnapshot{}, fmt.Errorf("create history generation: %w", err)
 		}
 		p.historyGeneration = generation
 	}
@@ -2293,7 +2336,13 @@ func (p *terminalPane) attachClient(syncRequest historySyncRequest) (paneHistory
 		done: make(chan struct{}),
 	}
 	p.clients[client] = struct{}{}
-	return history, client, allowGeneratedInputDuringReplay, nil
+	exit := paneExitSnapshot{
+		exited:   p.exited,
+		exitCode: p.exitCode,
+		message:  p.exitText,
+		retained: p.exitRetained,
+	}
+	return history, client, allowGeneratedInputDuringReplay, exit, nil
 }
 
 func (p *terminalPane) detachClient(client *paneClient) {
@@ -2687,6 +2736,8 @@ func (p *terminalPane) summary() paneSummary {
 		CWD:               p.cwd,
 		Exited:            p.exited,
 		ExitCode:          p.exitCode,
+		ExitMessage:       p.exitText,
+		ExitRetained:      p.exitRetained,
 		ActivityCheckedAt: unixMillis(p.activityCheckedAt),
 	}
 }
@@ -3047,19 +3098,42 @@ func (c *paneClient) enqueue(outbound paneOutbound) bool {
 		return false
 	}
 	c.queuedBytes += payloadSize
-	c.mu.Unlock()
-
-	select {
-	case c.send <- outbound:
-		return true
-	case <-c.done:
-		c.dequeued(payloadSize)
-		return false
-	default:
-		c.dequeued(payloadSize)
+	// History replay can keep the writer busy while many small live writes
+	// arrive. Preserve the byte budget without disconnecting at 256 messages.
+	// Once a backlog exists, append behind it to preserve control/data order.
+	if len(c.pending) == 0 {
+		select {
+		case c.send <- outbound:
+			c.mu.Unlock()
+			return true
+		default:
+		}
+	}
+	if len(c.pending) > 0 {
+		last := &c.pending[len(c.pending)-1]
+		if last.messageType == websocket.BinaryMessage && outbound.messageType == websocket.BinaryMessage &&
+			!last.closeAfter && !outbound.closeAfter && len(last.payload)+payloadSize <= historyChunkMaxBytes {
+			last.payload = append(last.payload, outbound.payload...)
+			c.mu.Unlock()
+			return true
+		}
+	}
+	if len(c.pending) >= clientQueueLimit/historyChunkMaxBytes {
+		c.queuedBytes -= payloadSize
+		c.mu.Unlock()
 		c.close()
 		return false
 	}
+	if outbound.messageType == websocket.BinaryMessage {
+		// PTY payloads can be shared by subscribers. A coalesced tail must own
+		// its storage until it is transferred to the writer through send.
+		data := make([]byte, payloadSize, max(payloadSize, historyChunkMaxBytes))
+		copy(data, outbound.payload)
+		outbound.payload = data
+	}
+	c.pending = append(c.pending, outbound)
+	c.mu.Unlock()
+	return true
 }
 
 func (c *paneClient) dequeued(size int) {
@@ -3071,6 +3145,17 @@ func (c *paneClient) dequeued(size int) {
 	if c.queuedBytes < 0 {
 		c.queuedBytes = 0
 	}
+	for len(c.pending) > 0 {
+		select {
+		case c.send <- c.pending[0]:
+			c.pending[0] = paneOutbound{}
+			c.pending = c.pending[1:]
+		default:
+			c.mu.Unlock()
+			return
+		}
+	}
+	c.pending = nil
 	c.mu.Unlock()
 }
 

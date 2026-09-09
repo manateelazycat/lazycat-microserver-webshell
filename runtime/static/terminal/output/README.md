@@ -21,6 +21,8 @@ Queue turn complete 只登记待确认 cursor/sequence。只有对应输出已�
 
 大历史回放不使用 live 输出默认的每轮 8 条限制；默认回放轮次受 512 KiB / 12ms 预算约束。单次 Ghostty 写入切成最多 32 KiB 的片段，相邻兼容条目在写入前合并，每次实际解析后重新检查耗时，避免大量原始小帧拖成数千次 RAF，也避免一次大 parse 独占主线程。显式 `maxEntries` 仍按入队原始条目计数，保留 resize ACK fence 的冻结边界；显式 force 且无预算的调用保持完整 drain 语义。写入回调中新增的输出按序保留，reset/dispose 后不得推进旧 batch 的 cursor。
 
+输出写入后的宿主复位显式标记 source=output，由 IME 在移动触摸布局下跳过；移动端输入框使用固定 CSS 锚点，positionInput 仅在 composition 期间更新独立预览，不因普通输出改写输入值和选区。桌面宿主复位和光标定位维持原行为。
+
 ## 状态所有权
 
 `output_controller.js` 是 `outputQueue`、`outputQueueSize`、`outputQueueGeneration`、`outputOverloadPending`、`queueTurnReceived*` 和 `pendingQueueTurnAck` 的唯一修改者。session state 只提供初始字段；resize 只能调用 `getQueueEntryCount()`、`getQueuedBytes()`、`flush()` 和 `scheduleFlush()`，不得读取或修改队列数组。

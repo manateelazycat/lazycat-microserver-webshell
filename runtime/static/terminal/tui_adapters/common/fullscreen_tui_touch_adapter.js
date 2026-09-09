@@ -17,7 +17,7 @@ export const installFullscreenTuiTouchAdapter = ({
   stopSelectionAutoScroll,
   clearSelectionIfTapOutside,
   hasSelection,
-  consumeKeyboardClaim,
+  isKeyboardClaimed,
   prepareMouseInput,
   rowHeight,
   sendWheel,
@@ -177,7 +177,7 @@ export const installFullscreenTuiTouchAdapter = ({
       return;
     }
     const touch = activeTouch(event, true);
-    const keyboardClaimed = consumeKeyboardClaim?.(event) === true;
+    const keyboardClaimed = isKeyboardClaimed?.(event) === true;
     stopEvent(event, { preventDefault: !keyboardClaimed });
     if (event.type === "touchcancel" || !touch) {
       const wasSelecting = snapshot.phase === "selecting";
@@ -221,4 +221,5 @@ export const installFullscreenTuiTouchAdapter = ({
     shell.removeEventListener("touchcancel", finishTouch, { capture: true });
     clearState();
   });
+  return clearState;
 };

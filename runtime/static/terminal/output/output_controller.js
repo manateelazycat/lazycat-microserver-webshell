@@ -348,7 +348,7 @@ export function createTerminalOutputController({
       }
 
       if (wrote) {
-        resetHostViewport(state, { clean: true });
+        resetHostViewport(state, { clean: true, source: "output" });
         positionInput(state);
         schedulePresentationValidation(state);
       }
@@ -551,7 +551,7 @@ export function createTerminalOutputController({
     advanceContentGeneration(state);
     drainGeneratedResponses(state);
     deferHiddenRender(state);
-    resetHostViewport(state, { clean: true });
+    resetHostViewport(state, { clean: true, source: "output" });
     positionInput(state);
     schedulePresentationValidation(state);
     return true;

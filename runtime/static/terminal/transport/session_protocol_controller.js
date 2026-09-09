@@ -1012,6 +1012,19 @@ export function createTerminalSessionProtocolController({
                   terminalSessionConnection.closeSocketForReconnect(session, currentSocket, message.message || "Terminal process exited with a retryable error.");
                   return;
                 }
+                if (message.retained === true) {
+                  session.exitExpected = true;
+                  session.workspaceExitPending = false;
+                  session.terminalExitRetained = true;
+                  session.pendingConnect = false;
+                  session.shellEl.dataset.connection = "error";
+                  terminalTransportRuntime?.releaseDirectSession(session, "tab_or_target_removed");
+                  showSessionStartupError(
+                    session,
+                    message.message || `Terminal process exited with code ${Number(message.exit_code ?? -1)}.`,
+                  );
+                  return;
+                }
                 const shouldFocusAfterExit = session.tabId === getActiveTabId() && currentTab()?.activePaneId === session.id;
                 session.exitExpected = true;
                 session.workspaceExitPending = true;

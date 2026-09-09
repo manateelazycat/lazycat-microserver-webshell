@@ -99,7 +99,8 @@ export function createTerminalOverviewView({
     ctx.font = "13px sans-serif";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText("无预览", x + width / 2, y + height / 2);
+    const text = typeof globalThis.$t === "function" ? globalThis.$t("无预览") : "无预览";
+    ctx.fillText(text, x + width / 2, y + height / 2);
   };
 
   const drawPane = (ctx, pane, x, y, width, height, colors, sourceForPane) => {
@@ -177,13 +178,29 @@ export function createTerminalOverviewView({
     });
   };
 
+  const releaseCanvases = (element) => {
+    for (const canvas of element?.querySelectorAll?.("canvas") || []) {
+      canvas.width = 0;
+      canvas.height = 0;
+    }
+  };
+
   const renderTabs = ({ orderedTabs, activeTabId, mobileLayout }) => {
     if (!elements.grid) {
       return [];
     }
     elements.grid.classList.remove("is-scrollable");
     syncPreviewRatio(mobileLayout);
-    elements.grid.textContent = "";
+    const wanted = new Set(orderedTabs.map(tab => tab.id));
+    const existing = new Map();
+    for (const child of [...elements.grid.children]) {
+      if (child.classList.contains("tab-overview-card") && wanted.has(child.dataset.tabId)) {
+        existing.set(child.dataset.tabId, child);
+      } else {
+        releaseCanvases(child);
+        child.remove();
+      }
+    }
     if (orderedTabs.length === 0) {
       const empty = documentObject.createElement("div");
       empty.className = "tab-overview-empty";
@@ -193,10 +210,35 @@ export function createTerminalOverviewView({
       return [];
     }
 
-    const fragment = documentObject.createDocumentFragment();
     const previewItems = [];
+    let position = 0;
+    const place = card => {
+      const current = elements.grid.children[position++];
+      if (current !== card) elements.grid.insertBefore(card, current || null);
+    };
     for (const tab of orderedTabs) {
       const label = String(tab.label || tab.id || "终端");
+      const prior = existing.get(tab.id);
+      if (prior) {
+        prior.title = label;
+        prior.classList.toggle("active", tab.id === activeTabId);
+        if (tab.id === activeTabId) prior.setAttribute("aria-current", "true");
+        else prior.removeAttribute("aria-current");
+        prior.querySelector(".tab-overview-card-main").setAttribute("aria-label", `切换到 ${label}`);
+        prior.querySelector(".tab-overview-card-close").setAttribute("aria-label", `关闭 ${label}`);
+        const name = prior.querySelector(".tab-overview-name");
+        if (name.textContent !== label) name.textContent = label;
+        const status = prior.querySelector(".tab-overview-status");
+        if (tab.id === activeTabId && !status) {
+          const current = documentObject.createElement("span");
+          current.className = "tab-overview-status";
+          current.textContent = "当前";
+          prior.querySelector(".tab-overview-meta").appendChild(current);
+        } else if (tab.id !== activeTabId) status?.remove();
+        previewItems.push({ canvas: prior.querySelector("canvas"), tab });
+        place(prior);
+        continue;
+      }
       const card = documentObject.createElement("div");
       card.className = "tab-overview-card";
       card.dataset.tabId = tab.id;
@@ -240,9 +282,8 @@ export function createTerminalOverviewView({
       main.append(preview, meta);
       card.append(main, close);
       previewItems.push({ canvas, tab });
-      fragment.appendChild(card);
+      place(card);
     }
-    elements.grid.appendChild(fragment);
     if (syncScrollable()) {
       syncPreviewRatio(mobileLayout);
       syncScrollable();
@@ -256,6 +297,7 @@ export function createTerminalOverviewView({
       if (!elements.grid) {
         return;
       }
+      releaseCanvases(elements.grid);
       elements.grid.textContent = "";
       elements.grid.classList.remove("is-scrollable");
     },
@@ -271,13 +313,17 @@ export function createTerminalOverviewView({
     drawPreview(canvas, tab, sourceForPane) {
       const size = canvasSize(canvas);
       const scale = Math.max(1, Math.min(3, windowObject?.devicePixelRatio || 1));
-      canvas.width = Math.round(size.width * scale);
-      canvas.height = Math.round(size.height * scale);
+      const width = Math.round(size.width * scale);
+      const height = Math.round(size.height * scale);
+      if (canvas.width !== width) canvas.width = width;
+      if (canvas.height !== height) canvas.height = height;
       const ctx = canvas.getContext("2d");
       if (!ctx) {
         return;
       }
       const colors = this.readColors();
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.setTransform(scale, 0, 0, scale, 0, 0);
       ctx.fillStyle = colors.bg;
       ctx.fillRect(0, 0, size.width, size.height);
