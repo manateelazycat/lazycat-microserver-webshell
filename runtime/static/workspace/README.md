@@ -20,6 +20,8 @@ target lifecycle 唯一持有 active selector、generation 和 disposed 状态�
 
 `apply(state, { preserveLocalState:true })` 是远端成员同步模式。workspace generation 没变时，已有 tab button、pane、Canvas 和未变布局保持原实例；通过 `tab_view.syncTabButtonOrder()` 插入/调整按钮位置。保留本端 active tab/pane、最近访问列表、焦点和输入，背景新建/删除不重新激活或 resize 当前 tab。只有活动 tab/pane 已消失或成员结构实际变化才进行必要切换/布局更新。新的逻辑 pane 通过既有 transport membership 接线，cleanup 与 generation guard 仍归原模块；不重连已有终端。workspace generation 真正变化时仍走完整恢复。状态应用后的 RAF 必须匹配目标 generation、当前活动 tab 及其对象 identity；无关后台成员更新不能取消当前 tab 尚未执行的有效首次 fit/connect，但切走或销毁的 tab 不得执行迟到回调。
 
+权威 workspace 把异常退出的最后一个 pane 标记为 `exited` 并保留时，state apply 不得把已经观察到退出终态的 session 重新置为 pending connect。首次加载该状态仍允许 transport 接入一次，以回放故障前的终端输出并取得权威退出帧。
+
 ## 文件
 
 - `index.js`：唯一公开入口。

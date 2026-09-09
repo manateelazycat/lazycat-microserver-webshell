@@ -143,7 +143,11 @@ export function createWorkspaceStateApplyController({
               });
             }
             const pane = tab.panes.get(paneState.id);
-            if (pane?.workspaceExitPending) {
+            if (paneState.exited === true && pane?.terminalExitRetained) {
+              pane.workspaceExitPending = false;
+              pane.exitExpected = true;
+              pane.pendingConnect = false;
+            } else if (pane?.workspaceExitPending) {
               pane.workspaceExitPending = false;
               pane.exitExpected = false;
               pane.pendingConnect = true;

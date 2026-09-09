@@ -32,6 +32,7 @@ controller 公开：
 
 - `session_controller.js` 唯一持有 pane ID 序列，并组合 state 与 lifecycle。
 - `session_state.js` 只创建初始状态；每次调用都生成独立数组、Promise 和子控制器。
+- `terminalExitRetained` 记录当前页面已经观察到 Agent 保留的异常退出终态；它阻止后续 workspace apply 重新连接同一失效 pane，但不阻止刷新页面后的首次历史回放。
 - `session_lifecycle.js` 通过模块私有 `WeakMap`/`WeakSet` 持有 cleanup 与 disposed 状态。
 - transport、replay 和 `client:` 兼容历史字段暂时保持扁平；input、output、resize 和 presentation 字段虽然仍由 session state 提供初值，但只允许对应 controller 修改，其他模块必须使用公开 API。`resizeConnectionEpoch` 与 `resizeConnectionTransitionPending` 也只由 resize controller 修改；session state 仅把它们初始化为无连接状态，transport 不直接写入。
 

@@ -27,7 +27,7 @@ import (
 )
 
 const (
-	agentProtocolVersion = "lcmd-webshell-agent-v11"
+	agentProtocolVersion = "lcmd-webshell-agent-v12"
 
 	agentFrameBinary         = byte('B')
 	agentFrameText           = byte('T')
@@ -542,7 +542,7 @@ func (d *agentDaemon) handleAttach(ctx context.Context, conn net.Conn, reader *b
 		return
 	}
 	paneResolvedAt := time.Now()
-	history, client, allowGeneratedInputDuringReplay, err := pane.attachClient(syncRequest)
+	history, client, allowGeneratedInputDuringReplay, exit, err := pane.attachClient(syncRequest)
 	if err != nil {
 		_ = writeAgentControlFrame(conn, map[string]any{
 			"type":          "process-exit",
@@ -580,6 +580,10 @@ func (d *agentDaemon) handleAttach(ctx context.Context, conn net.Conn, reader *b
 			"agent_attach_prepare_duration_ms":   historyReadyAt.Sub(attachStartedAt).Milliseconds(),
 		})
 		if !writeAgentHistoryReplay(conn, replayIdentity, history, allowGeneratedInputDuringReplay, request.IntegrityProtocol == "fast-v1", &fastSequence, &fastCursor) {
+			return
+		}
+		if exit.exited {
+			_ = writeAgentControlFrame(conn, exit.controlPayload(pane.selector, pane.id))
 			return
 		}
 		for {

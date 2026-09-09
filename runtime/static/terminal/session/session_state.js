@@ -219,6 +219,7 @@ export function createTerminalSessionState({
     ...createInputAndOutputState(),
     exitExpected: false,
     workspaceExitPending: false,
+    terminalExitRetained: false,
     closed: false,
     ...createResizeState(),
     ...createTerminalPresentationState(),
