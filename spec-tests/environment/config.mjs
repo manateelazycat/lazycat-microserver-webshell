@@ -46,6 +46,10 @@ export async function readConfig(overrides = {}) {
     androidAVDHome: env.ANDROID_AVD_HOME || path.join(os.homedir(), "Android/avd"),
     androidSerial: env.WEBSHELL_ANDROID_SERIAL || "",
     androidDevice: env.WEBSHELL_ANDROID_DEVICE || "",
+    loadDevice: env.WEBSHELL_LOAD_DEVICE || "desktop",
+    loadOriginalScrollback: Number(env.WEBSHELL_LOAD_ORIGINAL_SCROLLBACK || 0),
+    expectedProviderRevision: env.WEBSHELL_EXPECTED_PROVIDER_REVISION || "",
+    loadCompanionURL: env.WEBSHELL_LOAD_COMPANION_URL || "",
     agentDeviceStateDir: env.WEBSHELL_AGENT_DEVICE_STATE_DIR || path.join(env.XDG_CACHE_HOME || path.join(os.homedir(), ".cache"), "webshell-test-environment/agent-device"),
   };
 }
@@ -59,7 +63,7 @@ export async function validateConfig(config) {
   const target = new URL(config.url);
   if (!["https:", "http:"].includes(target.protocol) || target.username || target.password) throw new Error("Use an HTTP(S) test URL without embedded credentials");
   if (target.pathname === "/webshell") target.pathname = "/webshell/";
-  if (target.pathname !== "/webshell/") throw new Error("Use the /webshell/ entrypoint so the current local frontend can be verified");
+  if (!["/", "/webshell/"].includes(target.pathname)) throw new Error("Use the standalone / or embedded /webshell/ entrypoint so the current local frontend can be verified");
   config.url = target.toString();
   if (!config.localStaticDir || !config.frontendManifest) throw new Error("A verified current local frontend build is required; use run-ac.sh or the shared environment entrypoint");
   await fs.access(path.join(config.localStaticDir, "index.html"));

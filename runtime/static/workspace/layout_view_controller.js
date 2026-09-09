@@ -136,11 +136,13 @@ export function createWorkspaceLayoutViewController({
           activeDragFinish = null;
         }
         if (persist && tab && !disposed && !isApplyingWorkspaceState()) {
+          // The drag already applied this layout. Its acknowledgement must
+          // not rebuild dividers or replace a newer local interaction.
           Promise.resolve(postWorkspaceAction("update_layout", {
             tab_id: tab.id,
             layout: tab.layout,
             active_pane_id: tab.activePaneId,
-          })).catch((error) => showToast(error.message));
+          }, { focus: false, preferStateActiveTab: false, applyResponse: false })).catch((error) => showToast(error.message));
         }
         return true;
       };

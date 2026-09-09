@@ -1,4 +1,6 @@
 var H = /* @__PURE__ */ ((Q) => (Q[Q.CURSOR_KEY_APPLICATION = 0] = "CURSOR_KEY_APPLICATION", Q[Q.KEYPAD_KEY_APPLICATION = 1] = "KEYPAD_KEY_APPLICATION", Q[Q.IGNORE_KEYPAD_WITH_NUMLOCK = 2] = "IGNORE_KEYPAD_WITH_NUMLOCK", Q[Q.ALT_ESC_PREFIX = 3] = "ALT_ESC_PREFIX", Q[Q.MODIFY_OTHER_KEYS_STATE_2 = 4] = "MODIFY_OTHER_KEYS_STATE_2", Q[Q.KITTY_KEYBOARD_FLAGS = 5] = "KITTY_KEYBOARD_FLAGS", Q))(H || {}), b = /* @__PURE__ */ ((Q) => (Q[Q.RELEASE = 0] = "RELEASE", Q[Q.PRESS = 1] = "PRESS", Q[Q.REPEAT = 2] = "REPEAT", Q))(b || {}), o = /* @__PURE__ */ ((Q) => (Q[Q.UNIDENTIFIED = 0] = "UNIDENTIFIED", Q[Q.GRAVE = 1] = "GRAVE", Q[Q.BACKSLASH = 2] = "BACKSLASH", Q[Q.BRACKET_LEFT = 3] = "BRACKET_LEFT", Q[Q.BRACKET_RIGHT = 4] = "BRACKET_RIGHT", Q[Q.COMMA = 5] = "COMMA", Q[Q.ZERO = 6] = "ZERO", Q[Q.ONE = 7] = "ONE", Q[Q.TWO = 8] = "TWO", Q[Q.THREE = 9] = "THREE", Q[Q.FOUR = 10] = "FOUR", Q[Q.FIVE = 11] = "FIVE", Q[Q.SIX = 12] = "SIX", Q[Q.SEVEN = 13] = "SEVEN", Q[Q.EIGHT = 14] = "EIGHT", Q[Q.NINE = 15] = "NINE", Q[Q.EQUAL = 16] = "EQUAL", Q[Q.INTL_BACKSLASH = 17] = "INTL_BACKSLASH", Q[Q.INTL_RO = 18] = "INTL_RO", Q[Q.INTL_YEN = 19] = "INTL_YEN", Q[Q.A = 20] = "A", Q[Q.B = 21] = "B", Q[Q.C = 22] = "C", Q[Q.D = 23] = "D", Q[Q.E = 24] = "E", Q[Q.F = 25] = "F", Q[Q.G = 26] = "G", Q[Q.H = 27] = "H", Q[Q.I = 28] = "I", Q[Q.J = 29] = "J", Q[Q.K = 30] = "K", Q[Q.L = 31] = "L", Q[Q.M = 32] = "M", Q[Q.N = 33] = "N", Q[Q.O = 34] = "O", Q[Q.P = 35] = "P", Q[Q.Q = 36] = "Q", Q[Q.R = 37] = "R", Q[Q.S = 38] = "S", Q[Q.T = 39] = "T", Q[Q.U = 40] = "U", Q[Q.V = 41] = "V", Q[Q.W = 42] = "W", Q[Q.X = 43] = "X", Q[Q.Y = 44] = "Y", Q[Q.Z = 45] = "Z", Q[Q.MINUS = 46] = "MINUS", Q[Q.PERIOD = 47] = "PERIOD", Q[Q.QUOTE = 48] = "QUOTE", Q[Q.SEMICOLON = 49] = "SEMICOLON", Q[Q.SLASH = 50] = "SLASH", Q[Q.ALT_LEFT = 51] = "ALT_LEFT", Q[Q.ALT_RIGHT = 52] = "ALT_RIGHT", Q[Q.BACKSPACE = 53] = "BACKSPACE", Q[Q.CAPS_LOCK = 54] = "CAPS_LOCK", Q[Q.CONTEXT_MENU = 55] = "CONTEXT_MENU", Q[Q.CONTROL_LEFT = 56] = "CONTROL_LEFT", Q[Q.CONTROL_RIGHT = 57] = "CONTROL_RIGHT", Q[Q.ENTER = 58] = "ENTER", Q[Q.META_LEFT = 59] = "META_LEFT", Q[Q.META_RIGHT = 60] = "META_RIGHT", Q[Q.SHIFT_LEFT = 61] = "SHIFT_LEFT", Q[Q.SHIFT_RIGHT = 62] = "SHIFT_RIGHT", Q[Q.SPACE = 63] = "SPACE", Q[Q.TAB = 64] = "TAB", Q[Q.CONVERT = 65] = "CONVERT", Q[Q.KANA_MODE = 66] = "KANA_MODE", Q[Q.NON_CONVERT = 67] = "NON_CONVERT", Q[Q.DELETE = 68] = "DELETE", Q[Q.END = 69] = "END", Q[Q.HELP = 70] = "HELP", Q[Q.HOME = 71] = "HOME", Q[Q.INSERT = 72] = "INSERT", Q[Q.PAGE_DOWN = 73] = "PAGE_DOWN", Q[Q.PAGE_UP = 74] = "PAGE_UP", Q[Q.DOWN = 75] = "DOWN", Q[Q.LEFT = 76] = "LEFT", Q[Q.RIGHT = 77] = "RIGHT", Q[Q.UP = 78] = "UP", Q[Q.NUM_LOCK = 79] = "NUM_LOCK", Q[Q.KP_0 = 80] = "KP_0", Q[Q.KP_1 = 81] = "KP_1", Q[Q.KP_2 = 82] = "KP_2", Q[Q.KP_3 = 83] = "KP_3", Q[Q.KP_4 = 84] = "KP_4", Q[Q.KP_5 = 85] = "KP_5", Q[Q.KP_6 = 86] = "KP_6", Q[Q.KP_7 = 87] = "KP_7", Q[Q.KP_8 = 88] = "KP_8", Q[Q.KP_9 = 89] = "KP_9", Q[Q.KP_PLUS = 90] = "KP_PLUS", Q[Q.KP_BACKSPACE = 91] = "KP_BACKSPACE", Q[Q.KP_CLEAR = 92] = "KP_CLEAR", Q[Q.KP_CLEAR_ENTRY = 93] = "KP_CLEAR_ENTRY", Q[Q.KP_COMMA = 94] = "KP_COMMA", Q[Q.KP_PERIOD = 95] = "KP_PERIOD", Q[Q.KP_DIVIDE = 96] = "KP_DIVIDE", Q[Q.KP_ENTER = 97] = "KP_ENTER", Q[Q.KP_EQUAL = 98] = "KP_EQUAL", Q[Q.KP_MEMORY_ADD = 99] = "KP_MEMORY_ADD", Q[Q.KP_MEMORY_CLEAR = 100] = "KP_MEMORY_CLEAR", Q[Q.KP_MEMORY_RECALL = 101] = "KP_MEMORY_RECALL", Q[Q.KP_MEMORY_STORE = 102] = "KP_MEMORY_STORE", Q[Q.KP_MEMORY_SUBTRACT = 103] = "KP_MEMORY_SUBTRACT", Q[Q.KP_MULTIPLY = 104] = "KP_MULTIPLY", Q[Q.KP_PAREN_LEFT = 105] = "KP_PAREN_LEFT", Q[Q.KP_PAREN_RIGHT = 106] = "KP_PAREN_RIGHT", Q[Q.KP_MINUS = 107] = "KP_MINUS", Q[Q.KP_SEPARATOR = 108] = "KP_SEPARATOR", Q[Q.NUMPAD_UP = 109] = "NUMPAD_UP", Q[Q.NUMPAD_DOWN = 110] = "NUMPAD_DOWN", Q[Q.NUMPAD_RIGHT = 111] = "NUMPAD_RIGHT", Q[Q.NUMPAD_LEFT = 112] = "NUMPAD_LEFT", Q[Q.NUMPAD_BEGIN = 113] = "NUMPAD_BEGIN", Q[Q.NUMPAD_HOME = 114] = "NUMPAD_HOME", Q[Q.NUMPAD_END = 115] = "NUMPAD_END", Q[Q.NUMPAD_INSERT = 116] = "NUMPAD_INSERT", Q[Q.NUMPAD_DELETE = 117] = "NUMPAD_DELETE", Q[Q.NUMPAD_PAGE_UP = 118] = "NUMPAD_PAGE_UP", Q[Q.NUMPAD_PAGE_DOWN = 119] = "NUMPAD_PAGE_DOWN", Q[Q.ESCAPE = 120] = "ESCAPE", Q[Q.F1 = 121] = "F1", Q[Q.F2 = 122] = "F2", Q[Q.F3 = 123] = "F3", Q[Q.F4 = 124] = "F4", Q[Q.F5 = 125] = "F5", Q[Q.F6 = 126] = "F6", Q[Q.F7 = 127] = "F7", Q[Q.F8 = 128] = "F8", Q[Q.F9 = 129] = "F9", Q[Q.F10 = 130] = "F10", Q[Q.F11 = 131] = "F11", Q[Q.F12 = 132] = "F12", Q[Q.F13 = 133] = "F13", Q[Q.F14 = 134] = "F14", Q[Q.F15 = 135] = "F15", Q[Q.F16 = 136] = "F16", Q[Q.F17 = 137] = "F17", Q[Q.F18 = 138] = "F18", Q[Q.F19 = 139] = "F19", Q[Q.F20 = 140] = "F20", Q[Q.F21 = 141] = "F21", Q[Q.F22 = 142] = "F22", Q[Q.F23 = 143] = "F23", Q[Q.F24 = 144] = "F24", Q[Q.F25 = 145] = "F25", Q[Q.FN_LOCK = 146] = "FN_LOCK", Q[Q.PRINT_SCREEN = 147] = "PRINT_SCREEN", Q[Q.SCROLL_LOCK = 148] = "SCROLL_LOCK", Q[Q.PAUSE = 149] = "PAUSE", Q[Q.BROWSER_BACK = 150] = "BROWSER_BACK", Q[Q.BROWSER_FAVORITES = 151] = "BROWSER_FAVORITES", Q[Q.BROWSER_FORWARD = 152] = "BROWSER_FORWARD", Q[Q.BROWSER_HOME = 153] = "BROWSER_HOME", Q[Q.BROWSER_REFRESH = 154] = "BROWSER_REFRESH", Q[Q.BROWSER_SEARCH = 155] = "BROWSER_SEARCH", Q[Q.BROWSER_STOP = 156] = "BROWSER_STOP", Q[Q.EJECT = 157] = "EJECT", Q[Q.LAUNCH_APP_1 = 158] = "LAUNCH_APP_1", Q[Q.LAUNCH_APP_2 = 159] = "LAUNCH_APP_2", Q[Q.LAUNCH_MAIL = 160] = "LAUNCH_MAIL", Q[Q.MEDIA_PLAY_PAUSE = 161] = "MEDIA_PLAY_PAUSE", Q[Q.MEDIA_SELECT = 162] = "MEDIA_SELECT", Q[Q.MEDIA_STOP = 163] = "MEDIA_STOP", Q[Q.MEDIA_TRACK_NEXT = 164] = "MEDIA_TRACK_NEXT", Q[Q.MEDIA_TRACK_PREVIOUS = 165] = "MEDIA_TRACK_PREVIOUS", Q[Q.POWER = 166] = "POWER", Q[Q.SLEEP = 167] = "SLEEP", Q[Q.AUDIO_VOLUME_DOWN = 168] = "AUDIO_VOLUME_DOWN", Q[Q.AUDIO_VOLUME_MUTE = 169] = "AUDIO_VOLUME_MUTE", Q[Q.AUDIO_VOLUME_UP = 170] = "AUDIO_VOLUME_UP", Q[Q.WAKE_UP = 171] = "WAKE_UP", Q[Q.COPY = 172] = "COPY", Q[Q.CUT = 173] = "CUT", Q[Q.PASTE = 174] = "PASTE", Q))(o || {}), y = /* @__PURE__ */ ((Q) => (Q[Q.NONE = 0] = "NONE", Q[Q.SHIFT = 1] = "SHIFT", Q[Q.CTRL = 2] = "CTRL", Q[Q.ALT = 4] = "ALT", Q[Q.SUPER = 8] = "SUPER", Q[Q.CAPSLOCK = 16] = "CAPSLOCK", Q[Q.NUMLOCK = 32] = "NUMLOCK", Q))(y || {}), O = /* @__PURE__ */ ((Q) => (Q[Q.NONE = 0] = "NONE", Q[Q.PARTIAL = 1] = "PARTIAL", Q[Q.FULL = 2] = "FULL", Q))(O || {});
+// wasm32 exports expose i32 values as signed JS numbers. Memory offsets must
+// retain their unsigned address above 2 GiB; calls back into WASM preserve bits.
 const d = 80;
 const GHOSTTY_WASM_WRITE_CHUNK_BYTES = 128 * 1024;
 const GHOSTTY_WASM_WRITE_STRING_CHARS = 32 * 1024;
@@ -98,7 +100,7 @@ class q {
         log: (C, I) => {
           const D = new Uint8Array(
             E.exports.memory.buffer,
-            C,
+            C >>> 0,
             I
           );
           console.log("[ghostty-vt]", new TextDecoder().decode(D));
@@ -111,29 +113,29 @@ class q {
 class V {
   constructor(A) {
     this.encoder = 0, this.exports = A;
-    const B = this.exports.ghostty_wasm_alloc_opaque(), g = this.exports.ghostty_key_encoder_new(0, B);
+    const B = this.exports.ghostty_wasm_alloc_opaque() >>> 0, g = this.exports.ghostty_key_encoder_new(0, B);
     if (g !== 0)
       throw new Error(`Failed to create key encoder: ${g}`);
     const E = new DataView(this.exports.memory.buffer);
     this.encoder = E.getUint32(B, !0), this.exports.ghostty_wasm_free_opaque(B);
   }
   setOption(A, B) {
-    const g = this.exports.ghostty_wasm_alloc_u8();
+    const g = this.exports.ghostty_wasm_alloc_u8() >>> 0;
     new DataView(this.exports.memory.buffer).setUint8(g, typeof B == "boolean" ? B ? 1 : 0 : B), this.exports.ghostty_key_encoder_setopt(this.encoder, A, g), this.exports.ghostty_wasm_free_u8(g);
   }
   setKittyFlags(A) {
     this.setOption(H.KITTY_KEYBOARD_FLAGS, A);
   }
   encode(A) {
-    const B = this.exports.ghostty_wasm_alloc_opaque(), g = this.exports.ghostty_key_event_new(0, B);
+    const B = this.exports.ghostty_wasm_alloc_opaque() >>> 0, g = this.exports.ghostty_key_event_new(0, B);
     if (g !== 0)
       throw new Error(`Failed to create key event: ${g}`);
     const E = new DataView(this.exports.memory.buffer), C = E.getUint32(B, !0);
     if (this.exports.ghostty_wasm_free_opaque(B), this.exports.ghostty_key_event_set_action(C, A.action), this.exports.ghostty_key_event_set_key(C, A.key), this.exports.ghostty_key_event_set_mods(C, A.mods), A.utf8) {
-      const M = new TextEncoder().encode(A.utf8), a = this.exports.ghostty_wasm_alloc_u8_array(M.length);
+      const M = new TextEncoder().encode(A.utf8), a = this.exports.ghostty_wasm_alloc_u8_array(M.length) >>> 0;
       new Uint8Array(this.exports.memory.buffer).set(M, a), this.exports.ghostty_key_event_set_utf8(C, a, M.length), this.exports.ghostty_wasm_free_u8_array(a, M.length);
     }
-    const I = 32, D = this.exports.ghostty_wasm_alloc_u8_array(I), i = this.exports.ghostty_wasm_alloc_usize(), w = this.exports.ghostty_key_encoder_encode(
+    const I = 32, D = this.exports.ghostty_wasm_alloc_u8_array(I) >>> 0, i = this.exports.ghostty_wasm_alloc_usize() >>> 0, w = this.exports.ghostty_key_encoder_encode(
       this.encoder,
       C,
       D,
@@ -142,7 +144,7 @@ class V {
     );
     if (w !== 0)
       throw this.exports.ghostty_wasm_free_u8_array(D, I), this.exports.ghostty_wasm_free_usize(i), this.exports.ghostty_key_event_free(C), new Error(`Failed to encode key: ${w}`);
-    const s = E.getUint32(i, !0), N = new Uint8Array(this.exports.memory.buffer, D, s).slice();
+    const s = new DataView(this.exports.memory.buffer).getUint32(i, !0), N = new Uint8Array(this.exports.memory.buffer, D, s).slice();
     return this.exports.ghostty_wasm_free_u8_array(D, I), this.exports.ghostty_wasm_free_usize(i), this.exports.ghostty_key_event_free(C), N;
   }
   dispose() {
@@ -153,7 +155,7 @@ const z = class K {
   constructor(A, B, g = 80, E = 24, C) {
     var I;
     this.inputBufferPtr = 0, this.inputBufferSize = 0, this.viewportBufferPtr = 0, this.viewportBufferSize = 0, this.renderStateCurrent = !1, this.renderDirtyState = O.FULL, this.cellPool = [], this.graphemeBuffer = null, this.graphemeBufferPtr = 0, this.exports = A, this.memory = B, this._cols = g, this._rows = E, this.logicalScrollbackLimit = K.normalizeScrollbackLimit(C == null ? void 0 : C.scrollbackLimit), this.scrollbackByteCapacity = this.estimateScrollbackBytes(g, E);
-    const D = this.exports.ghostty_wasm_alloc_u8_array(d);
+    const D = this.exports.ghostty_wasm_alloc_u8_array(d) >>> 0;
     if (D === 0)
       throw new Error("Failed to allocate config (out of memory)");
     try {
@@ -226,7 +228,7 @@ const z = class K {
   ensureInputBuffer(A) {
     if (this.inputBufferPtr && this.inputBufferSize >= A)
       return;
-    const B = Math.min(GHOSTTY_WASM_WRITE_CHUNK_BYTES, Math.max(4096, 2 ** Math.ceil(Math.log2(A)))), g = this.exports.ghostty_wasm_alloc_u8_array(B);
+    const B = Math.min(GHOSTTY_WASM_WRITE_CHUNK_BYTES, Math.max(4096, 2 ** Math.ceil(Math.log2(A)))), g = this.exports.ghostty_wasm_alloc_u8_array(B) >>> 0;
     if (!g)
       throw new Error(`Failed to allocate terminal input buffer (${B} bytes)`);
     this.inputBufferPtr && this.exports.ghostty_wasm_free_u8_array(this.inputBufferPtr, this.inputBufferSize), this.inputBufferPtr = g, this.inputBufferSize = B;
@@ -333,7 +335,7 @@ const z = class K {
   getViewport() {
     this.ensureRenderStateCurrent();
     const A = this._cols * this._rows, B = A * K.CELL_SIZE;
-    return (!this.viewportBufferPtr || this.viewportBufferSize < B) && (this.viewportBufferPtr && this.exports.ghostty_wasm_free_u8_array(this.viewportBufferPtr, this.viewportBufferSize), this.viewportBufferPtr = this.exports.ghostty_wasm_alloc_u8_array(B), this.viewportBufferSize = B), this.exports.ghostty_render_state_get_viewport(
+    return (!this.viewportBufferPtr || this.viewportBufferSize < B) && (this.viewportBufferPtr && this.exports.ghostty_wasm_free_u8_array(this.viewportBufferPtr, this.viewportBufferSize), this.viewportBufferPtr = this.exports.ghostty_wasm_alloc_u8_array(B) >>> 0, this.viewportBufferSize = B), this.exports.ghostty_render_state_get_viewport(
       this.handle,
       this.viewportBufferPtr,
       A
@@ -408,7 +410,7 @@ const z = class K {
     if (N === null)
       return null;
     const B = this._cols * K.CELL_SIZE;
-    (!this.viewportBufferPtr || this.viewportBufferSize < B) && (this.viewportBufferPtr && this.exports.ghostty_wasm_free_u8_array(this.viewportBufferPtr, this.viewportBufferSize), this.viewportBufferPtr = this.exports.ghostty_wasm_alloc_u8_array(B), this.viewportBufferSize = B), this.ensureRenderStateCurrent(), new Uint8Array(this.memory.buffer, this.viewportBufferPtr, B).fill(0);
+    (!this.viewportBufferPtr || this.viewportBufferSize < B) && (this.viewportBufferPtr && this.exports.ghostty_wasm_free_u8_array(this.viewportBufferPtr, this.viewportBufferSize), this.viewportBufferPtr = this.exports.ghostty_wasm_alloc_u8_array(B) >>> 0, this.viewportBufferSize = B), this.ensureRenderStateCurrent(), new Uint8Array(this.memory.buffer, this.viewportBufferPtr, B).fill(0);
     const g = this.exports.ghostty_terminal_get_scrollback_line(
       this.handle,
       N,
@@ -463,7 +465,7 @@ const z = class K {
   readResponse() {
     if (!this.hasResponse())
       return null;
-    const A = 256, B = this.exports.ghostty_wasm_alloc_u8_array(A);
+    const A = 256, B = this.exports.ghostty_wasm_alloc_u8_array(A) >>> 0;
     try {
       const g = this.exports.ghostty_terminal_read_response(this.handle, B, A);
       if (g <= 0)
@@ -517,7 +519,7 @@ const z = class K {
    * @returns Array of codepoints, or null on error
    */
   getGrapheme(A, B) {
-    this.ensureRenderStateCurrent(), this.graphemeBuffer || (this.graphemeBufferPtr = this.exports.ghostty_wasm_alloc_u8_array(16 * 4), this.graphemeBuffer = new Uint32Array(this.memory.buffer, this.graphemeBufferPtr, 16));
+    this.ensureRenderStateCurrent(), this.graphemeBuffer || (this.graphemeBufferPtr = this.exports.ghostty_wasm_alloc_u8_array(16 * 4) >>> 0, this.graphemeBuffer = new Uint32Array(this.memory.buffer, this.graphemeBufferPtr, 16));
     const g = this.exports.ghostty_render_state_get_grapheme(
       this.handle,
       A,
@@ -548,7 +550,7 @@ const z = class K {
     const g = this.getRawScrollbackOffset(A);
     if (g === null)
       return null;
-    this.graphemeBuffer || (this.graphemeBufferPtr = this.exports.ghostty_wasm_alloc_u8_array(16 * 4), this.graphemeBuffer = new Uint32Array(this.memory.buffer, this.graphemeBufferPtr, 16));
+    this.graphemeBuffer || (this.graphemeBufferPtr = this.exports.ghostty_wasm_alloc_u8_array(16 * 4) >>> 0, this.graphemeBuffer = new Uint32Array(this.memory.buffer, this.graphemeBufferPtr, 16));
     const E = this.exports.ghostty_terminal_get_scrollback_grapheme(
       this.handle,
       g,

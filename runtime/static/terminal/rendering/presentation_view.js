@@ -125,7 +125,10 @@ export function createTerminalPresentationView({
       return false;
     }
     hold.hidden = true;
-    hold.getContext?.("2d")?.clearRect(0, 0, hold.width, hold.height);
+    // Hidden holds have no reusable pixels. Drop their backing store rather
+    // than retaining a full viewport allocation until the pane is destroyed.
+    if (hold.width !== 0) hold.width = 0;
+    if (hold.height !== 0) hold.height = 0;
     return true;
   };
 

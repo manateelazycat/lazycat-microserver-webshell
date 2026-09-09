@@ -42,3 +42,5 @@ live geometry 期间 `renderLiveGeometryNow()` 只提交当前 session 的真实
 ## 旧帧停滞调查
 
 永久旧帧尚未稳定复现。保留原有 presentation/hold 释放逻辑；本轮未验证的候选变更已撤回。调查用例与条件位于 spec-tests/investigations/network-presentation-recovery，后续由真实失败截图、cursor、resize/connection epoch 和 trace 再决定修复，不认定断网为根因。
+
+闲置 hold Canvas 的 backing store 保持 0×0，捕获时才按当前 host/DPR 分配；释放时销毁位图缓冲。不得将此操作用于仍在展示的 hold 或 live Canvas。

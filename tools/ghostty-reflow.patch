@@ -1,0 +1,69 @@
+--- a/src/terminal/PageList.zig
++++ b/src/terminal/PageList.zig
+@@ -1065,7 +1065,11 @@
+                 // of the dst col width then we move it to the end of the dst
+                 // col width instead.
+                 if (p.x >= cols_len) {
+-                    p.x = @min(p.x, cap.cols - 1 - self.x);
++                    // Deferred hard/blank rows and a pending wrap move to a
++                    // fresh destination row before copying this source row.
++                    // Do not clamp its cursor using the previous row's X.
++                    const dst_x = if (self.new_rows > 0 or self.pending_wrap) 0 else self.x;
++                    p.x = @min(p.x, cap.cols - 1 - dst_x);
+                 }
+
+                 // We increase our col len to at least include this pin.
+--- a/src/terminal/PageList.zig
++++ b/src/terminal/PageList.zig
+@@ -1104,6 +1104,51 @@
+                 self.page_row.wrap_continuation = true;
+             }
+
++            // Plain ASCII cells own no page-local style, grapheme or link
++            // allocation. Copy a span up to the destination wrap boundary and
++            // relocate its pins once, instead of revisiting every pin per cell.
++            // Complex cells keep the existing managed-memory path below.
++            // Mask only the fields checked by the scalar plain-cell path.
++            // Protection/padding and the unused high union bits are preserved.
++            const plain_mask: u64 = @bitCast(pagepkg.Cell{
++                .content_tag = .bg_color_rgb,
++                .content = .{ .color_rgb = .{ .r = 0x80, .g = 0xff, .b = 0x1f } },
++                .style_id = std.math.maxInt(@TypeOf(@as(pagepkg.Cell, undefined).style_id)),
++                .wide = .spacer_head,
++                .hyperlink = true,
++            });
++            var plain_end = x;
++            const plain_limit = @min(cols_len, x + self.page.size.cols - self.x);
++            while (plain_end + 4 <= plain_limit) {
++                const combined = @as(u64, @bitCast(cells[plain_end])) |
++                    @as(u64, @bitCast(cells[plain_end + 1])) |
++                    @as(u64, @bitCast(cells[plain_end + 2])) |
++                    @as(u64, @bitCast(cells[plain_end + 3]));
++                if ((combined & plain_mask) != 0) break;
++                plain_end += 4;
++            }
++            while (plain_end < plain_limit) : (plain_end += 1) {
++                if ((@as(u64, @bitCast(cells[plain_end])) & plain_mask) != 0) break;
++            }
++            if (plain_end > x) {
++                const count = plain_end - x;
++                const dst_cells: [*]pagepkg.Cell = @ptrCast(self.page_cell);
++                @memcpy(dst_cells[0..count], cells[x..plain_end]);
++                for (list.tracked_pins.keys()) |p| {
++                    if (&p.node.data != src_page or p.y != src_y or
++                        p.x < x or p.x >= plain_end) continue;
++                    const next_x = @as(usize, self.x) + p.x - x;
++                    p.node = self.node;
++                    p.x = @intCast(next_x);
++                    p.y = self.y;
++                }
++                self.x += @intCast(count - 1);
++                self.page_cell = @ptrCast(dst_cells + count - 1);
++                self.cursorForward();
++                x = plain_end;
++                continue;
++            }
++
+             // Move any tracked pins from the source.
+             {
+                 const pin_keys = list.tracked_pins.keys();

@@ -1324,7 +1324,7 @@ export function startGlobalRuntime() {
     connectPendingSession: (session) => terminalTransportRuntime?.connectPendingSession(session),
     checkSessionHealth: (session, options) => terminalSessionConnection?.checkHealth(session, options),
     syncConnectionDemands: (options) => terminalTransportRuntime?.syncConnectionDemands(options),
-    postWorkspaceAction: (action, payload) => postWorkspaceAction(action, payload),
+    postWorkspaceAction: (action, payload, options) => postWorkspaceAction(action, payload, options),
     showToast: (message) => showToast(message),
     lifecycleOptions: { windowObject: window },
   });
@@ -1523,6 +1523,7 @@ export function startGlobalRuntime() {
     isApplyingWorkspaceState,
     isCurrentSession: (session) => isCurrentInstanceSession(session),
     isReplayRetryPaused: (session) => terminalReplay.isRetryPaused(session),
+    isReplayCommitted: (session) => terminalReplay.isCommitted(session),
     getUnifiedTransport: () => terminalUnifiedTransport,
     resizeSession: (session, options) => terminalResize.resizePane(session, options),
     isSessionMeasurable: (session) => terminalResize.isMeasurable(session),
@@ -1759,7 +1760,7 @@ export function startGlobalRuntime() {
     beginTabInteractiveResize: (tab) => terminalResize?.beginTabInteractiveResize(tab),
     updateTabInteractiveResize: (tab) => terminalResize?.updateTabInteractiveResize(tab),
     endTabInteractiveResize: (tab) => terminalResize?.endTabInteractiveResize(tab),
-    postWorkspaceAction: (action, payload) => postWorkspaceAction(action, payload),
+    postWorkspaceAction: (action, payload, options) => postWorkspaceAction(action, payload, options),
     showToast: (message) => showToast(message),
   });
 

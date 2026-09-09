@@ -95,6 +95,12 @@ export function createWorkspacePaneActivationController({
       Promise.resolve(postWorkspaceAction("activate_pane", {
         tab_id: tab.id,
         pane_id: paneId,
+      }, {
+        // Activation is already applied locally. Its acknowledgement may
+        // arrive after a newer tab/pane selection and must not replace it.
+        focus: false,
+        preferStateActiveTab: false,
+        applyResponse: false,
       })).catch((error) => {
         if (!lifecycle.isDisposed()) {
           showToast(error.message);

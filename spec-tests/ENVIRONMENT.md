@@ -77,3 +77,13 @@ node spec-tests/environment/inspect.mjs
 `--json` 时 stdout 仍只有一个 JSON 对象，`duration_seconds` 和 `summary.duration_seconds` 为整次运行耗时；中文总用时行写到 stderr。直接运行 `test-all.sh` 也采用同一计时包装，嵌套执行不会重复打印。
 
 每批报告的 `frontend.json` 和模块 `result.json` 记录本次源码/产物摘要；完整构建日志和产物快照保存在忽略提交的 `spec-tests/.state/frontend/`。
+
+## 独立候选包与 Android 压力入口
+
+真实 Provider 可以位于独立应用的 `/` 或 LightOS 内置的 `/webshell/`。环境先从不被本地前端替换的入口完成真实鉴权，再按配置的路径绑定当前构建；两种入口都不得回退远端旧资源。候选包使用本地忽略配置 `spec-tests/.state/candidate.env`，通过 `WEBSHELL_EXPECTED_PROVIDER_REVISION` 核验后端内容版本，不改变 selector。
+
+同一 selector/account 的 Agent 可能被多个 Provider 共用。旧 Provider 的定期 workspace 请求也会携带其历史上限，因此压力配置可以通过 `WEBSHELL_LOAD_COMPANION_URL` 临时同步同一专用盒子的旧入口设置；结束后两个入口各自恢复原值。回放字节量与最终保留行数仍必须校验，不能用被裁剪的历史通过性能测试。
+
+Android 使用明确绑定的 emulator、当前构建路由和 agent-device 原生触摸；窗口变化通过真实系统旋转验证，并恢复原始旋转设置。准备命令和输入健康检查走该页面已有 Unified socket 的公开输入协议，仍使用真实 PTY，不表示对 IME 或键盘弹出的自动验收。`load-android-gestures.mjs` 仅校准触摸/旋转/协议输入；严格负载仍由唯一 AC 执行器运行 20 模块。
+
+OCR 的英语模型来源与摘要固定在 `environment/ocr-resources.json`，本地资源位于 `.state/tessdata/`。压力入口在创建大负载前检查模型，缺少时明确失败。

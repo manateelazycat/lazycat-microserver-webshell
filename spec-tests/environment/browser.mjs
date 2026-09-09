@@ -7,6 +7,7 @@ import { redactBrowserArtifacts, redactDiagnosticText } from "../tests-auto/arti
 import { readConfig, validateConfig, projectRoot } from "./config.mjs";
 import { prepareFrontend, frontendEvidence } from "./frontend-build.mjs";
 import { installLocalFrontend } from "./local-frontend.mjs";
+import { withDeviceSession } from "./agent-device.mjs";
 
 // One environment owns its browser sessions and the test tab it creates.
 // Both the scenario runner and MCP use this lifecycle; no AC semantics live here.
@@ -85,7 +86,9 @@ const { loginIfNeeded, resolveTestURL } = createTarget(config, eventLog);
 
 const createWindow = async (name, viewport, position, onCreated, beforeNavigate) => {
   const headless = !config.foreground;
-  const browser = await chromium.launch({
+  const device = options.performanceMode && config.loadDevice === "android"
+    ? await withDeviceSession({ chromium, config }) : null;
+  const browser = device?.browser || await chromium.launch({
     headless,
     channel: config.channel,
     executablePath: config.executablePath,
@@ -93,9 +96,9 @@ const createWindow = async (name, viewport, position, onCreated, beforeNavigate)
     args: [`--window-size=${viewport.width},${viewport.height}`, `--window-position=${position.x},${position.y}`],
   });
   if (closing) { await browser.close(); throw new Error("Environment was released while opening a browser"); }
-  const state = { name, browser, framesSent: [], output: "", lastResize: null, fatalErrors: [], assetRequestFailures: [], resizeErrors: 0, initialTerminalTimeline: [] };
+  const state = { name, browser, device, framesSent: [], output: "", lastResize: null, fatalErrors: [], assetRequestFailures: [], resizeErrors: 0, initialTerminalTimeline: [] };
   onCreated?.(state);
-  const context = await browser.newContext({
+  const context = device?.context || await browser.newContext({
     viewport,
     storageState: config.storageState,
     hasTouch: name === "mobile",
@@ -109,14 +112,19 @@ const createWindow = async (name, viewport, position, onCreated, beforeNavigate)
   if (closing) { await browser.close(); throw new Error("Environment was released while creating a context"); }
   context.setDefaultTimeout(15_000);
   const targetOrigin = new URL(config.url).origin;
-  await context.grantPermissions(["local-network-access"], { origin: targetOrigin });
-  const localFrontend = await installLocalFrontend(context, config, frontend, (error) => frontendFailures.push(error), eventLog);
-  const page = await context.newPage();
+  if (!device) await context.grantPermissions(["local-network-access"], { origin: targetOrigin });
+  const localFrontend = await installLocalFrontend(device?.resourceScope || context, config, frontend, (error) => frontendFailures.push(error), eventLog);
+  const page = device?.page || await context.newPage();
   state.page = page;
   state.verifyFrontend = (required = false) => localFrontend.verifyPage(page, required);
   page.on("domcontentloaded", () => { void state.verifyFrontend().catch((error) => frontendFailures.push(error.message)); });
   if (closing) { await browser.close(); throw new Error("Environment was released while creating a page"); }
-  await page.addInitScript(({ captureTimeline, enableInitializationPerformance }) => {
+  await page.addInitScript(({ captureTimeline, enableInitializationPerformance, performanceMode }) => {
+    if (performanceMode) {
+      for (const key of ["debugMode", "debugLog", "initializationPerformance", "networkMonitor", "performanceMeter", "performanceTasks"]) {
+        window.localStorage.setItem(`webshell.${key}`, "false");
+      }
+    }
     if (captureTimeline || enableInitializationPerformance) {
       window.localStorage.setItem("webshell.debugMode", "true");
     }
@@ -134,7 +142,7 @@ const createWindow = async (name, viewport, position, onCreated, beforeNavigate)
     window.__testsAutoPresentationProbe = {
       startedAt: performance.now(),
       samples: [],
-      stopped: false,
+      stopped: performanceMode,
     };
     const capturePresentationSample = () => {
       const probe = window.__testsAutoPresentationProbe;
@@ -221,6 +229,7 @@ const createWindow = async (name, viewport, position, onCreated, beforeNavigate)
           }
           if (typeof value?.data === "string") window.__testsAutoTerminalOutput += value.data;
           else if (typeof value?.payload?.data === "string") window.__testsAutoTerminalOutput += value.payload.data;
+          if (performanceMode) window.__testsAutoTerminalOutput = window.__testsAutoTerminalOutput.slice(-262144);
         } catch {}
         return;
       }
@@ -234,6 +243,7 @@ const createWindow = async (name, viewport, position, onCreated, beforeNavigate)
         if (headerLength > 0 && 8 + headerLength <= bytes.length) payload = bytes.subarray(8 + headerLength);
       }
       window.__testsAutoTerminalOutput += new TextDecoder().decode(payload);
+      if (performanceMode) window.__testsAutoTerminalOutput = window.__testsAutoTerminalOutput.slice(-262144);
     };
     window.WebSocket = new Proxy(NativeWebSocket, {
       construct(target, args) {
@@ -246,6 +256,7 @@ const createWindow = async (name, viewport, position, onCreated, beforeNavigate)
   }, {
     captureTimeline: config.captureTerminalTimeline,
     enableInitializationPerformance: config.enableInitializationPerformance,
+    performanceMode: options.performanceMode === true,
   });
   await beforeNavigate?.(state);
   page.on("console", (message) => {
@@ -295,14 +306,16 @@ const createWindow = async (name, viewport, position, onCreated, beforeNavigate)
     });
     websocket.on("framereceived", (data) => {
       const frame = decodeQueueFrame(data);
-      if (frame?.text) state.output += frame.text;
+      if (frame?.text) state.output = options.performanceMode ? (state.output + frame.text).slice(-262144) : state.output + frame.text;
     });
   });
-  const authURL = new URL("/", config.url).toString();
+  // Authenticate outside the intercepted app document. Standalone packages
+  // serve the app at /, while the embedded entry can use its parent page.
+  const authURL = new URL(new URL(config.url).pathname === "/" ? "/api/server-revision" : "/", config.url).toString();
   await page.goto(authURL, { waitUntil: "domcontentloaded", timeout: 60_000 });
   const loggedIn = await loginIfNeeded(page, name);
   state.authenticated = true;
-  await context.tracing.start({ screenshots: true, snapshots: true, sources: false });
+  if (!options.performanceMode) await context.tracing.start({ screenshots: true, snapshots: true, sources: false });
   const testURL = await resolveTestURL(page, name);
   await page.goto(testURL, { waitUntil: "domcontentloaded", timeout: 60_000 });
   await state.verifyFrontend(true);
@@ -382,22 +395,22 @@ const refreshTerminalOutput = async (state) => {
   return state.output;
 };
 
-const workspaceAction = async (state, action, payload = {}) => state.page.evaluate(async ({ action, payload }) => {
-  const name = new URLSearchParams(location.search).get("name");
-  const response = await fetch(`./api/workspace?name=${encodeURIComponent(name || "")}&cols=120&rows=32`, {
-    method: "POST",
-    signal: AbortSignal.timeout(10_000),
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ action, cols: 120, rows: 32, ...payload }),
+// Keep resource creation and cleanup outside the renderer: a frozen page must
+// not prevent the authenticated environment from releasing its owned tab.
+const workspaceAction = async (state, action, payload = {}) => {
+  const endpoint = new URL("./api/workspace", config.url);
+  endpoint.searchParams.set("name", new URL(config.url).searchParams.get("name"));
+  const response = await state.page.request.post(endpoint.href, {
+    data: { action, cols: 120, rows: 32, ...payload }, timeout: 10000,
   });
-  if (!response.ok) throw new Error(`workspace ${action} ${response.status}: ${await response.text()}`);
+  if (!response.ok()) throw new Error(`workspace ${action} ${response.status()}: ${await response.text()}`);
   return response.json();
-}, { action, payload });
+};
 
 const readWorkspace = async (state) => {
   const endpoint = new URL("./api/workspace", state.page.url());
   endpoint.searchParams.set("name", new URL(config.url).searchParams.get("name"));
-  const response = await state.page.request.get(endpoint.toString());
+  const response = await state.page.request.get(endpoint.toString(), { timeout: 10000 });
   if (!response.ok()) throw new Error("Cannot observe test workspace ownership");
   return response.json();
 };
@@ -431,15 +444,24 @@ const createIsolatedTab = async (state) => {
   return url.toString();
 };
 
+const withDeadline = async (promise, timeout = 5000) => {
+  let timer;
+  try {
+    return await Promise.race([promise, new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`Observation exceeded ${timeout}ms`)), timeout);
+    })]);
+  } finally { clearTimeout(timer); }
+};
+
 const persistPresentationProbe = async (state, artifactsDir) => {
-  const presentationProbe = await state.page.evaluate(() => {
+  const presentationProbe = await withDeadline(state.page.evaluate(() => {
     const probe = globalThis.__testsAutoPresentationProbe;
     if (probe) probe.stopped = true;
     return probe || { startedAt: 0, samples: [] };
-  }).catch(() => ({ startedAt: 0, samples: [] }));
-  const terminalTimeline = await state.page.evaluate(() => (
+  })).catch(error => ({ unavailable: error.message, samples: [] }));
+  const terminalTimeline = await withDeadline(state.page.evaluate(() => (
     globalThis.__testsAutoTerminalTimelineSnapshot?.() || []
-  )).catch(() => []);
+  ))).catch(() => []);
   await fs.writeFile(
     path.join(artifactsDir, `${state.name}-terminal-timeline.json`),
     `${JSON.stringify(terminalTimeline)}\n`,
@@ -473,7 +495,7 @@ const close = () => closing ||= (async () => {
     if (state.authenticated && state.page && !state.page.isClosed()) {
       await attempt("capture presentation", () => persistPresentationProbe(state, artifactsDir));
       await attempt("capture screen", () => state.page.screenshot({ path: path.join(artifactsDir, `${state.name}-final.png`), timeout: 5000 }));
-      if (state.context) await attempt("save trace", () => state.context.tracing.stop({ path: path.join(artifactsDir, `${state.name}-trace.zip`) }));
+      if (state.context && !options.performanceMode) await attempt("save trace", () => state.context.tracing.stop({ path: path.join(artifactsDir, `${state.name}-trace.zip`) }));
     }
   }
   if (states.desktop?.testTabID && states.desktop.page && !states.desktop.page.isClosed()) {
@@ -489,6 +511,10 @@ const close = () => closing ||= (async () => {
     });
   }
   for (const state of Object.values(states)) {
+    if (state.device) {
+      await attempt("close owned Android page", () => state.device.close());
+      continue;
+    }
     if (!state.browser.isConnected()) continue; // A module may deliberately close its auxiliary window.
     if (state.context) await attempt("close context", () => state.context.close());
     await attempt("close browser", () => state.browser.close());

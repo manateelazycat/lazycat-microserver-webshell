@@ -52,6 +52,8 @@ export function createTerminalSessionResourceFactory({
     terminalHost.removeAttribute("tabindex");
 
     const terminalFrameHold = documentObject.createElement("canvas");
+    terminalFrameHold.width = 0;
+    terminalFrameHold.height = 0;
     terminalFrameHold.className = "terminal-frame-hold";
     terminalFrameHold.hidden = true;
     terminalHost.appendChild(terminalFrameHold);

@@ -123,7 +123,7 @@ compare_source_wasm_content() {
 verify_source_wasm() {
   require_source_tree
   require_bun
-  (cd "$GHOSTTY_WEB_DIR" && bun run build:wasm)
+  GHOSTTY_WEB_DIR="$GHOSTTY_WEB_DIR" bash "$REPO_DIR/tools/build-ghostty-wasm.sh"
   compare_source_wasm_content
 }
 
@@ -143,7 +143,7 @@ require_source_tree
 require_bun
 
 if [[ "$mode" == "--rebuild-wasm-only" ]]; then
-  (cd "$GHOSTTY_WEB_DIR" && bun run build:wasm)
+  GHOSTTY_WEB_DIR="$GHOSTTY_WEB_DIR" bash "$REPO_DIR/tools/build-ghostty-wasm.sh"
   if [[ ! -f "$source_wasm" ]]; then
     echo "Ghostty WASM 构建未生成 ${source_wasm}" >&2
     exit 1
@@ -156,7 +156,8 @@ if [[ "$mode" == "--rebuild-wasm-only" ]]; then
 fi
 
 if [[ "$mode" == "--rebuild-wasm" ]]; then
-  (cd "$GHOSTTY_WEB_DIR" && bun run build)
+  GHOSTTY_WEB_DIR="$GHOSTTY_WEB_DIR" bash "$REPO_DIR/tools/build-ghostty-wasm.sh"
+  (cd "$GHOSTTY_WEB_DIR" && bun run build:lib)
 else
   (cd "$GHOSTTY_WEB_DIR" && bun run build:lib)
   compare_source_wasm_content

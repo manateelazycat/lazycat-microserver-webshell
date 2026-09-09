@@ -4,7 +4,7 @@
 
 本模块消费 Unified Queue 握手提供的当前/推荐 agent 协议版本，展示一次更新提示，在用户明确确认后调用 scoped agent 更新 API，并在成功后安排页面重载。
 
-当前 Provider 推荐协议为 `lcmd-webshell-agent-v10`。本次版本提升用于发布“删除 persistent pane 输入锁/`agentFrameLock`”这一协议边界变化；v9 被显式列为 attach-compatible。运行中的 v9 agent 会继续承载原有 PTY、历史、输入和输出，同时显示非阻塞应用内更新提示；只有用户确认后才通过 scoped `replace-active` 流程替换 agent，不需要重启 WebShell 应用服务。
+当前 Provider 推荐协议为 `lcmd-webshell-agent-v11`，用于发布大历史恢复期间的小消息积压合并修复。v10 和 v9 仍显式兼容，旧 Agent 可继续承载原会话；仅在用户确认后通过 scoped `replace-active` 更新，不能自动销毁现有 PTY。
 
 本模块不拥有终端 session、连接、PTY 或输入状态，不创建本地或远程输入锁。确认更新后允许清理当前页面尚未发送的 pending 输入，避免即将销毁的旧会话残留队列，但不得在 Provider、persistent agent 或 pane 上保存 blocker。
 

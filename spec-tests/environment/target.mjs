@@ -19,7 +19,7 @@ const loginIfNeeded = async (page, name) => {
 const resolveTestURL = async (page, windowName) => {
   const requestedURL = new URL(config.url);
   const requestedName = requestedURL.searchParams.get("name") || "";
-  const instancesURL = new URL("./api/instances", new URL("/webshell/", requestedURL));
+  const instancesURL = new URL("./api/instances", requestedURL);
   const response = await page.request.get(instancesURL.toString(), { timeout: 15_000 });
   if (!response.ok()) throw new Error(`instances ${response.status()}: ${await response.text()}`);
   const instances = await response.json();

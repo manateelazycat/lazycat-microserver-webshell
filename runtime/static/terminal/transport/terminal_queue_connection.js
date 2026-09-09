@@ -50,13 +50,18 @@ const parseSequence = (value) => {
   return Number.isSafeInteger(sequence) ? sequence : null;
 };
 
+const crc32Table = Uint32Array.from({ length: 256 }, (_, byte) => {
+  let value = byte;
+  for (let bit = 0; bit < 8; bit += 1) {
+    value = (value >>> 1) ^ (value & 1 ? 0xedb88320 : 0);
+  }
+  return value >>> 0;
+});
+
 const crc32 = (data) => {
   let value = 0xffffffff;
-  for (const byte of data) {
-    value ^= byte;
-    for (let bit = 0; bit < 8; bit += 1) {
-      value = (value >>> 1) ^ (value & 1 ? 0xedb88320 : 0);
-    }
+  for (let index = 0; index < data.length; index += 1) {
+    value = (value >>> 8) ^ crc32Table[(value ^ data[index]) & 0xff];
   }
   return (value ^ 0xffffffff) >>> 0;
 };

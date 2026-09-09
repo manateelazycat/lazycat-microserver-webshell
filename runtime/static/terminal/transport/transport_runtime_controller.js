@@ -55,6 +55,7 @@ export function createTerminalTransportRuntimeController({
   isApplyingWorkspaceState = () => false,
   isCurrentSession = () => false,
   isReplayRetryPaused = () => false,
+  isReplayCommitted = () => false,
   getUnifiedTransport = () => null,
   resizeSession = () => ({ ok: false }),
   isSessionMeasurable = () => false,
@@ -92,6 +93,8 @@ export function createTerminalTransportRuntimeController({
   let demandGeneration = 0;
   let unifiedChannelGeneration = 0;
   let membershipRefreshPending = false;
+  const attachStartedAt = new WeakMap();
+  let foregroundWaitStartedAt = 0;
   let disposed = false;
 
   const tabsArray = () => Array.from(getTabs() || []);
@@ -313,6 +316,7 @@ export function createTerminalTransportRuntimeController({
     unifiedChannelGeneration += 1;
     const generation = unifiedChannelGeneration;
     session.unifiedConnectPending = true;
+    attachStartedAt.set(session, now());
     session.connectionChannel = "unified";
     session.connectionChannelGeneration = generation;
     session.connectionCloseReason = "";
@@ -363,11 +367,36 @@ export function createTerminalTransportRuntimeController({
         detachUnifiedSession(pane, pane.closed ? "session_closed" : "membership_removed");
       }
     }
-    for (const pane of sessionsArray()) {
-      if (paneIDs.has(pane.id) && !pane.socket && !isReplayRetryPaused(pane)) {
-        connectUnifiedSession(pane);
+    const candidates = sessionsArray().filter(pane => paneIDs.has(pane.id));
+    const priority = pane => membershipSnapshot.priorities[pane.id] ?? 3;
+    candidates.sort((left, right) => priority(left) - priority(right));
+    const restoring = pane => !isReplayCommitted(pane) && !isReplayRetryPaused(pane);
+    const inputRestoring = candidates.some(pane => priority(pane) === 0 && restoring(pane));
+    const foregroundRestoring = candidates.some(pane => priority(pane) <= 1 && restoring(pane));
+    if (!foregroundRestoring) foregroundWaitStartedAt = 0;
+    else if (!foregroundWaitStartedAt) foregroundWaitStartedAt = now();
+    // A round-robin server gives each subscribed history a share of the link.
+    // Restore the input pane first, then visible peers and two background replays at a
+    // time. Existing streams stay subscribed; activation bypasses this gate.
+    // A failed/stalled replay must not indefinitely starve the other tabs.
+    const foregroundWaiting = foregroundRestoring && now() - foregroundWaitStartedAt < 20000;
+    let backgroundRestoring = candidates.filter(pane => priority(pane) > 1
+      && (pane.socket || pane.unifiedConnectPending) && restoring(pane)
+      && now() - (attachStartedAt.get(pane) || 0) < 60000).length;
+    let deferred = false;
+    for (const pane of candidates) {
+      if (pane.socket || pane.unifiedConnectPending || isReplayRetryPaused(pane)) continue;
+      if (priority(pane) === 1 && inputRestoring && foregroundWaiting) {
+        deferred = true;
+        continue;
       }
+      if (priority(pane) > 1 && (foregroundWaiting || backgroundRestoring >= 2)) {
+        deferred = true;
+        continue;
+      }
+      if (connectUnifiedSession(pane) && priority(pane) > 1) backgroundRestoring += 1;
     }
+    if (deferred) lifecycle.scheduleDeferredSync(() => reconcileUnifiedMembership());
     const transport = getUnifiedTransport();
     for (const [paneID, priority] of Object.entries(membershipSnapshot.priorities)) {
       transport?.setPriority?.(paneID, priority);
@@ -401,6 +430,7 @@ export function createTerminalTransportRuntimeController({
       activeTabID: tab?.id || "",
       activePaneID: activePane?.id || "",
     });
+    if (result.targetChanged) foregroundWaitStartedAt = 0;
     const transport = getUnifiedTransport();
     if (result.targetChanged && transport?.getConnection?.()) {
       transport.close("context_changed");
