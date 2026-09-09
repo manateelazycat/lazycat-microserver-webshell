@@ -874,6 +874,33 @@ body.split-resize-active * {
   will-change: transform;
 }
 
+/* The keyboard input has a stable anchor independent of terminal cursor,
+   renderer metrics and viewport pan. Composition uses its separate preview. */
+.terminal-host textarea.terminal-input-mobile {
+  position: absolute !important;
+  top: 0 !important;
+  left: 0 !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+  height: 16px !important;
+  min-height: 16px !important;
+  max-height: 16px !important;
+  font: 16px/16px monospace !important;
+  text-indent: 0 !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  box-sizing: border-box !important;
+  transform: none !important;
+  will-change: auto !important;
+  clip-path: none !important;
+  opacity: 0.01 !important;
+  color: transparent !important;
+  background: transparent !important;
+  resize: none !important;
+  pointer-events: none;
+}
+
 .fps-meter {
   position: absolute;
   right: 5px;

@@ -6,7 +6,7 @@ export function createKeyboardDiagnostics({
   if (!(navigatorObject.maxTouchPoints > 0) && !/Android|iPhone|iPad|iPod/i.test(navigatorObject.userAgent || "")) {
     return { record() {}, probe() {}, dispose() {} };
   }
-  const run = `kbd-v3-native-tap-${Date.now().toString(36)}`;
+  const run = `kbd-v4-stable-input-${Date.now().toString(36)}`;
   const timers = new Set();
   const cleanups = [];
   const eventIDs = new WeakMap();

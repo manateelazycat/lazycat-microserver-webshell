@@ -54,7 +54,6 @@ export function createTerminalIMEController({
   const cleanupRegistered = new WeakSet();
   const installedSessions = new WeakSet();
   const claimedTouchEnds = new WeakSet();
-  const pendingInputPositions = new WeakMap();
   const touchGestureCancellations = new WeakMap();
   const now = () => Number(windowObject.performance?.now?.() || Date.now());
   const eventTime = (event) => Number.isFinite(event?.timeStamp) && event.timeStamp >= 0 ? event.timeStamp : now();
@@ -81,7 +80,10 @@ export function createTerminalIMEController({
     }
   };
 
-  const resetHostViewport = (session, { clean = false } = {}) => {
+  const resetHostViewport = (session, { clean = false, source = "" } = {}) => {
+    // Mobile output changes Canvas content only. Native input/scroll events
+    // still run the host guard when the browser actually changes its scroll.
+    if (source === "output" && requiresTouchKeyboardDoubleTap()) return;
     const host = session?.terminalHost;
     if (!host) {
       return;
@@ -226,28 +228,30 @@ export function createTerminalIMEController({
     setCompositionPreviewVisible(session, true);
   };
 
-  const scheduleInputPosition = (session) => {
-    if (pendingInputPositions.has(session)) return;
-    const request = {};
-    pendingInputPositions.set(session, request);
-    lifecycle.frame(session, () => {
-      if (pendingInputPositions.get(session) !== request) return;
-      pendingInputPositions.delete(session);
-      if (documentObject.activeElement === session.term?.textarea) {
-        keyboardDiagnostics.record(session, "position.frame.begin");
-        positionInput(session);
-        keyboardDiagnostics.record(session, "position.frame.end", { anchor: { ...session.terminalInputAnchor } });
-      }
-    });
+  const syncInputLayout = (session) => {
+    const textarea = session?.term?.textarea;
+    const mobile = requiresTouchKeyboardDoubleTap();
+    if (textarea && textarea.classList.contains("terminal-input-mobile") !== mobile) {
+      textarea.classList.toggle("terminal-input-mobile", mobile);
+      session.terminalInputAnchor = null;
+      keyboardDiagnostics.record(session, "input.layout-changed", { mobile });
+    }
+    return mobile;
   };
 
   const positionInput = (session) => {
-    // A user focus request already has one layout update scheduled. Output
-    // callbacks in the meantime must not repeatedly reposition the input.
-    if (pendingInputPositions.has(session) && !session?.composingIME) return;
-    if (session?.composingIME) pendingInputPositions.delete(session);
     const term = session?.term;
     const textarea = term?.textarea;
+    if (!textarea || session.closed || disposed) return;
+    const mobile = syncInputLayout(session);
+    // The mobile input's CSS anchor needs neither a mounted host nor a WASM
+    // cursor. Only composition preview follows terminal output and geometry.
+    if (mobile && !session.composingIME) {
+      if (session.compositionPreview && !session.compositionPreview.hidden) {
+        setCompositionPreviewVisible(session, false);
+      }
+      return;
+    }
     const renderer = term?.renderer;
     const cursor = term?.wasmTerm?.getCursor?.();
     const metrics = renderer?.getMetrics?.();
@@ -261,6 +265,13 @@ export function createTerminalIMEController({
     const previewLeft = cursorX * width;
     const previewTop = cursorY * height;
     const hostWidth = Math.max(width, Number(session.terminalHost?.clientWidth) || (Number(term.cols) || 1) * width);
+    if (mobile) {
+      syncCompositionPreview(session, {
+        x: previewLeft, y: previewTop, width, height,
+        maxWidth: Math.max(width, hostWidth - previewLeft),
+      });
+      return;
+    }
     const hostHeight = Math.max(height, Number(session.terminalHost?.clientHeight) || (Number(term.rows) || 1) * height);
     const preserveAnchor = documentObject.activeElement === textarea;
     const previousAnchor = preserveAnchor ? session.terminalInputAnchor : null;
@@ -362,7 +373,6 @@ export function createTerminalIMEController({
     const activeElement = documentObject.activeElement;
     if (isHTMLElement(activeElement) && (activeElement === textarea || activeElement === host
       || activeElement === shell || shell?.contains(activeElement))) {
-      pendingInputPositions.delete(session);
       activeElement.blur();
       // The textarea's blur listener owns its recovery. Other focused host
       // elements only need recovery if keyboard viewport state still exists.
@@ -423,26 +433,7 @@ export function createTerminalIMEController({
       session.terminalInputAnchor = null;
     }
     if (requestMobileKeyboard && touchLayout) {
-      if (documentObject.activeElement !== textarea) {
-        // Make a newly focused input usable without reading layout or relying
-        // on an initial fit that may have run while its host was detached.
-        textarea.style.position = "absolute";
-        textarea.style.top = "0px";
-        textarea.style.left = "0px";
-        textarea.style.width = "100%";
-        textarea.style.minWidth = "0";
-        textarea.style.maxWidth = "100%";
-        textarea.style.height = `${Math.max(1, Number(getTerminalFontSize()) || 16)}px`;
-        textarea.style.minHeight = textarea.style.height;
-        textarea.style.maxHeight = textarea.style.height;
-        textarea.style.textIndent = "0px";
-        textarea.style.transform = "";
-        textarea.style.clipPath = "none";
-        textarea.style.opacity = "0.01";
-        textarea.style.zIndex = "3";
-        textarea.style.pointerEvents = "none";
-      }
-      scheduleInputPosition(session);
+      syncInputLayout(session);
     } else {
       positionInput(session);
     }
@@ -453,9 +444,12 @@ export function createTerminalIMEController({
     try {
       try {
         keyboardDiagnostics.record(session, "focus.dom-call", {
-          top: textarea.style.top, transform: textarea.style.transform,
-          width: textarea.style.width, height: textarea.style.height,
-          pointerEvents: textarea.style.pointerEvents, pendingPosition: pendingInputPositions.has(session),
+          inlineStyle: {
+            top: textarea.style.top, transform: textarea.style.transform,
+            width: textarea.style.width, height: textarea.style.height,
+            pointerEvents: textarea.style.pointerEvents,
+          },
+          fixedMobileAnchor: textarea.classList.contains("terminal-input-mobile"),
         });
         textarea.focus({ preventScroll: true });
       } catch (error) {
@@ -1013,13 +1007,12 @@ export function createTerminalIMEController({
     lifecycle.listen(session, textarea, "focus", () => {
       keyboardDiagnostics.record(session, "textarea.focus");
       cancelKeyboardDismissRecovery();
-      if (requiresTouchKeyboardDoubleTap()) scheduleInputPosition(session);
+      if (requiresTouchKeyboardDoubleTap()) syncInputLayout(session);
       else positionInput(session);
       updateActiveTabTitle();
     });
     lifecycle.listen(session, textarea, "blur", () => {
       keyboardDiagnostics.record(session, "textarea.blur");
-      pendingInputPositions.delete(session);
       session.terminalInputAnchor = null;
       releaseInputViewportLock(session);
       updateActiveTabTitle();
@@ -1233,6 +1226,7 @@ export function createTerminalIMEController({
     lifecycle.listen(session, shell, "touchmove", moveMobileTap, { capture: true, passive: true });
     lifecycle.listen(session, shell, "touchend", finishMobileTap, { capture: true, passive: false });
     lifecycle.listen(session, shell, "touchcancel", cancelMobileTap, { capture: true, passive: true });
+    prepareTextareaForInput(session);
     positionInput(session);
     lifecycle.frame(session, () => positionInput(session));
   };
@@ -1261,7 +1255,6 @@ export function createTerminalIMEController({
     setComposing(session, false);
     session.pendingCompositionInput = null;
     session.terminalInputAnchor = null;
-    pendingInputPositions.delete(session);
     touchGestureCancellations.get(session)?.();
     touchGestureCancellations.delete(session);
     installedSessions.delete(session);

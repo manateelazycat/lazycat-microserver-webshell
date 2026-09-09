@@ -102,8 +102,10 @@ export function createTerminalMobileViewportController({
     const preview = session?.compositionPreview;
     for (const node of [canvas, textarea, preview]) {
       if (isHTMLElement(node)) {
-        node.style.transform = transform;
-        node.style.willChange = transform ? "transform" : "";
+        const nodeTransform = node === textarea && isTouchShortcutLayout() ? "" : transform;
+        const willChange = nodeTransform ? "transform" : "";
+        if (node.style.transform !== nodeTransform) node.style.transform = nodeTransform;
+        if (node.style.willChange !== willChange) node.style.willChange = willChange;
       }
     }
     return panY;
