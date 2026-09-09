@@ -6,6 +6,7 @@
 
 - `main.js`：唯一页面脚本入口，不实现业务逻辑。
 - `global-runtime.js`：全局运行时唯一 owner，负责全局状态声明、feature controller 创建、启动/恢复/销毁顺序和显式依赖接线。
+- `i18n.js`：浏览器语言默认驱动的轻量国际化运行时，支持模板标记 `{{ $t('中文') }}`，并在运行时输出阶段自动本地化 DOM 文案。
 - `index.html`、`style.css`：页面结构和样式。
 - `ghostty-web.js`、`ghostty-vt.wasm`：随包发布的终端运行时。
 - `vendor/`：第三方宿主适配，只能通过明确公开 API 使用。

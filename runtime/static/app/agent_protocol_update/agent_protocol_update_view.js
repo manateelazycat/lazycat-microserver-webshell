@@ -1,4 +1,5 @@
 export function createAgentProtocolUpdateView({ notice = null } = {}) {
+  const translate = (key) => typeof globalThis.$t === "function" ? globalThis.$t(key) : key;
   let clickHandler = null;
 
   const handleClick = () => clickHandler?.();
@@ -20,8 +21,8 @@ export function createAgentProtocolUpdateView({ notice = null } = {}) {
       notice.disabled = updating;
       notice.setAttribute("aria-busy", updating ? "true" : "false");
       notice.textContent = updating
-        ? "正在更新终端服务协议..."
-        : "检测到终端服务协议待更新，点击查看详情";
+        ? translate("正在更新终端服务协议...")
+        : translate("检测到终端服务协议待更新，点击查看详情");
     },
   });
 }

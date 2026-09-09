@@ -13,6 +13,10 @@ export function createAttachmentsView({
   documentObject = globalThis.document,
   windowObject = globalThis.window,
 } = {}) {
+  const translate = (key) => typeof globalThis.$t === "function" ? globalThis.$t(key) : key;
+  const sortLabel = (label) => translate("排序") === "sort"
+    ? `${translate("按")}${label}`
+    : `${translate("按")}${label}${translate("排序")}`;
   const byID = (id) => documentObject?.getElementById?.(id) || null;
   const elements = {
     toggle: byID("attachmentToggle"),
@@ -89,19 +93,23 @@ export function createAttachmentsView({
   const renderSortControls = (sort) => {
     const activeLabel = attachmentBrowserSortNames[sort?.key] || "";
     const direction = sort?.direction === "desc" ? "desc" : "asc";
-    const activeDirectionLabel = direction === "desc" ? "降序" : "升序";
+    const activeDirectionLabel = translate(direction === "desc" ? "降序" : "升序");
     elements.browserSortbar?.setAttribute("data-sort-key", sort?.key || "name");
     elements.browserSortbar?.setAttribute("data-sort-direction", direction);
     for (const button of elements.browserSortButtons) {
       const key = String(button.dataset?.attachmentSortKey || "");
       const active = key === sort?.key;
-      const label = attachmentBrowserSortNames[key] || String(button.textContent || "").trim();
+      const label = translate(attachmentBrowserSortNames[key] || String(button.textContent || "").trim());
       button.classList?.toggle?.("is-active", active);
       button.dataset.sortDirection = active ? direction : "";
       button.setAttribute("aria-pressed", active ? "true" : "false");
-      button.setAttribute("aria-label", active ? `按${label}排序，当前${activeDirectionLabel}，点击切换排序` : `按${label}排序`);
+      button.setAttribute("aria-label", active
+        ? `${sortLabel(label)}, ${translate("当前")} ${activeDirectionLabel}, ${translate("点击切换排序")}`
+        : sortLabel(label));
     }
-    elements.browserList?.setAttribute("aria-label", activeLabel ? `文件列表，当前按${activeLabel}${activeDirectionLabel}排序` : "文件列表");
+    elements.browserList?.setAttribute("aria-label", activeLabel
+      ? `${translate("文件列表")}, ${translate("当前")} ${translate(activeLabel)} ${activeDirectionLabel} ${translate("排序")}`
+      : translate("文件列表"));
   };
 
   const createBrowserItem = (entry, selectedPaths) => {

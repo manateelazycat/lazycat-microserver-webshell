@@ -99,7 +99,8 @@ export function createTerminalOverviewView({
     ctx.font = "13px sans-serif";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText("无预览", x + width / 2, y + height / 2);
+    const text = typeof globalThis.$t === "function" ? globalThis.$t("无预览") : "无预览";
+    ctx.fillText(text, x + width / 2, y + height / 2);
   };
 
   const drawPane = (ctx, pane, x, y, width, height, colors, sourceForPane) => {

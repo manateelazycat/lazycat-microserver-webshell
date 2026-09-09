@@ -153,6 +153,7 @@ import {
   createServerRevisionController,
 } from "./app/index.js";
 import { createSVGIconFactory } from "./ui/icons/index.js";
+import { createI18nRuntime } from "./i18n.js";
 import {
   isIndependentClient,
   openConfigurationPage,
@@ -164,6 +165,14 @@ const ghosttyWASMURL = new URL("./ghostty-vt.wasm", import.meta.url).toString();
 const params = new URLSearchParams(globalThis.window?.location?.search || "");
 
 export function startGlobalRuntime() {
+  const i18n = createI18nRuntime({
+    root: document,
+    autoApply: true,
+    observe: true,
+  });
+  if (typeof globalThis !== "undefined") {
+    globalThis.$t = i18n.t;
+  }
   restoreInitialWorkspaceLocation({ windowObject: window, searchParams: params });
   const isEmbedMode = params.has("embed");
   document.body?.classList.toggle("is-embed-mode", isEmbedMode);
