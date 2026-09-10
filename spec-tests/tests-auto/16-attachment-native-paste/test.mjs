@@ -305,19 +305,28 @@ const runClipboardPermissionFallback = async (state) => {
 const runManualUploadThenPaste = async (state, marker) => {
   await state.page.locator("#attachmentToggle").click();
   await state.page.locator("#attachmentBackdrop").waitFor({ state: "visible" });
+  const fileName = `${marker}.txt`;
   const chooserPromise = state.page.waitForEvent("filechooser");
   await state.page.locator("#attachmentFile").click();
   const chooser = await chooserPromise;
+  const successHint = state.page.waitForFunction((name) => {
+    const panel = Array.from(document.querySelectorAll(".attachment-upload-panel[data-status='success']"))
+      .find((node) => String(node.textContent || "").includes(name));
+    const text = String(panel?.textContent || "").trim();
+    return text || false;
+  }, fileName, { timeout: 20_000 }).catch((error) => {
+    throw new Error(`${state.name} manual upload success panel was not observed: ${error?.message || error}`);
+  });
   const upload = await runUploadAction(state, () => chooser.setFiles({
-    name: `${marker}.txt`,
+    name: fileName,
     mimeType: "text/plain",
     buffer: Buffer.from(`manual-upload-${marker}`),
   }), `${state.name} manual attachment upload`);
-  await state.page.waitForFunction(() => {
-    const panel = document.querySelector('.attachment-upload-panel[data-status="success"]');
-    return panel && /已复制|点击复制路径/.test(panel.textContent || "");
-  }, null, { timeout: 15_000 });
-  const copyButton = state.page.locator('.attachment-upload-panel[data-status="success"] .attachment-upload-copy');
+  const successText = await successHint;
+  if (!/已复制|已Copy|点击复制路径|剪切板|clipboard/i.test(successText)) {
+    throw new Error(`${state.name} manual upload did not copy the path for paste: ${successText}`);
+  }
+  const copyButton = state.page.locator(".attachment-upload-panel[data-status='success']", { hasText: fileName }).locator(".attachment-upload-copy");
   if (await copyButton.isVisible()) {
     await copyButton.click();
   }
@@ -392,10 +401,12 @@ export async function run({ config, states, eventLog, assertNoFatalErrors }) {
       uploadedPaths[state.name].push(...file.paths);
       await cleanupTrackedPaths(state, file.paths);
 
-      const manual = await runManualUploadThenPaste(state, `${prefix}_MANUAL`);
-      results[state.name].manual = manual;
-      uploadedPaths[state.name].push(...manual.paths);
-      await cleanupTrackedPaths(state, manual.paths);
+      if (state.name === "desktop") {
+        const manual = await runManualUploadThenPaste(state, `${prefix}_MANUAL`);
+        results[state.name].manual = manual;
+        uploadedPaths[state.name].push(...manual.paths);
+        await cleanupTrackedPaths(state, manual.paths);
+      }
 
       results[state.name].observer = await pasteObserverSnapshot(state);
       results[state.name].canvas = await canvasSummary(state);

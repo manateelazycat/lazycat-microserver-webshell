@@ -48,6 +48,7 @@ export function createAttachmentsController({
   showToast = () => {},
   copyText = async () => false,
   isMobileLayout = () => false,
+  ingestSelectedFiles = () => ({ handled: false }),
   measureTask = (_name, task) => task(),
   recordPerformanceTask = () => {},
   now = () => globalThis.performance?.now?.() || Date.now(),
@@ -626,13 +627,31 @@ export function createAttachmentsController({
       return false;
     }
     closeDialog({ focus: false });
-    reserveFileClipboard();
+    if (isMobileLayout()) {
+      cancelFileClipboard();
+    } else {
+      reserveFileClipboard();
+    }
     view.openFilePicker?.();
     return true;
   };
 
   const handleFileInputChange = () => {
-    const uploadID = uploadAttachments(view.consumeInputFiles?.() || [], {
+    const files = view.consumeInputFiles?.() || [];
+    if (isMobileLayout()) {
+      cancelFileClipboard();
+      const ingested = ingestSelectedFiles(files);
+      view.blurFileInput?.();
+      scheduleFocus(focusTerminal);
+      if (ingested?.handled) {
+        return ingested;
+      }
+      return uploadAttachments(files, {
+        source: "file",
+        copyPaths: false,
+      });
+    }
+    const uploadID = uploadAttachments(files, {
       source: "file",
       clipboardReservation: consumeFileClipboard(),
     });

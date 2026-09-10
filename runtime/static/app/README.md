@@ -31,10 +31,10 @@
 
 `commands/` 的 `createAppCommandController` 通过 `runAction()` 和 `createUserTab()` 发布应用意图，`install()` 负责新建 tab、空状态按钮和标签栏滚轮 listener；`command_lifecycle.js` 负责 listener 清理和 dispose generation。命令模块不直接读取或修改终端、history、replay、resize 或 Canvas 状态。
 
-`paste/` 的 `createAppPasteController` 是原生 paste 分流的唯一 owner。文件数据存在时优先上传并拒绝同事件派生文本；上传完成后只有触发时的 session 仍由 workspace registry 持有、实例未切换且 controller generation 有效，才能把无 CR/LF 的路径参数发送回原 pane。IME 和 session installation 只转发原生事件，不复制文件/MIME 判断。
+`paste/` 的 `createAppPasteController` 是原生 paste 分流的唯一 owner。文件数据存在时优先上传并拒绝同事件派生文本；上传完成后只有触发时的 session 仍由 workspace registry 持有、实例未切换且 controller generation 有效，才能把无 CR/LF 的路径参数发送回原 pane。IME 和 session installation 只转发原生事件，不复制文件/MIME 判断。移动端文件选择器成功后的路径写入复用 `handleDroppedFiles()`，不在附件模块内直接发送终端输入。
 
 `file_drop/` 的 `createAppFileDropController` 是页面级文件拖放的唯一 owner。它只在命中可交互 pane 时显示遮罩并在松开后把文件交给 paste；文件夹与非终端落点不得发起上传，同时必须拦住浏览器打开该文件。
 
 ## 依赖与验证
 
-外部只能从 `app/index.js` 导入本目录模块；根启动从 `global-runtime.js` 进入。新增页面级事件必须先归入本目录或明确的 feature 模块，并增加生命周期清理测试。相关回归包括 `app_lifecycle_controller_test.mjs`、`app_paste_controller_test.mjs`、页面显隐/网络恢复测试、`tests-auto/16-attachment-native-paste/`、`tests-auto/21-attachment-file-drop/`，以及 `main.js`/`global-runtime.js` 入口边界 guard。
+外部只能从 `app/index.js` 导入本目录模块；根启动从 `global-runtime.js` 进入。新增页面级事件必须先归入本目录或明确的 feature 模块，并增加生命周期清理测试。相关回归包括 `app_lifecycle_controller_test.mjs`、`app_paste_controller_test.mjs`、页面显隐/网络恢复测试、`tests-auto/16-attachment-native-paste/`、`tests-auto/21-attachment-file-drop/`、`tests-auto/25-attachment-mobile-upload-path/`，以及 `main.js`/`global-runtime.js` 入口边界 guard。

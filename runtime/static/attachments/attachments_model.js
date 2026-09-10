@@ -229,8 +229,8 @@ export const attachmentUploadTitle = (upload) => {
 
 export const attachmentUploadStatusText = (upload) => {
   if (upload?.status === "success") {
-    if (upload?.source === "paste") {
-      return "上传成功，文件路径已就绪。";
+    if (upload?.source === "paste" || upload?.copyPaths === false) {
+      return "上传成功。";
     }
     return upload.copyFailed ? "上传成功，点击复制路径。" : "文件路径已复制到剪切板,粘贴即可";
   }

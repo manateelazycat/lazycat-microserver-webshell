@@ -340,6 +340,7 @@ const MESSAGES = {
     "个文件": "files",
     "暂不支持拖入文件夹。": "Folders cannot be uploaded yet.",
     "附件上传失败。": "Attachment upload failed.",
+    "上传成功。": "Upload succeeded.",
     "上传成功，文件路径已就绪。": "Upload succeeded; the file path is ready.",
     "准备上传": "Preparing upload",
     "这个目录没有文件": "This directory has no files",

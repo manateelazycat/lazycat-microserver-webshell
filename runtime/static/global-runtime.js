@@ -613,6 +613,7 @@ export function startGlobalRuntime() {
     showToast: (message) => showToast(message),
     copyText: (text) => terminalClipboard?.copyText(text) || false,
     isMobileLayout: () => isMobileLayout(),
+    ingestSelectedFiles: (files) => appPaste?.handleDroppedFiles(activeSession(), files) || { handled: false },
     measureTask: (name, task) => measurePerformanceTask(name, task),
     recordPerformanceTask: (name, duration) => recordPerformanceTask(name, duration),
     now: () => performanceTaskNow(),
