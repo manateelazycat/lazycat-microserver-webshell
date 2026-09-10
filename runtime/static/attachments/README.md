@@ -10,7 +10,7 @@
 
 外部只能从 `index.js` 导入 `createAttachmentsController()`。控制器公开 `start()`、`dispose()`、`openDialog()`、`closeDialog()`、`openBrowser()`、`closeBrowser()`、`closeAll()`、`importFromClipboard()`、`uploadPastedFiles()`、`selectFiles()`、`isFileInputTarget()`、`handleEscape()`、`handleTargetChange()`、`handleTabRemoved()`、`refreshUploadPanels()`、`isAnyOpen()` 和只读 `snapshot()`。
 
-`uploadPastedFiles(files, { targetName, tabId })` 返回可等待的完成结果，结果固定携带创建时的实例、tab、上传 ID、状态和远端路径。它不拥有原生 paste 事件，也不直接向终端发送路径；应用级 paste controller 消费结果并负责原 pane fence。
+`uploadPastedFiles(files, { targetName, tabId })` 返回可等待的完成结果，结果固定携带创建时的实例、tab、上传 ID、状态和远端路径。它不拥有原生 paste 或文件拖放事件，也不直接向终端发送路径；应用级 paste controller 消费粘贴和拖放结果并负责原 pane fence。拖放入口由 `app/file_drop` 命中 pane 后调用 paste。
 
 `global-runtime.js` 只转发快捷键和菜单动作，在 tab 激活、搜索面板变化、实例切换、tab 删除、全局 Escape、启动和销毁时调用这些公开方法。外部不得读取或修改附件内部状态。
 
@@ -59,4 +59,4 @@ View 只维护实际 DOM 节点及上传面板节点映射；API 只执行白名
 - `runtime_shortcuts_test.go`：公开入口、README、`global-runtime.js` 边界、版本化静态资源和旧实现移除契约。
 - `attachments_test.go`：服务端账号与实例授权、客户端代理、32 文件/2GB 上传限制、64 条下载、路径和归档安全。
 
-最小回归步骤：运行 `tests-auto/16-attachment-native-paste/`，从系统剪贴板和文件选择器分别上传；确认原生图片/文件只上传一次、路径只进入原 pane 一次且没有 Enter，手动上传仍复制路径并恢复焦点；再验证进度、手动关闭和 5 秒自动关闭、上传中关闭 tab/切换实例的迟到拒绝，以及文件浏览器的目录导航、排序和下载。
+最小回归步骤：运行 `tests-auto/16-attachment-native-paste/`，从系统剪贴板和文件选择器分别上传；确认原生图片/文件只上传一次、路径只进入原 pane 一次且没有 Enter，手动上传仍复制路径并恢复焦点；再验证进度、手动关闭和 5 秒自动关闭、上传中关闭 tab/切换实例的迟到拒绝，以及文件浏览器的目录导航、排序和下载。桌面拖放上传运行 `tests-auto/21-attachment-file-drop/`。

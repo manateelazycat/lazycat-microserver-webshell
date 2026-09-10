@@ -35,3 +35,4 @@ export {
   nativePasteFiles,
   nativePasteText,
 } from "./paste/index.js";
+export { createAppFileDropController } from "./file_drop/index.js";

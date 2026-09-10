@@ -1,6 +1,6 @@
 # 应用生命周期模块
 
-`app/` 负责应用级的可复用模块（页面 listener 工具、bootstrap、对话框、命令、快捷键、原生粘贴分流和反馈）。全局状态、启动顺序、页面级 handler 组装和跨模块运行时编排统一由同级的 `runtime/static/global-runtime.js` 持有；本目录不再承担根应用 orchestrator。
+`app/` 负责应用级的可复用模块（页面 listener 工具、bootstrap、对话框、命令、快捷键、原生粘贴分流、文件拖放上传和反馈）。全局状态、启动顺序、页面级 handler 组装和跨模块运行时编排统一由同级的 `runtime/static/global-runtime.js` 持有；本目录不再承担根应用 orchestrator。
 
 根应用启动入口是 `runtime/static/main.js` -> `runtime/static/global-runtime.js` 的 `startGlobalRuntime()`；`main.js` 不应直接导入本目录内部模块。
 
@@ -17,6 +17,7 @@
 - `dom_registry.js`：一次解析并校验页面外壳 DOM，按 workspace、dialog、mobile、startup 分组返回只读引用；不注册事件、不拥有业务状态。
 - `shortcuts/`：桌面快捷键动作映射、过滤和全屏命令；只通过显式回调调用业务模块，不拥有业务状态。
 - `paste/`：原生 `paste` 事件的文件优先/文本降级分流、上传 continuation 和原 pane generation fence；只调用注入的附件上传与终端输入命令，不主动读取剪贴板。
+- `file_drop/`：桌面文件拖放到终端画面的落点遮罩、文件夹拒绝和 drop 消费；命中 pane 后把文件交给 paste 的 `handleDroppedFiles()`，不拥有上传或路径输入。
 - `server_revision/`：稳定 client ID、版本检查、部署重载提示及首次检查 timer；更新提示不拥有也不修改终端输入状态。
 - `agent_protocol_update/`：消费 Unified Queue 首次握手中的 Agent 当前/推荐协议版本，在终端右上角显示一次待更新提示；只有用户通过危险确认对话框明确同意后才请求 scoped Agent 更新，失败时保留提示。该模块不创建输入锁、不轮询、不按 pane 重复检测，也不自行替换 Agent。
 - `bootstrap/`：应用启动事务、启动失败呈现和旧 PWA/Cache API 一次性迁移清理；同时保存由 Provider 在旧 URL 提供的退役 Worker 源码。`index.html` 只对仍受旧 Worker 控制的页面触发现有 registration 更新，不导入或注册 Worker。模块不申请浏览器持久存储，只接收显式依赖，不实现业务模块。
@@ -32,6 +33,8 @@
 
 `paste/` 的 `createAppPasteController` 是原生 paste 分流的唯一 owner。文件数据存在时优先上传并拒绝同事件派生文本；上传完成后只有触发时的 session 仍由 workspace registry 持有、实例未切换且 controller generation 有效，才能把无 CR/LF 的路径参数发送回原 pane。IME 和 session installation 只转发原生事件，不复制文件/MIME 判断。
 
+`file_drop/` 的 `createAppFileDropController` 是页面级文件拖放的唯一 owner。它只在命中可交互 pane 时显示遮罩并在松开后把文件交给 paste；文件夹与非终端落点不得发起上传，同时必须拦住浏览器打开该文件。
+
 ## 依赖与验证
 
-外部只能从 `app/index.js` 导入本目录模块；根启动从 `global-runtime.js` 进入。新增页面级事件必须先归入本目录或明确的 feature 模块，并增加生命周期清理测试。相关回归包括 `app_lifecycle_controller_test.mjs`、`app_paste_controller_test.mjs`、页面显隐/网络恢复测试、`tests-auto/16-attachment-native-paste/`，以及 `main.js`/`global-runtime.js` 入口边界 guard。
+外部只能从 `app/index.js` 导入本目录模块；根启动从 `global-runtime.js` 进入。新增页面级事件必须先归入本目录或明确的 feature 模块，并增加生命周期清理测试。相关回归包括 `app_lifecycle_controller_test.mjs`、`app_paste_controller_test.mjs`、页面显隐/网络恢复测试、`tests-auto/16-attachment-native-paste/`、`tests-auto/21-attachment-file-drop/`，以及 `main.js`/`global-runtime.js` 入口边界 guard。

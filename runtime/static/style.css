@@ -855,6 +855,26 @@ body.split-resize-active * {
   visibility: hidden;
 }
 
+.terminal-file-drop-overlay {
+  position: absolute;
+  inset: 10px;
+  z-index: 12;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  padding: 12px 16px;
+  border: 2px dashed var(--accent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  color: var(--chrome-text-strong);
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.35;
+  text-align: center;
+  box-sizing: border-box;
+}
+
 .terminal-host textarea {
   appearance: none !important;
   -webkit-appearance: none !important;

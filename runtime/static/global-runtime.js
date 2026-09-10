@@ -150,6 +150,7 @@ import {
   createAppFeedbackController,
   createAppLayoutController,
   createAppLifecycle,
+  createAppFileDropController,
   createAppPasteController,
   createAgentProtocolUpdateController,
   createAppRuntimeRecoveryController,
@@ -351,6 +352,7 @@ export function startGlobalRuntime() {
   let shortcutController = null;
   let appCommands = null;
   let appPaste = null;
+  let appFileDrop = null;
   let workspaceLayoutView = null;
   let workspaceLayout = null;
   let workspacePaneActivation = null;
@@ -985,6 +987,42 @@ export function startGlobalRuntime() {
         && isCurrentInstanceSession(session);
     },
     reassertSize: (session) => terminalResize?.reassertSize(session, { force: true }),
+    showToast: (message) => showToast(message),
+  });
+  appFileDrop = createAppFileDropController({
+    windowObject: window,
+    documentObject: document,
+    translate: (key) => (typeof globalThis.$t === "function" ? globalThis.$t(key) : key),
+    isBlocked: () => (
+      attachments.isAnyOpen()
+      || settings?.isOpen() === true
+      || devices.isPanelOpen()
+      || appearance.isPickerOpen()
+      || instances.isSwitcherOpen()
+      || dialogController?.isOpen() === true
+      || terminalOverview?.isOpen() === true
+      || terminalInteraction?.isMobileOpen() === true
+    ),
+    resolveSessionAtPoint: (clientX, clientY) => {
+      if (!Number.isFinite(clientX) || !Number.isFinite(clientY)) {
+        return null;
+      }
+      const target = document.elementFromPoint(clientX, clientY);
+      const shellEl = target instanceof Element ? target.closest(".pane-shell") : null;
+      if (!(shellEl instanceof HTMLElement)) {
+        return null;
+      }
+      const paneId = shellEl.dataset.paneId;
+      const tabId = shellEl.closest(".terminal-pane")?.dataset.tabId || getActiveTabId();
+      const tab = tabs.get(tabId);
+      const session = tab?.panes?.get(paneId) || null;
+      if (!session || session.closed || !session.terminalHost) {
+        return null;
+      }
+      return session;
+    },
+    activateSession: (_session, clientX, clientY) => focusPaneAtPoint(clientX, clientY),
+    ingestFiles: (session, files) => appPaste?.handleDroppedFiles(session, files),
     showToast: (message) => showToast(message),
   });
 
@@ -2140,6 +2178,7 @@ export function startGlobalRuntime() {
       attachments,
       terminalClipboard,
       appPaste,
+      appFileDrop,
       terminalInteraction,
       terminalSearch,
       terminalOverview,
@@ -2369,6 +2408,7 @@ export function startGlobalRuntime() {
         diagnostics.dispose();
         serviceForwarding.dispose();
         appPaste?.dispose();
+        appFileDrop?.dispose();
         attachments.dispose();
         terminalLinks?.dispose();
         terminalMouse?.dispose();

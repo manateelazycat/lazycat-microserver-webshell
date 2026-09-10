@@ -10,12 +10,12 @@
 
 外部只能从 `app/index.js` 导入：
 
-- `createAppPasteController()`：公开 `start()`、`handleNativePaste(session, event)` 和幂等 `dispose()`。
+- `createAppPasteController()`：公开 `start()`、`handleNativePaste(session, event)`、`handleDroppedFiles(session, files)` 和幂等 `dispose()`。
 - `nativePasteFiles()`：从 `DataTransferItemList`/`FileList` 提取一次去重后的文件列表。
 - `nativePasteText()`：读取原生事件携带的 `text/plain`。
 - `formatPastedAttachmentPaths()`：把远端路径格式化为不会携带 CR/LF 的 POSIX shell 参数序列。
 
-`handleNativePaste()` 同步决定事件是否被消费并返回 `{ handled, kind, text, files, completion }`；异步上传和路径输入通过 `completion` 报告结果。文件数据存在时不得同时发送派生文本。
+`handleNativePaste()` 同步决定事件是否被消费并返回 `{ handled, kind, text, files, completion }`；异步上传和路径输入通过 `completion` 报告结果。文件数据存在时不得同时发送派生文本。`handleDroppedFiles()` 复用同一条上传和原 pane 路径写入，不拥有 drag/drop 事件。
 
 ## 状态所有权和生命周期
 

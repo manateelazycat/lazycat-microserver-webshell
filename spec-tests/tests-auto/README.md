@@ -1,6 +1,6 @@
 # tests-auto
 
-这里的 18 个目录是项目既有的测试分类；每个目录保留 `test.mjs` 与完整 `README.md`，并分别对应产品的 `spec/webshell/<同名目录>/REQ.md` 和 `AC.md`。
+这里的编号目录是项目既有的测试分类；每个目录保留 `test.mjs` 与完整 `README.md`，并由 `spec-tests/ac-implementations.json` 映射到产品 `spec/` 中的 AC 场景。
 
 环境准备统一见 [ENVIRONMENT.md](../ENVIRONMENT.md)：测试机 URL、`.env`/环境凭据、自动登录、实例回退、Google Chrome 双窗口、X11 DISPLAY 和目标 origin 的 local-network-access 权限。
 
