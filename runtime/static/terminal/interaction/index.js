@@ -2,6 +2,7 @@ export { createTerminalContextMenuController } from "./context_menu_controller.j
 export { createBrowserClipboardAdapter } from "./clipboard_adapter.js";
 export { createTerminalClipboardController } from "./clipboard_controller.js";
 export { createTerminalClipboardLifecycle } from "./clipboard_lifecycle.js";
+export { consumeTerminalOsc52Chunk } from "./clipboard_osc52_model.js";
 export { createTerminalInteractionLifecycle } from "./interaction_lifecycle.js";
 export { createTerminalContextMenuView } from "./context_menu_view.js";
 export { createTerminalLinkController } from "./link_controller.js";

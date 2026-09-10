@@ -1,5 +1,6 @@
 import { createBrowserClipboardAdapter } from "./clipboard_adapter.js";
 import { createTerminalClipboardLifecycle } from "./clipboard_lifecycle.js";
+import { consumeTerminalOsc52Chunk } from "./clipboard_osc52_model.js";
 
 const defaultDragThresholdPx = 4;
 
@@ -26,6 +27,8 @@ export function createTerminalClipboardController({
 } = {}) {
   const clipboard = adapter || createBrowserClipboardAdapter({ documentObject, navigatorObject, windowObject });
   const lifecycle = lifecycleFactory({ documentObject });
+  const osc52State = new WeakMap();
+  const osc52InstalledSessions = new WeakSet();
   let started = false;
   let disposed = false;
 
@@ -103,6 +106,24 @@ export function createTerminalClipboardController({
     }
   };
 
+  const consumeOsc52Output = (session, chunk) => {
+    if (disposed || !session || session.closed) {
+      return;
+    }
+    let state = osc52State.get(session);
+    if (!state) {
+      state = { pending: "" };
+      osc52State.set(session, state);
+    }
+    const next = consumeTerminalOsc52Chunk(state.pending, chunk);
+    state.pending = next.pending;
+    for (const text of next.writes) {
+      Promise.resolve(copyText(text)).catch((error) => {
+        consoleObject?.warn?.("Terminal OSC 52 clipboard write failed.", error);
+      });
+    }
+  };
+
   const copyCurrentSelection = async (session) => {
     const text = session?.term?.getSelection?.() || "";
     if (disposed || session?.closed || !text) {
@@ -121,6 +142,23 @@ export function createTerminalClipboardController({
   };
 
   return Object.freeze({
+    installSession(session) {
+      const term = session?.term;
+      if (disposed || !term || typeof term.write !== "function" || osc52InstalledSessions.has(session)) {
+        return () => {};
+      }
+      osc52InstalledSessions.add(session);
+      const originalWrite = term.write.bind(term);
+      term.write = (...args) => {
+        consumeOsc52Output(session, args[0]);
+        return originalWrite(...args);
+      };
+      return () => {
+        osc52State.delete(session);
+        osc52InstalledSessions.delete(session);
+      };
+    },
+
     bindDesktopSession(session) {
       const shell = session?.shellEl;
       const host = session?.terminalHost;

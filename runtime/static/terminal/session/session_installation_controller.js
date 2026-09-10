@@ -71,6 +71,7 @@ export function createTerminalSessionInstallationController({
     tuiAdapterInstaller?.installGrokDesktopSelection?.(session);
     mouse?.installSession?.(session);
 
+    addCleanup(session, clipboard?.installSession?.(session));
     const clipboardCleanup = clipboard?.bindDesktopSession?.(session);
     addCleanup(session, clipboardCleanup);
     resize?.installSession?.(session);

@@ -15,7 +15,7 @@
 - `createTerminalInteractionLifecycle()`：模块内部永久/动态 listener 管理和测试入口。
 - `createTerminalSearchController()`：搜索状态与动作编排入口，公开 `start()`、`open()`、`openFromSelection()`、`close()`、`setQuery()`、`move()`、`refresh()`、`isOpen()` 和 `dispose()`。
 - `createTerminalSearchView()`、`createTerminalSearchLifecycle()`：搜索 DOM 与 listener/延迟聚焦资源适配。
-- `createTerminalClipboardController()`：公开 `start()`、`copyText()`、`readText()`、`getSelectedText()`、`copySession()`、`pasteSession()`、`copyCurrentSelection()`、`bindDesktopSession()` 和 `dispose()`。
+- `createTerminalClipboardController()`：公开 `start()`、`installSession()`、`copyText()`、`readText()`、`getSelectedText()`、`copySession()`、`pasteSession()`、`copyCurrentSelection()`、`bindDesktopSession()` 和 `dispose()`。`installSession()` 只观察 live `term.write` 中的 OSC 52 写入并复制到浏览器剪贴板，不认领鼠标或右键，不处理 history replay 的 `writeReplay`，也不响应 OSC 52 读取查询。
 - `createBrowserClipboardAdapter()`：浏览器 Clipboard API、权限错误归一化和隐藏 textarea fallback。
 - `createTerminalClipboardLifecycle()`：桌面拖选/中键 listener 的动态注册和清理。
 - `createTerminalLinkController()`：链接识别、指针 cell 命中、打开和复制反馈入口，公开 `start()`、`findFirst()`、`findAtPosition()`、`open()`、`copy()` 和 `dispose()`。
@@ -35,7 +35,7 @@
 
 `search_controller.js` 是 query、match 列表、当前 match index、搜索 session ID 和面板打开状态的唯一 owner。`search_model.js` 与 `terminal_text_model.js` 只执行无状态读取和匹配，不持有 session、DOM 或异步资源。
 
-`clipboard_controller.js` 是复制、主动读取文本粘贴和桌面剪贴板交互的唯一 owner。选择文本和完整缓冲区状态通过 selection controller 的显式读取/清理命令注入；本模块不再直接修改 terminal session 的选择字段。异步读取完成后必须重新校验 dispose 和 session closed 状态。主动 `clipboard-read` 被拒绝时先显示可操作反馈，再通过注入命令聚焦原生 paste 目标；原生事件的文件/文本分流归 `app/paste`。
+`clipboard_controller.js` 是复制、主动读取文本粘贴、桌面剪贴板交互和 OSC 52 写入落地的唯一 owner。选择文本和完整缓冲区状态通过 selection controller 的显式读取/清理命令注入；本模块不再直接修改 terminal session 的选择字段。异步读取完成后必须重新校验 dispose 和 session closed 状态。主动 `clipboard-read` 被拒绝时先显示可操作反馈，再通过注入命令聚焦原生 paste 目标；原生事件的文件/文本分流归 `app/paste`。TUI 通过 OSC 52 写出的选区只写入浏览器剪贴板，不弹出第二份复制 toast，也不把右键或拖选从 TUI 手中抢走。
 
 `link_controller.js` 是链接打开、复制反馈和迟到复制结果 guard 的唯一 owner。`link_model.js` 只读取终端逻辑行和字符到 cell 映射，不持有 session、DOM、selection、socket 或异步资源。
 
@@ -60,7 +60,8 @@
 - `context_menu_view.js`：上下文菜单 DOM 查询、分组显隐、定位、移动菜单构建和 aria/body 状态。
 - `interaction_lifecycle.js`：永久与动态 DOM listener 的注册和幂等清理。
 - `clipboard_adapter.js`：Clipboard API、权限错误和复制 fallback DOM。
-- `clipboard_controller.js`：选择文本读取、复制/粘贴编排、bracketed paste、迟到异步 guard 和桌面剪贴板手势状态。
+- `clipboard_controller.js`：选择文本读取、复制/粘贴编排、bracketed paste、OSC 52 写入落地、迟到异步 guard 和桌面剪贴板手势状态。
+- `clipboard_osc52_model.js`：OSC 52 分片拼接、BEL/ST 终止和 base64 文本解码纯函数；忽略读取查询和空 payload。
 - `clipboard_lifecycle.js`：桌面拖选与中键 listener 的注册和幂等清理。
 - `search_controller.js`：搜索状态 owner、打开/关闭、query 更新、结果移动和选区搜索编排。
 - `search_view.js`：搜索面板 DOM 查询、输入值、计数和焦点适配。
