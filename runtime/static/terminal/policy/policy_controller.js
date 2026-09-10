@@ -1,7 +1,14 @@
 import {
+  grokExecutableNamePattern,
   isClaudeFullscreenContextMenuCandidate,
   isClaudeFullscreenDesktopSelectionCandidate,
   isClaudeFullscreenTouchCandidate,
+  isGrokExecutableToken,
+  isGrokFullscreenContextMenuCandidate,
+  isGrokFullscreenDesktopSelectionCandidate,
+  isGrokFullscreenTouchCandidate,
+  isGrokTerminalSession,
+  isOfficialGrokEntrypoint,
 } from "../tui_adapters/index.js";
 
 const noop = () => {};
@@ -26,28 +33,11 @@ export const terminalExecutableName = (value) => {
   return normalized.slice(normalized.lastIndexOf("/") + 1);
 };
 
-export const grokExecutableNamePattern = /^grok(?:-\d+(?:\.\d+){1,3})?$/i;
-
-export const isGrokExecutableToken = (value) => grokExecutableNamePattern.test(terminalExecutableName(value));
-
-export const isOfficialGrokEntrypoint = (value) => {
-  const normalized = stripTerminalCommandTokenQuotes(value).replace(/\\/g, "/");
-  return isGrokExecutableToken(normalized) || /(?:^|\/)@xai-official\/grok(?:\/|$)/i.test(normalized);
-};
-
-export const isGrokTerminalSession = (session) => {
-  if (isGrokExecutableToken(session?.command)) {
-    return true;
-  }
-  const commandTokens = terminalCommandLineTokens(session?.processCommandLine);
-  if (isOfficialGrokEntrypoint(commandTokens[0])) {
-    return true;
-  }
-  const launcher = terminalExecutableName(commandTokens[0]).toLowerCase();
-  if (["node", "nodejs", "bun", "deno"].includes(launcher) && isOfficialGrokEntrypoint(commandTokens[1])) {
-    return true;
-  }
-  return String(session?.title || "").trim().toLowerCase() === "grok";
+export {
+  grokExecutableNamePattern,
+  isGrokExecutableToken,
+  isGrokTerminalSession,
+  isOfficialGrokEntrypoint,
 };
 
 export const terminalLocationDescription = (session) => (
@@ -69,6 +59,9 @@ export function createTerminalPolicyController({
   claudeTouchCandidate = isClaudeFullscreenTouchCandidate,
   claudeContextMenuCandidate = isClaudeFullscreenContextMenuCandidate,
   claudeDesktopSelectionCandidate = isClaudeFullscreenDesktopSelectionCandidate,
+  grokTouchCandidate = isGrokFullscreenTouchCandidate,
+  grokContextMenuCandidate = isGrokFullscreenContextMenuCandidate,
+  grokDesktopSelectionCandidate = isGrokFullscreenDesktopSelectionCandidate,
 } = {}) {
   let disposed = false;
 
@@ -83,6 +76,23 @@ export function createTerminalPolicyController({
   });
 
   const isClaudeFullscreenDesktopSelectionEvent = (session, event) => claudeDesktopSelectionCandidate(session, {
+    mouseTracking: hasMouseTracking(session) === true,
+    button: event?.button,
+    touchSelectionLayout: isTouchSelectionLayout(),
+    applicationModifier: Boolean(event?.ctrlKey || event?.altKey || event?.metaKey),
+  });
+
+  const isGrokFullscreenTouchSession = (session) => grokTouchCandidate(session, {
+    mouseTracking: hasMouseTracking(session) === true,
+  });
+
+  const isGrokFullscreenContextMenuEvent = (session, event) => grokContextMenuCandidate(session, {
+    mouseTracking: hasMouseTracking(session) === true,
+    button: event?.button,
+    contextMenuSuppressed: shouldSuppressContextMenu(event),
+  });
+
+  const isGrokFullscreenDesktopSelectionEvent = (session, event) => grokDesktopSelectionCandidate(session, {
     mouseTracking: hasMouseTracking(session) === true,
     button: event?.button,
     touchSelectionLayout: isTouchSelectionLayout(),
@@ -132,6 +142,9 @@ export function createTerminalPolicyController({
     isClaudeFullscreenDesktopSelectionEvent,
     isClaudeFullscreenTouchSession,
     isDisposed: () => disposed,
+    isGrokFullscreenContextMenuEvent,
+    isGrokFullscreenDesktopSelectionEvent,
+    isGrokFullscreenTouchSession,
     isGrokTerminalSession,
     scrollTerminalToBottomForUserInput,
     terminalLocationDescription,

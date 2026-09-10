@@ -29,4 +29,17 @@ export {
   isPiFullscreenTouchCandidate,
   isPiTerminalIdentity,
 } from "./pi/index.js";
+export {
+  grokExecutableNamePattern,
+  installGrokFullscreenContextMenuAdapter,
+  installGrokFullscreenDesktopSelectionAdapter,
+  installGrokFullscreenTouchAdapter,
+  isGrokExecutableToken,
+  isGrokFullscreenContextMenuCandidate,
+  isGrokFullscreenDesktopSelectionCandidate,
+  isGrokFullscreenTouchCandidate,
+  isGrokTerminalIdentity,
+  isGrokTerminalSession,
+  isOfficialGrokEntrypoint,
+} from "./grok/index.js";
 export { createTerminalTUIAdapterInstaller } from "./installation_controller.js";

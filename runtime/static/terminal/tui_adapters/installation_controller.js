@@ -11,6 +11,8 @@ export function createTerminalTUIAdapterInstaller({
   isClaudeTouchSession = () => false,
   isClaudeContextMenuEvent = () => false,
   isClaudeDesktopSelectionEvent = () => false,
+  isGrokContextMenuEvent = () => false,
+  isGrokDesktopSelectionEvent = () => false,
   getTerminalMouse = () => null,
   getTerminalIME = () => null,
   getTerminalSelection = () => null,
@@ -27,9 +29,13 @@ export function createTerminalTUIAdapterInstaller({
   installPiFullscreenTouchAdapter = () => {},
   installClaudeFullscreenContextMenuAdapter = () => {},
   installClaudeFullscreenDesktopSelectionAdapter = () => {},
+  installGrokFullscreenTouchAdapter = () => {},
+  installGrokFullscreenContextMenuAdapter = () => {},
+  installGrokFullscreenDesktopSelectionAdapter = () => {},
   isOpencodeFullscreenTouchCandidate = () => false,
   isHerdrFullscreenTouchCandidate = () => false,
   isPiFullscreenTouchCandidate = () => false,
+  isGrokFullscreenTouchCandidate = () => false,
   moveThresholdPx = 8,
   longPressDelayMs = 450,
   desktopSelectionMoveThresholdPx = 4,
@@ -155,6 +161,12 @@ export function createTerminalTUIAdapterInstaller({
     installPiFullscreenTouchAdapter,
   );
 
+  const installGrokTouch = (session) => installFullscreenTouch(
+    session,
+    isGrokFullscreenTouchCandidate,
+    installGrokFullscreenTouchAdapter,
+  );
+
   const installClaudeContextMenu = (session) => {
     const shell = session?.shellEl;
     const host = session?.terminalHost;
@@ -197,6 +209,48 @@ export function createTerminalTUIAdapterInstaller({
     return true;
   };
 
+  const installGrokContextMenu = (session) => {
+    const shell = session?.shellEl;
+    const host = session?.terminalHost;
+    if (!shell || !host) {
+      return false;
+    }
+    installGrokFullscreenContextMenuAdapter({
+      shell,
+      shouldStart: (event) => {
+        const target = event?.target;
+        return isElement(target)
+          && target.closest(".terminal-host") === host
+          && isGrokContextMenuEvent(session, event);
+      },
+      claimEvent: (event) => getTerminalMouse()?.claimEvent(event),
+      registerCleanup: (callback) => registerCleanup(session, callback),
+    });
+    return true;
+  };
+
+  const installGrokDesktopSelection = (session) => {
+    const shell = session?.shellEl;
+    const host = session?.terminalHost;
+    if (!shell || !host) {
+      return false;
+    }
+    installGrokFullscreenDesktopSelectionAdapter({
+      shell,
+      shouldStart: (event) => {
+        const target = event?.target;
+        return isElement(target)
+          && target.closest(".terminal-host") === host
+          && isGrokDesktopSelectionEvent(session, event);
+      },
+      claimEvent: (event) => getTerminalMouse()?.claimEvent(event),
+      sendClick: (event) => getTerminalMouse()?.sendClick(session, event) === true,
+      registerCleanup: (callback) => registerCleanup(session, callback),
+      moveThresholdPx: desktopSelectionMoveThresholdPx,
+    });
+    return true;
+  };
+
   return Object.freeze({
     cancelTouchInteraction(session) {
       touchCancellations.get(session)?.forEach(cancel => cancel());
@@ -204,6 +258,9 @@ export function createTerminalTUIAdapterInstaller({
     installClaudeContextMenu,
     installClaudeDesktopSelection,
     installClaudeTouch,
+    installGrokContextMenu,
+    installGrokDesktopSelection,
+    installGrokTouch,
     installHerdrTouch,
     installOpencodeTouch,
     installPiTouch,

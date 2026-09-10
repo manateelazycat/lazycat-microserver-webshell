@@ -2,11 +2,11 @@
 
 ## 职责
 
-`policy/` 维护终端交互所需的无状态识别和小范围策略：Grok/Claude fullscreen 会话识别、终端位置描述，以及用户输入前滚到底部并清理旧滚动动画。它不创建或关闭 WebSocket，不拥有 session、history、resize、presentation 或输入队列状态。
+`policy/` 维护终端交互所需的无状态识别和小范围策略：Grok/Claude fullscreen 会话候选适配、终端位置描述，以及用户输入前滚到底部并清理旧滚动动画。精确 Grok 身份判断由 `terminal/tui_adapters/grok/` 拥有，本模块只转出并组合 mouse tracking / 布局参数。它不创建或关闭 WebSocket，不拥有 session、history、resize、presentation 或输入队列状态。
 
 ## 公开入口
 
-外部只能从 `index.js` 导入。`createTerminalPolicyController()` 提供 Claude 事件候选、输入前滚动和幂等 `dispose()`；命令 token、可执行文件和 Grok 入口判断通过同一公开入口导出。
+外部只能从 `index.js` 导入。`createTerminalPolicyController()` 提供 Claude/Grok 事件候选、输入前滚动和幂等 `dispose()`；命令 token 解析通过同一公开入口导出，Grok 可执行文件和官方入口判断转出自 `tui_adapters/grok`。
 
 ## 状态所有权
 
@@ -19,7 +19,7 @@ controller 只持有模块级 `disposed` fence。session、mouse tracking、dial
 ## 文件清单
 
 - `index.js`：唯一公开入口，转出 controller 和纯函数。
-- `policy_controller.js`：命令 token 解析、精确 Grok/官方入口识别、Claude TUI 候选适配、滚动策略与 dispose fence。
+- `policy_controller.js`：命令 token 解析、Claude/Grok TUI 候选适配、滚动策略与 dispose fence。
 
 ## 依赖方向
 

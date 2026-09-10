@@ -64,8 +64,11 @@ export function createTerminalSessionInstallationController({
     tuiAdapterInstaller?.installOpencodeTouch?.(session);
     tuiAdapterInstaller?.installHerdrTouch?.(session);
     tuiAdapterInstaller?.installPiTouch?.(session);
+    tuiAdapterInstaller?.installGrokTouch?.(session);
     tuiAdapterInstaller?.installClaudeContextMenu?.(session);
     tuiAdapterInstaller?.installClaudeDesktopSelection?.(session);
+    tuiAdapterInstaller?.installGrokContextMenu?.(session);
+    tuiAdapterInstaller?.installGrokDesktopSelection?.(session);
     mouse?.installSession?.(session);
 
     const clipboardCleanup = clipboard?.bindDesktopSession?.(session);

@@ -12,10 +12,16 @@ import {
   isClaudeFullscreenDesktopSelectionCandidate,
   installClaudeFullscreenTouchAdapter,
   createTerminalTUIAdapterInstaller,
+  installGrokFullscreenContextMenuAdapter,
+  installGrokFullscreenDesktopSelectionAdapter,
+  installGrokFullscreenTouchAdapter,
   installHerdrFullscreenTouchAdapter,
   installOpencodeFullscreenTouchAdapter,
   installPiFullscreenTouchAdapter,
   isClaudeFullscreenTouchCandidate,
+  isGrokFullscreenContextMenuCandidate,
+  isGrokFullscreenDesktopSelectionCandidate,
+  isGrokFullscreenTouchCandidate,
   isHerdrFullscreenTouchCandidate,
   isOpencodeFullscreenTouchCandidate,
   isPiFullscreenTouchCandidate,
@@ -1422,6 +1428,9 @@ export function startGlobalRuntime() {
     claudeTouchCandidate: isClaudeFullscreenTouchCandidate,
     claudeContextMenuCandidate: isClaudeFullscreenContextMenuCandidate,
     claudeDesktopSelectionCandidate: isClaudeFullscreenDesktopSelectionCandidate,
+    grokTouchCandidate: isGrokFullscreenTouchCandidate,
+    grokContextMenuCandidate: isGrokFullscreenContextMenuCandidate,
+    grokDesktopSelectionCandidate: isGrokFullscreenDesktopSelectionCandidate,
   });
 
   const terminalLocationDescription = (session) => (
@@ -1431,6 +1440,8 @@ export function startGlobalRuntime() {
   const isClaudeFullscreenTouchSession = (session) => terminalPolicy?.isClaudeFullscreenTouchSession(session) === true;
   const isClaudeFullscreenContextMenuEvent = (session, event) => terminalPolicy?.isClaudeFullscreenContextMenuEvent(session, event) === true;
   const isClaudeFullscreenDesktopSelectionEvent = (session, event) => terminalPolicy?.isClaudeFullscreenDesktopSelectionEvent(session, event) === true;
+  const isGrokFullscreenContextMenuEvent = (session, event) => terminalPolicy?.isGrokFullscreenContextMenuEvent(session, event) === true;
+  const isGrokFullscreenDesktopSelectionEvent = (session, event) => terminalPolicy?.isGrokFullscreenDesktopSelectionEvent(session, event) === true;
   const scrollTerminalToBottomForUserInput = (session) => terminalPolicy?.scrollTerminalToBottomForUserInput(session) === true;
 
   workspaceActivity = createWorkspaceActivityController({
@@ -1469,6 +1480,8 @@ export function startGlobalRuntime() {
     isClaudeTouchSession: (session) => isClaudeFullscreenTouchSession(session),
     isClaudeContextMenuEvent: (session, event) => isClaudeFullscreenContextMenuEvent(session, event),
     isClaudeDesktopSelectionEvent: (session, event) => isClaudeFullscreenDesktopSelectionEvent(session, event),
+    isGrokContextMenuEvent: (session, event) => isGrokFullscreenContextMenuEvent(session, event),
+    isGrokDesktopSelectionEvent: (session, event) => isGrokFullscreenDesktopSelectionEvent(session, event),
     getTerminalMouse: () => terminalMouse,
     getTerminalIME: () => terminalIME,
     getTerminalSelection: () => terminalSelection,
@@ -1483,9 +1496,13 @@ export function startGlobalRuntime() {
     installPiFullscreenTouchAdapter,
     installClaudeFullscreenContextMenuAdapter,
     installClaudeFullscreenDesktopSelectionAdapter,
+    installGrokFullscreenTouchAdapter,
+    installGrokFullscreenContextMenuAdapter,
+    installGrokFullscreenDesktopSelectionAdapter,
     isOpencodeFullscreenTouchCandidate,
     isHerdrFullscreenTouchCandidate,
     isPiFullscreenTouchCandidate,
+    isGrokFullscreenTouchCandidate,
     moveThresholdPx: touchShortcutMoveThresholdPx,
     longPressDelayMs: touchSelectionLongPressDelayMs,
     desktopSelectionMoveThresholdPx: desktopSelectionCopyMoveThresholdPx,
