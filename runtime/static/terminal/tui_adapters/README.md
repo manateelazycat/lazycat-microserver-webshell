@@ -4,7 +4,7 @@
 
 本目录按工具隔离 fullscreen TUI 的身份识别和手势适配。公共机械逻辑只能位于 `common/`；Claude、opencode、herdr、pi、Grok 的身份判断和专用事件所有权必须留在各自目录，禁止重新并入通用 mouse tracking。
 
-适配器不拥有 session、连接、历史或渲染状态，只通过调用方注入的读状态和动作工作。Ghostty mouse mode、协议编码和通用 listener 由 `terminal/mouse/` 维护；适配器只能调用其 `hasTracking()`、`claimEvent()`、`sendWheel()` 和 `sendClick()` 公开能力。键盘层已认领的事件不得再发送鼠标字节；本地选择手势不得向 PTY 发送残缺 press/move/release。Grok 的长按选区和桌面拖选必须走 WebShell 本地选择与右键菜单，不得把选区拖动手势交给 Grok mouse protocol。
+适配器不拥有 session、连接、历史或渲染状态，只通过调用方注入的读状态和动作工作。Ghostty mouse mode、协议编码和通用 listener 由 `terminal/mouse/` 维护；适配器只能调用其 `hasTracking()`、`claimEvent()`、`sendWheel()` 和 `sendClick()` 公开能力。键盘层已认领的事件和 IME 放行的第一下页面焦点交接不得再 `preventDefault` 或发送鼠标字节；本地选择手势不得向 PTY 发送残缺 press/move/release。Grok 的长按选区和桌面拖选必须走 WebShell 本地选择与右键菜单，不得把选区拖动手势交给 Grok mouse protocol。
 
 ## 公开入口与生命周期
 

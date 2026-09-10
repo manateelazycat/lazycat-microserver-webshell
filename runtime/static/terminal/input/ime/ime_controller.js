@@ -54,6 +54,7 @@ export function createTerminalIMEController({
   const cleanupRegistered = new WeakSet();
   const installedSessions = new WeakSet();
   const claimedTouchEnds = new WeakSet();
+  const pageFocusTouchEnds = new WeakSet();
   const touchGestureCancellations = new WeakMap();
   const now = () => Number(windowObject.performance?.now?.() || Date.now());
   const eventTime = (event) => Number.isFinite(event?.timeStamp) && event.timeStamp >= 0 ? event.timeStamp : now();
@@ -953,7 +954,6 @@ export function createTerminalIMEController({
     textarea.setAttribute("rows", "1");
     textarea.setAttribute("wrap", "off");
     term.focus = () => focusInput(session, { focusSource: "system" });
-    const pageFocusTouchEnds = new WeakSet();
     let pageFocusMouse = null;
     // Let the browser perform its default mouse focus for this initial tap,
     // while skipping application handlers (including Ghostty's direct focus).
@@ -1332,6 +1332,18 @@ export function createTerminalIMEController({
     },
     isKeyboardClaimed(event) {
       return claimedTouchEnds.has(event);
+    },
+    shouldPreserveTouchDefault(event) {
+      const claimed = claimedTouchEnds.has(event);
+      const pageFocus = pageFocusTouchEnds.has(event);
+      if (claimed || pageFocus) {
+        keyboardDiagnostics.record(getActiveSession(), "tap.preserve-default-queried", {
+          claimed,
+          pageFocus,
+          prevented: event?.defaultPrevented === true,
+        }, event);
+      }
+      return claimed || pageFocus;
     },
     disposeSession,
     dispose() {

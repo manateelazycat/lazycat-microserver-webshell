@@ -1092,6 +1092,7 @@ export function startGlobalRuntime() {
     requiresTouchKeyboardDoubleTap: () => requiresTouchKeyboardDoubleTap(),
     isDeferredTouchClickSession: (session) => isGrokTerminalSession(session),
     isKeyboardClaimed: (event) => terminalIME?.isKeyboardClaimed(event) === true,
+    shouldPreserveTouchDefault: (event) => terminalIME?.shouldPreserveTouchDefault?.(event) === true,
     registerSessionCleanup: (session, cleanup) => terminalSessionController?.addCleanup(session, cleanup),
     moveThresholdPx: touchShortcutMoveThresholdPx,
     tapDurationMs: mobileKeyboardDoubleTapDelayMs,

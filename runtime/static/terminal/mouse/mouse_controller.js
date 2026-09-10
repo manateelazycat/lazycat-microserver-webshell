@@ -23,6 +23,7 @@ export function createTerminalMouseController({
   requiresTouchKeyboardDoubleTap = () => false,
   isDeferredTouchClickSession = () => false,
   isKeyboardClaimed = () => false,
+  shouldPreserveTouchDefault = (event) => isKeyboardClaimed(event) === true,
   registerSessionCleanup = () => {},
   now = () => globalThis.performance?.now?.() || Date.now(),
   moveThresholdPx = defaultMoveThresholdPx,
@@ -108,8 +109,10 @@ export function createTerminalMouseController({
     return true;
   };
 
-  const stopEvent = (event) => {
-    event?.preventDefault?.();
+  const stopEvent = (event, { preventDefault = true } = {}) => {
+    if (preventDefault) {
+      event?.preventDefault?.();
+    }
     event?.stopPropagation?.();
     event?.stopImmediatePropagation?.();
   };
@@ -351,14 +354,16 @@ export function createTerminalMouseController({
         return;
       }
       const touch = event.touches[0];
-      stopEvent(event);
+      const deferredClick = requiresTouchKeyboardDoubleTap() && isDeferredTouchClickSession(session);
+      const preservePageFocus = deferredClick && documentObject.hasFocus() !== true;
+      stopEvent(event, { preventDefault: !preservePageFocus });
       activateSession(session);
       clearSelection(session);
       touchMouseState.identifier = touch.identifier;
       touchMouseState.active = true;
       touchMouseState.lastX = touch.clientX;
       touchMouseState.lastY = touch.clientY;
-      touchMouseState.deferredClick = requiresTouchKeyboardDoubleTap() && isDeferredTouchClickSession(session);
+      touchMouseState.deferredClick = deferredClick;
       if (touchMouseState.deferredClick) {
         deferredTouchState.active = true;
         deferredTouchState.startedAt = eventTime(event);
@@ -403,13 +408,18 @@ export function createTerminalMouseController({
         return;
       }
       const touch = changedTouchForActiveMouse(event);
-      stopEvent(event);
+      const preserveDefault = shouldPreserveTouchDefault(event) === true;
+      stopEvent(event, { preventDefault: !preserveDefault });
       if (touch) {
         touchMouseState.lastX = touch.clientX;
         touchMouseState.lastY = touch.clientY;
       }
       if (touchMouseState.deferredClick) {
-        finishDeferredTouchTap(event, touch);
+        if (preserveDefault) {
+          resetDeferredTouchState();
+        } else {
+          finishDeferredTouchTap(event, touch);
+        }
       } else {
         sendMouseSequence(mouseEventFromTouch(event, touch), "release", 0);
       }

@@ -98,6 +98,7 @@ export function createTerminalTUIAdapterInstaller({
     clearSelectionIfTapOutside: (touch) => getTerminalSelection()?.clearIfTapOutside(session, touch) === true,
     hasSelection: () => getTerminalSelection()?.hasSelection(session) === true,
     isKeyboardClaimed: (event) => getTerminalIME()?.isKeyboardClaimed(event) === true,
+    shouldPreserveTouchDefault: (event) => getTerminalIME()?.shouldPreserveTouchDefault?.(event) === true,
     prepareMouseInput: () => {
       const resize = getTerminalResize();
       if (typeof resize?.claimForCurrentDevice === "function") {

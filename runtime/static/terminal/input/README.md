@@ -26,7 +26,7 @@
 
 `input_lifecycle.js` 独占三个 input timer 和 `term.onData` disposable。`input_model.js` 不保存业务状态。
 
-`ime/ime_controller.js` 是 `composingIME`、composition 候选、post-composition 去重、native delete、主动聚焦与 touch claim、helper textarea anchor 和 paste 去重的唯一修改者；`ime_lifecycle.js` 独占对应 session listener、timer 与 RAF。有效用户请求直接同步聚焦，不通过跨模块的时限许可；被动恢复不能抢焦点。
+`ime/ime_controller.js` 是 `composingIME`、composition 候选、post-composition 去重、native delete、主动聚焦与 touch claim、helper textarea anchor 和 paste 去重的唯一修改者；`ime_lifecycle.js` 独占对应 session listener、timer 与 RAF。有效用户请求直接同步聚焦，不通过跨模块的时限许可；被动恢复不能抢焦点。TUI 和 mouse 取消触摸默认行为前必须读取 `shouldPreserveTouchDefault(event)`。
 
 ## 生命周期
 

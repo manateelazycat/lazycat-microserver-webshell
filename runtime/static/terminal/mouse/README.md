@@ -18,7 +18,7 @@ TUI adapter 只能通过 controller 的 `hasTracking()`、`claimEvent()`、`send
 
 ## 状态所有权
 
-`mouse_controller.js` 独占本地事件所有权 `WeakSet`、每个 session 的 active button、最后 move 序列、touch identifier 和工具无关的延迟点击/滚动状态。调用方只注入 pane 激活、selection 清除、尺寸重申、输入发送和 `isKeyboardClaimed(event)` 查询。键盘双击由 IME 统一判断；本模块不持有第二套双击历史或聚焦许可，不再自行 focus/blur。已被认领的键盘手势不额外发送延迟点击；已经发出的普通 mouse press 仍配对 release。
+`mouse_controller.js` 独占本地事件所有权 `WeakSet`、每个 session 的 active button、最后 move 序列、touch identifier 和工具无关的延迟点击/滚动状态。调用方只注入 pane 激活、selection 清除、尺寸重申、输入发送、`isKeyboardClaimed(event)` 和 `shouldPreserveTouchDefault(event)` 查询。键盘双击由 IME 统一判断；本模块不持有第二套双击历史或聚焦许可，不再自行 focus/blur。IME 要求保留默认行为的第一下页面焦点交接和双击认领不得 `preventDefault`，也不发送延迟点击。已经发出的普通 mouse press 仍配对 release。页面已聚焦后的单击、滑动仍走延迟点击。
 
 `mouse_lifecycle.js` 独占 shell/document listener 和清理函数。`mouse_model.js` 不持有 DOM、timer、session、socket 或可变全局状态。
 
@@ -39,6 +39,6 @@ TUI adapter 只能通过 controller 的 `hasTracking()`、`claimEvent()`、`send
 
 允许依赖 Ghostty mode 读取、selection 的 point-to-cell 公开 API，以及注入的输入、尺寸和焦点命令。禁止创建/关闭 WebSocket、修改 history cursor、触发 replay/reset、拥有 resize epoch，或提交 Canvas presentation。
 
-相关测试为 `terminal_mouse_controller_test.mjs`、`TestRuntimeTerminalMouseTrackingSequences`、Claude/opencode/herdr/pi 事件所有权 guard 和 Grok 双击键盘 guard。最小回归包括 Legacy/SGR press/release/move/wheel、桌面拖动跨 document、右键/点击抑制、触摸 press/move/release、工具 adapter claim、Grok 单击/滑动/同步双击键盘和 session 销毁清理。
+相关测试为 `terminal_mouse_controller_test.mjs`、`TestRuntimeTerminalMouseTrackingSequences`、Claude/opencode/herdr/pi 事件所有权 guard 和 Grok 双击键盘 guard。最小回归包括 Legacy/SGR press/release/move/wheel、桌面拖动跨 document、右键/点击抑制、触摸 press/move/release、工具 adapter claim、Grok 冷启动直接双击键盘、Grok 单击/滑动和 session 销毁清理。
 
 任何 mouse 操作都不得清空终端、触发或显示 history replay、snapshot、resize 或重连中间过程。
