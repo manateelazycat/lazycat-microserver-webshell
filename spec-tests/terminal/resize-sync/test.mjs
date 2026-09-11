@@ -1,6 +1,6 @@
 import path from "node:path";
 import { randomInt } from "node:crypto";
-import { waitForVisibleOutput } from "../../../environment/agent-device-mcp/observe.mjs";
+import { waitForVisibleOutput } from "../../../environment/webshell-test-harness/observe.mjs";
 
 const epochAfter = (candidate, previous) => {
   if (!/^\d+$/.test(String(candidate || ""))) return false;

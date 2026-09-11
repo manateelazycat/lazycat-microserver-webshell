@@ -1,2 +1,2 @@
-// Compatibility entrypoint. Environment lifecycle is shared with MCP.
-import "../environment/agent-device-mcp/run.mjs";
+// Compatibility entrypoint. Environment lifecycle is shared with the project executor.
+import "../environment/webshell-test-harness/run.mjs";

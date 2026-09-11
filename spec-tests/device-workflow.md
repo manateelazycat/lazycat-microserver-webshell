@@ -13,7 +13,7 @@ Agent 写真机脚本时：
 - Environment MCP：在 `environment/agent-device-mcp/` 下执行 `npm run mcp`。
 - Node API：`environment/agent-device-mcp/client.mjs`。
 - 官方 skill：`agent-device`。
-- CLI 包装：`environment/agent-device-mcp/device`，注入本机 Android SDK/AVD 路径；产品 `open/replay/test/batch` 仍要求已验证的本地前端通道。
+- CLI 包装：`environment/webshell-test-harness/device`，注入本机 Android SDK/AVD 路径；产品 `open/replay/test/batch` 仍要求已验证的本地前端通道。
 
 ## 发布目标
 

@@ -1,9 +1,9 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { installLoadObserver } from "../../../environment/agent-device-mcp/load-observer.mjs";
-import { observeTerminal, ensureOCRAvailable } from "../../../environment/agent-device-mcp/observe.mjs";
-import { createTarget } from "../../../environment/agent-device-mcp/target.mjs";
-import { createAndroidLoadActions, installLoadProtocolInput } from "../../../environment/agent-device-mcp/android-load-actions.mjs";
+import { installLoadObserver } from "../../../environment/webshell-test-harness/load-observer.mjs";
+import { observeTerminal, ensureOCRAvailable } from "../../../environment/webshell-test-harness/observe.mjs";
+import { createTarget } from "../../../environment/webshell-test-harness/target.mjs";
+import { createAndroidLoadActions, installLoadProtocolInput } from "../../../environment/webshell-test-harness/android-load-actions.mjs";
 
 export const desktopOnly = true;
 export const performanceMode = true;

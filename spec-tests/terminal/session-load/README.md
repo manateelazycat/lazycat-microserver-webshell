@@ -24,4 +24,4 @@
 
 上述报告位于 `spec-tests/reports/<run-id>/terminal/session-load/`，两轮自建资源均已清理，配置恢复 5000。尚未取得完整性能通过结果，不能宣称 Android 或当前 LPK 正式验收通过。
 
-真实观察校准入口为 `environment/agent-device-mcp/load-preflight.mjs`：独立真实 PTY 生成并读取 400 行，验证 WASM reset 映射和完整行缓冲，只承担环境校准。默认历史 5000 的独立 Provider HTTP 验证已随 `5cadf82` 提交推送，不重复承担本模块验收。键盘 v3/v4 已交付，客户反馈待定，不新增键盘自动验收。
+真实观察校准入口为 `environment/webshell-test-harness/load-preflight.mjs`：独立真实 PTY 生成并读取 400 行，验证 WASM reset 映射和完整行缓冲，只承担环境校准。默认历史 5000 的独立 Provider HTTP 验证已随 `5cadf82` 提交推送，不重复承担本模块验收。键盘 v3/v4 已交付，客户反馈待定，不新增键盘自动验收。
