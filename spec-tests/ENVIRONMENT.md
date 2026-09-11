@@ -54,7 +54,7 @@ DISPLAY=:0
 
 `app/service-worker-retirement` 现在也替换为相同的本地前端，只允许其真实 Service Worker 生命周期操作；旧 Worker 历史环境使用该快照中的当前退役脚本和导航更新代码，返回 WebShell 时仍校验本地构建。`terminal/viewport` 的 UA 和 `terminal/client-replay` 的真实客户端目标要求保持原有定义。
 
-产品 AC 仍必须使用当前本地构建，不能回退远端旧前端。通用真机控制由 `agent-device-mcp` skill/MCP 提供；首次使用执行 `npx skills add https://gitee.com/linakesi/agent-device-mcp.git`，后续执行 `npx skills update agent-device-mcp`。现有桌面浏览器验收继续使用 Playwright 环境。
+产品 AC 仍必须使用当前本地构建，不能回退远端旧前端。通用真机控制由 `agent-device-mcp` skill/MCP 提供；首次使用执行 `npx skills add git@gitee.com:linakesi/agent-device-mcp.git`，后续执行 `npx skills update agent-device-mcp`。现有桌面浏览器验收继续使用 Playwright 环境。
 
 ## 开始测试与读取结果
 

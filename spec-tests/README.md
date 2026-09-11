@@ -20,13 +20,13 @@
 
 ```sh
 (cd spec-tests && npm ci)
-npx skills add https://gitee.com/linakesi/agent-device-mcp.git
+npx skills add git@gitee.com:linakesi/agent-device-mcp.git
 node spec-tests/environment/webshell-test-harness/inspect.mjs
 TESTS_AUTO_DRY_RUN=1 spec-tests/test-all.sh
 ```
 
 `spec-tests/environment/webshell-test-harness/config.mjs` 加载本地配置；同目录的 `target.mjs` 处理认证和实例选择，`browser.mjs` 管理现有 Playwright 桌面场景的浏览器窗口；`spec-tests/run-suite.mjs` 编排批次并输出逐模块结果。Agent 通过已安装的 `agent-device-mcp` skill 和注册的 MCP 操作通用设备；项目自动脚本使用 `spec-tests` 中固定版本的 `agent-device` npm 依赖。两者都不读取 WebShell 业务配置或决定产品 AC 语义。
 
-新增真实设备流程先加载 `agent-device-mcp` skill；首次使用执行 `npx skills add https://gitee.com/linakesi/agent-device-mcp.git`，后续通过 `npx skills update agent-device-mcp` 更新。产品定制只写在对应模块测试脚本中。现有脚本的模拟范围和限制保留在模块 README，不把桌面移动视口当成 Android 真机覆盖。
+新增真实设备流程先加载 `agent-device-mcp` skill；首次使用执行 `npx skills add git@gitee.com:linakesi/agent-device-mcp.git`，后续通过 `npx skills update agent-device-mcp` 更新。产品定制只写在对应模块测试脚本中。现有脚本的模拟范围和限制保留在模块 README，不把桌面移动视口当成 Android 真机覆盖。
 
 原始脚本以场景级断言承接，详细诊断保留在 events.jsonl、trace、截图和 result.json。执行器不要求每个旧模块改用 OCR，也不伪造逐步骤证据。测试产物、登录态和凭据不得提交。

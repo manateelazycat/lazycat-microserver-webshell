@@ -4,7 +4,7 @@
 
 Agent 写真机脚本时：
 
-1. 加载已安装的 `agent-device-mcp` skill；未安装时执行 `npx skills add https://gitee.com/linakesi/agent-device-mcp.git`，已有安装通过 `npx skills update agent-device-mcp` 更新。
+1. 加载已安装的 `agent-device-mcp` skill；未安装时执行 `npx skills add git@gitee.com:linakesi/agent-device-mcp.git`，已有安装通过 `npx skills update agent-device-mcp` 更新。
 2. 需要命令细节时再读官方 `agent-device` skill，或 `npx agent-device help <topic>`。
 3. 产品步骤只写进 `spec-tests/<domain>/<feature>/` 的测试脚本；Agent 交互走 MCP，自动脚本调用 `spec-tests` 已安装的 `agent-device` 包。
 

@@ -9,7 +9,7 @@
 首次安装 skill：
 
 ```sh
-npx skills add https://gitee.com/linakesi/agent-device-mcp.git
+npx skills add git@gitee.com:linakesi/agent-device-mcp.git
 ```
 
 更新 skill：
@@ -18,7 +18,7 @@ npx skills add https://gitee.com/linakesi/agent-device-mcp.git
 npx skills update agent-device-mcp
 ```
 
-Gitee HTTPS 安装要求仓库可匿名读取，或当前机器已经配置非交互 HTTPS 凭据。也可以使用 `npx skills update` 更新当前作用域中的全部 skills。MCP 服务按该 skill 的说明独立注册，不把 MCP checkout、绝对路径或个人配置提交到 WebShell 仓库。
+仓库当前需要认证，安装前通过 `ssh -T git@gitee.com` 检查 Gitee SSH key。也可以使用 `npx skills update` 更新当前作用域中的全部 skills。MCP 服务按该 skill 的说明独立注册，不把 MCP checkout、绝对路径或个人配置提交到 WebShell 仓库。
 
 Agent 执行交互式设备操作时先加载 `agent-device-mcp` skill，再调用已注册的 MCP tools。WebShell 自动测试脚本使用 `spec-tests/package.json` 中固定版本的 `agent-device` npm 依赖，不依赖外部仓库目录。
 
