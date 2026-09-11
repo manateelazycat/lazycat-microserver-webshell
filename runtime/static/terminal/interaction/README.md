@@ -75,6 +75,6 @@
 
 允许依赖浏览器 DOM、工作区只读视图、选择/链接只读查询和显式业务命令。禁止依赖或修改 transport、history replay、Cache API v2、resize controller、Ghostty presentation 或输入 readiness。
 
-相关测试为 `terminal_context_menu_controller_test.mjs`、`terminal_search_controller_test.mjs`、`terminal_clipboard_controller_test.mjs`、`app_paste_controller_test.mjs`、`terminal_link_controller_test.mjs`、Claude fullscreen 右键/桌面选择隔离测试、触摸选择 guard、长截图菜单 guard 和 `TestRuntimeTerminalInteractionModuleBoundary`。最小回归包括：pane/tab 桌面右键、普通及跨物理换行 URL、尾部标点剥离、指针 cell 命中、链接 `_blank/noopener/noreferrer` 打开、链接复制和迟到结果拒绝、搜索、普通/bracketed paste、完整缓冲区复制、Clipboard 权限失败后的反馈与原生焦点、桌面拖选自动复制、中键粘贴、pane 关闭或 dispose 后迟到读取不发送输入、Claude fullscreen 事件所有权，以及 dispose 后 listener/timer 不再触发。真实系统 paste 由 `tests-auto/16-attachment-native-paste/` 覆盖。
+相关测试为 `terminal_context_menu_controller_test.mjs`、`terminal_search_controller_test.mjs`、`terminal_clipboard_controller_test.mjs`、`app_paste_controller_test.mjs`、`terminal_link_controller_test.mjs`、Claude fullscreen 右键/桌面选择隔离测试、触摸选择 guard、长截图菜单 guard 和 `TestRuntimeTerminalInteractionModuleBoundary`。最小回归包括：pane/tab 桌面右键、普通及跨物理换行 URL、尾部标点剥离、指针 cell 命中、链接 `_blank/noopener/noreferrer` 打开、链接复制和迟到结果拒绝、搜索、普通/bracketed paste、完整缓冲区复制、Clipboard 权限失败后的反馈与原生焦点、桌面拖选自动复制、中键粘贴、pane 关闭或 dispose 后迟到读取不发送输入、Claude fullscreen 事件所有权，以及 dispose 后 listener/timer 不再触发。真实系统 paste 由 `spec-tests/app/paste/` 覆盖。
 
 菜单和动作不得清空终端、触发历史 replay/reset、改变 resize owner 或展示 replay、snapshot、resize、重连的中间过程。

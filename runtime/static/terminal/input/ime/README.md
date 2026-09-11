@@ -34,4 +34,4 @@ v4 保留上述已验证的焦点交接，仅隔离移动 textarea 与输出、�
 - `ime_model.js`：平台识别、sentinel、delete input type 与 composition 候选纯函数。
 - `ios_terminal_host.js`：iOS 宿主兼容经典脚本。
 
-相关 guard 位于 `terminal_ime_controller_test.mjs`、`app_paste_controller_test.mjs`、`runtime_shortcuts_test.go` 的 iOS host、Android 删除、键盘和 viewport 测试。最小回归是在触摸浏览器双击同步拉起键盘，验证中文/英文 composition、连续 Backspace、系统文本/图片 paste、单击 blur 与方向变化；确认一次 paste 只转发一次、不抢焦点、不重复提交、不泄漏历史回放画面。真实剪贴板链路由 `tests-auto/16-attachment-native-paste/` 覆盖。
+相关 guard 位于 `terminal_ime_controller_test.mjs`、`app_paste_controller_test.mjs`、`runtime_shortcuts_test.go` 的 iOS host、Android 删除、键盘和 viewport 测试。最小回归是在触摸浏览器双击同步拉起键盘，验证中文/英文 composition、连续 Backspace、系统文本/图片 paste、单击 blur 与方向变化；确认一次 paste 只转发一次、不抢焦点、不重复提交、不泄漏历史回放画面。真实剪贴板链路由 `spec-tests/app/paste/` 覆盖。

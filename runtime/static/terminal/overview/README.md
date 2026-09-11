@@ -44,6 +44,6 @@ IndexedDB 数据库 `lcmd-webshell-overview-previews-v1` 最多保留 64 项并�
 
 允许依赖浏览器 DOM、工作区只读视图、presentation frame 查询、独立图片 Blob store 和显式工作区命令；禁止依赖 transport、PTY history store、replay、resize controller 或输入状态机。
 
-相关测试为 `terminal_overview_controller_test.mjs`、`terminal_overview_preview_test.mjs`、`TestRuntimeTerminalOverviewModuleBoundary` 和 `tests-auto/12-overview-preview-persistence`。最小回归包括 live/hold/persisted 来源优先级、跨 reload 后台 tab 预览、identity/history generation 隔离、迟到 encode/decode、切换/关闭/新建标签、桌面拖拽、触摸长按拖拽、双侧边缘打开、浏览器返回键和 dispose 资源清理。
+相关测试为 `terminal_overview_controller_test.mjs`、`terminal_overview_preview_test.mjs`、`TestRuntimeTerminalOverviewModuleBoundary` 和 `spec-tests/terminal/overview-preview`。最小回归包括 live/hold/persisted 来源优先级、跨 reload 后台 tab 预览、identity/history generation 隔离、迟到 encode/decode、切换/关闭/新建标签、桌面拖拽、触摸长按拖拽、双侧边缘打开、浏览器返回键和 dispose 资源清理。
 
 任何路径都不得显示历史 replay、snapshot、原子 resize 或重连中间过程，也不能把它们保存为缩略图；live geometry 期间同样不做中间帧编码。

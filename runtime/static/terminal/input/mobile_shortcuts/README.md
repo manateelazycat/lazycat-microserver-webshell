@@ -27,4 +27,4 @@ controller 独占 sticky modifier、触感反馈偏好、按钮交互状态和�
 
 ## 依赖与验证
 
-依赖方向为 app/settings -> mobile shortcuts -> input/IME 的显式回调；模块不得深度导入 workspace、transport、history 或 rendering。相关测试包括 `terminal_mobile_shortcuts_controller_test.mjs`、`TestTerminalMobileShortcutsModuleBoundary` 以及 `tests-auto/02-terminal-input`、`tests-auto/03-terminal-ime` 的真实输入回归。
+依赖方向为 app/settings -> mobile shortcuts -> input/IME 的显式回调；模块不得深度导入 workspace、transport、history 或 rendering。相关测试包括 `terminal_mobile_shortcuts_controller_test.mjs`、`TestTerminalMobileShortcutsModuleBoundary` 以及 `spec-tests/terminal/input`、`spec-tests/terminal/ime` 的真实输入回归。

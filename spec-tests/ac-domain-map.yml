@@ -1,8 +1,41 @@
 domains:
-  webshell:
+  terminal:
     paths:
-      - runtime/static/**
+      - runtime/static/terminal/**
+      - spec/terminal/**
+      - spec-tests/terminal/**
+  workspace:
+    paths:
+      - runtime/static/workspace/**
+      - spec/workspace/**
+      - spec-tests/workspace/**
+  app:
+    paths:
+      - runtime/static/app/**
+      - runtime/static/global-runtime.js
+      - runtime/static/main.js
+      - runtime/static/index.html
+      - spec/app/**
+      - spec-tests/app/**
+
+rules:
+  - paths:
       - '*.go'
-      - spec/webshell/**
       - spec-tests/**
+      - environment/**
       - run-ac.sh
+      - runtime/static/**
+    exclude_paths:
+      - runtime/static/terminal/**
+      - runtime/static/workspace/**
+      - runtime/static/app/**
+      - spec-tests/terminal/**
+      - spec-tests/workspace/**
+      - spec-tests/app/**
+    domains:
+      - terminal
+      - workspace
+      - app
+  - path_domain: spec/{domain}/**
+  - path_domain: spec-tests/{domain}/**
+  - path_domain: runtime/static/{domain}/**

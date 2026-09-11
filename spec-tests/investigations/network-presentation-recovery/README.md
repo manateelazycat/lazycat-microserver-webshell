@@ -21,7 +21,7 @@
 
 从 WebShell 根目录执行：
 
-    node spec-tests/tests-auto/run-playwright.mjs spec-tests/investigations/network-presentation-recovery/test.mjs
+    node spec-tests/run-playwright.mjs spec-tests/investigations/network-presentation-recovery/test.mjs
 
 凭据及明确实例沿用未提交配置。LPK 集成验收另由父项目执行器核验实际设备文件；本场景的浏览器当前前端映射不单独证明后端部署版本。
 

@@ -37,4 +37,4 @@
 
 ## 依赖与验证
 
-外部只能从 `app/index.js` 导入本目录模块；根启动从 `global-runtime.js` 进入。新增页面级事件必须先归入本目录或明确的 feature 模块，并增加生命周期清理测试。相关回归包括 `app_lifecycle_controller_test.mjs`、`app_paste_controller_test.mjs`、页面显隐/网络恢复测试、`tests-auto/16-attachment-native-paste/`、`tests-auto/21-attachment-file-drop/`、`tests-auto/25-attachment-mobile-upload-path/`，以及 `main.js`/`global-runtime.js` 入口边界 guard。
+外部只能从 `app/index.js` 导入本目录模块；根启动从 `global-runtime.js` 进入。新增页面级事件必须先归入本目录或明确的 feature 模块，并增加生命周期清理测试。相关回归包括 `app_lifecycle_controller_test.mjs`、`app_paste_controller_test.mjs`、页面显隐/网络恢复测试、`spec-tests/app/paste/`、`spec-tests/app/file-drop/`、`spec-tests/app/mobile-upload-path/`，以及 `main.js`/`global-runtime.js` 入口边界 guard。

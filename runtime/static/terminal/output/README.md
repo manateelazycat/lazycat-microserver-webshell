@@ -46,6 +46,6 @@ Queue turn complete 只登记待确认 cursor/sequence。只有对应输出已�
 
 依赖方向为 history/transport/resize -> output -> Ghostty/rendering/input/IME 的显式注入接口。output 不得深度导入 history、transport、resize、rendering 或 input 实现。
 
-自动化测试：`terminal_output_controller_test.mjs`（含默认 ACK serializer 的身份校验）、`TestTerminalOutputControllerBehavior`、`TestRuntimeTerminalOutputModuleBoundary`、`TestRuntimeTerminalOutputBatchingGuard`、Queue frame/cursor/checksum 和 resize bounded drain guard。`tests-auto/05-terminal-output` 在真实 Provider/agent/PTY 上覆盖普通输出、1.5 MiB 大块输出、隐藏 tab、resize、Canvas 原子呈现、模块资源和单 Unified 连接。
+自动化测试：`terminal_output_controller_test.mjs`（含默认 ACK serializer 的身份校验）、`TestTerminalOutputControllerBehavior`、`TestRuntimeTerminalOutputModuleBoundary`、`TestRuntimeTerminalOutputBatchingGuard`、Queue frame/cursor/checksum 和 resize bounded drain guard。`spec-tests/terminal/output` 在真实 Provider/agent/PTY 上覆盖普通输出、1.5 MiB 大块输出、隐藏 tab、resize、Canvas 原子呈现、模块资源和单 Unified 连接。
 
 最小真实回归：在 `debug123` 持续输出唯一 marker，覆盖普通输出、隐藏 tab、切换 tab、resize、历史 reconnect 和至少一个大块输出；确认字节顺序完整、Queue ACK 在解析完成后发送、Canvas 非空、pending/hold 采样无 unsafe、页面只有一条 Unified 物理 WebSocket，console/pageerror/API error 为零。

@@ -31,4 +31,4 @@ controller 独占 client ID、当前 revision、reload prompted、dialog open、
 
 - 行为测试：`app_server_revision_controller_test.mjs`。
 - 静态边界：`TestRuntimeAppServerRevisionModuleBoundary`。
-- 最小回归：正常页面等待首次版本检查；模拟 revision 变化后取消提示，确认输入不受影响；再次部署后确认重载会恢复原 tab；离线或销毁期间不得出现迟到提示。旧页面发送的 `terminal_input_blocked` 仅由 Provider 兼容入口无状态忽略，真实跨页面输入回归见 `tests-auto/14-terminal-input-lock-lifecycle`。
+- 最小回归：正常页面等待首次版本检查；模拟 revision 变化后取消提示，确认输入不受影响；再次部署后确认重载会恢复原 tab；离线或销毁期间不得出现迟到提示。旧页面发送的 `terminal_input_blocked` 仅由 Provider 兼容入口无状态忽略，真实跨页面输入回归见 `spec-tests/terminal/input-lock-lifecycle`。

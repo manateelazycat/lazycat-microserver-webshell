@@ -1,8 +1,0 @@
-{
-  "name": "lazycat-microserver-webshell-tests-auto",
-  "private": true,
-  "type": "module",
-  "dependencies": {
-    "@playwright/test": "1.62.1"
-  }
-}

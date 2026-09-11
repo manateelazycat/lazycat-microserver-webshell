@@ -49,10 +49,10 @@ pending input 的过期 timer 绑定当前 logical channel generation 或 client
 
 依赖方向为 app/workspace -> input -> transport/resize/theme/viewport 的注入接口；input 不得深度导入 app/paste、attachments、transport、history、rendering 或 resize 实现。IME 只能通过 `sendInput`、`pasteText`、`handleNativePaste`、resize 和 viewport 的注入命令交互。
 
-自动化测试：`terminal_input_controller_test.mjs`、`terminal_ime_controller_test.mjs`、`terminal_mobile_shortcuts_controller_test.mjs`、`app_paste_controller_test.mjs`、`TestTerminalInputControllerBehavior`、`TestRuntimeTerminalInputModuleBoundary`、移动快捷键行为与边界 guard，以及 large paste、generated response、input readiness、旧 `input_lock` no-op、IME composition、Android delete、同步双击和 session cleanup guard。真实跨 attach 回归由 `tests-auto/14-terminal-input-lock-lifecycle` 覆盖，真实系统文本/图片和文件 paste 由 `tests-auto/16-attachment-native-paste` 覆盖。
+自动化测试：`terminal_input_controller_test.mjs`、`terminal_ime_controller_test.mjs`、`terminal_mobile_shortcuts_controller_test.mjs`、`app_paste_controller_test.mjs`、`TestTerminalInputControllerBehavior`、`TestRuntimeTerminalInputModuleBoundary`、移动快捷键行为与边界 guard，以及 large paste、generated response、input readiness、旧 `input_lock` no-op、IME composition、Android delete、同步双击和 session cleanup guard。真实跨 attach 回归由 `spec-tests/terminal/input-lock-lifecycle` 覆盖，真实系统文本/图片和文件 paste 由 `spec-tests/app/paste` 覆盖。
 
 最小真实回归：在 `debug123` 验证普通输入、Enter/Ctrl-C、长文本粘贴、generated DSR/Kitty response、断线或 logical stream 重建期间输入排队及恢复；确认 resize ACK 前不发送携带新网格的用户输入，历史回放中间过程不可见，单页仍只有一条 Unified 物理 WebSocket，console/pageerror/API error 为零。
 
 ## 恢复边界的输入顺序
 
-resize ACK 可在 presentation/onReady 之前打开输入 gate。sendOrQueue 必须先按顺序转交旧 pendingInput，再接受新文字/回车；不能让新输入绕过恢复期间积累的前缀。flushPending 只移除 send 已接受的条目，失败时保留尚未接受的数据和字节预算。真实基线与验证由 spec-tests/investigations/network-presentation-recovery 和 01-multi-device-resize-sync 记录。
+resize ACK 可在 presentation/onReady 之前打开输入 gate。sendOrQueue 必须先按顺序转交旧 pendingInput，再接受新文字/回车；不能让新输入绕过恢复期间积累的前缀。flushPending 只移除 send 已接受的条目，失败时保留尚未接受的数据和字节预算。真实基线与验证由 spec-tests/investigations/network-presentation-recovery 和 terminal/resize-sync 记录。

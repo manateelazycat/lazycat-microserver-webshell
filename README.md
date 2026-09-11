@@ -123,20 +123,20 @@ lzc-cli project deploy
 
 ## 测试
 
-现有 18 个测试模块分别对应 `spec/webshell/<模块名>/REQ.md` 和 `AC.md`。场景实现和原说明保留在仓库内的 `spec-tests/tests-auto/<模块名>/`，由唯一执行器调用 `test-all.sh` 编排。
+规格按 `runtime/static` 一级模块放在 `spec/<模块>/<场景>/REQ.md` 和 `AC.md`。场景实现和原说明保留在 `spec-tests/<模块>/<场景>/`，由唯一执行器调用 `test-all.sh` 编排。
 
 ```sh
-./run-ac.sh                         # 全部 18 个模块
+./run-ac.sh                         # 全部已接入场景
 ./run-ac.sh --dry-run               # 核对选择和映射，不启动测试
-./run-ac.sh --selector webshell/02-terminal-input
+./run-ac.sh --selector terminal/input
 ./run-ac.sh --help
 ```
 
-先读 [测试环境说明](spec-tests/ENVIRONMENT.md) 配置测试地址、认证、Google Chrome 和 X11 DISPLAY。账号及密码只从本地 `.env` 或运行环境注入，前端构建由入口自动准备。默认打开有界面的桌面及移动布局窗口，Android 设备准备按 [设备规范](spec-tests/device-workflow.md) 使用 agent-device。
+先读 [测试环境说明](spec-tests/ENVIRONMENT.md) 配置测试地址、认证、Google Chrome 和 X11 DISPLAY。账号及密码只从本地 `.env` 或运行环境注入，前端构建由入口自动准备。默认打开有界面的桌面及移动布局窗口。真机 Environment MCP 见 [agent-device-mcp](environment/agent-device-mcp/README.md)。
 
 `run-ac.sh` 执行前自动构建当前工作树前端，整批使用独立快照并校验源码/资源摘要；本地资源缺失时失败，禁止回退远端旧代码。Service Worker 场景同样使用本地构建。agent-device 自动测试在接入可验证的本地前端通道前保持阻断。
 
-单模块上下文通过 `spec-tests/task-context --module 02-terminal-input` 读取；入口与目录说明见 [测试说明](spec-tests/README.md)。执行报告保留每个模块的状态、耗时和事件证据，发现或 dry run 成功不代表真实测试通过。
+单模块上下文通过 `spec-tests/task-context --module terminal/input` 读取；入口与目录说明见 [测试说明](spec-tests/README.md)。执行报告保留每个模块的状态、耗时和事件证据，发现或 dry run 成功不代表真实测试通过。
 
 无论前台或后台运行，结束时最后一行都会显示“测试总用时”，包含构建、准备、执行和清理。`--json` 时该行写到 stderr，总秒数也记录在 JSON 的 `duration_seconds` 与 `summary.duration_seconds` 中。
 

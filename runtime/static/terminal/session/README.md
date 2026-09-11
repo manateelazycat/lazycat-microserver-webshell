@@ -72,6 +72,6 @@ controller 公开：
 - DOM、Ghostty 和各责任域清理函数由调用方显式注入，模块不反向读取应用全局状态。
 - 行为测试：`terminal_session_controller_test.mjs`、`terminal_session_installation_controller_test.mjs`（含原生 paste 转发、presentation-ready 副作用及 closed/dispose guard）、`terminal_startup_error_controller_test.mjs`、`terminal_session_protocol_controller_test.mjs`（含 connection epoch 到 resize transition 的接线）、`app_paste_controller_test.mjs`。
 - 静态边界：`TestRuntimeTerminalSessionModuleBoundary`。
-- 历史 guard：对应 `tests-auto` 场景 README、终端 history/transport 测试以及当前模块 README 中记录的 cursor、Unified、历史回放和 last-known-good frame 契约。
+- 历史 guard：对应 `spec-tests` 场景 README、终端 history/transport 测试以及当前模块 README 中记录的 cursor、Unified、历史回放和 last-known-good frame 契约。
 
 最小回归步骤：创建多个 tab/pane，关闭其中一个 pane，确认兄弟 pane 持续输出和输入；断网后恢复，确认已有画面未被清空；刷新并等待历史恢复，确认中间 replay 过程不可见。

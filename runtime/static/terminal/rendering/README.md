@@ -8,7 +8,7 @@
 
 `cancelHold({ restoreReady, releaseFrame })` 只取消 hold 编排，不能自行宣布首次呈现完成。只有显式 `restoreReady:true`、已有提交帧、replay/resize 门禁允许、可见且可测、Canvas 几何与 fit/replay/content generation 均匹配、没有待 full render 时才恢复 ready；`releaseFrame` 同样受此门禁限制。`restoreReady:false` 不触发 `onReady`，首次恢复必须由真实 full render commit 完成。该契约由场景 17 和 presentation 行为测试锁定。
 
-字体族加载或其他原子几何变化期间，presentation hold 必须保持与 live renderer 相同的 DPR：hold canvas 的 backing width/height 按 CSS 尺寸乘以 renderer DPR 分配，并在绘制时保持正确的坐标变换。字号 setter 可能先让 live canvas 产生超出当前 host 的临时 CSS/backing 尺寸；现在由 metrics/resize live geometry 在同一任务内重新测量并 fit，保持 Canvas 可见。此前 `holdFrame()` 使用 CSS 宽高创建 hold canvas，且 CSS 使用 `image-rendering: auto`，高 DPR 设备会出现被平滑放大的模糊旧帧；该原子路径问题已通过 DPR=3 真实 `tests-auto/05-terminal-output` 验证修复。
+字体族加载或其他原子几何变化期间，presentation hold 必须保持与 live renderer 相同的 DPR：hold canvas 的 backing width/height 按 CSS 尺寸乘以 renderer DPR 分配，并在绘制时保持正确的坐标变换。字号 setter 可能先让 live canvas 产生超出当前 host 的临时 CSS/backing 尺寸；现在由 metrics/resize live geometry 在同一任务内重新测量并 fit，保持 Canvas 可见。此前 `holdFrame()` 使用 CSS 宽高创建 hold canvas，且 CSS 使用 `image-rendering: auto`，高 DPR 设备会出现被平滑放大的模糊旧帧；该原子路径问题已通过 DPR=3 真实 `spec-tests/terminal/output` 验证修复。
 
 ## 公开入口与状态
 

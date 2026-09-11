@@ -1,14 +1,8 @@
 {
-  "name": "webshell-test-environment",
+  "name": "lazycat-microserver-webshell-tests-auto",
   "private": true,
   "type": "module",
-  "scripts": {
-    "mcp": "node mcp/server.mjs",
-    "inspect": "node environment/inspect.mjs"
-  },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "1.30.0",
-    "agent-device": "0.20.10",
-    "zod": "4.5.4"
+    "@playwright/test": "1.62.1"
   }
 }

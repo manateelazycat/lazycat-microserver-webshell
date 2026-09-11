@@ -59,4 +59,4 @@ View 只维护实际 DOM 节点及上传面板节点映射；API 只执行白名
 - `runtime_shortcuts_test.go`：公开入口、README、`global-runtime.js` 边界、版本化静态资源和旧实现移除契约。
 - `attachments_test.go`：服务端账号与实例授权、客户端代理、32 文件/2GB 上传限制、64 条下载、路径和归档安全。
 
-最小回归步骤：运行 `tests-auto/16-attachment-native-paste/`，从系统剪贴板和文件选择器分别上传；确认原生图片/文件只上传一次、路径只进入原 pane 一次且没有 Enter，桌面手动上传仍复制路径并恢复焦点；再验证进度、手动关闭和 5 秒自动关闭、上传中关闭 tab/切换实例的迟到拒绝，以及文件浏览器的目录导航、排序和下载。桌面拖放上传运行 `tests-auto/21-attachment-file-drop/`。移动端文件选择上传运行 `tests-auto/25-attachment-mobile-upload-path/`。
+最小回归步骤：运行 `spec-tests/app/paste/`，从系统剪贴板和文件选择器分别上传；确认原生图片/文件只上传一次、路径只进入原 pane 一次且没有 Enter，桌面手动上传仍复制路径并恢复焦点；再验证进度、手动关闭和 5 秒自动关闭、上传中关闭 tab/切换实例的迟到拒绝，以及文件浏览器的目录导航、排序和下载。桌面拖放上传运行 `spec-tests/app/file-drop/`。移动端文件选择上传运行 `spec-tests/app/mobile-upload-path/`。

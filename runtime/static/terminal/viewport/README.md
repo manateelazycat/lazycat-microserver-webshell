@@ -48,6 +48,6 @@ geometry、recovery probe 和键盘恢复使用 generation 检查；旧 sequence
 
 模块通过显式注入依赖 resize、IME DOM 命令、selection、overview、移动菜单和工作区只读查询；不得导入这些模块的内部实现，不得访问 transport/history/cache。
 
-自动化测试：`terminal_viewport_controller_test.mjs` 覆盖 portrait-to-portrait 折叠、分阶段尺寸只提交最终 generation、键盘不 claim 和 dispose fence；`TestRuntimeTerminalViewportModuleBoundary` 固定单一公开入口、版本化静态资源、global runtime 接线和旧 viewport 状态/实现不得回流入口文件。真实回归由 `tests-auto/01-multi-device-resize-sync` 和 `tests-auto/04-terminal-viewport` 覆盖跨设备 owner、折叠/展开及原子保帧。
+自动化测试：`terminal_viewport_controller_test.mjs` 覆盖 portrait-to-portrait 折叠、分阶段尺寸只提交最终 generation、键盘不 claim 和 dispose fence；`TestRuntimeTerminalViewportModuleBoundary` 固定单一公开入口、版本化静态资源、global runtime 接线和旧 viewport 状态/实现不得回流入口文件。真实回归由 `spec-tests/terminal/resize-sync` 和 `spec-tests/terminal/viewport` 覆盖跨设备 owner、折叠/展开及原子保帧。
 
 最小真实回归：在 `debug123` 的桌面与移动页面加载当前工作区资源；移动端打开/收起软键盘并旋转视口，确认快捷键栏和光标可见、终端最终 Canvas 非空、没有 replay 中间帧或 `pageerror`；桌面 resize 保持正常；每个页面始终只有 1 条 Unified 物理 WebSocket。

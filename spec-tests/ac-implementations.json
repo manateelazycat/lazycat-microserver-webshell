@@ -1,7 +1,7 @@
 {
-  "webshell/01-multi-device-resize-sync/SC-MULTI-DEVICE-RESIZE-SYNC": {
-    "test_id": "tests-auto/01-multi-device-resize-sync/test.mjs",
-    "description": "tests-auto/01-multi-device-resize-sync/README.md",
+  "terminal/resize-sync/SC-MULTI-DEVICE-RESIZE-SYNC": {
+    "test_id": "terminal/resize-sync/test.mjs",
+    "description": "terminal/resize-sync/README.md",
     "steps": [
       "Given 两个授权浏览器打开同一终端",
       "When 用户交替调整窗口并在一次连接恢复期间输入命令",
@@ -9,9 +9,9 @@
     ],
     "evidence_granularity": "scenario"
   },
-  "webshell/02-terminal-input/SC-TERMINAL-INPUT": {
-    "test_id": "tests-auto/02-terminal-input/test.mjs",
-    "description": "tests-auto/02-terminal-input/README.md",
+  "terminal/input/SC-TERMINAL-INPUT": {
+    "test_id": "terminal/input/test.mjs",
+    "description": "terminal/input/README.md",
     "steps": [
       "Given 用户已打开可交互终端",
       "When 用户连续执行命令、取消运行中的命令并输入大段文本",
@@ -19,9 +19,9 @@
     ],
     "evidence_granularity": "scenario"
   },
-  "webshell/03-terminal-ime/SC-TERMINAL-IME": {
-    "test_id": "tests-auto/03-terminal-ime/test.mjs",
-    "description": "tests-auto/03-terminal-ime/README.md",
+  "terminal/ime/SC-TERMINAL-IME": {
+    "test_id": "terminal/ime/test.mjs",
+    "description": "terminal/ime/README.md",
     "steps": [
       "Given 终端输入区域已获得焦点",
       "When 用户组合输入文本、插入空格、连续退格并粘贴文本",
@@ -29,9 +29,9 @@
     ],
     "evidence_granularity": "scenario"
   },
-  "webshell/04-terminal-viewport/SC-TERMINAL-VIEWPORT": {
-    "test_id": "tests-auto/04-terminal-viewport/test.mjs",
-    "description": "tests-auto/04-terminal-viewport/README.md",
+  "terminal/viewport/SC-TERMINAL-VIEWPORT": {
+    "test_id": "terminal/viewport/test.mjs",
+    "description": "terminal/viewport/README.md",
     "steps": [
       "Given 用户在移动布局中打开已有内容的终端",
       "When 用户打开和收起软键盘并改变屏幕方向或窗口尺寸",
@@ -39,9 +39,9 @@
     ],
     "evidence_granularity": "scenario"
   },
-  "webshell/05-terminal-output/SC-TERMINAL-OUTPUT": {
-    "test_id": "tests-auto/05-terminal-output/test.mjs",
-    "description": "tests-auto/05-terminal-output/README.md",
+  "terminal/output/SC-TERMINAL-OUTPUT": {
+    "test_id": "terminal/output/test.mjs",
+    "description": "terminal/output/README.md",
     "steps": [
       "Given 用户已打开持续可交互的终端",
       "When 终端持续输出大量内容，用户同时输入并调整窗口或切换标签",
@@ -49,9 +49,9 @@
     ],
     "evidence_granularity": "scenario"
   },
-  "webshell/06-workspace-tabs/SC-WORKSPACE-TABS": {
-    "test_id": "tests-auto/06-workspace-tabs/test.mjs",
-    "description": "tests-auto/06-workspace-tabs/README.md",
+  "workspace/tabs/SC-WORKSPACE-TABS": {
+    "test_id": "workspace/tabs/test.mjs",
+    "description": "workspace/tabs/README.md",
     "steps": [
       "Given 用户已打开包含终端的工作区",
       "When 用户创建标签、修改标签名称并刷新页面",
@@ -59,9 +59,9 @@
     ],
     "evidence_granularity": "scenario"
   },
-  "webshell/07-workspace-retry/SC-WORKSPACE-RETRY": {
-    "test_id": "tests-auto/07-workspace-retry/test.mjs",
-    "description": "tests-auto/07-workspace-retry/README.md",
+  "workspace/retry/SC-WORKSPACE-RETRY": {
+    "test_id": "workspace/retry/test.mjs",
+    "description": "workspace/retry/README.md",
     "steps": [
       "Given 用户的工作区仍存在且可访问",
       "When 页面的一次工作区读取失败后再次读取成功",
@@ -69,9 +69,9 @@
     ],
     "evidence_granularity": "scenario"
   },
-  "webshell/08-terminal-click-jitter/SC-TERMINAL-CLICK-JITTER": {
-    "test_id": "tests-auto/08-terminal-click-jitter/test.mjs",
-    "description": "tests-auto/08-terminal-click-jitter/README.md",
+  "terminal/click-jitter/SC-TERMINAL-CLICK-JITTER": {
+    "test_id": "terminal/click-jitter/test.mjs",
+    "description": "terminal/click-jitter/README.md",
     "steps": [
       "Given 桌面终端已有稳定内容且窗口尺寸不变",
       "When 用户在同一终端连续点击",
@@ -79,9 +79,9 @@
     ],
     "evidence_granularity": "scenario"
   },
-  "webshell/09-terminal-interaction-jitter/SC-TERMINAL-INTERACTION-JITTER": {
-    "test_id": "tests-auto/09-terminal-interaction-jitter/test.mjs",
-    "description": "tests-auto/09-terminal-interaction-jitter/README.md",
+  "terminal/interaction-jitter/SC-TERMINAL-INTERACTION-JITTER": {
+    "test_id": "terminal/interaction-jitter/test.mjs",
+    "description": "terminal/interaction-jitter/README.md",
     "steps": [
       "Given 桌面终端已有稳定内容",
       "When 用户点击终端、输入命令并拖动选择文本",
@@ -89,9 +89,9 @@
     ],
     "evidence_granularity": "scenario"
   },
-  "webshell/10-terminal-geometry-jitter/SC-TERMINAL-GEOMETRY-JITTER": {
-    "test_id": "tests-auto/10-terminal-geometry-jitter/test.mjs",
-    "description": "tests-auto/10-terminal-geometry-jitter/README.md",
+  "terminal/geometry-jitter/SC-TERMINAL-GEOMETRY-JITTER": {
+    "test_id": "terminal/geometry-jitter/test.mjs",
+    "description": "terminal/geometry-jitter/README.md",
     "steps": [
       "Given 用户已打开具有稳定内容的终端",
       "When 用户调整字号、行距和窗口大小并切换标签",
@@ -99,9 +99,9 @@
     ],
     "evidence_granularity": "scenario"
   },
-  "webshell/11-service-worker-retirement/SC-SERVICE-WORKER-RETIREMENT": {
-    "test_id": "tests-auto/11-service-worker-retirement/test.mjs",
-    "description": "tests-auto/11-service-worker-retirement/README.md",
+  "app/service-worker-retirement/SC-SERVICE-WORKER-RETIREMENT": {
+    "test_id": "app/service-worker-retirement/test.mjs",
+    "description": "app/service-worker-retirement/README.md",
     "steps": [
       "Given 浏览器曾使用旧版离线页面缓存",
       "When 用户通过正常导航打开当前版本页面",
@@ -109,9 +109,9 @@
     ],
     "evidence_granularity": "scenario"
   },
-  "webshell/12-overview-preview-persistence/SC-OVERVIEW-PREVIEW-PERSISTENCE": {
-    "test_id": "tests-auto/12-overview-preview-persistence/test.mjs",
-    "description": "tests-auto/12-overview-preview-persistence/README.md",
+  "terminal/overview-preview/SC-OVERVIEW-PREVIEW-PERSISTENCE": {
+    "test_id": "terminal/overview-preview/test.mjs",
+    "description": "terminal/overview-preview/README.md",
     "steps": [
       "Given 工作区多个标签已有可见内容和已保存预览",
       "When 用户刷新页面并在后台标签尚未完成实时呈现时打开总览",
@@ -119,9 +119,9 @@
     ],
     "evidence_granularity": "scenario"
   },
-  "webshell/13-split-divider-render-isolation/SC-SPLIT-DIVIDER-RENDER-ISOLATION": {
-    "test_id": "tests-auto/13-split-divider-render-isolation/test.mjs",
-    "description": "tests-auto/13-split-divider-render-isolation/README.md",
+  "workspace/split-divider/SC-SPLIT-DIVIDER-RENDER-ISOLATION": {
+    "test_id": "workspace/split-divider/test.mjs",
+    "description": "workspace/split-divider/README.md",
     "steps": [
       "Given 左右分屏分别显示密集内容和空白终端",
       "When 用户连续来回拖动分割条并释放",
@@ -129,9 +129,9 @@
     ],
     "evidence_granularity": "scenario"
   },
-  "webshell/14-terminal-input-lock-lifecycle/SC-TERMINAL-INPUT-LOCK-LIFECYCLE": {
-    "test_id": "tests-auto/14-terminal-input-lock-lifecycle/test.mjs",
-    "description": "tests-auto/14-terminal-input-lock-lifecycle/README.md",
+  "terminal/input-lock-lifecycle/SC-TERMINAL-INPUT-LOCK-LIFECYCLE": {
+    "test_id": "terminal/input-lock-lifecycle/test.mjs",
+    "description": "terminal/input-lock-lifecycle/README.md",
     "steps": [
       "Given 两个授权页面连接同一终端，其中一个使用旧客户端输入锁行为",
       "When 旧客户端发出锁定请求后另一个页面输入命令",
@@ -139,9 +139,9 @@
     ],
     "evidence_granularity": "scenario"
   },
-  "webshell/15-vite-cold-start/SC-VITE-COLD-START": {
-    "test_id": "tests-auto/15-vite-cold-start/test.mjs",
-    "description": "tests-auto/15-vite-cold-start/README.md",
+  "app/vite-cold-start/SC-VITE-COLD-START": {
+    "test_id": "app/vite-cold-start/test.mjs",
+    "description": "app/vite-cold-start/README.md",
     "steps": [
       "Given 浏览器尚未缓存当前版本的页面资源",
       "When 用户首次打开当前版本 WebShell",
@@ -149,9 +149,9 @@
     ],
     "evidence_granularity": "scenario"
   },
-  "webshell/16-attachment-native-paste/SC-ATTACHMENT-NATIVE-PASTE": {
-    "test_id": "tests-auto/16-attachment-native-paste/test.mjs",
-    "description": "tests-auto/16-attachment-native-paste/README.md",
+  "app/paste/SC-ATTACHMENT-NATIVE-PASTE": {
+    "test_id": "app/paste/test.mjs",
+    "description": "app/paste/README.md",
     "steps": [
       "Given 用户打开支持附件且可交互的终端",
       "When 用户粘贴文本、提交附件或在桌面端手动上传后粘贴附件路径",
@@ -159,9 +159,9 @@
     ],
     "evidence_granularity": "scenario"
   },
-  "webshell/17-client-tab-replay-recovery/SC-CLIENT-TAB-REPLAY-RECOVERY": {
-    "test_id": "tests-auto/17-client-tab-replay-recovery/test.mjs",
-    "description": "tests-auto/17-client-tab-replay-recovery/README.md",
+  "terminal/client-replay/SC-CLIENT-TAB-REPLAY-RECOVERY": {
+    "test_id": "terminal/client-replay/test.mjs",
+    "description": "terminal/client-replay/README.md",
     "steps": [
       "Given 授权且在线的客户端终端拥有多个含不同历史长度的标签",
       "When 用户刷新、切换标签并重连后继续输入",
@@ -169,9 +169,9 @@
     ],
     "evidence_granularity": "scenario"
   },
-  "webshell/18-cross-device-tab-sync/SC-CROSS-DEVICE-TAB-SYNC": {
-    "test_id": "tests-auto/18-cross-device-tab-sync/test.mjs",
-    "description": "tests-auto/18-cross-device-tab-sync/README.md",
+  "workspace/cross-device-tab-sync/SC-CROSS-DEVICE-TAB-SYNC": {
+    "test_id": "workspace/cross-device-tab-sync/test.mjs",
+    "description": "workspace/cross-device-tab-sync/README.md",
     "steps": [
       "Given 两个授权浏览器窗口打开同一工作区，标签数量一致",
       "When 用户在其中一个窗口新建一个标签",
@@ -179,9 +179,9 @@
     ],
     "evidence_granularity": "scenario"
   },
-  "webshell/21-attachment-file-drop/SC-ATTACHMENT-FILE-DROP-PANE": {
-    "test_id": "tests-auto/21-attachment-file-drop/test.mjs",
-    "description": "tests-auto/21-attachment-file-drop/README.md",
+  "app/file-drop/SC-ATTACHMENT-FILE-DROP-PANE": {
+    "test_id": "app/file-drop/test.mjs",
+    "description": "app/file-drop/README.md",
     "steps": [
       "Given 用户打开支持附件且可交互的桌面终端",
       "When 用户把文件拖到某个终端画面并松开",
@@ -191,9 +191,9 @@
     ],
     "evidence_granularity": "scenario"
   },
-  "webshell/21-attachment-file-drop/SC-ATTACHMENT-FILE-DROP-SPLIT-TARGET": {
-    "test_id": "tests-auto/22-attachment-file-drop-split/test.mjs",
-    "description": "tests-auto/22-attachment-file-drop-split/README.md",
+  "app/file-drop/SC-ATTACHMENT-FILE-DROP-SPLIT-TARGET": {
+    "test_id": "app/file-drop/split.mjs",
+    "description": "app/file-drop/split.md",
     "steps": [
       "Given 用户在同一标签中分屏出两个可交互终端",
       "When 用户把文件拖到非当前焦点的那一侧并松开",
@@ -201,9 +201,9 @@
     ],
     "evidence_granularity": "scenario"
   },
-  "webshell/21-attachment-file-drop/SC-ATTACHMENT-FILE-DROP-FOLDER-REJECT": {
-    "test_id": "tests-auto/23-attachment-file-drop-folder/test.mjs",
-    "description": "tests-auto/23-attachment-file-drop-folder/README.md",
+  "app/file-drop/SC-ATTACHMENT-FILE-DROP-FOLDER-REJECT": {
+    "test_id": "app/file-drop/folder.mjs",
+    "description": "app/file-drop/folder.md",
     "steps": [
       "Given 用户打开支持附件且可交互的桌面终端",
       "When 用户把文件夹拖到终端画面并松开",
@@ -212,9 +212,9 @@
     ],
     "evidence_granularity": "scenario"
   },
-  "webshell/25-attachment-mobile-upload-path/SC-ATTACHMENT-MOBILE-UPLOAD-PATH": {
-    "test_id": "tests-auto/25-attachment-mobile-upload-path/test.mjs",
-    "description": "tests-auto/25-attachment-mobile-upload-path/README.md",
+  "app/mobile-upload-path/SC-ATTACHMENT-MOBILE-UPLOAD-PATH": {
+    "test_id": "app/mobile-upload-path/test.mjs",
+    "description": "app/mobile-upload-path/README.md",
     "steps": [
       "Given 用户在移动端打开支持附件且可交互的终端",
       "When 用户打开文件管理，选择「上传文件」，在系统文件选择器中选中本地文件并上传成功",
@@ -223,9 +223,9 @@
     ],
     "evidence_granularity": "scenario"
   },
-  "webshell/20-session-load-responsiveness/SC-SESSION-LOAD-RESPONSIVENESS": {
-    "test_id": "tests-auto/20-session-load-responsiveness/test.mjs",
-    "description": "tests-auto/20-session-load-responsiveness/README.md",
+  "terminal/session-load/SC-SESSION-LOAD-RESPONSIVENESS": {
+    "test_id": "terminal/session-load/test.mjs",
+    "description": "terminal/session-load/README.md",
     "steps": [
       "Given 工作区至少有十个独立终端，每个保留达到配置上限的历史，且有终端持续输出",
       "When 用户重新打开工作区、切换标签并连续调整窗口尺寸和分屏比例",

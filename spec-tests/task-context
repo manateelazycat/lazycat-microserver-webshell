@@ -5,14 +5,16 @@ from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 STATE=ROOT/'spec-tests/.state/context.json'
 parser=argparse.ArgumentParser(description=__doc__)
-parser.add_argument('--module',help='tests-auto directory name, for example 02-terminal-input')
+parser.add_argument('--module',help='spec-tests module path, for example terminal/input')
 parser.add_argument('--ac',help='Exact local or global AC ID')
 parser.add_argument('--checkpoint',action='store_true')
 args=parser.parse_args()
+def module_id(test_id):
+ return str(Path(test_id).parent)
 registry=json.loads((ROOT/'spec-tests/ac-implementations.json').read_text())
-paths=[ROOT/'AGENTS.md',ROOT/'spec/AGENTS.md',ROOT/'spec-tests/AGENTS.md',ROOT/'spec-tests/ENVIRONMENT.md',ROOT/'spec-tests/README.md',ROOT/'spec-tests/ac-implementations.json',ROOT/'spec-tests/project-ac-executor',ROOT/'spec-tests/run-ac-entry',ROOT/'spec-tests/timed-run',ROOT/'spec-tests/run-ac.lock',ROOT/'spec-tests/task-context',ROOT/'spec-tests/tests-auto/test-all.sh',ROOT/'spec-tests/tests-auto/run-suite.mjs',ROOT/'spec-tests/tests-auto/run-playwright.mjs']
-paths.extend((ROOT/'spec-tests/environment').glob('*.mjs'))
-paths.extend([ROOT/'spec-tests/package.json',ROOT/'spec-tests/package-lock.json',ROOT/'spec-tests/tests-auto/package.json',ROOT/'spec-tests/tests-auto/package-lock.json'])
+paths=[ROOT/'AGENTS.md',ROOT/'spec/AGENTS.md',ROOT/'spec-tests/AGENTS.md',ROOT/'spec-tests/ENVIRONMENT.md',ROOT/'spec-tests/README.md',ROOT/'spec-tests/ac-implementations.json',ROOT/'spec-tests/project-ac-executor',ROOT/'spec-tests/run-ac-entry',ROOT/'spec-tests/timed-run',ROOT/'spec-tests/run-ac.lock',ROOT/'spec-tests/task-context',ROOT/'spec-tests/test-all.sh',ROOT/'spec-tests/run-suite.mjs',ROOT/'spec-tests/run-playwright.mjs']
+paths.extend((ROOT/'environment').rglob('*.mjs'))
+paths.extend([ROOT/'environment/agent-device-mcp/package.json',ROOT/'environment/agent-device-mcp/package-lock.json',ROOT/'spec-tests/package.json',ROOT/'spec-tests/package-lock.json'])
 shared=set(paths)
 for scenario,item in registry.items():
  feature='/'.join(scenario.split('/')[:2]);paths.extend([ROOT/'spec'/feature/'REQ.md',ROOT/'spec'/feature/'AC.md',ROOT/'spec-tests'/item['test_id'],ROOT/'spec-tests'/item['description']])
@@ -21,7 +23,7 @@ if args.checkpoint:
  STATE.parent.mkdir(exist_ok=True);STATE.write_text(json.dumps(current,indent=2)+'\n');print(f'Checkpoint saved: {len(current)} files');raise SystemExit
 previous=json.loads(STATE.read_text()) if STATE.is_file() else {}
 if args.module or args.ac:
- selected=[(k,v) for k,v in registry.items() if (args.module and v['test_id'].split('/')[1]==args.module) or (args.ac and args.ac in (k,k.split('/')[-1]))]
+ selected=[(k,v) for k,v in registry.items() if (args.module and module_id(v['test_id'])==args.module) or (args.ac and args.ac in (k,k.split('/')[-1]))]
  if len(selected)!=1:parser.error('Select exactly one registered module or AC')
  scenario,item=selected[0];feature='/'.join(scenario.split('/')[:2])
  print('Environment: spec-tests/ENVIRONMENT.md\nRules: AGENTS.md, spec/AGENTS.md, spec-tests/AGENTS.md')
@@ -34,7 +36,7 @@ else:
  print('Rules: AGENTS.md, spec/AGENTS.md, spec-tests/AGENTS.md')
  print('Guide: spec-tests/README.md\nEnvironment: spec-tests/ENVIRONMENT.md')
  print('Run all: ./run-ac.sh\nModule context: spec-tests/task-context --module <module>')
- print('\nModules: '+', '.join(v['test_id'].split('/')[1] for v in registry.values()))
+ print('\nModules: '+', '.join(dict.fromkeys(module_id(v['test_id']) for v in registry.values())))
  relevant=set(current)|set(previous)
 changed=sorted(k for k in relevant if current.get(k)!=previous.get(k))
 print('\nChanged relevant files since checkpoint:\n'+('\n'.join(changed) if changed else '(none)'))

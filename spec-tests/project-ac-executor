@@ -76,9 +76,9 @@ def run_selected(args, implementations):
             raise ValueError('AC steps changed; review the module mapping before running')
         item['test_id'] = implementations[scenario]['test_id']
     tests = TESTS_ROOT
-    suite = tests / 'tests-auto/test-all.sh'
+    suite = tests / 'test-all.sh'
     if not suite.is_file():
-        raise ValueError('spec-tests/tests-auto/test-all.sh is unavailable')
+        raise ValueError('spec-tests/test-all.sh is unavailable')
     report_dir = ROOT / 'spec-tests/reports' / uuid4().hex
     report_dir.mkdir(parents=True)
     selection = report_dir / 'selection.json'
@@ -134,10 +134,19 @@ def main(argv):
             missing = [item['test_id'] for item in implementations.values() if not (discovery_root / item['test_id']).is_file()]
             if missing:
                 raise ValueError('Registered scenario files are missing from spec-tests')
-            discovered = {str(path.relative_to(discovery_root)) for path in (discovery_root / 'tests-auto').glob('[0-9][0-9]-*/test.mjs')}
+            discovered = set()
+            spec_root = ROOT / 'spec'
+            for ac in spec_root.glob('*/*/AC.md'):
+                testdir = discovery_root / ac.parent.parent.name / ac.parent.name
+                if not testdir.is_dir():
+                    continue
+                for script in testdir.glob('*.mjs'):
+                    if script.name == 'helpers.mjs':
+                        continue
+                    discovered.add(str(script.relative_to(discovery_root)))
             registered = [item['test_id'] for item in implementations.values()]
             if len(set(registered)) != len(registered) or discovered != set(registered):
-                raise ValueError('tests-auto modules and AC registry differ; add the missing module REQ/AC and mapping instead of silently omitting tests')
+                raise ValueError('spec-tests modules and AC registry differ; add the missing module REQ/AC and mapping instead of silently omitting tests')
             emit({'status': 'passed', 'implementations': [{'scenario': scenario, 'test_id': item['test_id']} for scenario, item in sorted(implementations.items())]})
             return 0
         return run_selected(args, implementations)

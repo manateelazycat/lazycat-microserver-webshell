@@ -31,4 +31,4 @@ controller 独占 `targetName`、当前/推荐版本、`updateAvailable`、`upda
 
 ## 依赖与验证
 
-依赖方向为 `global-runtime -> agent_protocol_update -> API/view`。行为测试为 `tests/agent_protocol_update_controller_test.mjs`，真实旧控制帧兼容和跨页面输入隔离由 `tests-auto/14-terminal-input-lock-lifecycle` 覆盖。最小回归需确认取消、失败、成功重载、required 自动提示和页面销毁均不会创建 `input_lock` 控制帧或影响其他设备输入。
+依赖方向为 `global-runtime -> agent_protocol_update -> API/view`。行为测试为 `tests/agent_protocol_update_controller_test.mjs`，真实旧控制帧兼容和跨页面输入隔离由 `spec-tests/terminal/input-lock-lifecycle` 覆盖。最小回归需确认取消、失败、成功重载、required 自动提示和页面销毁均不会创建 `input_lock` 控制帧或影响其他设备输入。

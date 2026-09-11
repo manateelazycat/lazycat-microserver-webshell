@@ -19,4 +19,4 @@ controller 唯一持有 metrics retry 的 RAF/timer 集合，并以 session gene
 
 ## 依赖、边界与验证
 
-依赖方向为 app -> metrics -> renderer/presentation/resize/history 注入 API；模块不建立 WebSocket，不执行 history replay，不清空 Canvas，不实现 transport、session 或设置持久化。行为测试为 `terminal_metrics_controller_test.mjs`，静态/资源 guard 位于 `runtime_shortcuts_test.go`；真实字号/行高回归为 `tests-auto/10-terminal-geometry-jitter`。最小回归需覆盖字号/行高 live geometry、字体族原子刷新、scrollback/mobile option 适配、尺寸 fallback、session cleanup 和 dispose。
+依赖方向为 app -> metrics -> renderer/presentation/resize/history 注入 API；模块不建立 WebSocket，不执行 history replay，不清空 Canvas，不实现 transport、session 或设置持久化。行为测试为 `terminal_metrics_controller_test.mjs`，静态/资源 guard 位于 `runtime_shortcuts_test.go`；真实字号/行高回归为 `spec-tests/terminal/geometry-jitter`。最小回归需覆盖字号/行高 live geometry、字体族原子刷新、scrollback/mobile option 适配、尺寸 fallback、session cleanup 和 dispose。

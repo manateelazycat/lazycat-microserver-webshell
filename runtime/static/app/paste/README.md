@@ -37,4 +37,4 @@
 
 依赖方向为 `global-runtime -> app/paste -> 注入的 attachments/terminal 命令`。模块不得深度导入附件、终端、workspace 或全局 runtime 实现。
 
-行为测试为 `tests/app_paste_controller_test.mjs`。真实回归为 `tests-auto/16-attachment-native-paste/`、`tests-auto/21-attachment-file-drop/` 和 `tests-auto/25-attachment-mobile-upload-path/`，覆盖 PC/mobile 原生文本、系统 PNG、DataTransfer 文件、桌面手动上传后粘贴、桌面拖放、移动端文件选择上传、真实 Provider/PTY/API、Canvas 和 Unified WebSocket。
+行为测试为 `tests/app_paste_controller_test.mjs`。真实回归为 `spec-tests/app/paste/`、`spec-tests/app/file-drop/` 和 `spec-tests/app/mobile-upload-path/`，覆盖 PC/mobile 原生文本、系统 PNG、DataTransfer 文件、桌面手动上传后粘贴、桌面拖放、移动端文件选择上传、真实 Provider/PTY/API、Canvas 和 Unified WebSocket。

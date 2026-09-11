@@ -63,4 +63,4 @@
 - `terminal_network_monitor_test.mjs`：WebSocket 字节、通道、速率和 dispose 行为。
 - `runtime_shortcuts_test.go`：公开入口、版本化静态资源和 `global-runtime.js` 不再持有诊断实现的静态契约。
 
-最小回归步骤：开启调试模式后分别启用错误日志、网络监视器、FPS、性能任务和初始化性能；打开一个首次加载的终端，确认初始化性能窗口在未完成时已经逐行展示事件，尾行指出上一完成步骤且等待时长和总耗时持续增长；点击“复制”获取当前时间线，重点检查 `render_blocked`、`presentation_ready_state` 的 `reason`、gate 状态、generation 和 Canvas 尺寸；首次 presentation commit 后 pending 行消失且数值冻结，持续输入、resize 和网络流量不会新增初始化样本。关闭调试总控，确认 ticker、全部面板和采样器停止；离开页面后确认 WebSocket 方法、console 方法和全局监听均恢复。真实回归由 `tests-auto/05-terminal-output` 在 reload 前安装 DOM probe，验证 collecting 到 complete 的渐进过程。
+最小回归步骤：开启调试模式后分别启用错误日志、网络监视器、FPS、性能任务和初始化性能；打开一个首次加载的终端，确认初始化性能窗口在未完成时已经逐行展示事件，尾行指出上一完成步骤且等待时长和总耗时持续增长；点击“复制”获取当前时间线，重点检查 `render_blocked`、`presentation_ready_state` 的 `reason`、gate 状态、generation 和 Canvas 尺寸；首次 presentation commit 后 pending 行消失且数值冻结，持续输入、resize 和网络流量不会新增初始化样本。关闭调试总控，确认 ticker、全部面板和采样器停止；离开页面后确认 WebSocket 方法、console 方法和全局监听均恢复。真实回归由 `spec-tests/terminal/output` 在 reload 前安装 DOM probe，验证 collecting 到 complete 的渐进过程。
