@@ -72,6 +72,7 @@ export function createWorkspaceTabReorderController({
     if (!state || state !== gesture || state.dragging || committing) return false;
     clearHoldTimer(state);
     state.dragging = true;
+    if (state.pointerType === "touch") activateTab(state.tabId, { focus: false });
     view.begin(state);
     return true;
   };
@@ -109,6 +110,12 @@ export function createWorkspaceTabReorderController({
     lifecycle.clearTransient();
     clearHoldTimer(state);
     releaseCapture(state);
+    if (state.scrolling) {
+      event?.preventDefault?.();
+      event?.stopPropagation?.();
+      suppressClickUntil = now() + 350;
+      return;
+    }
     if (!state.dragging) return;
     event?.preventDefault?.();
     event?.stopPropagation?.();
@@ -127,13 +134,30 @@ export function createWorkspaceTabReorderController({
   const handleMove = (event) => {
     const state = gesture;
     if (!state || event?.pointerId !== state.pointerId) return;
+    const previousX = state.lastX;
     state.lastX = event.clientX;
     state.lastY = event.clientY;
-    const distance = Math.hypot(state.lastX - state.startX, state.lastY - state.startY);
+    if (state.scrolling) {
+      event.preventDefault?.();
+      event.stopPropagation?.();
+      view.scrollBy(previousX - state.lastX);
+      return;
+    }
+    const deltaX = state.lastX - state.startX;
+    const deltaY = state.lastY - state.startY;
+    const distance = Math.hypot(deltaX, deltaY);
     if (!state.dragging) {
       if (distance < moveThresholdPx) return;
       if (!state.dragReady) {
-        cancelGesture();
+        clearHoldTimer(state);
+        if (state.pointerType === "touch" && Math.abs(deltaX) > Math.abs(deltaY)) {
+          state.scrolling = true;
+          event.preventDefault?.();
+          event.stopPropagation?.();
+          view.scrollBy(previousX - state.lastX);
+        } else {
+          cancelGesture();
+        }
         return;
       }
       beginDrag(state);
@@ -166,7 +190,7 @@ export function createWorkspaceTabReorderController({
     const originalIndex = originalTabs.findIndex((tab) => tab.id === tabId);
     if (originalIndex < 0) return;
 
-    activateTab(tabId, { focus: false });
+    if (pointerType !== "touch") activateTab(tabId, { focus: false });
     gesture = {
       pointerId: event.pointerId,
       pointerType,
@@ -180,6 +204,7 @@ export function createWorkspaceTabReorderController({
       originalTabIds: originalTabs.map((tab) => tab.id),
       dragReady: pointerType !== "touch",
       dragging: false,
+      scrolling: false,
       placeholder: null,
       holdTimer: 0,
     };

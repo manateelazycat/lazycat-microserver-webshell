@@ -9,19 +9,19 @@ import {
   tabIDs,
 } from "./helpers.mjs";
 
-const dispatchTouchDrag = async (page, start, end) => {
+const dispatchTouchGesture = async (page, start, end, { holdMs = 0, stepDelayMs = 12 } = {}) => {
   const session = await page.context().newCDPSession(page);
   const point = (x, y) => [{ x, y, radiusX: 2, radiusY: 2, force: 1, id: 1 }];
   try {
     await session.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: point(start.x, start.y) });
-    await page.waitForTimeout(380);
+    if (holdMs > 0) await page.waitForTimeout(holdMs);
     for (let step = 1; step <= 12; step += 1) {
       const ratio = step / 12;
       await session.send("Input.dispatchTouchEvent", {
         type: "touchMove",
         touchPoints: point(start.x + (end.x - start.x) * ratio, start.y + (end.y - start.y) * ratio),
       });
-      await page.waitForTimeout(18);
+      await page.waitForTimeout(stepDelayMs);
     }
     await session.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
   } finally {
@@ -46,7 +46,7 @@ export async function run({ states, artifactsDir, eventLog }) {
       evidence.agentCapabilities.includes("tab_reorder_anchor"),
       "deployed Provider and persistent agent must support atomic anchor reorder",
     );
-    extras.push(...await createExtraTabs(page, 2));
+    extras.push(...await createExtraTabs(page, 6));
     const [draggedID, targetID] = extras;
 
     evidence.mobileTabsVisible = await page.locator("#tabs").isVisible();
@@ -58,6 +58,36 @@ export async function run({ states, artifactsDir, eventLog }) {
     await page.locator("#tabOverviewClose").click();
     await page.locator("#tabOverview").waitFor({ state: "hidden" });
 
+    await page.setViewportSize({ width: 700, height: 844 });
+    await page.locator("#tabs").waitFor({ state: "visible" });
+    evidence.tabletScrollBefore = await page.locator("#tabs").evaluate((tabs) => ({
+      left: tabs.scrollLeft,
+      width: tabs.clientWidth,
+      scrollWidth: tabs.scrollWidth,
+    }));
+    assert.ok(
+      evidence.tabletScrollBefore.scrollWidth > evidence.tabletScrollBefore.width,
+      "tablet tab bar must overflow before testing touch scrolling",
+    );
+    const tabletSwipeTab = page.locator("#tabs .tab").nth(3);
+    const tabletSwipeBox = await tabletSwipeTab.boundingBox();
+    if (!tabletSwipeBox) throw new Error("tablet touch-scroll tab is not measurable");
+    const tabletSwipeStart = {
+      x: tabletSwipeBox.x + tabletSwipeBox.width / 2,
+      y: tabletSwipeBox.y + tabletSwipeBox.height / 2,
+    };
+    await dispatchTouchGesture(page, tabletSwipeStart, {
+      x: Math.max(20, tabletSwipeStart.x - 260),
+      y: tabletSwipeStart.y,
+    });
+    evidence.tabletScrollAfter = await page.locator("#tabs").evaluate((tabs) => tabs.scrollLeft);
+    assert.ok(
+      evidence.tabletScrollAfter > evidence.tabletScrollBefore.left,
+      "a tablet touch swipe before the hold threshold must scroll the tab bar",
+    );
+    assert.equal(evidence.requests.length, 0, "touch scrolling must not submit a reorder action");
+
+    await page.setViewportSize({ width: 390, height: 844 });
     await page.evaluate(() => {
       localStorage.setItem("webshell.debugMode", "true");
       localStorage.setItem("webshell.forcePCMode", "true");
@@ -74,17 +104,20 @@ export async function run({ states, artifactsDir, eventLog }) {
       targetTapBox.y + targetTapBox.height / 2,
     );
     await page.waitForFunction((id) => document.querySelector("#tabs .tab.active")?.dataset.tabId === id, targetID);
+    const draggedTab = page.locator(`#tabs .tab[data-tab-id="${draggedID}"]`);
+    await draggedTab.scrollIntoViewIfNeeded();
+    await page.waitForTimeout(250);
 
     evidence.before = await tabIDs(page);
     evidence.expected = moveAfter(evidence.before, draggedID, targetID);
     const [draggedBox, targetBox] = await Promise.all([
-      page.locator(`#tabs .tab[data-tab-id="${draggedID}"]`).boundingBox(),
+      draggedTab.boundingBox(),
       page.locator(`#tabs .tab[data-tab-id="${targetID}"]`).boundingBox(),
     ]);
     if (!draggedBox || !targetBox) throw new Error("force-PC touch reorder tabs are not measurable");
     const start = { x: draggedBox.x + draggedBox.width / 2, y: draggedBox.y + draggedBox.height / 2 };
     const end = { x: targetBox.x + targetBox.width - 5, y: targetBox.y + targetBox.height / 2 };
-    await dispatchTouchDrag(page, start, end);
+    await dispatchTouchGesture(page, start, end, { holdMs: 380, stepDelayMs: 18 });
 
     await page.waitForFunction((expected) => (
       Array.from(document.querySelectorAll("#tabs .tab"), (button) => button.dataset.tabId).join("\n")
@@ -108,6 +141,7 @@ export async function run({ states, artifactsDir, eventLog }) {
     await eventLog({ status: "pass", action: "touch-tab-reorder-boundary", ...evidence });
     return { observations: [
       "ordinary mobile layout kept the top tab list hidden and opened terminal overview",
+      "tablet touch swipe scrolled the overflowing tab bar without reordering",
       "force-PC long-press touch reorder survived reload",
     ] };
   } finally {

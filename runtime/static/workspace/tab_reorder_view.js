@@ -70,6 +70,13 @@ export function createWorkspaceTabReorderView({
     state.button.style.transform = `translate3d(${Math.round(state.lastX - state.startX)}px, 0, 0)`;
   };
 
+  const scrollBy = (deltaX) => {
+    if (!tabsElement || !Number.isFinite(deltaX)) return false;
+    const previous = tabsElement.scrollLeft;
+    tabsElement.scrollLeft += deltaX;
+    return tabsElement.scrollLeft !== previous;
+  };
+
   const updatePlaceholder = (state) => {
     if (!state.placeholder?.parentNode) return;
     const candidates = Array.from(tabsElement.querySelectorAll(".tab:not(.is-dragging)"));
@@ -148,6 +155,7 @@ export function createWorkspaceTabReorderView({
     finish,
     moveDraggedButton,
     restoreOrder,
+    scrollBy,
     updateAutoScroll,
     updatePlaceholder,
   });
