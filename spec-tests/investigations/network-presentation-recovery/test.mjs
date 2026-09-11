@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { randomInt } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { observeTerminal, waitForLiveTerminal, waitForVisibleOutput } from "../../../environment/webshell-test-harness/observe.mjs";
+import { observeTerminal, waitForLiveTerminal, waitForVisibleOutput } from "../../environment/webshell-test-harness/observe.mjs";
 
 export async function beforeNavigate({ page }) {
   await page.addInitScript(() => {

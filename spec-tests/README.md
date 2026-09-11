@@ -1,6 +1,6 @@
 # WebShell 测试
 
-本目录维护 Project AC Executor 和按 `domain/feature` 组织的测试脚本，与 `spec/` 对齐。真实环境操作与观察服务按插件分类放在仓库根目录 `environment/`；通用设备插件为 `environment/agent-device-mcp/`，WebShell 项目适配为 `environment/webshell-test-harness/`。
+本目录维护 Project AC Executor、按 `domain/feature` 组织的测试脚本和环境插件，与 `spec/` 对齐。真实环境操作与观察服务位于 `spec-tests/environment/`；通用设备插件为 `spec-tests/environment/agent-device-mcp/`，WebShell 项目适配为 `spec-tests/environment/webshell-test-harness/`。
 
 - `run-ac`、`run-ac-entry`、`run-ac.lock`：统一入口与运行时版本。
 - `timed-run`：最外层总用时统计，前台/后台与失败退出统一输出；JSON 模式将时间说明写到 stderr。
@@ -20,13 +20,13 @@
 
 ```sh
 (cd spec-tests && npm ci)
-(cd environment/agent-device-mcp && npm ci)
-node environment/webshell-test-harness/inspect.mjs
+(cd spec-tests/environment/agent-device-mcp && npm ci)
+node spec-tests/environment/webshell-test-harness/inspect.mjs
 TESTS_AUTO_DRY_RUN=1 spec-tests/test-all.sh
 ```
 
-`environment/webshell-test-harness/config.mjs` 加载本地配置；同目录的 `target.mjs` 处理认证和实例选择，`browser.mjs` 管理现有 Playwright 桌面场景的浏览器窗口；`spec-tests/run-suite.mjs` 编排批次并输出逐模块结果。通用设备控制见 [agent-device-mcp](../environment/agent-device-mcp/README.md)，它不读取 WebShell 配置，也不决定产品 AC 语义。
+`spec-tests/environment/webshell-test-harness/config.mjs` 加载本地配置；同目录的 `target.mjs` 处理认证和实例选择，`browser.mjs` 管理现有 Playwright 桌面场景的浏览器窗口；`spec-tests/run-suite.mjs` 编排批次并输出逐模块结果。通用设备控制见 [agent-device-mcp](environment/agent-device-mcp/README.md)，它不读取 WebShell 配置，也不决定产品 AC 语义。
 
-新增真实设备流程读取 `environment/agent-device-mcp/README.md`，也可引用官方 agent-device skill。产品定制只写在对应模块测试脚本中。现有脚本的模拟范围和限制保留在模块 README，不把桌面移动视口当成 Android 真机覆盖。
+新增真实设备流程读取 `spec-tests/environment/agent-device-mcp/README.md`，也可引用官方 agent-device skill。产品定制只写在对应模块测试脚本中。现有脚本的模拟范围和限制保留在模块 README，不把桌面移动视口当成 Android 真机覆盖。
 
 原始脚本以场景级断言承接，详细诊断保留在 events.jsonl、trace、截图和 result.json。执行器不要求每个旧模块改用 OCR，也不伪造逐步骤证据。测试产物、登录态和凭据不得提交。

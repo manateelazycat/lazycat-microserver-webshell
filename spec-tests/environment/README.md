@@ -1,6 +1,6 @@
 # 测试环境组件
 
-`environment/` 用于分类维护真实环境操作与观察能力。产品测试场景仍放在 `spec-tests/<domain>/<feature>/`。
+`spec-tests/environment/` 用于分类维护真实环境操作与观察能力，与 `spec-tests/<domain>/<feature>/` 下的产品测试场景分离。
 
 ## 通用 Agent Device MCP
 
@@ -8,7 +8,7 @@
 
 ```sh
 git submodule update --init --recursive
-npm --prefix environment/agent-device-mcp ci
+npm --prefix spec-tests/environment/agent-device-mcp ci
 ```
 
 它只提供 agent-device 的 MCP 服务和 Node API，可以安装到任何项目，不读取 WebShell 配置，也不包含产品登录、构建或 AC 判定。

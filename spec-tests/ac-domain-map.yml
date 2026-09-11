@@ -22,7 +22,7 @@ rules:
   - paths:
       - '*.go'
       - spec-tests/**
-      - environment/**
+      - spec-tests/environment/**
       - run-ac.sh
       - runtime/static/**
     exclude_paths:

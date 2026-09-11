@@ -9,8 +9,8 @@
 - 地址示例：`https://lightos.debug123.heiyu.space/webshell/?name=debug%40cloud.lazycat.lightos.entry&tab=tab-4`。
 - 实际地址通过 `spec-tests/.env` 中的 `WEBSHELL_TEST_URL` 或运行环境传入；示例不作为隐藏默认值。
 - 测试账号、密码和认证信息只通过未提交的 `spec-tests/.env` 或运行环境注入。也可用 `--env-file` 显式指定同格式的本地文件。
-- `environment/webshell-test-harness/config.mjs` 负责配置加载，进程环境优先于文件；配置值按文本读取，不执行 shell 代码。
-- `environment/webshell-test-harness/target.mjs` 负责登录和实例选择；`environment/webshell-test-harness/browser.mjs` 负责浏览器窗口及测试资源生命周期。
+- `spec-tests/environment/webshell-test-harness/config.mjs` 负责配置加载，进程环境优先于文件；配置值按文本读取，不执行 shell 代码。
+- `spec-tests/environment/webshell-test-harness/target.mjs` 负责登录和实例选择；`spec-tests/environment/webshell-test-harness/browser.mjs` 负责浏览器窗口及测试资源生命周期。
 
 ```dotenv
 WEBSHELL_TEST_URL=https://<authorized-test-host>/webshell/?name=<instance>
@@ -42,7 +42,7 @@ DISPLAY=:0
 
 确需无界面环境时显式设置 `TEST_FOREGROUND=0`（或 `HEADLESS=1`）；需要 Chromium 时显式设置 `PW_CHANNEL=chromium`。这些配置不能写成已经完成默认有界面 Chrome 验证。
 
-移动窗口是桌面 Chrome 的布局/触控模拟。真实 Android / iOS / 浏览器真机操作使用 [agent-device Environment MCP](../environment/agent-device-mcp/README.md)。原生 IME 场景关闭测试 IME。
+移动窗口是桌面 Chrome 的布局/触控模拟。真实 Android / iOS / 浏览器真机操作使用 [agent-device Environment MCP](environment/agent-device-mcp/README.md)。原生 IME 场景关闭测试 IME。
 
 ## 构建与特殊模块
 
@@ -54,14 +54,14 @@ DISPLAY=:0
 
 `app/service-worker-retirement` 现在也替换为相同的本地前端，只允许其真实 Service Worker 生命周期操作；旧 Worker 历史环境使用该快照中的当前退役脚本和导航更新代码，返回 WebShell 时仍校验本地构建。`terminal/viewport` 的 UA 和 `terminal/client-replay` 的真实客户端目标要求保持原有定义。
 
-产品 AC 仍必须使用当前本地构建，不能回退远端旧前端。通用真机控制走 `environment/agent-device-mcp`；现有桌面浏览器验收继续使用 Playwright 环境。
+产品 AC 仍必须使用当前本地构建，不能回退远端旧前端。通用真机控制走 `spec-tests/environment/agent-device-mcp`；现有桌面浏览器验收继续使用 Playwright 环境。
 
 ## 开始测试与读取结果
 
 在产品根目录执行：
 
 ```sh
-node environment/webshell-test-harness/inspect.mjs
+node spec-tests/environment/webshell-test-harness/inspect.mjs
 ./run-ac.sh --dry-run
 ./run-ac.sh
 ./run-ac.sh --selector terminal/input
@@ -86,6 +86,6 @@ node environment/webshell-test-harness/inspect.mjs
 
 同一 selector/account 的 Agent 可能被多个 Provider 共用。旧 Provider 的定期 workspace 请求也会携带其历史上限，因此压力配置可以通过 `WEBSHELL_LOAD_COMPANION_URL` 临时同步同一专用盒子的旧入口设置；结束后两个入口各自恢复原值。回放字节量与最终保留行数仍必须校验，不能用被裁剪的历史通过性能测试。
 
-Android 真机操作使用通用的 `environment/agent-device-mcp`；WebShell 的 Android/CDP 和负载适配位于 `environment/webshell-test-harness`。窗口变化通过真实系统旋转验证，并恢复原始旋转设置。准备命令和输入健康检查走该页面已有 Unified socket 的公开输入协议，仍使用真实 PTY，不表示对 IME 或键盘弹出的自动验收。`load-android-gestures.mjs` 仅校准触摸/旋转/协议输入；严格负载仍由唯一 AC 执行器运行。
+Android 真机操作使用通用的 `spec-tests/environment/agent-device-mcp`；WebShell 的 Android/CDP 和负载适配位于 `spec-tests/environment/webshell-test-harness`。窗口变化通过真实系统旋转验证，并恢复原始旋转设置。准备命令和输入健康检查走该页面已有 Unified socket 的公开输入协议，仍使用真实 PTY，不表示对 IME 或键盘弹出的自动验收。`load-android-gestures.mjs` 仅校准触摸/旋转/协议输入；严格负载仍由唯一 AC 执行器运行。
 
-OCR 的英语模型来源与摘要固定在 `environment/webshell-test-harness/ocr-resources.json`，本地资源位于 `spec-tests/.state/tessdata/`。压力入口在创建大负载前检查模型，缺少时明确失败。
+OCR 的英语模型来源与摘要固定在 `spec-tests/environment/webshell-test-harness/ocr-resources.json`，本地资源位于 `spec-tests/.state/tessdata/`。压力入口在创建大负载前检查模型，缺少时明确失败。

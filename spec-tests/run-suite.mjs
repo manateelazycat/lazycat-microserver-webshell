@@ -3,10 +3,10 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { readConfig, readEnvironment, validateConfig } from '../environment/webshell-test-harness/config.mjs';
-import { redactDiagnosticText } from '../environment/webshell-test-harness/artifact-redaction.mjs';
-import { prepareFrontend, frontendEnvironment, frontendEvidence, verifyFrontend } from '../environment/webshell-test-harness/frontend-build.mjs';
-import { reportStandaloneRunTime } from '../environment/webshell-test-harness/run-timing.mjs';
+import { readConfig, readEnvironment, validateConfig } from './environment/webshell-test-harness/config.mjs';
+import { redactDiagnosticText } from './environment/webshell-test-harness/artifact-redaction.mjs';
+import { prepareFrontend, frontendEnvironment, frontendEvidence, verifyFrontend } from './environment/webshell-test-harness/frontend-build.mjs';
+import { reportStandaloneRunTime } from './environment/webshell-test-harness/run-timing.mjs';
 
 reportStandaloneRunTime();
 const here = path.dirname(fileURLToPath(import.meta.url));

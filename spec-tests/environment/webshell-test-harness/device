@@ -10,7 +10,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
 const informational = args[0] === "help" || args.includes("--help") || args.includes("--version");
 if (!informational && args.some((arg) => ["open", "replay", "test", "batch"].includes(arg))) {
-  console.error("CURRENT_LOCAL_FRONTEND_UNAVAILABLE: product AC via agent-device CLI still requires a verified local frontend channel; use environment/agent-device-mcp for generic device control");
+  console.error("CURRENT_LOCAL_FRONTEND_UNAVAILABLE: product AC via agent-device CLI still requires a verified local frontend channel; use spec-tests/environment/agent-device-mcp for generic device control");
   process.exit(1);
 }
 const { config, env } = await deviceConfiguration();
@@ -18,5 +18,5 @@ const child = spawn(path.join(here, "../agent-device-mcp/node_modules/.bin/agent
   process.argv.slice(2), { cwd: projectRoot, env, stdio: "inherit" });
 process.once("SIGINT", () => child.kill("SIGINT"));
 process.once("SIGTERM", () => child.kill("SIGTERM"));
-child.once("error", () => { console.error("agent-device could not start; run npm ci in environment/agent-device-mcp"); process.exitCode = 1; });
+child.once("error", () => { console.error("agent-device could not start; run npm ci in spec-tests/environment/agent-device-mcp"); process.exitCode = 1; });
 child.once("exit", (code) => { process.exitCode = code ?? 1; });

@@ -1,19 +1,19 @@
 # 真实设备操作
 
-真机 Environment MCP 在 [environment/agent-device-mcp/README.md](../environment/agent-device-mcp/README.md)。它基于 `agent-device`，覆盖 Android、iOS 和浏览器会话，不包含产品登录或 AC 判定。
+真机 Environment MCP 在 [spec-tests/environment/agent-device-mcp/README.md](environment/agent-device-mcp/README.md)。它基于 `agent-device`，覆盖 Android、iOS 和浏览器会话，不包含产品登录或 AC 判定。
 
 Agent 写真机脚本时：
 
-1. 读 `environment/agent-device-mcp/README.md`。
+1. 读 `spec-tests/environment/agent-device-mcp/README.md`。
 2. 需要命令细节时再读官方 `agent-device` skill，或 `npx agent-device help <topic>`。
-3. 产品步骤只写进 `spec-tests/<domain>/<feature>/` 的测试脚本，并调用 `environment/agent-device-mcp/client.mjs`。
+3. 产品步骤只写进 `spec-tests/<domain>/<feature>/` 的测试脚本，并调用 `spec-tests/environment/agent-device-mcp/client.mjs`。
 
 ## 工具
 
-- Environment MCP：在 `environment/agent-device-mcp/` 下执行 `npm run mcp`。
-- Node API：`environment/agent-device-mcp/client.mjs`。
+- Environment MCP：在 `spec-tests/environment/agent-device-mcp/` 下执行 `npm run mcp`。
+- Node API：`spec-tests/environment/agent-device-mcp/client.mjs`。
 - 官方 skill：`agent-device`。
-- CLI 包装：`environment/webshell-test-harness/device`，注入本机 Android SDK/AVD 路径；产品 `open/replay/test/batch` 仍要求已验证的本地前端通道。
+- CLI 包装：`spec-tests/environment/webshell-test-harness/device`，注入本机 Android SDK/AVD 路径；产品 `open/replay/test/batch` 仍要求已验证的本地前端通道。
 
 ## 发布目标
 

@@ -6,7 +6,7 @@ import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 
 const execute = promisify(execFile);
-export const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
+export const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const hash = (data) => createHash("sha256").update(data).digest("hex");
 
 async function fileHashes(directory) {

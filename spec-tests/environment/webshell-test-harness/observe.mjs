@@ -5,7 +5,7 @@ import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 
 const execute = promisify(execFile);
-const localTessdata = fileURLToPath(new URL("../../spec-tests/.state/tessdata/", import.meta.url));
+const localTessdata = fileURLToPath(new URL("../../.state/tessdata/", import.meta.url));
 let ocrOptions;
 export async function ensureOCRAvailable() {
   if (!ocrOptions) ocrOptions = (async () => {

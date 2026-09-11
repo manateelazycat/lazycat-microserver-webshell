@@ -3,7 +3,7 @@ import path from "node:path";
 import os from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-export const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
+export const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 
 export async function readEnvironment(overrides = {}) {
   const env = { ...process.env };

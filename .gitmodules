@@ -2,7 +2,7 @@
 	path = ghostty-web
 	url = https://github.com/ponzS/ghostty-web.git
 	branch = main
-[submodule "environment/agent-device-mcp"]
-	path = environment/agent-device-mcp
+[submodule "spec-tests/environment/agent-device-mcp"]
+	path = spec-tests/environment/agent-device-mcp
 	url = git@gitee.com:linakesi/agent-device-mcp.git
 	branch = main

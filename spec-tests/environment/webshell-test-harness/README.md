@@ -17,7 +17,7 @@
 正式验收从项目根目录的唯一入口运行：
 
 ```sh
-node environment/webshell-test-harness/inspect.mjs
+node spec-tests/environment/webshell-test-harness/inspect.mjs
 ./run-ac.sh --selector <domain/feature>
 ```
 
