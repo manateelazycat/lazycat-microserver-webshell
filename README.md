@@ -132,7 +132,7 @@ lzc-cli project deploy
 ./run-ac.sh --help
 ```
 
-先读 [测试环境说明](spec-tests/ENVIRONMENT.md) 配置测试地址、认证、Google Chrome 和 X11 DISPLAY。账号及密码只从本地 `.env` 或运行环境注入，前端构建由入口自动准备。默认打开有界面的桌面及移动布局窗口。真机 Environment MCP 见 [agent-device-mcp](spec-tests/environment/agent-device-mcp/README.md)。
+先读 [测试环境说明](spec-tests/ENVIRONMENT.md) 配置测试地址、认证、Google Chrome 和 X11 DISPLAY。账号及密码只从本地 `.env` 或运行环境注入，前端构建由入口自动准备。默认打开有界面的桌面及移动布局窗口。真机和模拟器操作使用独立安装的 `agent-device-mcp` skill 与 MCP，安装方式见测试环境说明。
 
 `run-ac.sh` 执行前自动构建当前工作树前端，整批使用独立快照并校验源码/资源摘要；本地资源缺失时失败，禁止回退远端旧代码。Service Worker 场景同样使用本地构建。agent-device 自动测试在接入可验证的本地前端通道前保持阻断。
 

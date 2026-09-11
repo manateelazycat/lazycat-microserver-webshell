@@ -1,20 +1,29 @@
 # 测试环境组件
 
-`spec-tests/environment/` 用于分类维护真实环境操作与观察能力，与 `spec-tests/<domain>/<feature>/` 下的产品测试场景分离。
+`spec-tests/environment/` 用于维护 WebShell 自身的真实环境操作与观察适配，与 `spec-tests/<domain>/<feature>/` 下的产品测试场景分离。
 
-## 通用 Agent Device MCP
+## 通用设备 Skill 与 MCP
 
-[agent-device-mcp](agent-device-mcp/README.md) 是与产品无关的通用插件，独立维护在 [Gitee](https://gitee.com/linakesi/agent-device-mcp)。本仓库通过 Git submodule 固定版本；首次拉取后执行：
+真机、模拟器和浏览器会话的通用操作由独立仓库 `agent-device-mcp` 提供。它基于 `agent-device`，通过 skill 约束 Agent 的设备选择、会话生命周期和清理方式，并通过 MCP tools 提供结构化设备操作。
+
+首次安装 skill：
 
 ```sh
-git submodule update --init --recursive
-npm --prefix spec-tests/environment/agent-device-mcp ci
+npx skills add https://gitee.com/linakesi/agent-device-mcp.git
 ```
 
-它只提供 agent-device 的 MCP 服务和 Node API，可以安装到任何项目，不读取 WebShell 配置，也不包含产品登录、构建或 AC 判定。
+更新 skill：
+
+```sh
+npx skills update agent-device-mcp
+```
+
+Gitee HTTPS 安装要求仓库可匿名读取，或当前机器已经配置非交互 HTTPS 凭据。也可以使用 `npx skills update` 更新当前作用域中的全部 skills。MCP 服务按该 skill 的说明独立注册，不把 MCP checkout、绝对路径或个人配置提交到 WebShell 仓库。
+
+Agent 执行交互式设备操作时先加载 `agent-device-mcp` skill，再调用已注册的 MCP tools。WebShell 自动测试脚本使用 `spec-tests/package.json` 中固定版本的 `agent-device` npm 依赖，不依赖外部仓库目录。
 
 ## WebShell 测试适配
 
-[webshell-test-harness](webshell-test-harness/README.md) 由本项目维护，包含当前前端构建、Playwright 生命周期、WebShell 登录和实例选择、终端 OCR、Android 负载适配及测试证据处理。它调用通用 agent-device 插件，但不属于该插件。
+[webshell-test-harness](webshell-test-harness/README.md) 由本项目维护，包含当前前端构建、Playwright 生命周期、WebShell 登录和实例选择、终端 OCR、Android 负载适配及测试证据处理。它可以调用通用设备能力，但不属于通用 MCP/skill。
 
-这里不定义产品 REQ/AC。新增其他通用环境插件时建立同级目录；产品专属适配必须明确命名，不能写入通用插件仓库。
+这里不定义产品 REQ/AC。新增 WebShell 环境适配时建立明确命名的目录；通用设备管理能力维护在独立仓库中，不能混入产品专属逻辑。

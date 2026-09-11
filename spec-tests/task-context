@@ -14,7 +14,7 @@ def module_id(test_id):
 registry=json.loads((ROOT/'spec-tests/ac-implementations.json').read_text())
 paths=[ROOT/'AGENTS.md',ROOT/'spec/AGENTS.md',ROOT/'spec-tests/AGENTS.md',ROOT/'spec-tests/ENVIRONMENT.md',ROOT/'spec-tests/README.md',ROOT/'spec-tests/ac-implementations.json',ROOT/'spec-tests/project-ac-executor',ROOT/'spec-tests/run-ac-entry',ROOT/'spec-tests/timed-run',ROOT/'spec-tests/run-ac.lock',ROOT/'spec-tests/task-context',ROOT/'spec-tests/test-all.sh',ROOT/'spec-tests/run-suite.mjs',ROOT/'spec-tests/run-playwright.mjs']
 paths.extend((ROOT/'environment').rglob('*.mjs'))
-paths.extend([ROOT/'spec-tests/environment/agent-device-mcp/package.json',ROOT/'spec-tests/environment/agent-device-mcp/package-lock.json',ROOT/'spec-tests/package.json',ROOT/'spec-tests/package-lock.json'])
+paths.extend([ROOT/'spec-tests/package.json',ROOT/'spec-tests/package-lock.json'])
 shared=set(paths)
 for scenario,item in registry.items():
  feature='/'.join(scenario.split('/')[:2]);paths.extend([ROOT/'spec'/feature/'REQ.md',ROOT/'spec'/feature/'AC.md',ROOT/'spec-tests'/item['test_id'],ROOT/'spec-tests'/item['description']])

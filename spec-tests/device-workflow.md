@@ -1,17 +1,17 @@
 # 真实设备操作
 
-真机 Environment MCP 在 [spec-tests/environment/agent-device-mcp/README.md](environment/agent-device-mcp/README.md)。它基于 `agent-device`，覆盖 Android、iOS 和浏览器会话，不包含产品登录或 AC 判定。
+真机和模拟器的通用操作由独立安装的 `agent-device-mcp` skill 与 MCP 提供。它基于 `agent-device`，覆盖 Android、iOS 和浏览器会话，不包含产品登录或 AC 判定。
 
 Agent 写真机脚本时：
 
-1. 读 `spec-tests/environment/agent-device-mcp/README.md`。
+1. 加载已安装的 `agent-device-mcp` skill；未安装时执行 `npx skills add https://gitee.com/linakesi/agent-device-mcp.git`，已有安装通过 `npx skills update agent-device-mcp` 更新。
 2. 需要命令细节时再读官方 `agent-device` skill，或 `npx agent-device help <topic>`。
-3. 产品步骤只写进 `spec-tests/<domain>/<feature>/` 的测试脚本，并调用 `spec-tests/environment/agent-device-mcp/client.mjs`。
+3. 产品步骤只写进 `spec-tests/<domain>/<feature>/` 的测试脚本；Agent 交互走 MCP，自动脚本调用 `spec-tests` 已安装的 `agent-device` 包。
 
 ## 工具
 
-- Environment MCP：在 `spec-tests/environment/agent-device-mcp/` 下执行 `npm run mcp`。
-- Node API：`spec-tests/environment/agent-device-mcp/client.mjs`。
+- Agent 操作：已安装的 `agent-device-mcp` skill 和注册的 MCP tools。
+- 自动脚本：`spec-tests` 中固定版本的 `agent-device` npm 包。
 - 官方 skill：`agent-device`。
 - CLI 包装：`spec-tests/environment/webshell-test-harness/device`，注入本机 Android SDK/AVD 路径；产品 `open/replay/test/batch` 仍要求已验证的本地前端通道。
 

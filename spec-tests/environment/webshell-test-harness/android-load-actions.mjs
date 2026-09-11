@@ -1,8 +1,8 @@
 import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { fileURLToPath } from "node:url";
 import { deviceConfiguration } from "./agent-device.mjs";
+import { projectRoot } from "./config.mjs";
 
 const execute = promisify(execFile);
 
@@ -35,7 +35,7 @@ export function installLoadProtocolInput() {
 export async function createAndroidLoadActions(state, config) {
   if (!state.device || !config.androidSerial.startsWith("emulator-")) throw new Error("Explicit Android emulator binding required");
   const { env } = await deviceConfiguration();
-  const cli = fileURLToPath(new URL("../agent-device-mcp/node_modules/.bin/agent-device", import.meta.url));
+  const cli = path.join(projectRoot, "spec-tests/node_modules/.bin/agent-device");
   const adb = path.join(config.androidSDKRoot, "platform-tools/adb");
   const trace = [];
   const device = async args => {

@@ -12,7 +12,7 @@
 - `agent-device.mjs`、`android-load-actions.mjs`：WebShell Android/CDP 与负载场景适配
 - `artifact-redaction.mjs`：报告、trace 和网络证据脱敏
 
-通用设备操作使用同级 submodule [agent-device-mcp](../agent-device-mcp/README.md) 的 MCP 或 `client.mjs`。本目录可以依赖 WebShell 路径、配置和产品 API；这些依赖不得移入通用插件。
+通用设备操作使用独立安装的 `agent-device-mcp` skill 和注册的 MCP tools；首次安装执行 `npx skills add https://gitee.com/linakesi/agent-device-mcp.git`，后续执行 `npx skills update agent-device-mcp`。自动测试中的 CLI 调用使用 `spec-tests` 已安装的 `agent-device` 包。本目录可以依赖 WebShell 路径、配置和产品 API；这些依赖不得移入通用 MCP/skill。
 
 正式验收从项目根目录的唯一入口运行：
 
