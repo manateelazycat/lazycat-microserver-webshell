@@ -177,6 +177,7 @@ type workspaceState struct {
 	Selector            string     `json:"selector"`
 	ServerRevision      string     `json:"server_revision,omitempty"`
 	AgentNotice         string     `json:"agent_notice,omitempty"`
+	AgentCapabilities   []string   `json:"agent_capabilities,omitempty"`
 	WorkspaceGeneration string     `json:"workspace_generation,omitempty"`
 	ActiveTabID         string     `json:"active_tab_id"`
 	RecentTabIDs        []string   `json:"recent_tab_ids"`
@@ -235,6 +236,7 @@ func (e paneExitSnapshot) controlPayload(selector, paneID string) map[string]any
 type workspaceActionRequest struct {
 	Action       string      `json:"action"`
 	TabID        string      `json:"tab_id"`
+	BeforeTabID  string      `json:"before_tab_id,omitempty"`
 	PaneID       string      `json:"pane_id"`
 	RecentTabIDs []string    `json:"recent_tab_ids,omitempty"`
 	Direction    string      `json:"direction"`
@@ -611,6 +613,8 @@ func (w *terminalWorkspace) applyAction(request workspaceActionRequest) error {
 		return w.movePaneToTabLocked(request.TabID, request.PaneID)
 	case "move_tab":
 		return w.moveTabLocked(request.TabID, request.Position)
+	case "reorder_tab":
+		return w.reorderTabLocked(request.TabID, request.BeforeTabID)
 	case "activate_tab":
 		return w.activateTabLocked(request.TabID, request.RecentTabIDs)
 	case "activate_pane":
@@ -1123,6 +1127,31 @@ func (w *terminalWorkspace) moveTabLocked(tabID, position string) error {
 	w.tabs = append(w.tabs[:index], w.tabs[index+1:]...)
 	w.tabs = append(w.tabs[:target], append([]*terminalTab{tab}, w.tabs[target:]...)...)
 	w.setActiveTabLocked(tab.ID)
+	return nil
+}
+
+func (w *terminalWorkspace) reorderTabLocked(tabID, beforeTabID string) error {
+	index, tab := w.findTabIndexLocked(strings.TrimSpace(tabID))
+	if tab == nil {
+		return errors.New("tab not found")
+	}
+	beforeTabID = strings.TrimSpace(beforeTabID)
+	if beforeTabID == tab.ID {
+		return errors.New("tab cannot be ordered before itself")
+	}
+	if beforeTabID != "" && w.findTabLocked(beforeTabID) == nil {
+		return errors.New("before tab not found")
+	}
+
+	w.tabs = append(w.tabs[:index], w.tabs[index+1:]...)
+	if beforeTabID == "" {
+		w.tabs = append(w.tabs, tab)
+		return nil
+	}
+	target, _ := w.findTabIndexLocked(beforeTabID)
+	w.tabs = append(w.tabs, nil)
+	copy(w.tabs[target+1:], w.tabs[target:])
+	w.tabs[target] = tab
 	return nil
 }
 

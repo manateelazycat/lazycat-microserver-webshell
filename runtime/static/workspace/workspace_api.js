@@ -93,6 +93,7 @@ export function createWorkspaceAPI({
     focus = true,
     preferStateActiveTab = true,
     applyResponse = true,
+    preserveLocalState = false,
   } = {}) => {
     const requestName = String(getActiveName() || "").trim();
     const generation = getActiveGeneration();
@@ -127,6 +128,7 @@ export function createWorkspaceAPI({
           instanceName: requestName,
           generation,
           preferStateActiveTab,
+          preserveLocalState,
         });
       }
       return state;

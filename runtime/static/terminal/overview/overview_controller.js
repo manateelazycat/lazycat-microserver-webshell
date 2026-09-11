@@ -24,8 +24,8 @@ export function createTerminalOverviewController({
   createTab = async () => {},
   activateTab = noop,
   closeTab = noop,
-  moveTab = async () => {},
-  restoreActiveTab = async () => {},
+  canReorderTabs = () => false,
+  reorderTab = async () => {},
   showToast = noop,
   measureTask = (_name, task) => task(),
 } = {}) {
@@ -249,7 +249,7 @@ export function createTerminalOverviewController({
     documentObject?.body?.classList?.remove("is-tab-overview-dragging");
   };
 
-  const moveTabToOverviewIndex = async (tabId, targetIndex, restoreActiveTabId = getActiveTabId()) => {
+  const moveTabToOverviewIndex = async (tabId, targetIndex) => {
     const ordered = orderedTabsSnapshot();
     const currentIndex = ordered.findIndex((tab) => tab.id === tabId);
     if (currentIndex < 0) {
@@ -259,26 +259,10 @@ export function createTerminalOverviewController({
     if (safeTarget === currentIndex) {
       return;
     }
-    const moves = [];
-    if (safeTarget === 0) {
-      moves.push("first");
-    } else if (safeTarget === ordered.length - 1) {
-      moves.push("last");
-    } else if (safeTarget < currentIndex) {
-      for (let index = currentIndex; index > safeTarget; index -= 1) {
-        moves.push("left");
-      }
-    } else {
-      for (let index = currentIndex; index < safeTarget; index += 1) {
-        moves.push("right");
-      }
-    }
-    for (const position of moves) {
-      await moveTab(tabId, position);
-    }
-    if (restoreActiveTabId && restoreActiveTabId !== tabId && hasTab(restoreActiveTabId)) {
-      await restoreActiveTab(restoreActiveTabId);
-    }
+    const desired = ordered.filter((tab) => tab.id !== tabId);
+    desired.splice(safeTarget, 0, ordered[currentIndex]);
+    const beforeTabId = desired[safeTarget + 1]?.id || "";
+    await reorderTab(tabId, beforeTabId);
   };
 
   function finishTabOverviewDrag({ cancel = false } = {}) {
@@ -300,7 +284,7 @@ export function createTerminalOverviewController({
     }
     tabOverviewSuppressClickUntil = now() + 350;
     if (shouldMove) {
-      moveTabToOverviewIndex(state.tabId, targetIndex, state.previousActiveTabId).catch((error) => {
+      moveTabToOverviewIndex(state.tabId, targetIndex).catch((error) => {
         showToast(error?.message || "标签排序失败。");
         scheduleTabOverviewRender();
       });
@@ -474,6 +458,7 @@ export function createTerminalOverviewController({
     const card = view.closestCard?.(event?.target);
     if (
       !card
+      || !canReorderTabs()
       || event?.isPrimary === false
       || !isTabOverviewOpen()
       || orderedTabsSnapshot().length <= 1
@@ -499,7 +484,6 @@ export function createTerminalOverviewController({
       lastY: event.clientY,
       pointerType: event.pointerType,
       originalIndex,
-      previousActiveTabId: getActiveTabId(),
       dragReady: event.pointerType === "mouse",
       dragging: false,
       placeholder: null,

@@ -82,7 +82,7 @@ func isCurrentAgentProtocolVersion(version string) bool {
 
 func isAttachCompatibleAgentProtocolVersion(version string) bool {
 	switch strings.TrimSpace(version) {
-	case agentProtocolVersion, "lcmd-webshell-agent-v11", "lcmd-webshell-agent-v10", "lcmd-webshell-agent-v9":
+	case agentProtocolVersion, "lcmd-webshell-agent-v12", "lcmd-webshell-agent-v11", "lcmd-webshell-agent-v10", "lcmd-webshell-agent-v9":
 		return true
 	default:
 		return false
@@ -302,6 +302,16 @@ func (c *persistentAgentEnsureCoordinator) do(ctx context.Context, key string, e
 	}
 }
 
+func applyAgentWorkspaceCapabilities(state *workspaceState, version string) {
+	if state == nil {
+		return
+	}
+	state.AgentCapabilities = nil
+	if isCurrentAgentProtocolVersion(version) {
+		state.AgentCapabilities = []string{"tab_reorder_anchor"}
+	}
+}
+
 func requestAgentWorkspaceState(ctx context.Context, scope agentScope, cols, rows, terminalScrollback int) (workspaceState, error) {
 	response, err := requestPersistentAgent(ctx, scope, agentRequest{
 		Type:               "state",
@@ -315,6 +325,7 @@ func requestAgentWorkspaceState(ctx context.Context, scope agentScope, cols, row
 	if response.State == nil {
 		return workspaceState{}, errors.New("agent returned empty workspace state")
 	}
+	applyAgentWorkspaceCapabilities(response.State, response.Version)
 	return *response.State, nil
 }
 
@@ -332,6 +343,7 @@ func requestAgentWorkspaceAction(ctx context.Context, scope agentScope, cols, ro
 	if response.State == nil {
 		return workspaceState{}, errors.New("agent returned empty workspace state")
 	}
+	applyAgentWorkspaceCapabilities(response.State, response.Version)
 	return *response.State, nil
 }
 

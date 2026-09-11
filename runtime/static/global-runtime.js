@@ -138,6 +138,7 @@ import {
   createWorkspacePresentationController,
   createWorkspaceTabLabelController,
   createWorkspaceTabNavigationController,
+  createWorkspaceTabReorderController,
   ensureWorkspaceResponseSelector as ensureResponseSelector,
   restoreInitialWorkspaceLocation,
   workspaceResponseSelector as responseSelector,
@@ -362,6 +363,7 @@ export function startGlobalRuntime() {
   let workspaceTabNavigation = null;
   let workspaceTabActivation = null;
   let workspaceTabController = null;
+  let workspaceTabReorder = null;
   let workspaceTabView = null;
   let workspaceAPI = null;
   let workspaceRefresh = null;
@@ -388,7 +390,10 @@ export function startGlobalRuntime() {
   let feedback = null;
   let workspaceStateApply = null;
   const isApplyingWorkspaceState = () => workspaceStateApply?.isApplying() === true;
-  const applyWorkspaceState = (state, options) => workspaceStateApply?.apply(state, options) || false;
+  const applyWorkspaceState = (state, options) => {
+    workspaceTabReorder?.beforeApplyWorkspaceState(state, options);
+    return workspaceStateApply?.apply(state, options) || false;
+  };
   let serverRevision = null;
   let agentProtocolUpdate = null;
   let suppressBeforeUnloadOnce = false;
@@ -1351,8 +1356,15 @@ export function startGlobalRuntime() {
     createTab: () => createUserTab(),
     activateTab: (tabId) => setActiveTab(tabId),
     closeTab: (tabId) => closeTab(tabId),
-    moveTab: (tabId, position) => moveTab(tabId, position),
-    restoreActiveTab: (tabId) => postWorkspaceAction("activate_tab", { tab_id: tabId }),
+    canReorderTabs: () => workspaceTabReorder?.isSupported() === true,
+    reorderTab: (tabId, beforeTabId) => postWorkspaceAction("reorder_tab", {
+      tab_id: tabId,
+      before_tab_id: beforeTabId,
+    }, {
+      focus: false,
+      preferStateActiveTab: false,
+      preserveLocalState: true,
+    }),
     showToast: (message) => showToast(message),
     measureTask: (name, task) => measurePerformanceTask(name, task),
   });
@@ -2070,6 +2082,22 @@ export function startGlobalRuntime() {
     lifecycleOptions: { windowObject: window },
   });
 
+  workspaceTabReorder = createWorkspaceTabReorderController({
+    documentObject: document,
+    windowObject: window,
+    tabsElement: tabsEl,
+    getOrderedTabs: () => getOrderedTabs(),
+    getTab: (tabId) => tabs.get(tabId) || null,
+    activateTab: (tabId, options) => setActiveTab(tabId, options),
+    isTouchReorderLayout: () => (
+      isForcePCModeActive() || (isTouchShortcutLayout() && !isMobileLayout())
+    ),
+    isRenaming: (tabId) => workspaceTabLabels?.isRenaming(tabId) === true,
+    postWorkspaceAction: (action, payload, options) => postWorkspaceAction(action, payload, options),
+    refreshWorkspace: (options) => refreshWorkspace(options),
+    showToast: (message) => showToast(message),
+  });
+
   workspaceTargetController = createWorkspaceTargetController({
     initialName: initialActiveName,
     isDisposed: () => disposed,
@@ -2184,6 +2212,7 @@ export function startGlobalRuntime() {
       terminalInteraction,
       terminalSearch,
       terminalOverview,
+      workspaceTabReorder,
       settings,
       terminalViewport,
     ],
@@ -2381,6 +2410,7 @@ export function startGlobalRuntime() {
         workspaceTabNavigation?.dispose();
         workspacePaneActivation?.dispose();
         workspaceTabActivation?.dispose();
+        workspaceTabReorder?.dispose();
         workspaceTabController?.dispose();
         workspaceStateApply?.dispose();
         workspacePersistence.dispose();
