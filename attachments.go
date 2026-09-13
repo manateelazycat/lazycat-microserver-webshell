@@ -72,6 +72,7 @@ type attachmentFileEntry struct {
 type attachmentFileListResponse struct {
 	Path    string                `json:"path"`
 	Parent  string                `json:"parent,omitempty"`
+	Root    string                `json:"root,omitempty"`
 	Entries []attachmentFileEntry `json:"entries"`
 }
 
@@ -806,10 +807,15 @@ func buildAttachmentListScript(path string) string {
 		"if [ ! -d \"$target\" ]; then echo 'path is not a directory' >&2; exit 1; fi",
 		"dir=$(cd \"$target\" 2>/dev/null && pwd -P) || exit 1",
 		"parent=$(dirname \"$dir\")",
+		"root=",
+		"if command -v git >/dev/null 2>&1; then root=$(git -C \"$dir\" rev-parse --show-toplevel 2>/dev/null || true); fi",
+		"[ -n \"$root\" ] || root=$parent",
 		"printf '{\"path\":'",
 		"json_string \"$dir\"",
 		"printf ',\"parent\":'",
 		"json_string \"$parent\"",
+		"printf ',\"root\":'",
+		"json_string \"$root\"",
 		"printf ',\"entries\":['",
 		"first=1",
 		"for item in \"$dir\"/* \"$dir\"/.[!.]* \"$dir\"/..?*; do",

@@ -4,6 +4,55 @@ export const maxAttachmentDownloadCount = 64;
 
 export const attachmentBrowserDefaultSort = Object.freeze({ key: "name", direction: "asc" });
 
+// The browser remembers the last directory and sort choice in localStorage.
+// Keep the storage key scoped to both the target and the project root so that
+// two LightOS instances which happen to use the same absolute path cannot
+// overwrite one another's browser state.
+export const attachmentBrowserStorageKey = (scope, storagePrefix = "webshell") => {
+  const targetName = String(scope?.targetName || "").trim();
+  const root = normalizeAttachmentBrowserPath(scope?.root || scope?.projectRoot || "/");
+  const identity = `${targetName}\u0000${root}`;
+  return `${String(storagePrefix || "webshell").trim() || "webshell"}.attachmentBrowser.${encodeURIComponent(identity)}`;
+};
+
+export const normalizeAttachmentBrowserMemory = (value) => {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  const rawPath = String(value.path || value.currentPath || "").trim();
+  if (!rawPath || !rawPath.startsWith("/")) {
+    return null;
+  }
+  const path = normalizeAttachmentBrowserPath(rawPath);
+  const sort = normalizeAttachmentBrowserSort(value.sort || value);
+  return { path, sort };
+};
+
+export const attachmentBrowserMemoryRoot = ({
+  path = "/",
+  parent = "",
+  projectRoot = "",
+  projectRootAlias = "",
+  gitRoot = "",
+  gitRootAlias = "",
+  root = "",
+} = {}) => {
+  const explicitCandidates = [projectRoot, projectRootAlias, gitRoot, gitRootAlias, root, parent];
+  for (const candidate of explicitCandidates) {
+    const text = String(candidate || "").trim();
+    if (text && text.startsWith("/")) {
+      return normalizeAttachmentBrowserPath(text);
+    }
+  }
+  const normalizedPath = normalizeAttachmentBrowserPath(path);
+  if (normalizedPath === "/") {
+    return "/";
+  }
+  const parts = normalizedPath.split("/").filter(Boolean);
+  parts.pop();
+  return parts.length ? `/${parts.join("/")}` : "/";
+};
+
 export const attachmentBrowserSortNames = Object.freeze({
   name: "名称",
   size: "文件大小",
@@ -16,6 +65,7 @@ export const normalizeAttachmentTarget = (value = {}) => {
     targetName,
     isClient: value?.isClient === true || targetName.startsWith("client:"),
     cwd: String(value?.cwd || "").trim(),
+    projectRoot: String(value?.projectRoot || value?.project_root || value?.gitRoot || value?.git_root || value?.root || "").trim(),
     tabId: String(value?.tabId || "").trim(),
     activeTabId: String(value?.activeTabId || value?.tabId || "").trim(),
     searchOpen: value?.searchOpen === true,

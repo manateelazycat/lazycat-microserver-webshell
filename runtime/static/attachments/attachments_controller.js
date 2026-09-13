@@ -2,12 +2,15 @@ import { createAttachmentsAPI } from "./attachments_api.js";
 import { createAttachmentsClipboard } from "./attachments_clipboard.js";
 import { createAttachmentsLifecycle } from "./attachments_lifecycle.js";
 import {
+  attachmentBrowserMemoryRoot,
   attachmentBrowserDefaultSort,
+  attachmentBrowserStorageKey,
   attachmentDownloadFilename,
   cycleAttachmentBrowserSort,
   maxAttachmentDownloadCount,
   maxAttachmentUploadBytes,
   maxAttachmentUploadCount,
+  normalizeAttachmentBrowserMemory,
   normalizeAttachmentBrowserPath,
   normalizeAttachmentEntries,
   normalizeAttachmentTarget,
@@ -31,6 +34,8 @@ export function createAttachmentsController({
   FormDataCtor = globalThis.FormData,
   FileCtor = globalThis.File,
   BlobCtor = globalThis.Blob,
+  storage = windowObject?.localStorage,
+  storagePrefix = "webshell",
   api = createAttachmentsAPI({ fetchImpl, baseURL, XMLHttpRequestCtor, FormDataCtor }),
   clipboard = createAttachmentsClipboard({
     navigatorObject: windowObject?.navigator || globalThis.navigator,
@@ -67,6 +72,9 @@ export function createAttachmentsController({
   let browserBusy = false;
   let browserFeedback = { message: "", tone: "info" };
   let browserRequestGeneration = 0;
+  let browserMemoryScope = "";
+  let browserRestorePending = false;
+  let browserRestoreFallback = null;
   let browserEdgeSwipe = null;
   let clipboardReadGeneration = 0;
   let pendingFileClipboard = null;
@@ -77,6 +85,69 @@ export function createAttachmentsController({
 
   const currentContext = () => normalizeAttachmentTarget(getContext?.());
   const uploadIsCurrent = (upload) => !disposed && uploads.get(upload?.id) === upload;
+
+  const readBrowserMemory = (scope) => {
+    if (!scope || !storage?.getItem) {
+      return null;
+    }
+    try {
+      return normalizeAttachmentBrowserMemory(JSON.parse(storage.getItem(
+        attachmentBrowserStorageKey({ targetName: browserTargetName, root: scope }, storagePrefix),
+      ) || "null"));
+    } catch {
+      return null;
+    }
+  };
+
+  const persistBrowserMemory = () => {
+    if (!browserMemoryScope || !browserCurrentPath || !storage?.setItem || !browserTargetName) {
+      return false;
+    }
+    const value = {
+      path: normalizeAttachmentBrowserPath(browserCurrentPath),
+      sort: { ...browserSort },
+    };
+    try {
+      storage.setItem(
+        attachmentBrowserStorageKey({ targetName: browserTargetName, root: browserMemoryScope }, storagePrefix),
+        JSON.stringify(value),
+      );
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  const resolveBrowserMemoryScope = (payload, currentPath, parentPath) => attachmentBrowserMemoryRoot({
+    path: currentPath,
+    parent: parentPath,
+    projectRoot: payload?.projectRoot,
+    projectRootAlias: payload?.project_root,
+    gitRoot: payload?.gitRoot,
+    gitRootAlias: payload?.git_root,
+    root: payload?.root,
+  });
+
+  const browserListingSnapshot = () => ({
+    currentPath: browserCurrentPath,
+    entries: browserEntries.map((entry) => ({ ...entry })),
+    entriesByPath: new Map(browserEntriesByPath),
+    parentPath: browserParentPath,
+    selectedPaths: new Set(browserSelectedPaths),
+    sort: { ...browserSort },
+  });
+
+  const applyBrowserListingSnapshot = (snapshot) => {
+    if (!snapshot) {
+      return;
+    }
+    browserCurrentPath = snapshot.currentPath || "/";
+    browserParentPath = snapshot.parentPath || "";
+    browserEntries = snapshot.entries?.map((entry) => ({ ...entry })) || [];
+    browserEntriesByPath = new Map(snapshot.entriesByPath || []);
+    browserSelectedPaths = new Set(snapshot.selectedPaths || []);
+    browserSort = { ...snapshot.sort };
+  };
   const settleUpload = (upload, status, error = "") => {
     if (!upload || upload.settled) {
       return false;
@@ -154,9 +225,16 @@ export function createAttachmentsController({
 
   const closeBrowser = ({ focus = true } = {}) => {
     clearFocusTimer();
+    // Persist the last usable state before clearing the transient browser
+    // session. This also covers closing the dialog immediately after a sort
+    // change, before another directory request completes.
+    persistBrowserMemory();
     browserOpen = false;
     browserTargetName = "";
     browserRequestGeneration += 1;
+    browserMemoryScope = "";
+    browserRestorePending = false;
+    browserRestoreFallback = null;
     browserCurrentPath = "";
     browserParentPath = "";
     browserEntries = [];
@@ -194,7 +272,7 @@ export function createAttachmentsController({
     return true;
   };
 
-  const loadBrowserPath = async (path = browserCurrentPath) => measureTask("attachment list refresh", async () => {
+  const loadBrowserPath = async (path = browserCurrentPath, options = {}) => measureTask("attachment list refresh", async () => {
     if (disposed) {
       return [];
     }
@@ -204,6 +282,8 @@ export function createAttachmentsController({
       return [];
     }
     const targetName = context.targetName;
+    const restoring = options?.restoring === true;
+    const restoreSort = options?.sort ? { ...options.sort } : null;
     const generation = ++browserRequestGeneration;
     browserBusy = true;
     setBrowserFeedback("");
@@ -213,17 +293,65 @@ export function createAttachmentsController({
       if (!browserRequestIsCurrent(generation, targetName)) {
         return browserEntries.map((entry) => ({ ...entry }));
       }
-      browserCurrentPath = normalizeAttachmentBrowserPath(payload?.path || path || "/");
-      browserParentPath = String(payload?.parent || "").trim();
+      const resolvedPath = normalizeAttachmentBrowserPath(payload?.path || path || "/");
+      const resolvedParentPath = String(payload?.parent || "").trim();
+      const resolvedMemoryScope = resolveBrowserMemoryScope(payload, resolvedPath, resolvedParentPath);
+      const initialLoad = !restoring && browserRestorePending;
+      browserCurrentPath = resolvedPath;
+      browserParentPath = resolvedParentPath;
       browserSelectedPaths = new Set();
-      browserSort = { ...attachmentBrowserDefaultSort };
+      browserSort = restoreSort || { ...browserSort };
       browserEntries = normalizeAttachmentEntries(payload?.entries);
       browserEntriesByPath = new Map(browserEntries.map((entry) => [entry.path, entry]));
+      // Establish the project partition from the first listing and keep it
+      // stable while navigating. In a non-Git tree the server's fallback is
+      // the initial path's parent; recomputing it for every child directory
+      // would otherwise create a different storage bucket on each visit.
+      if (initialLoad || !browserMemoryScope) {
+        browserMemoryScope = resolvedMemoryScope;
+      }
       setBrowserFeedback("");
+      if (!restoring && browserRestorePending) {
+        browserRestorePending = false;
+        const remembered = readBrowserMemory(browserMemoryScope);
+        browserRestoreFallback = browserListingSnapshot();
+        if (remembered && remembered.path !== resolvedPath) {
+          // Keep the freshly loaded directory as a safe fallback if the
+          // remembered path has been removed or is no longer accessible, but
+          // retain the user's remembered sort choice.
+          browserRestoreFallback.sort = { ...remembered.sort };
+          browserSort = { ...remembered.sort };
+          return loadBrowserPath(remembered.path, {
+            restoring: true,
+            sort: remembered.sort,
+          });
+        }
+        if (remembered) {
+          browserSort = { ...remembered.sort };
+        }
+        browserRestoreFallback = null;
+        persistBrowserMemory();
+      }
+      if (restoring) {
+        browserRestoreFallback = null;
+        persistBrowserMemory();
+      }
+      if (!browserRestorePending) {
+        persistBrowserMemory();
+      }
       return browserEntries.map((entry) => ({ ...entry }));
     } catch (error) {
       if (browserRequestIsCurrent(generation, targetName)) {
-        setBrowserFeedback(error?.message || "文件列表读取失败。", "error");
+        if (restoring && browserRestoreFallback) {
+          applyBrowserListingSnapshot(browserRestoreFallback);
+          browserRestoreFallback = null;
+          browserRestorePending = false;
+          setBrowserFeedback("");
+          renderBrowser();
+          persistBrowserMemory();
+        } else {
+          setBrowserFeedback(error?.message || "文件列表读取失败。", "error");
+        }
       }
       return browserEntries.map((entry) => ({ ...entry }));
     } finally {
@@ -249,6 +377,12 @@ export function createAttachmentsController({
     browserEntriesByPath = new Map();
     browserSelectedPaths = new Set();
     browserSort = { ...attachmentBrowserDefaultSort };
+    browserMemoryScope = attachmentBrowserMemoryRoot({
+      path: browserCurrentPath,
+      projectRoot: context.projectRoot,
+    });
+    browserRestorePending = true;
+    browserRestoreFallback = null;
     browserBusy = false;
     browserFeedback = { message: "", tone: "info" };
     browserEdgeSwipe = null;
@@ -787,6 +921,7 @@ export function createAttachmentsController({
         }
         browserSort = cycleAttachmentBrowserSort(browserSort, key);
         renderBrowser();
+        persistBrowserMemory();
       },
       onTouchEnd: resetBrowserEdgeSwipe,
       onTouchMove: handleBrowserTouchMove,
@@ -802,6 +937,10 @@ export function createAttachmentsController({
       if (disposed) {
         return;
       }
+      // Persist before marking the controller disposed. Page teardown can
+      // happen while the browser is still open, and the last completed list
+      // should remain available after the next LightOS terminal start.
+      persistBrowserMemory();
       disposed = true;
       browserRequestGeneration += 1;
       clipboardReadGeneration += 1;
