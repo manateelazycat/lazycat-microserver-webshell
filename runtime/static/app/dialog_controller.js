@@ -123,6 +123,7 @@ export function createDialogController({
       okText: options.okText || "Confirm",
       cancelText: options.cancelText || "取消",
       danger: Boolean(options.danger),
+      initialFocus: options.initialFocus,
     });
     return result === true;
   };
@@ -201,7 +202,7 @@ export function createDialogController({
         actionsLayout: "vertical-ok-first",
       });
     }
-    return confirmDialog(message, options);
+    return confirmDialog(message, { ...options, initialFocus: "ok" });
   };
 
   const promptDialog = async (title, value) => {
