@@ -1,6 +1,7 @@
 export const maxAttachmentUploadBytes = 2 * 1024 * 1024 * 1024;
 export const maxAttachmentUploadCount = 32;
 export const maxAttachmentDownloadCount = 64;
+export const attachmentRecentlyModifiedWindowSeconds = 5 * 60;
 
 export const attachmentBrowserDefaultSort = Object.freeze({ key: "name", direction: "asc" });
 
@@ -224,7 +225,7 @@ export const formatAttachmentFileSize = (entry) => {
   return `${amount.toFixed(amount >= 10 ? 0 : 1)} ${units[unitIndex]}`;
 };
 
-export const formatAttachmentModified = (entry) => {
+export const formatAttachmentModifiedExact = (entry) => {
   const seconds = Number(entry?.modified || 0);
   if (!Number.isFinite(seconds) || seconds <= 0) {
     return "";
@@ -236,6 +237,21 @@ export const formatAttachmentModified = (entry) => {
   const pad = (value) => String(value).padStart(2, "0");
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 };
+
+export const isAttachmentRecentlyModified = (entry, now = Date.now()) => {
+  const modifiedSeconds = Number(entry?.modified || 0);
+  const nowMilliseconds = Number(now);
+  if (!Number.isFinite(modifiedSeconds) || modifiedSeconds <= 0
+    || !Number.isFinite(nowMilliseconds) || nowMilliseconds <= 0) {
+    return false;
+  }
+  const ageSeconds = nowMilliseconds / 1000 - modifiedSeconds;
+  return ageSeconds >= 0 && ageSeconds <= attachmentRecentlyModifiedWindowSeconds;
+};
+
+export const formatAttachmentModified = (entry, now = Date.now()) => (
+  isAttachmentRecentlyModified(entry, now) ? "刚刚" : formatAttachmentModifiedExact(entry)
+);
 
 export const attachmentDownloadFilename = (paths, entriesByPath = new Map()) => {
   const selected = Array.from(paths || []).map((path) => String(path || "").trim()).filter(Boolean);

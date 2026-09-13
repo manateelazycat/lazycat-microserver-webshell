@@ -6,12 +6,14 @@ import {
   attachmentUploadTitle,
   formatAttachmentFileSize,
   formatAttachmentModified,
+  formatAttachmentModifiedExact,
   normalizeAttachmentBrowserPath,
 } from "./attachments_model.js";
 
 export function createAttachmentsView({
   documentObject = globalThis.document,
   windowObject = globalThis.window,
+  now = () => Date.now(),
 } = {}) {
   const translate = (key) => typeof globalThis.$t === "function" ? globalThis.$t(key) : key;
   const sortLabel = (label) => translate("排序") === "sort"
@@ -112,7 +114,7 @@ export function createAttachmentsView({
       : translate("文件列表"));
   };
 
-  const createBrowserItem = (entry, selectedPaths) => {
+  const createBrowserItem = (entry, selectedPaths, modifiedAt) => {
     const item = documentObject.createElement("div");
     item.className = "attachment-browser-item";
     item.dataset.path = entry.path;
@@ -142,14 +144,20 @@ export function createAttachmentsView({
     size.title = size.textContent;
     const modified = documentObject.createElement("span");
     modified.className = "attachment-browser-file-meta attachment-browser-file-modified";
-    modified.textContent = formatAttachmentModified(entry);
-    modified.title = modified.textContent;
+    const modifiedText = formatAttachmentModified(entry, modifiedAt);
+    const exactModifiedText = formatAttachmentModifiedExact(entry);
+    modified.textContent = translate(modifiedText);
+    modified.title = exactModifiedText || modified.textContent;
+    modified.setAttribute("aria-label", modified.title
+      ? `${translate("修改日期")}: ${modified.title}`
+      : translate("修改日期"));
+    modified.dataset.recent = modifiedText === "刚刚" ? "true" : "false";
     row.append(checkbox, button, size, modified);
     item.appendChild(row);
     return item;
   };
 
-  const renderBrowserList = (entries, selectedPaths) => {
+  const renderBrowserList = (entries, selectedPaths, modifiedAt) => {
     if (!elements.browserList || !documentObject) {
       return;
     }
@@ -163,7 +171,7 @@ export function createAttachmentsView({
     }
     const fragment = documentObject.createDocumentFragment();
     for (const entry of entries) {
-      fragment.appendChild(createBrowserItem(entry, selectedPaths));
+      fragment.appendChild(createBrowserItem(entry, selectedPaths, modifiedAt));
     }
     elements.browserList.appendChild(fragment);
   };
@@ -263,7 +271,8 @@ export function createAttachmentsView({
       }
       renderBreadcrumbs(currentPath);
       renderSortControls(sort);
-      renderBrowserList(entries, selectedPaths);
+      const modifiedAt = typeof now === "function" ? now() : Date.now();
+      renderBrowserList(entries, selectedPaths, modifiedAt);
       if (scrollToTop && elements.browserList) {
         // Replacing the list contents does not reliably reset scroll position
         // in every browser/layout. Explicitly reset it after a path is opened

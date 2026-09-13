@@ -177,6 +177,7 @@ const MESSAGES = {
     "文件大小": "File Size",
     "按修改日期排序": "Sort by Modified Date",
     "修改日期": "Modified Date",
+    "刚刚": "Just now",
     "文件列表": "File List",
     "下载选中": "Download Selected",
     "终端快捷键": "Terminal Shortcuts",
