@@ -200,7 +200,7 @@ export function createAttachmentsController({
     view.setBrowserFeedback?.(browserFeedback.message, browserFeedback.tone);
   };
 
-  const renderBrowser = () => {
+  const renderBrowser = ({ scrollToTop = false } = {}) => {
     if (disposed) {
       return;
     }
@@ -209,6 +209,7 @@ export function createAttachmentsController({
       currentPath: browserCurrentPath || "/",
       entries: sortAttachmentEntries(browserEntries, browserSort),
       selectedPaths: browserSelectedPaths,
+      scrollToTop,
       sort: browserSort,
     });
     view.setBrowserFeedback?.(browserFeedback.message, browserFeedback.tone);
@@ -287,7 +288,10 @@ export function createAttachmentsController({
     const generation = ++browserRequestGeneration;
     browserBusy = true;
     setBrowserFeedback("");
-    renderBrowser();
+    // A path load always starts from the top. Callers may explicitly opt out
+    // for an unusual refresh animation, but ordinary navigation/opening must
+    // never leave the previous directory's scroll offset visible.
+    renderBrowser({ scrollToTop: options?.scrollToTop !== false });
     try {
       const payload = await api.list({ targetName, path });
       if (!browserRequestIsCurrent(generation, targetName)) {
@@ -323,6 +327,7 @@ export function createAttachmentsController({
           browserSort = { ...remembered.sort };
           return loadBrowserPath(remembered.path, {
             restoring: true,
+            scrollToTop: true,
             sort: remembered.sort,
           });
         }
@@ -347,7 +352,7 @@ export function createAttachmentsController({
           browserRestoreFallback = null;
           browserRestorePending = false;
           setBrowserFeedback("");
-          renderBrowser();
+          renderBrowser({ scrollToTop: true });
           persistBrowserMemory();
         } else {
           setBrowserFeedback(error?.message || "文件列表读取失败。", "error");
@@ -357,7 +362,7 @@ export function createAttachmentsController({
     } finally {
       if (browserRequestIsCurrent(generation, targetName)) {
         browserBusy = false;
-        renderBrowser();
+        renderBrowser({ scrollToTop: true });
       }
     }
   });
@@ -387,7 +392,7 @@ export function createAttachmentsController({
     browserFeedback = { message: "", tone: "info" };
     browserEdgeSwipe = null;
     view.openBrowser?.();
-    renderBrowser();
+    renderBrowser({ scrollToTop: true });
     loadBrowserPath(browserCurrentPath);
     scheduleFocus(() => view.focusBrowserBack?.());
     return true;

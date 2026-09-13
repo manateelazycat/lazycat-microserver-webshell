@@ -256,7 +256,7 @@ export function createAttachmentsView({
       panel?.remove?.();
       uploadPanels.delete(id);
     },
-    renderBrowser({ busy = false, currentPath = "/", entries = [], selectedPaths = new Set(), sort = {} } = {}) {
+    renderBrowser({ busy = false, currentPath = "/", entries = [], selectedPaths = new Set(), sort = {}, scrollToTop = false } = {}) {
       if (elements.browserPath) {
         elements.browserPath.textContent = attachmentBrowserDisplayName(currentPath);
         elements.browserPath.title = normalizeAttachmentBrowserPath(currentPath);
@@ -264,6 +264,13 @@ export function createAttachmentsView({
       renderBreadcrumbs(currentPath);
       renderSortControls(sort);
       renderBrowserList(entries, selectedPaths);
+      if (scrollToTop && elements.browserList) {
+        // Replacing the list contents does not reliably reset scroll position
+        // in every browser/layout. Explicitly reset it after a path is opened
+        // or refreshed so a remembered directory always starts at the top.
+        elements.browserList.scrollTop = 0;
+        elements.browserList.scrollLeft = 0;
+      }
       const count = selectedPaths.size;
       if (elements.browserDownload) {
         elements.browserDownload.disabled = busy || count === 0;
