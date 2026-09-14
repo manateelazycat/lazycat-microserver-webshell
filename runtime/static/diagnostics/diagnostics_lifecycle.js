@@ -30,6 +30,7 @@ export function createDiagnosticsLifecycle({ elements = {}, handlers = {} } = {}
       listen(elements.settingsDebugLogToggle, "change", handlers.onDebugLogChange);
       listen(elements.settingsNetworkMonitorToggle, "change", handlers.onNetworkMonitorChange);
       listen(elements.settingsNetworkConsumptionToggle, "change", handlers.onNetworkConsumptionChange);
+      listen(elements.settingsHistoryReplayCalibrationToggle, "change", handlers.onHistoryReplayCalibrationChange);
       listen(elements.settingsPerformanceMeterToggle, "change", handlers.onPerformanceMeterChange);
       listen(elements.settingsPerformanceTasksToggle, "change", handlers.onPerformanceTasksChange);
       listen(elements.settingsInitializationPerformanceToggle, "change", handlers.onInitializationPerformanceChange);

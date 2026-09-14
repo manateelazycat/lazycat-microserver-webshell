@@ -834,6 +834,85 @@ body.split-resize-active * {
   background: #ef4444;
 }
 
+.history-replay-calibration {
+  position: absolute;
+  top: 5px;
+  right: 24px;
+  z-index: 9;
+  display: flex;
+  max-width: calc(100% - 34px);
+  box-sizing: border-box;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 2px 10px;
+  padding: 3px 6px;
+  border: 1px solid color-mix(in srgb, var(--terminal-fg) 24%, transparent);
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--terminal-bg) 88%, transparent);
+  color: color-mix(in srgb, var(--terminal-fg) 72%, transparent);
+  font: 600 9px/1.25 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+  user-select: none;
+}
+
+.history-replay-calibration[hidden] {
+  display: none;
+}
+
+.history-replay-calibration-metric,
+.history-replay-calibration-metric strong {
+  white-space: nowrap;
+}
+
+.history-replay-calibration-status {
+  align-self: center;
+  width: 6px;
+  height: 6px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: #94a3b8;
+}
+
+.history-replay-calibration-metric strong {
+  color: var(--terminal-fg);
+  font-weight: 700;
+}
+
+.history-replay-calibration[data-state="replaying"] {
+  border-color: color-mix(in srgb, #f59e0b 48%, transparent);
+  color: color-mix(in srgb, #fbbf24 82%, transparent);
+}
+
+.history-replay-calibration[data-state="replaying"] .history-replay-calibration-status {
+  background: #f59e0b;
+}
+
+.history-replay-calibration[data-state="normal"] {
+  border-color: color-mix(in srgb, #22c55e 42%, transparent);
+}
+
+.history-replay-calibration[data-state="normal"] .history-replay-calibration-status {
+  background: #22c55e;
+}
+
+.history-replay-calibration[data-state="high"],
+.history-replay-calibration[data-state="low"] {
+  border-color: color-mix(in srgb, #ef4444 68%, transparent);
+  color: #f87171;
+  box-shadow: 0 0 0 1px color-mix(in srgb, #ef4444 18%, transparent);
+}
+
+.history-replay-calibration[data-state="high"] strong,
+.history-replay-calibration[data-state="low"] strong {
+  color: #fca5a5;
+}
+
+.history-replay-calibration[data-state="high"] .history-replay-calibration-status,
+.history-replay-calibration[data-state="low"] .history-replay-calibration-status {
+  background: #ef4444;
+}
+
 @keyframes pane-connection-breathe {
   0%,
   100% {

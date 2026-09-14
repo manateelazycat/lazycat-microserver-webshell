@@ -41,6 +41,7 @@ export function createDiagnosticsController({
     debugLog: `${storagePrefix}.debugLog`,
     networkMonitor: `${storagePrefix}.networkMonitor`,
     networkConsumption: `${storagePrefix}.networkConsumption`,
+    historyReplayCalibration: `${storagePrefix}.historyReplayCalibration`,
     performanceMeter: `${storagePrefix}.performanceMeter`,
     performanceTasks: `${storagePrefix}.performanceTasks`,
     initializationPerformance: `${storagePrefix}.initializationPerformance`,
@@ -63,6 +64,7 @@ export function createDiagnosticsController({
     debugLog: readStoredFlag(storageKeys.debugLog),
     networkMonitor: readStoredFlag(storageKeys.networkMonitor),
     networkConsumption: readStoredFlag(storageKeys.networkConsumption),
+    historyReplayCalibration: readStoredFlag(storageKeys.historyReplayCalibration),
     performanceMeter: readStoredFlag(storageKeys.performanceMeter),
     performanceTasks: readStoredFlag(storageKeys.performanceTasks),
     initializationPerformance: readStoredFlag(storageKeys.initializationPerformance),
@@ -121,6 +123,9 @@ export function createDiagnosticsController({
       });
       view.renderNetworkConsumption(snapshot, {
         visible: networkVisible && state.networkConsumption,
+      });
+      view.renderHistoryReplayCalibration(snapshot, {
+        visible: networkVisible && state.historyReplayCalibration,
       });
     },
     onError: (error) => debugLog.append("error", "网络监视器加载失败", error?.message || String(error)),
@@ -202,6 +207,7 @@ export function createDiagnosticsController({
       },
       onNetworkMonitorChange: () => updateFlag("networkMonitor", view.elements.settingsNetworkMonitorToggle),
       onNetworkConsumptionChange: () => updateFlag("networkConsumption", view.elements.settingsNetworkConsumptionToggle),
+      onHistoryReplayCalibrationChange: () => updateFlag("historyReplayCalibration", view.elements.settingsHistoryReplayCalibrationToggle),
       onNetworkConsumptionCopy: async () => {
         if (!networkSnapshot) {
           showToast("暂无可复制的流量消费数据。");

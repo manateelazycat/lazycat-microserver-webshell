@@ -82,10 +82,79 @@ const parseControlPayload = (payload) => {
   }
 };
 
+const messageByteCount = (message, field) => {
+  if (!message || !Object.prototype.hasOwnProperty.call(message, field)) return null;
+  const value = Number(message[field]);
+  return Number.isSafeInteger(value) && value >= 0 ? value : null;
+};
+
+const messageHistoryTotalBytes = (message) => {
+  const baseText = String(message?.server_base_cursor ?? "").trim();
+  const endText = String(message?.server_end_cursor ?? "").trim();
+  if (!/^\d+$/.test(baseText) || !/^\d+$/.test(endText)) return null;
+  try {
+    const base = BigInt(baseText);
+    const end = BigInt(endText);
+    const difference = end >= base ? end - base : 0n;
+    return difference <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(difference) : null;
+  } catch (error) {
+    return null;
+  }
+};
+
+const historyReplayPayloadBytes = (payload) => {
+  if (typeof Blob === "function" && payload instanceof Blob) return payload.size;
+  const data = payload instanceof Uint8Array
+    ? payload
+    : payload instanceof ArrayBuffer
+      ? new Uint8Array(payload)
+      : ArrayBuffer.isView(payload)
+        ? new Uint8Array(payload.buffer, payload.byteOffset, payload.byteLength)
+        : null;
+  if (!data) return 0;
+  if (
+    data.byteLength >= 8
+    && data[0] === 0x4c
+    && data[1] === 0x43
+    && data[2] === 0x46
+    && data[3] === 0x31
+  ) {
+    const headerLength = new DataView(data.buffer, data.byteOffset, data.byteLength).getUint32(4, false);
+    if (headerLength > 0 && headerLength + 8 <= data.byteLength) {
+      return data.byteLength - headerLength - 8;
+    }
+  }
+  return data.byteLength;
+};
+
+const beginHistoryReplayCalibration = (record, message) => {
+  record.historyReplayBytes = 0;
+  record.historyExpectedReplayBytes = messageByteCount(message, "server_history_bytes") || 0;
+  record.historyServerTotalBytes = messageHistoryTotalBytes(message) || 0;
+  record.historySyncMode = String(message?.sync_mode || "").trim();
+  record.historyCalibrationState = "replaying";
+};
+
+const finishHistoryReplayCalibration = (record, message) => {
+  const expected = messageByteCount(message, "server_history_bytes");
+  const total = messageHistoryTotalBytes(message);
+  if (expected !== null) record.historyExpectedReplayBytes = expected;
+  if (total !== null) record.historyServerTotalBytes = total;
+  const replayBytes = record.historyReplayBytes;
+  const expectedBytes = record.historyExpectedReplayBytes;
+  if (replayBytes > expectedBytes) record.historyCalibrationState = "high";
+  else if (expectedBytes > 0 && replayBytes * 2 < expectedBytes) record.historyCalibrationState = "low";
+  else record.historyCalibrationState = "normal";
+};
+
 const receivedConsumer = (record, payload) => {
   if (typeof payload !== "string") {
     if (payload instanceof ArrayBuffer || ArrayBuffer.isView(payload) || (typeof Blob === "function" && payload instanceof Blob)) {
-      return record.replayActive ? networkConsumers.history : networkConsumers.liveOutput;
+      if (record.replayActive) {
+        record.historyReplayBytes += historyReplayPayloadBytes(payload);
+        return networkConsumers.history;
+      }
+      return networkConsumers.liveOutput;
     }
     return networkConsumers.sessionControl;
   }
@@ -93,12 +162,14 @@ const receivedConsumer = (record, payload) => {
   const type = String(message?.type || "").trim();
   if (!type) return record.replayActive ? networkConsumers.history : networkConsumers.liveOutput;
   if (type === "history-replay-start") {
+    beginHistoryReplayCalibration(record, message);
     record.replayActive = true;
-    return networkConsumers.history;
+    return networkConsumers.sessionControl;
   }
   if (type === "history-replay-complete") {
     record.replayActive = false;
-    return networkConsumers.history;
+    finishHistoryReplayCalibration(record, message);
+    return networkConsumers.sessionControl;
   }
   if (type === "pong") return networkConsumers.heartbeat;
   if (type === "server-log") return networkConsumers.serverLog;
@@ -162,6 +233,11 @@ const createRecord = (sessionId, tabId) => ({
   lastSampleReceivedBytes: 0,
   lastSampleSentBytes: 0,
   replayActive: false,
+  historyReplayBytes: 0,
+  historyExpectedReplayBytes: 0,
+  historyServerTotalBytes: 0,
+  historySyncMode: "",
+  historyCalibrationState: "idle",
   consumers: new Map(),
   attachment: null,
 });
@@ -216,6 +292,15 @@ export const createTerminalNetworkMonitor = ({
         ...withTotals(aggregateMetrics(entries)),
       })),
       consumers,
+      historyCalibrations: sessions.map((session) => ({
+        sessionId: session.sessionId,
+        tabId: session.tabId,
+        replayBytes: session.historyReplayBytes,
+        expectedReplayBytes: session.historyExpectedReplayBytes,
+        serverHistoryTotalBytes: session.historyServerTotalBytes,
+        syncMode: session.historySyncMode,
+        state: session.historyCalibrationState,
+      })),
     };
   };
 
@@ -288,6 +373,11 @@ export const createTerminalNetworkMonitor = ({
     if (existing) releaseAttachment(existing, { emitChange: false });
     if (record.attachment) releaseAttachment(record.attachment, { emitChange: false });
     record.replayActive = replayActive === true;
+    record.historyReplayBytes = 0;
+    record.historyExpectedReplayBytes = 0;
+    record.historyServerTotalBytes = 0;
+    record.historySyncMode = "";
+    record.historyCalibrationState = replayActive === true ? "replaying" : "idle";
 
     const hadOwnSend = Object.prototype.hasOwnProperty.call(socket, "send");
     const hadOwnClose = Object.prototype.hasOwnProperty.call(socket, "close");
@@ -333,7 +423,16 @@ export const createTerminalNetworkMonitor = ({
     addListener("message", (event) => {
       const bytes = terminalNetworkPayloadBytes(event?.data);
       record.receivedBytes += bytes;
-      recordConsumerBytes(record, receivedConsumer(record, event?.data), "received", bytes);
+      const previousCalibrationState = record.historyCalibrationState;
+      const consumer = receivedConsumer(record, event?.data);
+      if (consumer === networkConsumers.history) {
+        const payloadBytes = historyReplayPayloadBytes(event?.data);
+        recordConsumerBytes(record, consumer, "received", payloadBytes);
+        recordConsumerBytes(record, networkConsumers.sessionControl, "received", bytes - payloadBytes);
+      } else {
+        recordConsumerBytes(record, consumer, "received", bytes);
+      }
+      if (record.historyCalibrationState !== previousCalibrationState) emit();
     });
     addListener("error", () => setState("error"));
     addListener("close", () => releaseAttachment(attachment));
