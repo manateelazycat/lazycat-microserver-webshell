@@ -234,10 +234,11 @@ export function createDiagnosticsController({
     networkConsumption: () => networkSnapshot ? view.networkConsumptionClipboardText(networkSnapshot) : "",
     debug: () => debugLog.clipboardText(),
   };
-  const downloadLog = (kind, getText) => {
+  const downloadLog = async (kind, getText) => {
     if (disposed) return;
     try {
-      const text = getText();
+      const text = await getText();
+      if (disposed) return;
       if (!text) { showToast("暂无可下载的日志。"); return; }
       logDownload.download(kind, text);
     } catch {
@@ -257,7 +258,7 @@ export function createDiagnosticsController({
       onTerminalRenderCaptureNow: () => renderCapture.capture("manual", true),
       onTerminalRenderCaptureCopy: async () => {
         try {
-          if (await copyText(exportLog.terminalRenderCapture())) {
+          if (await copyText(await exportLog.terminalRenderCapture())) {
             showToast("终端渲染异常捕获日志已复制。");
             return;
           }
@@ -384,6 +385,9 @@ export function createDiagnosticsController({
     },
     observeTerminalReplayBytes(session, data, options) {
       try { renderCapture.observeOutput(session, data, options); } catch {}
+    },
+    beginTerminalWriteComparison(session, data, options) {
+      try { return renderCapture.beginWrite(session, data, options); } catch {}
     },
     isInitializationCollecting() {
       return initializationPerformance.isCollecting();

@@ -4,6 +4,8 @@
 
 本模块负责浏览器端终端输出队列、输出 generation、replay/live/suppressed 分类、有界 drain、Ghostty 写入、Queue turn ACK 和输出过载重同步。所有 PTY 字节必须保持原顺序；合法大消息先分片再入队，4 MiB 上限只保护累计队列内存。
 
+PTY 输出保留原始 CR/LF 语义，终端配置必须关闭 `convertEol`。Kitty 处理层解码为字符串后仍不得向 LF 前补 CR，否则 Neovim 的局部换行会回到行首并覆盖行号区。页面自身的多行错误提示由提示生产者明确使用 CRLF；实时输出和历史回放均不做这类文本换行转换。
+
 本模块不建立、关闭或重连 WebSocket，不决定 history replay 身份与 commit，不拥有 resize epoch、Canvas presentation、Cache API 或输入队列。transport 只向模块提交已通过身份、sequence、checksum 和 cursor 校验的 payload；history、resize、rendering、input 和 IME 只通过注入的公开命令协作。
 
 任何 history replay、snapshot、resize 或重连中间过程都不得因输出 drain 可见。replay 和 resize suppression 由对应 owner 决定，输出模块只按每个队列条目携带的显式分类选择 `writeReplay()` 或普通 `write()`。

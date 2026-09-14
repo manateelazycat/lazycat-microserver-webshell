@@ -1,4 +1,5 @@
 import { unpackRows } from "./cell_packet.js";
+import { describeCells, compareCellDescriptions } from "./cell_diagnostics.js";
 
 const cancelled = () => Object.assign(new Error("Terminal backend generation changed"), { code: "BACKEND_CANCELLED" });
 
@@ -43,6 +44,7 @@ export class RemoteTerminal {
     this.viewportCells = null;
     this.viewportRevision = -1;
     this.snapshotPending = null;
+    this.diagnosticPending = null;
     this.history.clear();
     this.reads.clear();
     this.responses = [];
@@ -110,18 +112,26 @@ export class RemoteTerminal {
     const promise = new Promise((resolve, reject) => {
       if (this.disposed || this.failed) { reject(cancelled()); return; }
       const bytes = payload.data?.byteLength ?? (typeof payload.data === "string" ? payload.data.length * 2 : 0);
-      if (this.pending.size >= 64 || this.pendingBytes + bytes > 4 * 1024 * 1024) {
+      const queueFull = this.pending.size >= 64 && (type === "diagnose"
+        || [...this.pending.values()].filter((entry) => entry.type !== "diagnose").length >= 64);
+      if (queueFull || this.pendingBytes + bytes > 4 * 1024 * 1024) {
         const error = new Error("Terminal backend queue exceeded capacity");
         reject(error);
-        this.fail(error);
+        if (type !== "diagnose") this.fail(error);
         return;
       }
       const id = this.nextID++;
-      const timeout = type === "init" ? 20000 : 15000;
+      const timeout = type === "diagnose" ? 3000 : type === "init" ? 20000 : 15000;
       let deadline = performance.now() + timeout;
       const checkTimeout = () => {
         const pending = this.pending.get(id);
         if (!pending) return;
+        if (type === "diagnose") {
+          this.pending.delete(id);
+          this.pendingBytes -= pending.bytes;
+          pending.reject(new Error("Terminal diagnostic observation timed out"));
+          return;
+        }
         if (globalThis.document?.hidden || performance.now() - deadline > 2000) {
           // A suspended UI cannot observe timely worker replies. Start a fresh
           // observation window instead of killing a healthy backend on resume.
@@ -150,7 +160,14 @@ export class RemoteTerminal {
         if (measured) pending.requestCopyMs = postAt - copyAt;
         this.worker.postMessage({ id, type, payload, ...(measured ? { diagnostics: true } : {}) }, transfers);
         if (measured) pending.postMessageMs = performance.now() - postAt;
-      } catch (error) { this.fail(error); }
+      } catch (error) {
+        if (type === "diagnose") {
+          clearTimeout(timer);
+          this.pending.delete(id);
+          this.pendingBytes -= bytes;
+          reject(error);
+        } else this.fail(error);
+      }
     });
     // Some initialization/clear callers intentionally enqueue without awaiting.
     // Failures are still reported through the backend's single error path.
@@ -190,7 +207,11 @@ export class RemoteTerminal {
   }
   get isReady() { return Boolean(this.frame && !this.failed && !this.disposed && !this.checkpointRestorePending); }
   get isFrameReady() { return this.isReady && this.viewportRevision === this.frame.revision && Boolean(this.viewportCells); }
-  get isPending() { return this.pending.size > 0; }
+  get isPending() {
+    // Read-only observations must not cause prepareRecovery to reset a pane.
+    for (const request of this.pending.values()) if (request.type !== "diagnose") return true;
+    return false;
+  }
   // Read cached UI data only: diagnostics must not fetch a frame or repair it.
   getRenderDiagnostics(viewportY = 0) {
     const frame = this.frame;
@@ -232,6 +253,24 @@ export class RemoteTerminal {
     };
   }
   write(data) { return this.request("write", { data, viewportY: this.viewport?.() || 0, visible: this.visible?.() !== false }); }
+  captureRenderEvidence() {
+    if (this.diagnosticPending) return this.diagnosticPending;
+    const generation = this.generation;
+    const readUI = () => ({ revision: this.frame?.revision, viewportRevision: this.viewportRevision,
+      cells: describeCells(this.viewportCells, this.cols, this.rows) });
+    const before = readUI();
+    const startedAt = performance.now();
+    const promise = this.request("diagnose").then((worker) => {
+      if (generation !== this.generation || this.disposed) throw cancelled();
+      const after = readUI();
+      const matching = [before, after].find((ui) => ui.revision === worker.revision && ui.viewportRevision === worker.revision);
+      return { generation, before, after, worker, durationMs: performance.now() - startedAt,
+        uiVsWorker: matching ? compareCellDescriptions(matching.cells, worker.cached)
+          : { comparable: false, reason: "revision_changed_or_frame_stale" } };
+    }).finally(() => { if (this.diagnosticPending === promise) this.diagnosticPending = null; });
+    this.diagnosticPending = promise;
+    return promise;
+  }
   restoreCheckpoint(checkpoint) {
     const generation = this.generation;
     this.checkpointRestorePending = true;

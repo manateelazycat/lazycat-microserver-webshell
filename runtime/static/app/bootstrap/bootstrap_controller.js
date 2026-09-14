@@ -134,7 +134,7 @@ export function createAppBootstrapController({
       createErrorTab({ label: "Error", focus: true, connect: false });
       const tab = getCurrentTab();
       const pane = tab?.panes?.get?.(tab.activePaneId);
-      writeErrorTerminal(pane, `\r\n[webshell error]\r\n${message}\r\n`);
+      writeErrorTerminal(pane, `\r\n[webshell error]\r\n${String(message).replace(/\r?\n/g, "\r\n")}\r\n`);
     } catch (terminalError) {
       appendDebugError(
         "WebShell 错误终端创建失败",

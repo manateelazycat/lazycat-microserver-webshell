@@ -16,6 +16,8 @@
 
 v17 的 `restore` RPC 属于同一串行通道，在独立、相同 WASM 指纹的模块实例内导入 Agent 状态。`checkpointRestorePending` 期间 `isReady=false`，禁止提前提交回放；重连/重置仍按 generation 退休旧操作。导入只重建 Worker 自己的 VT，不覆盖 UI 所用的键盘编码实例。`memory_checkpoint.js` 是固定 wrapper/引擎 ABI 的唯一适配点，恢复所有原生指针后清除旧 JS 缓冲指针，并应用当前浏览器主题默认值；不修改程序显式设置的动态颜色。日志新增 `state_checkpoint_restore_start/complete`。
 
+v19 的 `diagnose` RPC 仅由手动渲染捕获调用。`worker/render_diagnostics.js` 读取独立的原生活动屏幕及 RenderState，不刷新缓存、不标记 clean、不推进 revision，也不向 UI 提交新帧；响应只含逐行指纹与占格分布。`cell_diagnostics.js` 统一 UI 和原生对照口径。诊断失败或超时不进入终端故障恢复，缺少新 ABI 时返回明确的不可用状态。
+
 每个 Worker 只有一条串行命令队列。write Promise 在后台解析并回传状态后才兑现；output owner 此后才能出队、推进历史游标及发送 ACK。在途字节仍计入输出队列，postMessage 不等于处理完成。
 
 resize 成功后才提交 UI 行列数，由 resize owner 完成事务。等待期间保留现有 Canvas；首次回放、原子 resize 和恢复继续遵守 presentation 门禁。首次 DOM fit 不重置已开始接收历史的 Worker。

@@ -1,0 +1,71 @@
+--- a/src/terminal/c/terminal.zig
++++ b/src/terminal/c/terminal.zig
+@@ -489,1 +489,58 @@
++// Diagnostic ABI v1: header[16], then raw and cached RenderState cell tuples.
++// Each tuple is codepoint, column width, capped extra-codepoint count, extra hash.
++// Read-only: never update RenderState, mark clean, write input, or resize.
++pub fn diagnosticCells(ptr: ?*anyopaque, out: [*]u32, capacity: usize) callconv(.c) c_int {
++    const wrapper: *const TerminalWrapper = @ptrCast(@alignCast(ptr orelse return -1));
++    const term = &wrapper.terminal;
++    const screen = term.screens.active;
++    const rs = &wrapper.render_state;
++    const count = @as(usize, term.cols) * term.rows;
++    if (count > 50000 or capacity < 16 + count * 8) return -2;
++    @memset(out[0 .. 16 + count * 8], 0);
++    out[0] = 1;
++    out[1] = term.cols; out[2] = term.rows;
++    out[3] = screen.cursor.x; out[4] = screen.cursor.y;
++    out[5] = term.scrolling_region.top; out[6] = term.scrolling_region.bottom;
++    out[7] = term.scrolling_region.left; out[8] = term.scrolling_region.right;
++    out[9] = @intFromBool(screen.cursor.pending_wrap);
++    out[10] = @intFromBool(term.screens.active_key == .alternate);
++    out[11] = rs.cols; out[12] = rs.rows;
++    out[13] = @intFromBool(rs.cols == term.cols and rs.rows == term.rows and rs.row_data.len == term.rows);
++    for (0..term.rows) |y| {
++        const pin = screen.pages.pin(.{ .active = .{ .y = @intCast(y) } }) orelse return -3;
++        const cells = pin.cells(.all);
++        if (cells.len < term.cols) return -3;
++        for (0..term.cols) |x| {
++            const cell = &cells[x];
++            const extra = if (cell.hasGrapheme()) pin.node.data.lookupGrapheme(cell) orelse &.{} else &.{};
++            const at = 16 + (y * term.cols + x) * 4;
++            out[at] = cell.codepoint();
++            out[at + 1] = switch (cell.wide) { .narrow => 1, .wide => 2, .spacer_tail, .spacer_head => 0 };
++            out[at + 2] = @min(extra.len, 255);
++            out[at + 3] = diagnosticGraphemeHash(extra);
++        }
++        if (out[13] == 1) {
++            const cached = rs.row_data.items(.cells)[y].slice();
++            const raw = cached.items(.raw);
++            if (raw.len != term.cols) { out[13] = 0; continue; }
++            for (0..term.cols) |x| {
++                const cell = &raw[x];
++                const extra = if (cell.hasGrapheme()) cached.items(.grapheme)[x] else &.{};
++                const at = 16 + count * 4 + (y * term.cols + x) * 4;
++                out[at] = cell.codepoint();
++                out[at + 1] = switch (cell.wide) { .narrow => 1, .wide => 2, .spacer_tail, .spacer_head => 0 };
++                out[at + 2] = @min(extra.len, 255);
++                out[at + 3] = diagnosticGraphemeHash(extra);
++            }
++        }
++    }
++    return @intCast(16 + count * 8);
++}
++
++fn diagnosticGraphemeHash(extra: []const u21) u32 {
++    var hash: u32 = 2166136261;
++    for (extra) |cp| hash = (hash ^ @as(u32, cp)) *% 16777619;
++    return hash;
++}
++
+ pub fn checkpointTheme(ptr: ?*anyopaque, config: *const GhosttyTerminalConfig) callconv(.c) void {
+--- a/src/terminal/c/main.zig
++++ b/src/terminal/c/main.zig
+@@ -62,1 +62,2 @@
++pub const terminal_diagnostic_cells = terminal.diagnosticCells;
+ pub const terminal_checkpoint_theme = terminal.checkpointTheme;
+--- a/src/lib_vt.zig
++++ b/src/lib_vt.zig
+@@ -149,1 +149,2 @@
++        @export(&c.terminal_diagnostic_cells, .{ .name = "ghostty_terminal_diagnostic_cells" });
+         @export(&c.terminal_checkpoint_theme, .{ .name = "ghostty_terminal_checkpoint_theme" });

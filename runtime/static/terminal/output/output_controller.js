@@ -74,6 +74,7 @@ export function createTerminalOutputController({
   isDebugLogEnabled = () => false,
   isByteIOLogEnabled = () => false,
   observeReplayBytes = noop,
+  observeWriteBatch = noop,
   appendDebugLog = noop,
   appendStartupTrace = noop,
   onDiscard = noop,
@@ -170,6 +171,8 @@ export function createTerminalOutputController({
       session.replayOutputDepth = Number(session.replayOutputDepth || 0) + 1;
     }
     const replayWriter = (replayOutput || suppressRender) && typeof session.term.writeReplay === "function";
+    let finishObservation, completed = false;
+    try { finishObservation = observeWriteBatch(session, data, { replayOutput, suppressRender }); } catch {}
     try {
       if (replayWriter) {
         recordEvent(session, replayOutput ? "write_replay" : "write_suppressed", {
@@ -186,6 +189,7 @@ export function createTerminalOutputController({
           return session.term.write(data);
         }
       });
+      completed = true;
       if (session.closed || session.outputQueueGeneration !== generation) return false;
       session.lastTerminalOutputAt = now();
       if (!replayWriter && isRenderAllowed(session)) {
@@ -201,6 +205,7 @@ export function createTerminalOutputController({
       }
       return true;
     } finally {
+      try { finishObservation?.(completed); } catch {}
       if (replayOutput && session.outputQueueGeneration === generation) {
         session.replayOutputDepth = Math.max(0, Number(session.replayOutputDepth || 0) - 1);
         session.allowGeneratedInputDuringReplay = previousAllowGeneratedInput;
@@ -621,7 +626,9 @@ export function createTerminalOutputController({
     if (trackHistory && endCursor !== null && nextHistoryCursor !== endCursor) {
       throw new Error("Terminal history output range does not match payload length.");
     }
-    observeReplayBytes(state, outputData, { replayOutput, historySource });
+    observeReplayBytes(state, outputData, { replayOutput, historySource,
+      startCursor: trackHistory ? nextHistoryCursor - BigInt(outputData.byteLength) : null,
+      endCursor: nextHistoryCursor });
     if (byteIOEnqueuedAt !== null) recordEvent(state, "byte_io_enqueue", {
       inputBytes: terminalOutputByteLength(outputData), enqueueMs: now() - byteIOEnqueuedAt,
       queuedBytes: state.outputQueueSize, queueEntries: state.outputQueue.length, replayOutput, historySource,

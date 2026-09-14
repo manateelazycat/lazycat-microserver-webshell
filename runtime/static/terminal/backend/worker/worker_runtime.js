@@ -15,6 +15,7 @@ export function createBackendWorkerRuntime({ scope, engine, queryText }) {
       else if (type === "resize") result = engine.resize(payload);
       else if (type === "snapshot") result = engine.snapshot(payload.viewportY);
       else if (type === "restore") result = await engine.restore(payload);
+      else if (type === "diagnose") result = engine.diagnose();
       else if (type === "read") result = engine.read(payload);
       else if (type === "text" || type === "search" || type === "link") {
         const identity = engine.historyIdentity();

@@ -125,7 +125,7 @@ export function createTerminalStartupErrorController({
     }
     showStartupErrorPanel(text);
     if (retryButton) retryButton.hidden = !session.terminalExitRetained;
-    writeImmediate(session, `\r\n[webshell error]\r\n${text}\r\n`);
+    writeImmediate(session, `\r\n[webshell error]\r\n${text.replace(/\r?\n/g, "\r\n")}\r\n`);
     return true;
   };
 

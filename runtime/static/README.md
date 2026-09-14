@@ -2,7 +2,7 @@
 
 `runtime/static/` 是 WebShell 页面源码根目录。页面脚本只从 `main.js` 开始加载；`main.js` 仅导入并调用 `global-runtime.js` 的 `startGlobalRuntime()`。发布时 Vite 将该模块树构建到 `build/runtime/static/`，LPK 只打包构建产物，不直接发布源码模块。
 
-服务端推荐协议 `lcmd-webshell-agent-v18`：修复会话关闭与残余输出之间的生命周期错误，防止已释放的快照引擎导致整个 Agent 崩溃；保留 v17 的固定 Ghostty 构建状态基线与后续增量恢复。Agent 编译时嵌入的 `ghostty-vt.wasm` 必须与 Vite 发布资产一致；构建顺序先同步 WASM、再构建前端及 Go，禁止只替换一端。旧协议显式兼容范围见 `agent_runtime.go`，状态协议及限制见 `terminal/history/README.md`。
+服务端推荐协议 `lcmd-webshell-agent-v19`：增加只读原生屏幕／渲染缓存诊断接口，前后端同步使用新的 WASM 指纹。v18 已修复会话关闭与残余输出之间的生命周期错误，防止已释放的快照引擎导致整个 Agent 崩溃；保留 v17 的固定 Ghostty 构建状态基线与后续增量恢复。Agent 编译时嵌入的 `ghostty-vt.wasm` 必须与 Vite 发布资产一致；构建顺序先同步 WASM、再构建前端及 Go，禁止只替换一端。旧协议显式兼容范围见 `agent_runtime.go`，状态协议及限制见 `terminal/history/README.md`。
 
 ## 根目录职责
 
