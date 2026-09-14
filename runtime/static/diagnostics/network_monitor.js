@@ -26,7 +26,7 @@ export const terminalNetworkPayloadBytes = (payload) => {
 
 export const terminalNetworkMegabytes = (bytes) => Math.max(0, Number(bytes) || 0) / 1_000_000;
 
-const aggregateMetrics = (items) => items.reduce((result, item) => ({
+const aggregateMetrics = (items) => Array.from(items).reduce((result, item) => ({
   receivedBytes: result.receivedBytes + item.receivedBytes,
   sentBytes: result.sentBytes + item.sentBytes,
   receivedBytesPerSecond: result.receivedBytesPerSecond + item.receivedBytesPerSecond,
@@ -43,6 +43,104 @@ const withTotals = (metrics) => ({
   totalBytes: metrics.receivedBytes + metrics.sentBytes,
   bytesPerSecond: metrics.receivedBytesPerSecond + metrics.sentBytesPerSecond,
 });
+
+const networkConsumers = Object.freeze({
+  history: Object.freeze({ id: "history", module: "终端输出", task: "历史回放" }),
+  liveOutput: Object.freeze({ id: "live-output", module: "终端输出", task: "实时输出" }),
+  userInput: Object.freeze({ id: "user-input", module: "终端输入", task: "用户输入" }),
+  generatedInput: Object.freeze({ id: "generated-input", module: "终端输入", task: "终端自动响应" }),
+  resize: Object.freeze({ id: "resize", module: "终端控制", task: "尺寸同步" }),
+  theme: Object.freeze({ id: "theme", module: "终端控制", task: "主题同步" }),
+  heartbeat: Object.freeze({ id: "heartbeat", module: "终端连接", task: "连接保活" }),
+  outputAck: Object.freeze({ id: "output-ack", module: "终端输出", task: "消费确认" }),
+  serverLog: Object.freeze({ id: "server-log", module: "终端诊断", task: "服务端日志" }),
+  sessionControl: Object.freeze({ id: "session-control", module: "终端连接", task: "会话控制" }),
+});
+
+const networkConsumerOrder = Object.freeze([
+  networkConsumers.history,
+  networkConsumers.liveOutput,
+  networkConsumers.outputAck,
+  networkConsumers.userInput,
+  networkConsumers.generatedInput,
+  networkConsumers.resize,
+  networkConsumers.theme,
+  networkConsumers.heartbeat,
+  networkConsumers.sessionControl,
+  networkConsumers.serverLog,
+]);
+
+const parseControlPayload = (payload) => {
+  if (typeof payload !== "string") return null;
+  const first = payload.trimStart()[0];
+  if (first !== "{" && first !== "[") return null;
+  try {
+    const value = JSON.parse(payload);
+    return value && typeof value === "object" ? value : null;
+  } catch (error) {
+    return null;
+  }
+};
+
+const receivedConsumer = (record, payload) => {
+  if (typeof payload !== "string") {
+    if (payload instanceof ArrayBuffer || ArrayBuffer.isView(payload) || (typeof Blob === "function" && payload instanceof Blob)) {
+      return record.replayActive ? networkConsumers.history : networkConsumers.liveOutput;
+    }
+    return networkConsumers.sessionControl;
+  }
+  const message = parseControlPayload(payload);
+  const type = String(message?.type || "").trim();
+  if (!type) return record.replayActive ? networkConsumers.history : networkConsumers.liveOutput;
+  if (type === "history-replay-start") {
+    record.replayActive = true;
+    return networkConsumers.history;
+  }
+  if (type === "history-replay-complete") {
+    record.replayActive = false;
+    return networkConsumers.history;
+  }
+  if (type === "pong") return networkConsumers.heartbeat;
+  if (type === "server-log") return networkConsumers.serverLog;
+  if (type === "queue-turn-complete") return networkConsumers.outputAck;
+  if (type.startsWith("resize-")) return networkConsumers.resize;
+  return networkConsumers.sessionControl;
+};
+
+const sentConsumer = (payload) => {
+  const message = parseControlPayload(payload);
+  const type = String(message?.type || "").trim();
+  if (type === "input") {
+    return message.generated === true ? networkConsumers.generatedInput : networkConsumers.userInput;
+  }
+  if (type === "resize") return networkConsumers.resize;
+  if (type === "theme") return networkConsumers.theme;
+  if (type === "ping") return networkConsumers.heartbeat;
+  if (type === "queue-turn-ack") return networkConsumers.outputAck;
+  return networkConsumers.sessionControl;
+};
+
+const createConsumerRecord = (definition) => ({
+  ...definition,
+  receivedBytes: 0,
+  sentBytes: 0,
+  receivedBytesPerSecond: 0,
+  sentBytesPerSecond: 0,
+  lastSampleReceivedBytes: 0,
+  lastSampleSentBytes: 0,
+});
+
+const recordConsumerBytes = (record, definition, direction, bytes) => {
+  const amount = Math.max(0, Number(bytes) || 0);
+  if (!amount) return;
+  let consumer = record.consumers.get(definition.id);
+  if (!consumer) {
+    consumer = createConsumerRecord(definition);
+    record.consumers.set(definition.id, consumer);
+  }
+  if (direction === "received") consumer.receivedBytes += amount;
+  else consumer.sentBytes += amount;
+};
 
 const statusForRecords = (records) => {
   const states = records.map((record) => record.state);
@@ -63,6 +161,8 @@ const createRecord = (sessionId, tabId) => ({
   sentBytesPerSecond: 0,
   lastSampleReceivedBytes: 0,
   lastSampleSentBytes: 0,
+  replayActive: false,
+  consumers: new Map(),
   attachment: null,
 });
 
@@ -79,11 +179,35 @@ export const createTerminalNetworkMonitor = ({
     const sessions = Array.from(records.values());
     const total = withTotals(aggregateMetrics(sessions));
     const tabsByID = new Map();
+    const consumersByID = new Map(networkConsumerOrder.map((definition) => [
+      definition.id,
+      createConsumerRecord(definition),
+    ]));
     for (const session of sessions) {
       const entries = tabsByID.get(session.tabId) || [];
       entries.push(session);
       tabsByID.set(session.tabId, entries);
+      for (const source of session.consumers.values()) {
+        const consumer = consumersByID.get(source.id) || consumersByID.get(networkConsumers.sessionControl.id);
+        consumer.receivedBytes += source.receivedBytes;
+        consumer.sentBytes += source.sentBytes;
+        consumer.receivedBytesPerSecond += source.receivedBytesPerSecond;
+        consumer.sentBytesPerSecond += source.sentBytesPerSecond;
+      }
     }
+    const attributed = aggregateMetrics(consumersByID.values());
+    const missing = {
+      receivedBytes: Math.max(0, total.receivedBytes - attributed.receivedBytes),
+      sentBytes: Math.max(0, total.sentBytes - attributed.sentBytes),
+      receivedBytesPerSecond: Math.max(0, total.receivedBytesPerSecond - attributed.receivedBytesPerSecond),
+      sentBytesPerSecond: Math.max(0, total.sentBytesPerSecond - attributed.sentBytesPerSecond),
+    };
+    const sessionControl = consumersByID.get(networkConsumers.sessionControl.id);
+    sessionControl.receivedBytes += missing.receivedBytes;
+    sessionControl.sentBytes += missing.sentBytes;
+    sessionControl.receivedBytesPerSecond += missing.receivedBytesPerSecond;
+    sessionControl.sentBytesPerSecond += missing.sentBytesPerSecond;
+    const consumers = networkConsumerOrder.map((definition) => withTotals(consumersByID.get(definition.id)));
     return {
       status: statusForRecords(sessions),
       ...total,
@@ -91,6 +215,7 @@ export const createTerminalNetworkMonitor = ({
         tabId,
         ...withTotals(aggregateMetrics(entries)),
       })),
+      consumers,
     };
   };
 
@@ -139,6 +264,7 @@ export const createTerminalNetworkMonitor = ({
   const attachSocket = (socket, {
     sessionId = "",
     tabId = "",
+    replayActive = false,
     emitChange = true,
   } = {}) => {
     if (
@@ -161,6 +287,7 @@ export const createTerminalNetworkMonitor = ({
     if (existing?.record === record) return existing.handle;
     if (existing) releaseAttachment(existing, { emitChange: false });
     if (record.attachment) releaseAttachment(record.attachment, { emitChange: false });
+    record.replayActive = replayActive === true;
 
     const hadOwnSend = Object.prototype.hasOwnProperty.call(socket, "send");
     const hadOwnClose = Object.prototype.hasOwnProperty.call(socket, "close");
@@ -189,7 +316,9 @@ export const createTerminalNetworkMonitor = ({
     };
     attachment.wrappedSend = function sendWithNetworkMeasurement(payload) {
       const result = Reflect.apply(originalSend, this, [payload]);
-      record.sentBytes += terminalNetworkPayloadBytes(payload);
+      const bytes = terminalNetworkPayloadBytes(payload);
+      record.sentBytes += bytes;
+      recordConsumerBytes(record, sentConsumer(payload), "sent", bytes);
       return result;
     };
     attachment.wrappedClose = function closeWithNetworkMeasurement(...args) {
@@ -202,7 +331,9 @@ export const createTerminalNetworkMonitor = ({
     record.state = stateFromReadyState(socket.readyState);
     addListener("open", () => setState("open"));
     addListener("message", (event) => {
-      record.receivedBytes += terminalNetworkPayloadBytes(event?.data);
+      const bytes = terminalNetworkPayloadBytes(event?.data);
+      record.receivedBytes += bytes;
+      recordConsumerBytes(record, receivedConsumer(record, event?.data), "received", bytes);
     });
     addListener("error", () => setState("error"));
     addListener("close", () => releaseAttachment(attachment));
@@ -233,7 +364,14 @@ export const createTerminalNetworkMonitor = ({
       }
       if (record.attachment?.socket !== session.socket) {
         if (record.attachment) releaseAttachment(record.attachment, { emitChange: false });
-        if (session.socket) attachSocket(session.socket, { sessionId, tabId, emitChange: false });
+        if (session.socket) {
+          attachSocket(session.socket, {
+            sessionId,
+            tabId,
+            replayActive: session.replayActive === true,
+            emitChange: false,
+          });
+        }
         changed = true;
       }
     }
@@ -257,6 +395,12 @@ export const createTerminalNetworkMonitor = ({
         record.sentBytesPerSecond = Math.max(0, record.sentBytes - record.lastSampleSentBytes) / elapsedSeconds;
         record.lastSampleReceivedBytes = record.receivedBytes;
         record.lastSampleSentBytes = record.sentBytes;
+        for (const consumer of record.consumers.values()) {
+          consumer.receivedBytesPerSecond = Math.max(0, consumer.receivedBytes - consumer.lastSampleReceivedBytes) / elapsedSeconds;
+          consumer.sentBytesPerSecond = Math.max(0, consumer.sentBytes - consumer.lastSampleSentBytes) / elapsedSeconds;
+          consumer.lastSampleReceivedBytes = consumer.receivedBytes;
+          consumer.lastSampleSentBytes = consumer.sentBytes;
+        }
       }
     }
     lastSampleAt = sampledAt;

@@ -40,6 +40,7 @@ export function createDiagnosticsController({
     debugMode: `${storagePrefix}.debugMode`,
     debugLog: `${storagePrefix}.debugLog`,
     networkMonitor: `${storagePrefix}.networkMonitor`,
+    networkConsumption: `${storagePrefix}.networkConsumption`,
     performanceMeter: `${storagePrefix}.performanceMeter`,
     performanceTasks: `${storagePrefix}.performanceTasks`,
     initializationPerformance: `${storagePrefix}.initializationPerformance`,
@@ -61,6 +62,7 @@ export function createDiagnosticsController({
     debugMode: readStoredFlag(storageKeys.debugMode),
     debugLog: readStoredFlag(storageKeys.debugLog),
     networkMonitor: readStoredFlag(storageKeys.networkMonitor),
+    networkConsumption: readStoredFlag(storageKeys.networkConsumption),
     performanceMeter: readStoredFlag(storageKeys.performanceMeter),
     performanceTasks: readStoredFlag(storageKeys.performanceTasks),
     initializationPerformance: readStoredFlag(storageKeys.initializationPerformance),
@@ -69,6 +71,7 @@ export function createDiagnosticsController({
   let disposed = false;
   let resumeGeneration = 0;
   const view = createDiagnosticsView({ documentObject });
+  let networkSnapshot = null;
 
   let initializationPerformance = null;
   const initializationPerformanceLifecycle = createInitializationPerformanceLifecycle({
@@ -109,10 +112,17 @@ export function createDiagnosticsController({
     windowObject,
     moduleLoader: networkModuleLoader,
     getContext: getNetworkContext,
-    onRender: (snapshot, context) => view.renderNetworkMonitor(snapshot, {
-      ...context,
-      visible: state.debugMode && state.networkMonitor && started && !disposed,
-    }),
+    onRender: (snapshot, context) => {
+      networkSnapshot = snapshot || null;
+      const networkVisible = state.debugMode && state.networkMonitor && started && !disposed;
+      view.renderNetworkMonitor(snapshot, {
+        ...context,
+        visible: networkVisible,
+      });
+      view.renderNetworkConsumption(snapshot, {
+        visible: networkVisible && state.networkConsumption,
+      });
+    },
     onError: (error) => debugLog.append("error", "网络监视器加载失败", error?.message || String(error)),
   });
 
@@ -168,6 +178,7 @@ export function createDiagnosticsController({
       visible: runtimeActive && state.performanceTasks,
     });
     networkMonitorLifecycle.setActive(runtimeActive && state.networkMonitor);
+    networkMonitorLifecycle.refresh();
     if (notifyDebugMode) {
       onDebugModeChange(state.debugMode);
     }
@@ -190,6 +201,22 @@ export function createDiagnosticsController({
         }
       },
       onNetworkMonitorChange: () => updateFlag("networkMonitor", view.elements.settingsNetworkMonitorToggle),
+      onNetworkConsumptionChange: () => updateFlag("networkConsumption", view.elements.settingsNetworkConsumptionToggle),
+      onNetworkConsumptionCopy: async () => {
+        if (!networkSnapshot) {
+          showToast("暂无可复制的流量消费数据。");
+          return;
+        }
+        const text = view.networkConsumptionClipboardText(networkSnapshot);
+        try {
+          if (await copyText(text)) {
+            showToast("流量消费统计已复制。");
+            return;
+          }
+        } catch (error) {
+        }
+        showToast("复制流量消费统计失败。");
+      },
       onPerformanceMeterChange: () => updateFlag("performanceMeter", view.elements.settingsPerformanceMeterToggle),
       onPerformanceTasksChange: () => updateFlag("performanceTasks", view.elements.settingsPerformanceTasksToggle),
       onInitializationPerformanceChange: () => updateFlag("initializationPerformance", view.elements.settingsInitializationPerformanceToggle),

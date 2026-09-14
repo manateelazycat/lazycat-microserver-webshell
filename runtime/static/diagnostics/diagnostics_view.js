@@ -25,6 +25,16 @@ const stateLabel = (state) => ({
 
 const formatMegabytes = (bytes) => (Math.max(0, Number(bytes) || 0) / 1_000_000).toFixed(3);
 
+const formatTrafficBytes = (bytes) => {
+  const value = Math.max(0, Number(bytes) || 0);
+  if (value >= 1_000_000_000) return `${(value / 1_000_000_000).toFixed(2)} GB`;
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(3)} MB`;
+  if (value >= 1_000) return `${(value / 1_000).toFixed(2)} KB`;
+  return `${Math.round(value)} B`;
+};
+
+const formatTrafficRate = (bytes) => `${formatTrafficBytes(bytes)}/s`;
+
 const formatTaskMs = (value) => {
   const ms = Number(value);
   if (!Number.isFinite(ms)) {
@@ -70,6 +80,7 @@ export function createDiagnosticsView({ documentObject = globalThis.document } =
     settingsDebugModeToggle: byID("settingsDebugModeToggle"),
     settingsDebugLogToggle: byID("settingsDebugLogToggle"),
     settingsNetworkMonitorToggle: byID("settingsNetworkMonitorToggle"),
+    settingsNetworkConsumptionToggle: byID("settingsNetworkConsumptionToggle"),
     settingsDebugOptions: byID("settingsDebugOptions"),
     settingsInitializationPerformanceToggle: byID("settingsInitializationPerformanceToggle"),
     settingsPerformanceMeterToggle: byID("settingsPerformanceMeterToggle"),
@@ -79,8 +90,13 @@ export function createDiagnosticsView({ documentObject = globalThis.document } =
     terminalNetworkMonitorStatus: byID("terminalNetworkMonitorStatus"),
     terminalNetworkMonitorRate: byID("terminalNetworkMonitorRate"),
     terminalNetworkMonitorUsage: byID("terminalNetworkMonitorUsage"),
+    networkConsumptionPanel: byID("networkConsumptionPanel"),
+    networkConsumptionTotal: byID("networkConsumptionTotal"),
+    networkConsumptionList: byID("networkConsumptionList"),
+    networkConsumptionCopy: byID("networkConsumptionCopy"),
   };
   let initializationRowKeys = [];
+  const networkConsumptionRows = new Map();
 
   const initializationRowKey = (row) => row?.pending === true
     ? `pending:${row.source || ""}:${row.label || row.name || ""}`
@@ -145,6 +161,7 @@ export function createDiagnosticsView({ documentObject = globalThis.document } =
     sentBytesPerSecond: 0,
     bytesPerSecond: 0,
     tabs: [],
+    consumers: [],
   });
 
   const renderTabNetworkMetrics = (tabs = [], visible = false) => {
@@ -196,6 +213,92 @@ export function createDiagnosticsView({ documentObject = globalThis.document } =
         elements.debugLogList.appendChild(row);
       }
       elements.debugLogList.scrollTop = elements.debugLogList.scrollHeight;
+    },
+    networkConsumptionClipboardText(state, {
+      capturedAt = new Date().toISOString(),
+    } = {}) {
+      const snapshot = state || emptyNetworkState();
+      const metricFields = (item = {}) => ({
+        received_bytes: Math.max(0, Number(item.receivedBytes) || 0),
+        sent_bytes: Math.max(0, Number(item.sentBytes) || 0),
+        total_bytes: Math.max(0, Number(item.totalBytes) || 0),
+        received_bytes_per_second: Math.max(0, Number(item.receivedBytesPerSecond) || 0),
+        sent_bytes_per_second: Math.max(0, Number(item.sentBytesPerSecond) || 0),
+        bytes_per_second: Math.max(0, Number(item.bytesPerSecond) || 0),
+      });
+      return JSON.stringify({
+        schema: "lightos-webshell.network-consumption.v1",
+        captured_at: String(capturedAt || ""),
+        network_status: String(snapshot.status || "idle"),
+        totals: metricFields(snapshot),
+        consumers: Array.from(snapshot.consumers || [], (consumer, index) => ({
+          position: index + 1,
+          id: String(consumer.id || ""),
+          module: String(consumer.module || ""),
+          task: String(consumer.task || ""),
+          ...metricFields(consumer),
+        })),
+      }, null, 2);
+    },
+    renderNetworkConsumption(state, { visible = false } = {}) {
+      if (!elements.networkConsumptionPanel || !elements.networkConsumptionList) return;
+      elements.networkConsumptionPanel.hidden = !visible;
+      if (!visible) return;
+      const snapshot = state || emptyNetworkState();
+      const consumers = Array.from(snapshot.consumers || []);
+      if (elements.networkConsumptionTotal) {
+        elements.networkConsumptionTotal.textContent = formatTrafficBytes(snapshot.totalBytes);
+      }
+      if (consumers.length === 0) {
+        elements.networkConsumptionList.textContent = "";
+        networkConsumptionRows.clear();
+        return;
+      }
+      const consumerIDs = consumers.map((consumer) => String(consumer.id || ""));
+      const renderedIDs = Array.from(networkConsumptionRows.keys());
+      if (
+        consumerIDs.length !== renderedIDs.length
+        || consumerIDs.some((id, index) => id !== renderedIDs[index])
+      ) {
+        elements.networkConsumptionList.textContent = "";
+        networkConsumptionRows.clear();
+        for (const consumer of consumers) {
+          const row = documentObject.createElement("div");
+          row.className = "network-consumption-row";
+          const cells = [
+            "network-consumption-module",
+            "network-consumption-task",
+            "network-consumption-value",
+            "network-consumption-value",
+            "network-consumption-value",
+            "network-consumption-value",
+          ].map((className) => {
+            const cell = documentObject.createElement("span");
+            cell.className = className;
+            row.appendChild(cell);
+            return cell;
+          });
+          const id = String(consumer.id || "");
+          networkConsumptionRows.set(id, cells);
+          elements.networkConsumptionList.appendChild(row);
+        }
+      }
+      for (const consumer of consumers) {
+        const cells = networkConsumptionRows.get(String(consumer.id || ""));
+        if (!cells) continue;
+        const values = [
+          String(consumer.module || ""),
+          String(consumer.task || ""),
+          formatTrafficRate(consumer.bytesPerSecond),
+          formatTrafficBytes(consumer.receivedBytes),
+          formatTrafficBytes(consumer.sentBytes),
+          formatTrafficBytes(consumer.totalBytes),
+        ];
+        for (let index = 0; index < cells.length; index += 1) {
+          cells[index].textContent = values[index];
+          cells[index].title = values[index];
+        }
+      }
     },
     renderNetworkMonitor(state, {
       visible = false,
@@ -348,6 +451,7 @@ export function createDiagnosticsView({ documentObject = globalThis.document } =
         [elements.settingsInitializationPerformanceToggle, state.initializationPerformance],
         [elements.settingsDebugLogToggle, state.debugLog],
         [elements.settingsNetworkMonitorToggle, state.networkMonitor],
+        [elements.settingsNetworkConsumptionToggle, state.networkConsumption],
         [elements.settingsPerformanceMeterToggle, state.performanceMeter],
         [elements.settingsPerformanceTasksToggle, state.performanceTasks],
       ]) {
@@ -355,6 +459,9 @@ export function createDiagnosticsView({ documentObject = globalThis.document } =
           element.checked = checked === true;
           element.disabled = !debugMode;
         }
+      }
+      if (elements.settingsNetworkConsumptionToggle) {
+        elements.settingsNetworkConsumptionToggle.disabled = !debugMode || state.networkMonitor !== true;
       }
     },
   };

@@ -123,6 +123,26 @@
             <div class="performance-task-meter-title">{{ $t('性能监视器') }}</div>
             <div class="performance-task-meter-list" id="performanceTaskMeterList"></div>
           </div>
+          <div class="network-consumption-panel" id="networkConsumptionPanel" aria-live="off" hidden>
+            <div class="network-consumption-head">
+              <span class="network-consumption-title">{{ $t('流量消费统计') }}</span>
+              <div class="network-consumption-actions">
+                <strong id="networkConsumptionTotal">0 B</strong>
+                <button class="network-consumption-copy" id="networkConsumptionCopy" type="button" aria-label="{{ $t('复制流量消费统计') }}" title="{{ $t('复制流量消费统计') }}">{{ $t('复制') }}</button>
+              </div>
+            </div>
+            <div class="network-consumption-table">
+              <div class="network-consumption-row header" aria-hidden="true">
+                <span>{{ $t('模块') }}</span>
+                <span>{{ $t('任务') }}</span>
+                <span>{{ $t('当前') }}</span>
+                <span>{{ $t('接收') }}</span>
+                <span>{{ $t('发送') }}</span>
+                <span>{{ $t('总计') }}</span>
+              </div>
+              <div class="network-consumption-list" id="networkConsumptionList"></div>
+            </div>
+          </div>
           <div class="debug-log-panel" id="debugLogPanel" aria-live="polite" hidden>
             <div class="debug-log-panel-head">
               <span class="debug-log-panel-title">{{ $t('调试日志') }}</span>
@@ -391,9 +411,17 @@
                   <label class="settings-switch-row" for="settingsNetworkMonitorToggle">
                     <span class="settings-switch-label">
                       <span>{{ $t('网络监视器') }}</span>
-                      <span>{{ $t('在终端右上角显示 WebSocket 通道和 MB 流量，默认关闭') }}</span>
+                      <span>{{ $t('在顶部栏显示终端会话流量，默认关闭') }}</span>
                     </span>
                     <input class="settings-switch-input" id="settingsNetworkMonitorToggle" type="checkbox" />
+                    <span class="settings-switch" aria-hidden="true"></span>
+                  </label>
+                  <label class="settings-switch-row" for="settingsNetworkConsumptionToggle">
+                    <span class="settings-switch-label">
+                      <span>{{ $t('流量消费统计') }}</span>
+                      <span>{{ $t('按任务拆分网络监视器统计的流量，需先开启网络监视器') }}</span>
+                    </span>
+                    <input class="settings-switch-input" id="settingsNetworkConsumptionToggle" type="checkbox" />
                     <span class="settings-switch" aria-hidden="true"></span>
                   </label>
                   <label class="settings-switch-row" for="settingsMobileRemoteDesktopToggle">
