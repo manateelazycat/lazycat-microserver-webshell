@@ -27,8 +27,8 @@ import (
 )
 
 const (
-	// v18 prevents late PTY output from using a disposed checkpoint when panes close.
-	agentProtocolVersion = "lcmd-webshell-agent-v18"
+	// v19 embeds the read-only native cell diagnostics ABI used by render capture.
+	agentProtocolVersion = "lcmd-webshell-agent-v19"
 
 	agentFrameBinary         = byte('B')
 	agentFrameText           = byte('T')

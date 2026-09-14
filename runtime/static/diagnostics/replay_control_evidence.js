@@ -1,6 +1,6 @@
 // Observe ASCII ESC controls without retaining printable text or control-string payloads.
 // This is evidence about the retained byte stream, not a second terminal emulator.
-export function createReplayControlEvidence(expectedBytes = null, fromStart = false) {
+export function createReplayControlEvidence(expectedBytes = null, fromStart = false, { source = "raw_replay_before_kitty", tailLimit = 24 } = {}) {
   let bytes = 0, scanMs = 0, active = true, state = "ground", body = "", stringKind = "";
   let escapeAt = 0, malformedCSI = 0, overflowCSI = 0, printableBytes = 0, controlKinds = 1, omittedControls = 0;
   const counts = { "CSI m": 0 }, first = [], last = [];
@@ -10,7 +10,7 @@ export function createReplayControlEvidence(expectedBytes = null, fromStart = fa
     else omittedControls += 1;
     if (first.length < 12) first.push({ at, control });
     last.push({ at, control });
-    if (last.length > 24) last.shift();
+    if (last.length > tailLimit) last.shift();
   };
   return {
     consume(data) {
@@ -46,8 +46,8 @@ export function createReplayControlEvidence(expectedBytes = null, fromStart = fa
               if (/^[?<=>]?[0-9;: ]*$/.test(body)) {
                 // Attribute/color changes can be numerous: count without retaining parameters.
                 if (final === "m") counts["CSI m"] = (counts["CSI m"] || 0) + 1;
-                else if ("HfJKrshluABCDEFGdST".includes(final)) note(`CSI ${body}${final}`, escapeAt,
-                  "HfABCDEFGd".includes(final) ? `CSI ${final}` : `CSI ${body}${final}`);
+                else if ("HfJKrshluABCDEFGdSTLMPX@b`aen".includes(final)) note(`CSI ${body}${final}`, escapeAt,
+                  "HfABCDEFGdSTLMPX@b`ae".includes(final) ? `CSI ${final}` : `CSI ${body}${final}`);
               } else malformedCSI += 1;
             }
             state = "ground"; body = "";
@@ -58,12 +58,13 @@ export function createReplayControlEvidence(expectedBytes = null, fromStart = fa
           continue;
         }
         if (byte >= 32 && byte !== 127) printableBytes += 1;
+        else if ([8, 9, 10, 13].includes(byte)) counts[`C0 ${byte}`] = (counts[`C0 ${byte}`] || 0) + 1;
       }
       scanMs += performance.now() - at;
     },
     finish() { active = false; },
     snapshot() {
-      return { source: "raw_replay_before_kitty", fromStart, bytesObserved: bytes, expectedBytes,
+      return { source, fromStart, bytesObserved: bytes, expectedBytes,
         complete: !active, sizeMatches: expectedBytes === null ? null : bytes === expectedBytes,
         printableBytes, scanMs: Math.round(scanMs * 100) / 100, trailingState: state,
         malformedCSI, overflowCSI, omittedControls, counts: { ...counts }, first: first.slice(), last: last.slice() };

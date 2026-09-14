@@ -1,4 +1,5 @@
 import { terminalSelectionRange } from "../selection/index.js";
+import { observeParsedTerminalWrite } from "../../diagnostics/terminal_write_comparison.js";
 
 const retired = () => Object.assign(new Error("Terminal backend operation was retired"), { code: "BACKEND_CANCELLED" });
 const requireCurrentIdentity = (term, backend, identity) => {
@@ -17,6 +18,7 @@ export function installBackendTerminalAdapter(term) {
     const backend = term.wasmTerm;
     const generation = backend.generation;
     const identity = term.backendIdentity?.();
+    observeParsedTerminalWrite(term, data);
     const frame = await backend.write(data);
     if (term.isDisposed || term.wasmTerm !== backend || generation !== backend.generation) throw retired();
     requireCurrentIdentity(term, backend, identity);

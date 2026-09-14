@@ -292,7 +292,8 @@ export function startGlobalRuntime() {
   const initialTerminalFontSize = readStoredTerminalFontSize(window.localStorage, storagePrefix);
   const terminalOptionsBase = {
     cursorBlink: false,
-    convertEol: true,
+    // PTY LF preserves the current column; inserting CR corrupts TUI updates.
+    convertEol: false,
     scrollback: defaultTerminalScrollback,
     fontFamily: defaultTerminalFontFamily,
     fontSize: initialTerminalFontSize,
@@ -1812,6 +1813,7 @@ export function startGlobalRuntime() {
   });
 
   terminalOutput = createTerminalOutputController({
+    observeWriteBatch: (session, data, options) => diagnostics.beginTerminalWriteComparison(session, data, options),
     observeReplayBytes: (session, data, options) => diagnostics.observeTerminalReplayBytes(session, data, options),
     isByteIOLogEnabled: () => diagnostics.isByteIOLogEnabled(),
     windowObject: window,

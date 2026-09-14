@@ -1,4 +1,5 @@
 import { packRows } from "../cell_packet.js";
+import { captureNativeRenderDiagnostics } from "./render_diagnostics.js";
 import { loadCheckpointGhostty, restoreMemoryCheckpoint, validateMemoryCheckpoint } from "./memory_checkpoint.js";
 
 const privateModes = [1, 6, 7, 9, 25, 47, 1000, 1002, 1003, 1004, 1005, 1006, 1007, 1015, 1016, 1047, 1049, 2004, 2026, 2027];
@@ -127,6 +128,11 @@ export function createTerminalEngine() {
       return historyRange(start, end);
     },
     native: () => native,
+    diagnose() {
+      const startedAt = performance.now();
+      return { ...captureNativeRenderDiagnostics(native), revision, historyEpoch,
+        durationMs: performance.now() - startedAt, source: "worker_native_and_render_cache" };
+    },
     historyIdentity: () => ({ epoch: historyEpoch, base: serial - native.getScrollbackLength() }),
     snapshot,
     dispose() { native?.free(); native = ghostty = null; },

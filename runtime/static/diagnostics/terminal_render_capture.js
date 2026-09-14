@@ -1,4 +1,5 @@
 import { createReplayControlEvidence } from "./replay_control_evidence.js";
+import { beginTerminalWriteComparison } from "./terminal_write_comparison.js";
 
 const observedEvents = new Set([
   "history_replay_start", "history_replay_complete", "replay_output_drained", "render_blocked",
@@ -7,6 +8,7 @@ const observedEvents = new Set([
   "presentation_ready_state", "presentation_retry_scheduled", "presentation_hold", "presentation_hold_cancel",
   "replay_batch_begin", "replay_batch_received", "replay_batch_applied", "replay_batch_interrupted",
   "state_checkpoint_restore_start", "state_checkpoint_restore_complete",
+  "resize_request", "resize_ack", "resize_server_geometry_observed",
 ]);
 
 export function createTerminalRenderCapture({ windowObject = globalThis.window,
@@ -16,6 +18,7 @@ export function createTerminalRenderCapture({ windowObject = globalThis.window,
   let enabled = false, started = false, disposed = false;
   let timer = null, viewTimer = null, sequence = 0, characters = 0, dropped = 0;
   let replayEvidence = new WeakMap(), firstFrames = new WeakMap();
+  let liveEvidence = new WeakMap(), lifecycle = 0, captureID = 0, manualPending = null;
   const replayIdentity = (session) => `${session.connectionEpoch}:${session.terminalReplayGeneration}`;
   const evidenceFor = (session) => {
     const evidence = replayEvidence.get(session);
@@ -45,14 +48,22 @@ export function createTerminalRenderCapture({ windowObject = globalThis.window,
   };
   const capture = (reason = "manual", includePixels = true) => {
     if (!enabled || !started || disposed) return;
+    if (includePixels && manualPending) return manualPending;
     const at = now();
+    const id = ++captureID, token = lifecycle;
     const context = getContext();
     const sessions = Array.from(context.sessions || []).filter((session) => !session.closed && session.tabId === context.tab);
     const panes = sessions.map((session) => {
-      try { return { ...captureSession(session, { includePixels }), replayEvidence: evidenceFor(session)?.snapshot() }; }
+      try {
+        const live = liveEvidence.get(session);
+        return { ...captureSession(session, { includePixels }), replayEvidence: evidenceFor(session)?.snapshot(),
+          liveOutputEvidence: live?.identity === replayIdentity(session) ? {
+            ...live.scanner.snapshot(), baseCursor: live.baseCursor, endCursor: live.endCursor, startedAtMs: live.startedAtMs,
+          } : null };
+      }
       catch (error) { return { pane: session.id, captureError: error?.name || "capture_failed" }; }
     });
-    append({ type: "snapshot", reason, tab: context.tab, target: context.target,
+    append({ type: "snapshot", captureID: id, reason, tab: context.tab, target: context.target,
       autoScreenRefresh: context.autoScreenRefresh, documentHidden: documentObject.hidden,
       window: { width: windowObject.innerWidth, height: windowObject.innerHeight, dpr: windowObject.devicePixelRatio,
         visualWidth: windowObject.visualViewport?.width, visualHeight: windowObject.visualViewport?.height,
@@ -62,6 +73,21 @@ export function createTerminalRenderCapture({ windowObject = globalThis.window,
       + panes.map((pane) => `${pane.pane}: ready=${pane.renderReady} current=${pane.presentationCurrent}`
         + ` frameReady=${pane.backend?.frameReady} queue=${pane.outputQueueBytes ?? "?"}`
         + ` grid=${pane.terminal?.cols}x${pane.terminal?.rows} pixels=${pane.canvasPixels?.status || "not sampled"}`).join("\n"));
+    if (!includePixels) return;
+    const promise = Promise.all(sessions.map(async (session) => {
+      const connection = session.connectionEpoch, worker = session.term?.wasmTerm;
+      let result;
+      try { result = await worker?.captureRenderEvidence?.() || { status: "unsupported" }; }
+      catch (error) { result = { status: "unavailable", error: String(error?.message || error).slice(0, 200) }; }
+      if (token !== lifecycle || !enabled || disposed) return;
+      const stale = session.closed || session.connectionEpoch !== connection || session.term?.wasmTerm !== worker;
+      append({ type: "cell_evidence", captureID: id, reason, tab: session.tabId, pane: session.id,
+        connection, stale, ...result }, `[${Math.round(now())}ms] ${session.id} 单元格对照 capture=${id}`
+        + ` raw/cache=${JSON.stringify(result.worker?.rawVsCached || result.status)}`
+        + ` UI/cache=${JSON.stringify(result.uiVsWorker)} stale=${Boolean(stale)}`);
+    })).finally(() => { if (manualPending === promise) manualPending = null; });
+    manualPending = promise;
+    return promise;
   };
   const stopTimers = () => {
     if (timer !== null) windowObject.clearTimeout(timer);
@@ -81,7 +107,10 @@ export function createTerminalRenderCapture({ windowObject = globalThis.window,
       const next = value === true && !disposed;
       if (enabled === next) return;
       enabled = next;
+      lifecycle += 1;
+      manualPending = null;
       replayEvidence = new WeakMap();
+      liveEvidence = new WeakMap();
       firstFrames = new WeakMap();
       stopTimers();
       documentObject[enabled ? "addEventListener" : "removeEventListener"]("visibilitychange", visibility);
@@ -112,6 +141,9 @@ export function createTerminalRenderCapture({ windowObject = globalThis.window,
         const value = details[key];
         if (["string", "number", "boolean"].includes(typeof value)) metadata[key] = typeof value === "string" ? value.slice(0, 200) : value;
       }
+      for (const key of ["targetSize", "terminalSize", "requestedSize", "serverSize"]) {
+        if (details[key]) metadata[key] = { cols: details[key].cols, rows: details[key].rows };
+      }
       if (event === "history_replay_start" && /^\d+$/.test(String(details.serverBaseCursor || ""))) {
         metadata.historyPrefixDiscarded = BigInt(details.serverBaseCursor) > 0n;
       }
@@ -128,18 +160,48 @@ export function createTerminalRenderCapture({ windowObject = globalThis.window,
         capture(`${event}:${session.id}`, false);
       }
     },
-    observeOutput(session, data, { replayOutput, historySource } = {}) {
-      if (!enabled || disposed || !replayOutput || historySource !== "server" || session?.tabId !== getContext().tab) return;
-      const evidence = evidenceFor(session) || beginEvidence(session);
-      evidence.consume(data);
+    observeOutput(session, data, { replayOutput, historySource, startCursor, endCursor } = {}) {
+      if (!enabled || disposed || session?.tabId !== getContext().tab || !(data instanceof Uint8Array)) return;
+      if (replayOutput) {
+        if (historySource === "server") (evidenceFor(session) || beginEvidence(session)).consume(data);
+        return;
+      }
+      const identity = replayIdentity(session);
+      let live = liveEvidence.get(session);
+      const start = startCursor == null ? null : String(startCursor);
+      if (!live || live.identity !== identity || (start !== null && live.endCursor !== start)) {
+        live = { identity, baseCursor: start, endCursor: start, startedAtMs: now(),
+          scanner: createReplayControlEvidence(null, false, { source: "live_output_before_kitty", tailLimit: 96 }) };
+        liveEvidence.set(session, live);
+      }
+      live.scanner.consume(data);
+      live.endCursor = endCursor == null ? null : String(endCursor);
     },
     capture,
-    clipboardText() {
-      capture("copy", true);
-      return ["WebShell terminal render capture v2", `Copied at: ${new Date().toISOString()}`,
+    beginWrite(session, data, options) {
+      const token = lifecycle, connection = session?.connectionEpoch, backend = session?.term?.wasmTerm;
+      const isActive = () => enabled && started && !disposed && token === lifecycle && !session?.closed
+        && session?.tabId === getContext().tab && session.connectionEpoch === connection && session.term?.wasmTerm === backend;
+      if (!isActive() || !session.term || !backend?.isRemote) return;
+      const receivedCursor = String(session.receivedHistoryCursor ?? ""), appliedCursor = String(session.appliedHistoryCursor ?? "");
+      return beginTerminalWriteComparison(session.term, data, isActive, (comparison) => {
+        append({ type: "write_byte_comparison", pane: session.id, tab: session.tabId, connection,
+          worker: backend.generation, receivedCursor, appliedCursor, ...options, ...comparison },
+        `[${Math.round(now())}ms] ${session.id} 字节对照 equal=${comparison.equal ?? "unknown"}`
+          + ` source=${comparison.source?.bytes ?? "?"} parser=${comparison.parser?.bytes ?? "?"}`
+          + ` extraCR=${comparison.insertedCR ?? "?"} convertEol=${comparison.convertEol}`);
+      });
+    },
+    async clipboardText() {
+      await capture("copy", true);
+      if (!enabled || disposed) return "";
+      return ["WebShell terminal render capture v4", `Copied at: ${new Date().toISOString()}`,
         `Retained records: ${records.length}; older records discarded: ${dropped}`,
         "Snapshots include every non-closed pane in the active tab at capture time. Earlier tab records remain labelled.",
-        "Passive capture: no resize, replay, Worker requests or repair. Auto refresh remains independently controlled.",
+        "Periodic capture uses UI caches. Manual/copy/download adds a read-only Worker RPC; no update/markClean/resize/replay/repair. Auto refresh remains independent.",
+        "cell_evidence links to snapshot by captureID. Worker raw and cached cells are read together; UI comparison requires matching revision and geometry.",
+        "Cell rows are zero-based. shape: .=blank a=ASCII u=non-ASCII g=grapheme W=wide _=spacer. Hashes omit colors, are non-cryptographic, and do not prove correctness.",
+        "Cell capture is capped at 50000 cells per pane. Timeouts/unavailable/stale results are explicit; capture itself can add Worker queue latency.",
         "backend is the UI cached frame, not a new Worker snapshot. frameReady=false means row data may be stale.",
         "rowContent uses cached visible rows including scrollback; unavailable rows are not fetched. rowStep/colStep disclose sampling limits.",
         "nonSpace/visibleGlyphs/coloredBackground are content hints, not proof of correct rendering; decorations and images need separate interpretation.",
@@ -147,17 +209,22 @@ export function createTerminalRenderCapture({ windowObject = globalThis.window,
         "Sampling can miss thin text; dark/uniform pixels can be legitimate. Canvas readback does not capture DOM occlusion or browser compositor output.",
         "No original terminal text or screenshot is included. Readiness/cursor progress is not proof of visual correctness.",
         "replayEvidence observes retained raw bytes before Kitty processing, not discarded history. ASCII ESC controls only; control-string payloads and printable text are not retained.",
+        "liveOutputEvidence observes live bytes before Kitty processing; offsets are relative to baseCursor when known. It includes scrolling/edit controls and C0 counts, with the last 96 controls retained.",
+        "write_byte_comparison compares each output batch before term.write/writeReplay with concatenated writeInternal payloads before Worker encoding. No payload is changed or exported.",
+        "Each side is capped at 256 KiB. CR/LF counts, exact equality and masked first-difference context are included. Interception/decoder buffering can legitimately differ across batch boundaries; difference alone is not a fault verdict.",
         "Control offsets are relative to observed replay start; fromStart/sizeMatches disclose partial capture. No complete-state checkpoint can be inferred from control counts alone.",
         "scanMs is diagnostic main-thread overhead. Missing reset/clear/mode controls are clues, not proof that the original program used those controls.",
         ...records.map((entry) => entry.line)].join("\n");
     },
     dispose() {
       disposed = true;
+      lifecycle += 1;
       enabled = false;
       stopTimers();
       documentObject.removeEventListener("visibilitychange", visibility);
       records.length = 0;
       replayEvidence = new WeakMap();
+      liveEvidence = new WeakMap();
       firstFrames = new WeakMap();
       characters = 0;
     },

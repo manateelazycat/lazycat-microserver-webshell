@@ -103,6 +103,12 @@ export function createTerminalRenderProbe({ windowObject = globalThis.window,
         host: describe(host), canvas: describe(canvas), holdCanvas: describe(session.terminalFrameHold), ancestors,
       };
       if (includePixels) {
+        const renderer = term?.renderer;
+        const ctx = renderer?.ctx, transform = ctx?.getTransform?.();
+        state.canvasDrawingState = { font: ctx?.font, cachedFont: renderer?.lastRenderFont,
+          textAlign: ctx?.textAlign, textBaseline: ctx?.textBaseline, globalAlpha: ctx?.globalAlpha,
+          composite: ctx?.globalCompositeOperation,
+          transform: transform ? Object.fromEntries(["a", "b", "c", "d", "e", "f"].map((key) => [key, transform[key]])) : null };
         state.canvasPixels = pixels(canvas);
         if (session.terminalFrameHeld) state.holdPixels = pixels(session.terminalFrameHold);
       }
