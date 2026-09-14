@@ -9,6 +9,9 @@ const observedEvents = new Set([
   "replay_batch_begin", "replay_batch_received", "replay_batch_applied", "replay_batch_interrupted",
   "state_checkpoint_restore_start", "state_checkpoint_restore_complete",
   "resize_request", "resize_ack", "resize_server_geometry_observed",
+  "checkpoint_resize_diagnostic", "resize_applied", "resize_native_error", "resize_fence_wait", "resize_fence_queued", "resize_fence_cleared",
+  "resize_output_settle_start", "resize_output_settle_complete", "resize_output_settle_cancel", "presentation_wait_resize", "presentation_wait_geometry",
+  "presentation_hold_capture", "presentation_hold_release", "presentation_hold_release_blocked",
 ]);
 
 export function createTerminalRenderCapture({ windowObject = globalThis.window,
@@ -19,6 +22,7 @@ export function createTerminalRenderCapture({ windowObject = globalThis.window,
   let timer = null, viewTimer = null, sequence = 0, characters = 0, dropped = 0;
   let replayEvidence = new WeakMap(), firstFrames = new WeakMap();
   let liveEvidence = new WeakMap(), lifecycle = 0, captureID = 0, manualPending = null;
+  let checkpointEvidence = new WeakMap();
   const replayIdentity = (session) => `${session.connectionEpoch}:${session.terminalReplayGeneration}`;
   const evidenceFor = (session) => {
     const evidence = replayEvidence.get(session);
@@ -57,6 +61,7 @@ export function createTerminalRenderCapture({ windowObject = globalThis.window,
       try {
         const live = liveEvidence.get(session);
         return { ...captureSession(session, { includePixels }), replayEvidence: evidenceFor(session)?.snapshot(),
+          checkpointDiagnostics: checkpointEvidence.get(session) || null,
           liveOutputEvidence: live?.identity === replayIdentity(session) ? {
             ...live.scanner.snapshot(), baseCursor: live.baseCursor, endCursor: live.endCursor, startedAtMs: live.startedAtMs,
           } : null };
@@ -111,6 +116,7 @@ export function createTerminalRenderCapture({ windowObject = globalThis.window,
       manualPending = null;
       replayEvidence = new WeakMap();
       liveEvidence = new WeakMap();
+      checkpointEvidence = new WeakMap();
       firstFrames = new WeakMap();
       stopTimers();
       documentObject[enabled ? "addEventListener" : "removeEventListener"]("visibilitychange", visibility);
@@ -127,6 +133,7 @@ export function createTerminalRenderCapture({ windowObject = globalThis.window,
       if (!enabled || disposed || !observedEvents.has(event) || !session) return;
       const context = getContext();
       if (session.tabId !== context.tab) return;
+      if (event === "checkpoint_resize_diagnostic") checkpointEvidence.set(session, details.checkpoint);
       if (event === "history_replay_start") {
         beginEvidence(session, Number.isFinite(details.serverHistoryBytes) ? details.serverHistoryBytes : null, true);
         firstFrames.delete(session);
@@ -137,10 +144,15 @@ export function createTerminalRenderCapture({ windowObject = globalThis.window,
         "syncMode", "historyGeneration", "serverBaseCursor", "serverEndCursor", "deltaFromCursor", "deltaToCursor",
         "serverHistoryBytes", "serverHistoryChunks", "replayBurstBytes", "bytes", "targetCursor", "aggregate",
         "resizeEpoch", "cols", "rows", "replayDurationMs", "serverReplayDurationMs",
-        "recoveryBaseline", "checkpointMemoryBytes", "memoryBytes", "cursor"]) {
+        "recoveryBaseline", "checkpointMemoryBytes", "memoryBytes", "cursor", "error", "captureDurationMs", "holdDurationMs",
+        "settleDurationMs", "quietMs", "maxHoldMs", "queuedBytes", "queueEntries", "nativePending",
+        "reusedPendingRequest", "queuedBehindRequest", "requestedResizeEpoch", "appliedResizeEpoch"]) {
         const value = details[key];
         if (["string", "number", "boolean"].includes(typeof value)) metadata[key] = typeof value === "string" ? value.slice(0, 200) : value;
       }
+      if (details.checkpoint) metadata.checkpoint = details.checkpoint;
+      if (details.resizeTiming) metadata.resizeTiming = details.resizeTiming;
+      if (Array.isArray(details.blockedBy)) metadata.blockedBy = details.blockedBy.slice(0, 16);
       for (const key of ["targetSize", "terminalSize", "requestedSize", "serverSize"]) {
         if (details[key]) metadata[key] = { cols: details[key].cols, rows: details[key].rows };
       }
@@ -195,14 +207,15 @@ export function createTerminalRenderCapture({ windowObject = globalThis.window,
     async clipboardText() {
       await capture("copy", true);
       if (!enabled || disposed) return "";
-      return ["WebShell terminal render capture v4", `Copied at: ${new Date().toISOString()}`,
+      return ["WebShell terminal render capture v5", `Copied at: ${new Date().toISOString()}`,
         `Retained records: ${records.length}; older records discarded: ${dropped}`,
         "Snapshots include every non-closed pane in the active tab at capture time. Earlier tab records remain labelled.",
         "Periodic capture uses UI caches. Manual/copy/download adds a read-only Worker RPC; no update/markClean/resize/replay/repair. Auto refresh remains independent.",
         "cell_evidence links to snapshot by captureID. Worker raw and cached cells are read together; UI comparison requires matching revision and geometry.",
         "Cell rows are zero-based. shape: .=blank a=ASCII u=non-ASCII g=grapheme W=wide _=spacer. Hashes omit colors, are non-cryptographic, and do not prove correctness.",
         "Cell capture is capped at 50000 cells per pane. Timeouts/unavailable/stale results are explicit; capture itself can add Worker queue latency.",
-        "backend is the UI cached frame, not a new Worker snapshot. frameReady=false means row data may be stale.",
+        "backend rows/cursor describe the cached frame. revision/modes describe parser progress; frameRevision/frameModes describe the frame. frameCurrent=false may be normal between frames.",
+        "Worker cachedRevision identifies RenderState; cacheCurrent=false means newer bytes are parsed but not yet materialized. UI comparison uses cachedRevision, not parser revision.",
         "rowContent uses cached visible rows including scrollback; unavailable rows are not fetched. rowStep/colStep disclose sampling limits.",
         "nonSpace/visibleGlyphs/coloredBackground are content hints, not proof of correct rendering; decorations and images need separate interpretation.",
         "Pixels are sampled only on manual capture/copy, at 64x64 on a separate canvas. Bands 0..3 run top to bottom; colors are quantized.",
@@ -212,6 +225,7 @@ export function createTerminalRenderCapture({ windowObject = globalThis.window,
         "liveOutputEvidence observes live bytes before Kitty processing; offsets are relative to baseCursor when known. It includes scrolling/edit controls and C0 counts, with the last 96 controls retained.",
         "write_byte_comparison compares each output batch before term.write/writeReplay with concatenated writeInternal payloads before Worker encoding. No payload is changed or exported.",
         "Each side is capped at 256 KiB. CR/LF counts, exact equality and masked first-difference context are included. Interception/decoder buffering can legitimately differ across batch boundaries; difference alone is not a fault verdict.",
+        "v5 includes server checkpoint resize diagnostics, Canvas copy/hold timing and release blockers. The hold is a Canvas copy, not PNG encoding. Settle deadline covers quiet waiting, not the whole resize transaction.",
         "Control offsets are relative to observed replay start; fromStart/sizeMatches disclose partial capture. No complete-state checkpoint can be inferred from control counts alone.",
         "scanMs is diagnostic main-thread overhead. Missing reset/clear/mode controls are clues, not proof that the original program used those controls.",
         ...records.map((entry) => entry.line)].join("\n");
@@ -225,6 +239,7 @@ export function createTerminalRenderCapture({ windowObject = globalThis.window,
       records.length = 0;
       replayEvidence = new WeakMap();
       liveEvidence = new WeakMap();
+      checkpointEvidence = new WeakMap();
       firstFrames = new WeakMap();
       characters = 0;
     },

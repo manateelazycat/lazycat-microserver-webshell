@@ -30,8 +30,12 @@ export class RemoteTerminal {
   }
   restart(config = this.config) {
     if (this.disposed) throw cancelled();
+    this.preparedReplayReset = null;
     if (this.worker) this.diagnostic("backend_restart", { reason: "terminal_reset" });
     this.worker?.terminate();
+    clearTimeout(this.syncOutputTimer);
+    this.syncOutputTimer = null;
+    this.syncOutputDeadline = 0;
     for (const pending of this.pending.values()) { clearTimeout(pending.timer); pending.reject(cancelled()); }
     this.pending.clear();
     this.pendingBytes = 0;
@@ -40,6 +44,11 @@ export class RemoteTerminal {
     this.failed = false;
     this.checkpointRestorePending = false;
     this.frame = null;
+    this.progress = null;
+    this.renderingFrame = null;
+    this.lastRenderedFrame = null;
+    this.hasRenderedFrame = false;
+    this.outputPresentations = new Map();
     this.lines = null;
     this.viewportCells = null;
     this.viewportRevision = -1;
@@ -81,6 +90,7 @@ export class RemoteTerminal {
         const frameTiming = pending.startedAt !== null ? {} : null;
         const acceptAt = frameTiming ? performance.now() : 0;
         if (data.result?.terminalState) this.acceptFrame(data.result, frameTiming);
+        else if (data.result?.terminalProgress) this.acceptProgress(data.result);
         if (frameTiming) completeDiagnostic({ ...frameTiming,
           frameAcceptMs: performance.now() - acceptAt, rpcTotalMs: performance.now() - pending.startedAt });
         pending.resolve(data.result);
@@ -103,6 +113,8 @@ export class RemoteTerminal {
     error.code ||= "BACKEND_FAILURE";
     this.diagnostic("backend_failed", { error: error.message });
     this.worker?.terminate();
+    clearTimeout(this.syncOutputTimer);
+    this.syncOutputTimer = null;
     for (const pending of this.pending.values()) { clearTimeout(pending.timer); pending.reject(error); }
     this.pending.clear();
     this.pendingBytes = 0;
@@ -178,35 +190,84 @@ export class RemoteTerminal {
     const unpackAt = timing ? performance.now() : 0;
     if (this.frame && frame.revision < this.frame.revision) return;
     if (frame.viewport && (frame.viewport.columns !== frame.cols || frame.viewport.rows !== frame.rows)) throw new Error("Terminal frame geometry mismatch");
-    if (this.frame?.historyEpoch !== frame.historyEpoch) this.history.clear();
+    this.acceptProgress(frame, false);
     if (frame.viewport) {
       this.lines = unpackRows(frame.viewport);
       this.viewportCells = this.lines.flat();
       this.viewportRevision = frame.revision;
     }
-    this.cols = frame.cols;
-    this.rows = frame.rows;
     this.frame = frame;
-    this.responses.push(...frame.responses);
+    frame.presentation = this.presentationAt(frame.revision);
     this.acceptHistory(frame.history);
     if (timing) timing.frameUnpackMs = performance.now() - unpackAt;
     this.dirty = true;
     this.onChange?.();
   }
+  acceptProgress(state, notify = true) {
+    if (this.progress && state.revision < this.progress.revision) return;
+    if (this.progress?.historyEpoch !== state.historyEpoch) this.history.clear();
+    this.progress = state;
+    this.cols = state.cols;
+    this.rows = state.rows;
+    this.responses.push(...(state.responses || []));
+    const remaining = Number(state.syncOutputRemainingMs || 0);
+    if (remaining <= 0) {
+      clearTimeout(this.syncOutputTimer);
+      this.syncOutputTimer = null;
+      this.syncOutputDeadline = 0;
+    } else if (!this.syncOutputTimer) {
+      const generation = this.generation;
+      this.syncOutputDeadline = performance.now() + remaining;
+      this.syncOutputTimer = setTimeout(() => {
+        this.syncOutputTimer = null;
+        this.syncOutputDeadline = 0;
+        if (!this.disposed && !this.failed && this.generation === generation) this.onChange?.();
+      }, remaining);
+    }
+    if (notify) this.onChange?.();
+  }
+  markOutputApplied(presentation) {
+    if (!this.progress) return;
+    this.outputPresentations.set(this.progress.revision, { ...presentation });
+    if (this.frame?.revision === this.progress.revision) this.frame.presentation = { ...presentation };
+    while (this.outputPresentations.size > 128) this.outputPresentations.delete(this.outputPresentations.keys().next().value);
+  }
+  presentationAt(targetRevision) {
+    let result = this.frame?.revision === targetRevision ? this.frame.presentation || null : null;
+    for (const [revision, presentation] of this.outputPresentations) {
+      if (revision > targetRevision) break;
+      result = presentation;
+    }
+    return result;
+  }
+  renderedPresentation() { return this.lastRenderedFrame?.presentation || null; }
+  get isSynchronizedOutputHeld() { return this.syncOutputDeadline > performance.now(); }
+  get currentState() { return this.renderingFrame || this.progress || this.frame; }
+  renderWithFrame(callback) {
+    this.renderingFrame = this.frame;
+    this.lastRenderedFrame = this.frame;
+    try {
+      const rendered = callback();
+      if (rendered) this.hasRenderedFrame = true;
+      return rendered;
+    } finally { this.renderingFrame = null; }
+  }
   acceptHistory(range) {
-    if (!range?.packet || range.epoch !== this.frame?.historyEpoch) return;
+    if (!range?.packet || range.epoch !== this.progress?.historyEpoch) return;
     const rows = unpackRows(range.packet);
     for (let index = 0; index < rows.length; index += 1) {
       const key = range.start + index;
       this.history.delete(key);
       this.history.set(key, rows[index]);
     }
-    const base = this.frame.serial - this.frame.scrollback;
+    const base = this.progress.serial - this.progress.scrollback;
     for (const key of this.history.keys()) if (key < base) this.history.delete(key);
     while (this.history.size > Math.max(512, this.rows * 4)) this.history.delete(this.history.keys().next().value);
   }
-  get isReady() { return Boolean(this.frame && !this.failed && !this.disposed && !this.checkpointRestorePending); }
-  get isFrameReady() { return this.isReady && this.viewportRevision === this.frame.revision && Boolean(this.viewportCells); }
+  get isReady() { return Boolean(this.progress && !this.failed && !this.disposed && !this.checkpointRestorePending); }
+  get isFrameCurrent() { return this.isFrameReady && this.viewportRevision === this.progress.revision; }
+  get isFrameReady() { return this.isReady && !this.isSynchronizedOutputHeld && Boolean(this.viewportCells)
+    && this.frame?.cols === this.cols && this.frame?.rows === this.rows && this.frame?.historyEpoch === this.progress.historyEpoch; }
   get isPending() {
     // Read-only observations must not cause prepareRecovery to reset a pane.
     for (const request of this.pending.values()) if (request.type !== "diagnose") return true;
@@ -241,18 +302,19 @@ export class RemoteTerminal {
     }
     return {
       source: "cached_ui_frame", ready: this.isReady, frameReady: this.isFrameReady,
-      failed: this.failed, generation: this.generation, revision: frame?.revision,
+      failed: this.failed, generation: this.generation, revision: this.progress?.revision,
+      frameRevision: frame?.revision, frameCurrent: this.isFrameCurrent, synchronizedOutputHeld: this.isSynchronizedOutputHeld,
       viewportRevision: this.viewportRevision, historyEpoch: frame?.historyEpoch,
       cols: this.cols, rows: this.rows, scrollback: frame?.scrollback, serial: frame?.serial,
       viewportY: offset, cursor: frame?.cursor, colors: frame?.colors, alternate: frame?.alternate,
-      modes: frame?.modes, wrapped: frame?.wrapped,
+      modes: this.progress?.modes, frameModes: frame?.modes, wrapped: frame?.wrapped,
       pendingRequests: this.pending.size, pendingBytes: this.pendingBytes,
       pendingOperations: [...this.pending.values()].map((entry) => entry.type),
       snapshotPending: Boolean(this.snapshotPending), cachedHistoryRows: this.history.size,
       rowStep, colStep, rowContent: rows,
     };
   }
-  write(data) { return this.request("write", { data, viewportY: this.viewport?.() || 0, visible: this.visible?.() !== false }); }
+  write(data) { return this.request("write", { data }); }
   captureRenderEvidence() {
     if (this.diagnosticPending) return this.diagnosticPending;
     const generation = this.generation;
@@ -263,7 +325,8 @@ export class RemoteTerminal {
     const promise = this.request("diagnose").then((worker) => {
       if (generation !== this.generation || this.disposed) throw cancelled();
       const after = readUI();
-      const matching = [before, after].find((ui) => ui.revision === worker.revision && ui.viewportRevision === worker.revision);
+      const cachedRevision = worker.cachedRevision ?? worker.revision;
+      const matching = [before, after].find((ui) => ui.revision === cachedRevision && ui.viewportRevision === cachedRevision);
       return { generation, before, after, worker, durationMs: performance.now() - startedAt,
         uiVsWorker: matching ? compareCellDescriptions(matching.cells, worker.cached)
           : { comparable: false, reason: "revision_changed_or_frame_stale" } };
@@ -279,12 +342,24 @@ export class RemoteTerminal {
     });
   }
   resize(cols, rows) { return this.request("resize", { cols, rows, viewportY: this.viewport?.() || 0 }); }
-  resetBackend(config) { return this.restart(config); }
-  getDimensions() { return { cols: this.cols, rows: this.rows }; }
+  markPreparedForReplay() {
+    this.preparedReplayReset = { generation: this.generation, nextID: this.nextID,
+      config: JSON.stringify(this.config) };
+  }
+  resetBackend(config) {
+    const prepared = this.preparedReplayReset;
+    this.preparedReplayReset = null;
+    // Reuse only the untouched replacement prepared for this recovery. Any
+    // intervening command, config change, failure or generation retires it.
+    if (prepared && !this.failed && !this.disposed && prepared.generation === this.generation
+      && prepared.nextID === this.nextID && prepared.config === JSON.stringify(config)) return this.ready;
+    return this.restart(config);
+  }
+  getDimensions() { return { cols: this.currentState?.cols || this.cols, rows: this.currentState?.rows || this.rows }; }
   getCursor() { return this.frame?.cursor || { x: 0, y: 0, visible: false }; }
   getColors() { return this.frame?.colors || null; }
   getViewport() {
-    if (this.isReady && this.viewportRevision !== this.frame.revision) {
+    if (!this.renderingFrame && this.isReady && !this.isSynchronizedOutputHeld && this.viewportRevision !== this.progress.revision) {
       if (!this.snapshotPending) {
         const generation = this.generation;
         const promise = this.request("snapshot", { viewportY: this.viewport?.() || 0 }).finally(() => {
@@ -293,18 +368,17 @@ export class RemoteTerminal {
         promise.catch(() => {});
         this.snapshotPending = promise;
       }
-      return null;
     }
-    return this.isReady ? this.viewportCells : null;
+    return this.isFrameReady && (this.hasRenderedFrame || this.isFrameCurrent) ? this.viewportCells : null;
   }
   getLine(row) { return this.getViewport() ? this.lines?.[row] || null : null; }
-  getScrollbackLength() { return this.frame?.scrollback || 0; }
-  getScrollbackGeneration() { return this.frame?.serial || 0; }
-  getMode(mode, ansi = false) { return this.frame?.modes?.[`${ansi ? "a" : "d"}${mode}`] === true; }
+  getScrollbackLength() { return this.currentState?.scrollback || 0; }
+  getScrollbackGeneration() { return this.currentState?.serial || 0; }
+  getMode(mode, ansi = false) { return this.currentState?.modes?.[`${ansi ? "a" : "d"}${mode}`] === true; }
   hasBracketedPaste() { return this.getMode(2004); }
   hasFocusEvents() { return this.getMode(1004); }
-  hasMouseTracking() { return this.frame?.mouseTracking === true; }
-  isAlternateScreen() { return this.frame?.alternate === true; }
+  hasMouseTracking() { return this.currentState?.mouseTracking === true; }
+  isAlternateScreen() { return this.currentState?.alternate === true; }
   isRowWrapped(row) { return this.frame?.wrapped?.[row] === true; }
   getHyperlinkUri() { return null; }
   needsFullRedraw() { return this.dirty === true; }
@@ -371,11 +445,13 @@ export class RemoteTerminal {
     if (this.disposed) return;
     this.disposed = true;
     this.worker?.terminate();
+    clearTimeout(this.syncOutputTimer);
     for (const pending of this.pending.values()) { clearTimeout(pending.timer); pending.reject(cancelled()); }
     this.pending.clear();
     this.reads.clear();
     this.history.clear();
-    this.frame = this.lines = this.viewportCells = null;
+    this.progress = this.frame = this.lines = this.viewportCells = null;
+    this.outputPresentations.clear();
     this.responses = [];
     this.onDispose?.(this);
   }

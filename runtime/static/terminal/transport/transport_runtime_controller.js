@@ -318,6 +318,7 @@ export function createTerminalTransportRuntimeController({
     unifiedChannelGeneration += 1;
     const generation = unifiedChannelGeneration;
     session.unifiedConnectPending = true;
+    session.pendingConnect = false;
     attachStartedAt.set(session, now());
     session.connectionChannel = "unified";
     session.connectionChannelGeneration = generation;
@@ -394,6 +395,13 @@ export function createTerminalTransportRuntimeController({
       }
       if (priority(pane) > 1 && (foregroundWaiting || backgroundRestoring >= 2)) {
         deferred = true;
+        continue;
+      }
+      if (!sessionHasKnownSize(pane)) {
+        // Keep a readiness obligation when the retry timer beats Worker init.
+        pane.pendingConnect = true;
+        // Failed Workers are restarted by health/recovery, not a polling loop.
+        deferred ||= pane.term?.wasmTerm?.failed !== true;
         continue;
       }
       if (connectUnifiedSession(pane) && priority(pane) > 1) backgroundRestoring += 1;
@@ -610,14 +618,15 @@ export function createTerminalTransportRuntimeController({
       connectionChannel: String(session.connectionChannel || ""),
       connectionEpoch: Number(session.connectionEpoch || 0),
     });
-    session.pendingConnect = false;
     if (!isClientTarget(getActiveName())) {
+      session.pendingConnect = !session.socket;
       refreshMembership({
         reason,
         interactionSession: userInteraction && session.tabId === getActiveTabID() ? session : null,
       });
       return true;
     }
+    session.pendingConnect = false;
     return ensureDirectScheduler().request(session, {
       priority: priorityFor(session, { userInteraction }),
       generation: demandGeneration,
@@ -689,6 +698,17 @@ export function createTerminalTransportRuntimeController({
     if (socketReadyState === socketOpen || socketReadyState === socketConnecting) {
       session.pendingConnect = false;
       return true;
+    }
+    if (!isClientTarget(getActiveName()) && Number(session.measuredFitGeneration || 0) > 0 && sessionHasKnownSize(session)) {
+      if (documentObject?.hidden && !allowHidden) return false;
+      // Known geometry is sufficient for attach. Do not require the failed
+      // old resize to complete before beginning its replacement connection.
+      return requestConnection(session, { reason: "backend_ready", allowHidden });
+    }
+    if (!isClientTarget(getActiveName()) && Number(session.measuredFitGeneration || 0) > 0) {
+      session.pendingConnect = true;
+      scheduleUnifiedSync({ reason: "backend_pending" });
+      return false;
     }
     if (isSessionMeasurable(session)) {
       if (documentObject?.hidden && !allowHidden) {

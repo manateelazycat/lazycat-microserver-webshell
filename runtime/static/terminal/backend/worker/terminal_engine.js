@@ -1,6 +1,7 @@
 import { packRows } from "../cell_packet.js";
 import { captureNativeRenderDiagnostics } from "./render_diagnostics.js";
 import { loadCheckpointGhostty, restoreMemoryCheckpoint, validateMemoryCheckpoint } from "./memory_checkpoint.js";
+import { createSynchronizedOutput } from "./synchronized_output.js";
 
 const privateModes = [1, 6, 7, 9, 25, 47, 1000, 1002, 1003, 1004, 1005, 1006, 1007, 1015, 1016, 1047, 1049, 2004, 2026, 2027];
 const ansiModes = [2, 4, 12, 20];
@@ -10,10 +11,12 @@ export function createTerminalEngine() {
   let native = null;
   let ghostty = null;
   let revision = 0;
+  let cachedRevision = 0;
   let historyEpoch = 0;
   let serial = 0;
   let previousGeneration = 0;
   let terminalConfig = {};
+  const synchronizedOutput = createSynchronizedOutput();
 
   const trackHistory = () => {
     const generation = native.getScrollbackGeneration();
@@ -29,8 +32,7 @@ export function createTerminalEngine() {
     for (let row = first; row < last; row += 1) lines.push(native.getScrollbackLine(row - base));
     return { start: first, epoch: historyEpoch, packet: packRows(lines, native.cols) };
   };
-  const snapshot = (viewportY = 0, includeFrame = true) => {
-    native.update();
+  const progress = () => {
     const length = native.getScrollbackLength();
     const responses = [];
     let responseBytes = 0;
@@ -41,20 +43,26 @@ export function createTerminalEngine() {
       responseBytes += response.length;
       if (responseBytes > 256 * 1024) throw new Error("Terminal response queue exceeded capacity");
     }
-    const top = serial - Math.min(length, Math.max(0, Math.ceil(viewportY)));
-    const frame = {
-      terminalState: true,
+    const modes = Object.fromEntries([
+      ...privateModes.map((mode) => [`d${mode}`, native.getMode(mode, false)]),
+      ...ansiModes.map((mode) => [`a${mode}`, native.getMode(mode, true)]),
+    ]);
+    return {
+      terminalProgress: true,
       revision, historyEpoch, serial, scrollback: length,
       cols: native.cols, rows: native.rows,
-      cursor: native.getCursor(), colors: native.getColors(),
       alternate: native.isAlternateScreen(), mouseTracking: native.hasMouseTracking(),
-      modes: Object.fromEntries([
-        ...privateModes.map((mode) => [`d${mode}`, native.getMode(mode, false)]),
-        ...ansiModes.map((mode) => [`a${mode}`, native.getMode(mode, true)]),
-      ]),
+      modes, syncOutputRemainingMs: synchronizedOutput.observe(modes.d2026),
       responses,
     };
-    if (includeFrame) {
+  };
+  const snapshot = (viewportY = 0) => {
+    const state = progress();
+    if (state.syncOutputRemainingMs > 0) return state;
+    native.update();
+    const top = serial - Math.min(state.scrollback, Math.max(0, Math.ceil(viewportY)));
+    const frame = { ...state, terminalState: true, cursor: native.getCursor(), colors: native.getColors() };
+    {
       const cells = native.getViewport();
       if (!cells || cells.length < native.cols * native.rows) throw new Error("Terminal viewport is incomplete");
       const lines = Array.from({ length: native.rows }, (_, row) => cells.slice(row * native.cols, (row + 1) * native.cols));
@@ -63,11 +71,13 @@ export function createTerminalEngine() {
       frame.history = historyRange(top - 32, Math.min(serial, top + native.rows + 32));
     }
     native.markClean();
+    cachedRevision = revision;
     return frame;
   };
 
   return Object.freeze({
     async init({ wasmURL, cols, rows, config }, timing = null) {
+      synchronizedOutput.reset();
       terminalConfig = config || {};
       const startedAt = timing ? performance.now() : 0;
       ghostty = await loadCheckpointGhostty(wasmURL);
@@ -85,7 +95,7 @@ export function createTerminalEngine() {
       });
       return frame;
     },
-    write({ data, viewportY, visible = true }, timing = null) {
+    write({ data }, timing = null) {
       if (!native) throw new Error("Terminal backend is not initialized");
       const bytes = typeof data === "string" ? encoder.encode(data) : data;
       const writeStartSerial = serial;
@@ -94,10 +104,11 @@ export function createTerminalEngine() {
       const parsedAt = timing ? performance.now() : 0;
       trackHistory();
       revision += 1;
-      const result = { ...snapshot(viewportY, visible), writeStartSerial };
+      // No RenderState update, cell packing or markClean on the parser lane.
+      const result = { ...progress(), writeStartSerial };
       if (timing) {
         timing.parseMs = parsedAt - parseStartedAt;
-        timing.snapshotMs = performance.now() - parsedAt;
+        timing.progressMs = performance.now() - parsedAt;
       }
       return result;
     },
@@ -109,6 +120,7 @@ export function createTerminalEngine() {
       native.free();
       ghostty = restoredGhostty;
       native = restored;
+      synchronizedOutput.reset();
       historyEpoch += 1;
       revision += 1;
       previousGeneration = native.getScrollbackGeneration();
@@ -130,7 +142,7 @@ export function createTerminalEngine() {
     native: () => native,
     diagnose() {
       const startedAt = performance.now();
-      return { ...captureNativeRenderDiagnostics(native), revision, historyEpoch,
+      return { ...captureNativeRenderDiagnostics(native), revision, cachedRevision, cacheCurrent: cachedRevision === revision, historyEpoch,
         durationMs: performance.now() - startedAt, source: "worker_native_and_render_cache" };
     },
     historyIdentity: () => ({ epoch: historyEpoch, base: serial - native.getScrollbackLength() }),

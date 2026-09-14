@@ -27,8 +27,8 @@ import (
 )
 
 const (
-	// v19 embeds the read-only native cell diagnostics ABI used by render capture.
-	agentProtocolVersion = "lcmd-webshell-agent-v19"
+	// v22 fixes native reflow capacity growth and managed page cloning.
+	agentProtocolVersion = "lcmd-webshell-agent-v22"
 
 	agentFrameBinary         = byte('B')
 	agentFrameText           = byte('T')
@@ -557,7 +557,7 @@ func (d *agentDaemon) handleAttach(ctx context.Context, conn net.Conn, reader *b
 		}
 		if request.CheckpointProtocol == terminalMemoryCheckpointProtocol {
 			_ = writeAgentControlFrame(conn, map[string]any{"type": "terminal-checkpoint-error", "selector": workspace.selector,
-				"pane_id": request.PaneID, "message": err.Error()})
+				"pane_id": request.PaneID, "message": err.Error(), "checkpoint_diagnostics": pane.checkpointDiagnostics()})
 			return
 		}
 		_ = writeAgentControlFrame(conn, map[string]any{

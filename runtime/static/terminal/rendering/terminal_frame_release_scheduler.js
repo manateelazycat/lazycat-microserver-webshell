@@ -29,25 +29,24 @@ export const createTerminalFrameReleaseScheduler = ({
     ) {
       return false;
     }
-    cancel(target);
-    const state = { frame: 0, target };
+    const scheduled = states.get(target);
+    if (scheduled) {
+      // New valid commits update the checks, not the release deadline.
+      scheduled.shouldRelease = shouldRelease;
+      scheduled.release = release;
+      return true;
+    }
+    const state = { frame: 0, target, shouldRelease, release };
     states.set(target, state);
     pending.add(state);
     state.frame = requestFrame(() => {
       if (states.get(target) !== state) {
         return;
       }
-      state.frame = requestFrame(() => {
-        if (states.get(target) !== state) {
-          return;
-        }
-        state.frame = 0;
-        pending.delete(state);
-        states.delete(target);
-        if (shouldRelease()) {
-          release();
-        }
-      });
+      state.frame = 0;
+      pending.delete(state);
+      states.delete(target);
+      if (state.shouldRelease()) state.release();
     });
     return true;
   };

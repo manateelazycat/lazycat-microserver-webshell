@@ -81,3 +81,7 @@ WASM resize 失败必须向上传递，不能提前提交本地已应用行列�
 自动化测试：`terminal_resize_controller_test.mjs`（含默认控制帧 serializer、普通 resize 的 claim 升级、owner 拒绝保帧重试、matching ACK 前全部 output entry 使用旧网格排空、interactive/metrics source 重叠、live geometry/trailing fit、window settle、单 in-flight/latest target、同 epoch 重试、remote ACK 幂等，以及 pending/settled owner 跨 connection transition 的重放、迟到 ACK 和隐藏 pane 不抢占）、`terminal_resize_scheduler_test.mjs`、`terminal_size_sync_test.go`、`TestRuntimeResizeEpochAckGuard`、`TestRuntimeCrossClientResizeDoesNotAutoReclaim`、`TestRuntimeTabResizeDoesNotTemporarilyActivateAllTabs` 和 resize 模块边界 guard。真实物理断线期间的 claim/输入恢复由 `spec-tests/terminal/resize-sync` 覆盖。
 
 最小真实回归：在 `debug123` 同一 pane 持续输出时改变窗口尺寸、分屏比例、字号、行高、tab、字体族和主题；桌面分屏/窗口及字号/行高变化要确认 live Canvas 顶部不变、几何有界跟随、hold 始终隐藏且最终只提交最新尺寸（`spec-tests/terminal/geometry-jitter`、`spec-tests/workspace/split-divider`），其他原子 resize/字体族加载要确认 backing store 变化前 hold 已可见、ACK 前本地 cols/rows 不变、最终画面非空且没有 replay 中间帧。手机与桌面交替 claim 同一 pane 时远端 observation 不自动反抢；连续同设备点击不得新增 resize frame、改变 Canvas 几何或短暂隐藏已呈现画面；全程普通容器页面只有一条 Unified 物理 WebSocket，console/pageerror/API error 为零。
+
+尺寸 fence 和 settle 的分批排空继续遵守冻结的输出边界及每轮预算；有全局 scheduler 时直接排入下一轮任务，不再为每个批次额外等待固定 32ms。清理事务时取消对应任务，后续输出不扩展已经冻结的排空范围。没有 scheduler 时沿用 timeout fallback。
+
+`retireForRecovery()` 只退休旧连接的本地 resize 工作和失败门禁，保留可见用户的尺寸控制意图，不伪造 ACK。新连接开始前的 DOM fit 只报告待办，不再次操作旧引擎；`beginConnection()` 接管后按原回放尺寸事务继续。交互 resize 在一个 native 操作进行中只保留最新本地意图，完成后再测量；已经绑定输出边界的 fence 队列不参与合并。

@@ -1,0 +1,258 @@
+--- a/src/terminal/PageList.zig
++++ b/src/terminal/PageList.zig
+@@ -1220,7 +1220,7 @@
+                 // with graphemes then we increase capacity.
+                 if (self.page.graphemeCount() >= self.page.graphemeCapacity()) {
+                     try self.adjustCapacity(list, .{
+-                        .hyperlink_bytes = cap.grapheme_bytes * 2,
++                        .grapheme_bytes = try growPageCapacity(self.page.capacity.grapheme_bytes),
+                     });
+                 }
+
+@@ -1237,9 +1237,10 @@
+                     // Grow our capacity until we can
+                     // definitely fit the extra bytes.
+                     const required = cps.len * @sizeOf(u21);
+-                    var new_grapheme_capacity: usize = cap.grapheme_bytes;
+-                    while (new_grapheme_capacity - cap.grapheme_bytes < required) {
+-                        new_grapheme_capacity *= 2;
++                    const current_grapheme_capacity = self.page.capacity.grapheme_bytes;
++                    var new_grapheme_capacity = try growPageCapacity(current_grapheme_capacity);
++                    while (new_grapheme_capacity - current_grapheme_capacity < required) {
++                        new_grapheme_capacity = try growPageCapacity(new_grapheme_capacity);
+                     }
+                     try self.adjustCapacity(list, .{
+                         .grapheme_bytes = new_grapheme_capacity,
+@@ -1250,83 +1251,59 @@
+                 try self.page.setGraphemes(self.page_row, self.page_cell, cps);
+             }
+
+-            // Copy hyperlink data.
++            // Copy hyperlink data. Reuse entries already on the destination
++            // page before allocating URI/ID strings for another linked cell.
+             if (cell.hyperlink) {
+                 const src_id = src_page.lookupHyperlink(cell).?;
+                 const src_link = src_page.hyperlink_set.get(src_page.memory, src_id);
+-
+-                // If our page can't support an additional cell
+-                // with a hyperlink then we increase capacity.
+                 if (self.page.hyperlinkCount() >= self.page.hyperlinkCapacity()) {
+                     try self.adjustCapacity(list, .{
+-                        .hyperlink_bytes = cap.hyperlink_bytes * 2,
++                        .hyperlink_bytes = try growPageCapacity(self.page.capacity.hyperlink_bytes),
+                     });
+                 }
+
+-                // Ensure that the string alloc has sufficient capacity
+-                // to dupe the link (and the ID if it's not implicit).
+-                const additional_required_string_capacity =
+-                    src_link.uri.len +
+-                    switch (src_link.id) {
+-                        .explicit => |v| v.len,
+-                        .implicit => 0,
+-                    };
+-                if (self.page.string_alloc.alloc(
+-                    u8,
+-                    self.page.memory,
+-                    additional_required_string_capacity,
+-                )) |slice| {
+-                    // We have enough capacity, free the test alloc.
+-                    self.page.string_alloc.free(self.page.memory, slice);
+-                } else |_| {
+-                    // Grow our capacity until we can
+-                    // definitely fit the extra bytes.
+-                    var new_string_capacity: usize = cap.string_bytes;
+-                    while (new_string_capacity - cap.string_bytes < additional_required_string_capacity) {
+-                        new_string_capacity *= 2;
++                const dst_id = dst_id: {
++                    if (self.page.hyperlink_set.lookupContext(
++                        self.page.memory,
++                        src_link.*,
++                        .{ .page = self.page, .src_page = src_page },
++                    )) |id| {
++                        self.page.hyperlink_set.use(self.page.memory, id);
++                        break :dst_id id;
+                     }
+-                    try self.adjustCapacity(list, .{
+-                        .string_bytes = new_string_capacity,
+-                    });
+-                }
+-
+-                const dst_id = self.page.hyperlink_set.addWithIdContext(
+-                    self.page.memory,
+-                    // We made sure there was enough capacity for this above.
+-                    try src_link.dupe(src_page, self.page),
+-                    src_id,
+-                    .{ .page = self.page },
+-                ) catch |err| id: {
+-                    // If the add failed then either the set needs to grow
+-                    // or it needs to be rehashed. Either one of those can
+-                    // be accomplished by adjusting capacity, either with
+-                    // no actual change or with an increased hyperlink cap.
+-                    try self.adjustCapacity(list, switch (err) {
+-                        error.OutOfMemory => .{
+-                            .hyperlink_bytes = cap.hyperlink_bytes * 2,
+-                        },
+-                        error.NeedsRehash => .{},
+-                    });
+-
+-                    // We assume this one will succeed. We dupe the link
+-                    // again, and don't have to worry about the other one
+-                    // because adjusting the capacity naturally clears up
+-                    // any managed memory not associated with a cell yet.
+-                    break :id try self.page.hyperlink_set.addWithIdContext(
+-                        self.page.memory,
+-                        try src_link.dupe(src_page, self.page),
+-                        src_id,
+-                        .{ .page = self.page },
+-                    );
+-                } orelse src_id;
+-
+-                // We expect this to succeed due to the
+-                // hyperlinkCapacity check we did before.
+-                try self.page.setHyperlink(
+-                    self.page_row,
+-                    self.page_cell,
+-                    dst_id,
+-                );
++
++                    var attempts: u8 = 0;
++                    while (true) {
++                        // URI and explicit ID are separate rounded allocations.
++                        // A probe of their combined raw length is insufficient.
++                        const link = src_link.dupe(src_page, self.page) catch |err| {
++                            if (attempts >= page_capacity_retry_limit) return err;
++                            attempts += 1;
++                            try self.adjustCapacity(list, .{
++                                .string_bytes = try growPageCapacity(self.page.capacity.string_bytes),
++                            });
++                            continue;
++                        };
++                        const id = self.page.hyperlink_set.addWithIdContext(
++                            self.page.memory,
++                            link,
++                            src_id,
++                            .{ .page = self.page },
++                        ) catch |err| {
++                            // Failed insertion did not acquire the strings.
++                            // Release them before cloning the destination page.
++                            link.free(self.page);
++                            if (attempts >= page_capacity_retry_limit) return err;
++                            attempts += 1;
++                            try self.adjustCapacity(list, .{
++                                .hyperlink_bytes = try growPageCapacity(self.page.capacity.hyperlink_bytes),
++                            });
++                            continue;
++                        };
++                        break :dst_id id orelse src_id;
++                    }
++                };
++                try self.page.setHyperlink(self.page_row, self.page_cell, dst_id);
+             }
+
+             // Copy style data.
+@@ -1336,29 +1313,24 @@
+                     cell.style_id,
+                 ).*;
+
+-                const id = self.page.styles.addWithId(
+-                    self.page.memory,
+-                    style,
+-                    cell.style_id,
+-                ) catch |err| id: {
+-                    // If the add failed then either the set needs to grow
+-                    // or it needs to be rehashed. Either one of those can
+-                    // be accomplished by adjusting capacity, either with
+-                    // no actual change or with an increased style cap.
+-                    try self.adjustCapacity(list, switch (err) {
+-                        error.OutOfMemory => .{
+-                            .styles = cap.styles * 2,
+-                        },
+-                        error.NeedsRehash => .{},
+-                    });
+-
+-                    // We assume this one will succeed.
+-                    break :id try self.page.styles.addWithId(
+-                        self.page.memory,
+-                        style,
+-                        cell.style_id,
+-                    );
+-                } orelse cell.style_id;
++                const id = id: {
++                    var attempts: u8 = 0;
++                    while (true) {
++                        const next_id = self.page.styles.addWithId(
++                            self.page.memory,
++                            style,
++                            cell.style_id,
++                        ) catch |err| {
++                            if (attempts >= page_capacity_retry_limit) return err;
++                            attempts += 1;
++                            try self.adjustCapacity(list, .{
++                                .styles = try growPageCapacity(self.page.capacity.styles),
++                            });
++                            continue;
++                        };
++                        break :id next_id orelse cell.style_id;
++                    }
++                };
+
+                 self.page_row.styled = true;
+
+@@ -2547,6 +2519,12 @@
+     /// Adjust the number of available string bytes in the page.
+     string_bytes: ?usize = null,
+ };
++
++const page_capacity_retry_limit = 8;
++
++fn growPageCapacity(value: usize) Allocator.Error!usize {
++    return std.math.mul(usize, @max(value, 1), 2) catch error.OutOfMemory;
++}
+
+ pub const AdjustCapacityError = Allocator.Error || Page.CloneFromError;
+
+@@ -2603,15 +2581,35 @@
+
+     log.info("adjusting page capacity={}", .{cap});
+
+-    // Create our new page and clone the old page into it.
+-    const new_node = try self.createPage(cap);
++    // A clone changes allocation order and may need more page-local string,
++    // grapheme or set capacity even when the original page still fits. Retry
++    // only the unpublished destination; pins and source cells stay untouched.
++    const new_node = new_node: {
++        var attempts: u8 = 0;
++        while (true) {
++            const candidate = try self.createPage(cap);
++            const candidate_page = &candidate.data;
++            assert(candidate_page.capacity.rows >= page.capacity.rows);
++            assert(candidate_page.capacity.cols >= page.capacity.cols);
++            candidate_page.size.rows = page.size.rows;
++            candidate_page.size.cols = page.size.cols;
++            candidate_page.cloneFrom(page, 0, page.size.rows) catch |err| {
++                self.destroyNode(candidate);
++                if (attempts >= page_capacity_retry_limit) return err;
++                attempts += 1;
++                switch (err) {
++                    error.StringAllocOutOfMemory => cap.string_bytes = try growPageCapacity(cap.string_bytes),
++                    error.GraphemeMapOutOfMemory, error.GraphemeAllocOutOfMemory => cap.grapheme_bytes = try growPageCapacity(cap.grapheme_bytes),
++                    error.HyperlinkMapOutOfMemory, error.HyperlinkSetOutOfMemory, error.HyperlinkSetNeedsRehash => cap.hyperlink_bytes = try growPageCapacity(cap.hyperlink_bytes),
++                    error.StyleSetOutOfMemory, error.StyleSetNeedsRehash => cap.styles = try growPageCapacity(cap.styles),
++                }
++                continue;
++            };
++            break :new_node candidate;
++        }
++    };
+     errdefer self.destroyNode(new_node);
+-    const new_page: *Page = &new_node.data;
+-    assert(new_page.capacity.rows >= page.capacity.rows);
+-    assert(new_page.capacity.cols >= page.capacity.cols);
+-    new_page.size.rows = page.size.rows;
+-    new_page.size.cols = page.size.cols;
+-    try new_page.cloneFrom(page, 0, page.size.rows);
++    const new_page = &new_node.data;
+
+     // Fix up all our tracked pins to point to the new page.
+     const pin_keys = self.tracked_pins.keys();

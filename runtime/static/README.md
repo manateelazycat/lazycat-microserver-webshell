@@ -2,7 +2,7 @@
 
 `runtime/static/` 是 WebShell 页面源码根目录。页面脚本只从 `main.js` 开始加载；`main.js` 仅导入并调用 `global-runtime.js` 的 `startGlobalRuntime()`。发布时 Vite 将该模块树构建到 `build/runtime/static/`，LPK 只打包构建产物，不直接发布源码模块。
 
-服务端推荐协议 `lcmd-webshell-agent-v19`：增加只读原生屏幕／渲染缓存诊断接口，前后端同步使用新的 WASM 指纹。v18 已修复会话关闭与残余输出之间的生命周期错误，防止已释放的快照引擎导致整个 Agent 崩溃；保留 v17 的固定 Ghostty 构建状态基线与后续增量恢复。Agent 编译时嵌入的 `ghostty-vt.wasm` 必须与 Vite 发布资产一致；构建顺序先同步 WASM、再构建前端及 Go，禁止只替换一端。旧协议显式兼容范围见 `agent_runtime.go`，状态协议及限制见 `terminal/history/README.md`。
+服务端推荐协议 `lcmd-webshell-agent-v22`：修复原生重排的页面资源扩容与字符串复制失败，更新前后端共用 WASM 指纹；保留 v21 的有界窗口消费与按帧发布。v18 已修复会话关闭与残余输出之间的生命周期错误，防止已释放的快照引擎导致整个 Agent 崩溃；保留 v17 的固定 Ghostty 构建状态基线与后续增量恢复。Agent 编译时嵌入的 `ghostty-vt.wasm` 必须与 Vite 发布资产一致；构建顺序先同步 WASM、再构建前端及 Go，禁止只替换一端。旧协议显式兼容范围见 `agent_runtime.go`，状态协议及限制见 `terminal/history/README.md`。
 
 ## 根目录职责
 
@@ -41,3 +41,5 @@ node --test tests/*.mjs
 go test ./... -count=1
 git diff --check
 ```
+
+v21 增加 Provider 的窗口消费协议（1 MiB／256 个轮次），保留旧逐轮协议；前端解析与画面生成分离，增加同步绘制保护。继续显式兼容 v20 至 v9，WASM 与 checkpoint ABI 沿用 v20，本轮未修改原生 resize。新消费协议由 Provider 执行，不要求自动替换仍在运行的旧 Agent。

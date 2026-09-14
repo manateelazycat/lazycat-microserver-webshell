@@ -10,7 +10,7 @@ import (
 const terminalQueueReplayBurstMaxBytes = 3_500_000
 
 func terminalQueueReplayBurstBytes(subscription terminalQueueSubscription, message map[string]any) int {
-	if subscription.FlowControl != "turn-ack-v1" || subscription.ReplayBurstLimitBytes <= 0 || message["sync_mode"] != "snapshot" {
+	if (subscription.FlowControl != "turn-ack-v1" && subscription.FlowControl != terminalQueueWindowProtocol) || subscription.ReplayBurstLimitBytes <= 0 || message["sync_mode"] != "snapshot" {
 		return 0
 	}
 	start, startErr := strconv.ParseUint(strings.TrimSpace(fmt.Sprint(message["delta_from_cursor"])), 10, 64)
@@ -43,6 +43,12 @@ func (s *terminalQueuePaneStream) finishTurn(cursor, sequence uint64) (uint64, u
 		s.awaitingTurnAck = true
 		s.turnAckCursor = cursor
 		s.turnAckSequence = sequence
+	}
+	if s.usesWindow() {
+		s.window.boundaries = append(s.window.boundaries, terminalQueueConsumedBoundary{
+			cursor: cursor, sequence: sequence, bytes: s.window.currentTurnBytes,
+		})
+		s.window.currentTurnBytes = 0
 	}
 	return cursor, sequence, true
 }

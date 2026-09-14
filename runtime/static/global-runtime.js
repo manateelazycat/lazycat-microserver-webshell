@@ -496,8 +496,15 @@ export function startGlobalRuntime() {
     getOutput: (session) => terminalOutput?.getSnapshot(session) || {},
     getResize: (session) => terminalResize?.snapshot(session) || {},
     recover: (session) => {
+      // Retire presentation readiness before replacing the Worker. Keep the
+      // last visible frame protected throughout reconnect/checkpoint restore.
+      terminalPresentation?.beginHold(session);
+      terminalPresentation?.markSyncPending(session);
+      // Detach/discard first so old stream bytes cannot enter the replacement.
+      if (!requestSessionHistoryReplay(session)) return false;
+      terminalResize.retireForRecovery(session);
       terminalBackend.prepareRecovery(session);
-      return requestSessionHistoryReplay(session);
+      return true;
     },
     report: (session, reason, exhausted) => {
       appendDebugError(exhausted ? "终端自动恢复已停止" : "终端处理停滞，正在恢复", `${session.name}/${session.id}: ${reason}`);
@@ -880,7 +887,10 @@ export function startGlobalRuntime() {
     scheduleResize: (session, options, scheduleOptions) => terminalResize?.schedulePresentationResize(session, options, scheduleOptions) === true,
     retryResize: (session) => terminalResize?.resendPendingSize(session) === true,
     recordEvent: (session, event, details) => recordTerminalSessionEvent(session, event, details),
-    onReady: (session, details) => terminalSessionInstallation?.handlePresentationReady(session, details),
+    onReady: (session, details) => {
+      terminalHealth.completeRecovery(session);
+      terminalSessionInstallation?.handlePresentationReady(session, details);
+    },
     onRenderObserved: (session) => {
       terminalViewport?.syncPan(session);
       if (

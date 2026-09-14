@@ -46,6 +46,7 @@ export function createTerminalPresentationController({
   }),
 } = {}) {
   let disposed = false;
+  const holdObservations = new WeakMap();
   const trace = (session, phase, details = {}) => {
     const sink = windowObject?.__testsAutoPresentationTrace;
     if (!Array.isArray(sink)) {
@@ -83,6 +84,7 @@ export function createTerminalPresentationController({
     return Boolean(
       isUsable(session)
       && backendReady
+      && !backend?.isSynchronizedOutputHeld
       && isReplayCommitted(session)
       && (liveGeometry || !session.resizeFenceActive)
       && (liveGeometry || !session.resizeAckPending)
@@ -292,13 +294,19 @@ export function createTerminalPresentationController({
       return false;
     }
     lifecycle.cancelFrameRelease(session);
+    const captureStartedAt = now();
     if (!view.holdFrame(session)) {
       return false;
     }
     session.terminalFrameHeld = true;
     session.terminalFrameHoldIdentity = frameIdentity(session);
+    const previousHold = holdObservations.get(session);
+    holdObservations.set(session, { active: true,
+      startedAt: previousHold?.active ? previousHold.startedAt : captureStartedAt,
+      captures: (previousHold?.captures || 0) + 1, captureDurationMs: now() - captureStartedAt });
     view.syncState(session);
-    recordEvent(session, "presentation_hold_capture", canvasDetails(session));
+    recordEvent(session, "presentation_hold_capture", { ...canvasDetails(session),
+      captureDurationMs: holdObservations.get(session).captureDurationMs });
     return true;
   };
 
@@ -309,10 +317,13 @@ export function createTerminalPresentationController({
     }
     session.terminalFrameHoldIdentity = null;
     const released = view.releaseFrame(session);
+    const hold = holdObservations.get(session);
+    if (hold) { hold.durationMs = now() - hold.startedAt; hold.active = false; }
     session.terminalFrameHeld = false;
     view.syncState(session);
     recordEvent(session, "presentation_hold_release", {
       released,
+      holdDurationMs: hold?.durationMs,
       ...canvasDetails(session),
     });
     return released;
@@ -330,23 +341,37 @@ export function createTerminalPresentationController({
       return false;
     }
     const renderGeneration = Number(session.renderGeneration || 0);
+    const connectionEpoch = session.connectionEpoch;
+    const backend = session.term?.wasmTerm;
+    const workerGeneration = backend?.generation;
     return lifecycle.scheduleFrameRelease(session, {
       shouldRelease: () => {
         const checks = {
           usable: isUsable(session),
           activeTab: session.tabId === getActiveTabId(),
           renderReady: session.renderReady === true,
-          sameRenderGeneration: Number(session.renderGeneration || 0) === renderGeneration,
+          committedFrame: renderGeneration > 0 && Number(session.renderGeneration || 0) >= renderGeneration,
+          sameConnection: session.connectionEpoch === connectionEpoch,
+          sameWorker: session.term?.wasmTerm === backend && backend?.generation === workerGeneration,
           noPresentationHold: !session.resizePresentationHold,
           noResizeFence: !session.resizeFenceActive,
-          noResizeAck: !session.resizeAckPending,
+          noResizeAck: !session.resizeAckPending || isLiveGeometryActive(session),
           noOutputSettle: !session.resizeOutputSettleActive,
-          noFullRenderPending: !session.fullRenderPending,
+          // Later output may need another render while the canvas already
+          // contains a complete frame at the current geometry and replay.
+          currentFit: session.presentedFitGeneration === session.measuredFitGeneration,
+          currentReplay: session.presentedReplayGeneration === session.terminalReplayGeneration,
+          noNativeResize: !session.term?.backendResizePending,
+          canvasMatches: canvasMatchesExpectedSize(session),
           hasPresentedFrame: session.hasPresentedFrame === true,
           terminalFrameHeld: session.terminalFrameHeld === true,
           holdIdentityCurrent: frameHoldIsCurrent(session),
         };
         const result = Object.values(checks).every(Boolean);
+        if (!result) recordEvent(session, "presentation_hold_release_blocked", {
+          blockedBy: Object.keys(checks).filter((key) => !checks[key]),
+          holdDurationMs: holdObservations.get(session)?.active ? now() - holdObservations.get(session).startedAt : 0,
+        });
         trace(session, "frame_release_check", { renderGeneration, result, checks });
         return result;
       },
@@ -539,7 +564,7 @@ export function createTerminalPresentationController({
     if (isLiveGeometryActive(session)) {
       return false;
     }
-    // terminalFrameHeld remains true for the two-paint release grace period
+    // terminalFrameHeld remains true until the scheduled release frame
     // after a successful commit. It is not a new invalidation reason.
     if (session.resizePresentationHold) {
       return true;
@@ -652,7 +677,9 @@ export function createTerminalPresentationController({
       || isReplayCommitPending(session)
       || session.pendingRenderFitGeneration !== session.measuredFitGeneration
       || session.pendingRenderReplayGeneration !== session.terminalReplayGeneration
-      || session.pendingRenderContentGeneration !== session.terminalContentGeneration
+      || (session.pendingRenderContentGeneration !== session.terminalContentGeneration
+        && (!session.hasPresentedFrame || session.presentedFitGeneration !== session.measuredFitGeneration
+          || session.presentedReplayGeneration !== session.terminalReplayGeneration))
     ) {
       return false;
     }
@@ -667,8 +694,12 @@ export function createTerminalPresentationController({
       || session.presentedResizeEpoch;
     session.hasPresentedFrame = true;
     session.renderGeneration = Number(session.renderGeneration || 0) + 1;
-    session.renderSnapshot = createRenderSnapshot(session, { presented: true });
-    session.presentedHistoryCursor = session.appliedHistoryCursor;
+    const backend = session.term?.wasmTerm;
+    const painted = backend?.isFrameCurrent ? null : backend?.renderedPresentation?.();
+    session.presentedContentGeneration = session.pendingRenderContentGeneration;
+    session.presentedHistoryCursor = painted ? BigInt(painted.appliedCursor) : session.appliedHistoryCursor;
+    session.renderSnapshot = createRenderSnapshot(session, { presented: true,
+      contentGeneration: session.presentedContentGeneration, appliedCursor: session.presentedHistoryCursor });
     session.presentationValidationAttempts = 0;
     session.presentationDeferredReason = "";
     session.presentationStallStartedAt = 0;
@@ -689,10 +720,8 @@ export function createTerminalPresentationController({
     if (!session.renderReady && !session.resizePresentationHold) {
       setReady(session, true, { reason: "render_commit" });
     }
-    // A hold can outlive the first commit when validation/content renders run
-    // while renderReady is already true. Re-arm the release fence for every
-    // successful commit so a newer render generation cannot strand the old
-    // overlay indefinitely.
+    // Keep an already scheduled release while updating its identity checks.
+    // Continuous output must not keep restarting the overlay's release fence.
     if (session.renderReady && session.terminalFrameHeld && !session.resizePresentationHold) {
       scheduleFrameRelease(session);
     }
@@ -709,9 +738,6 @@ export function createTerminalPresentationController({
   const markRendered = (session) => {
     if (!isUsable(session)) {
       return false;
-    }
-    if (session.pendingRenderContentGeneration === session.terminalContentGeneration) {
-      session.presentedContentGeneration = session.terminalContentGeneration;
     }
     return commitIfReady(session);
   };
@@ -981,7 +1007,7 @@ export function createTerminalPresentationController({
     ) {
       return false;
     }
-    clearValidation(session);
+    if (session.fullRenderValidationTimer) return true;
     const replayGeneration = Number(session.terminalReplayGeneration || 0);
     const validationAttempt = Math.max(0, Number(session.presentationValidationAttempts || 0));
     const validationDelay = Math.min(
@@ -1169,13 +1195,12 @@ export function createTerminalPresentationController({
       }
     },
     onRender: () => {
-      // Ghostty output renders are already complete live frames. During an
-      // optimistic geometry transaction, accept that frame into the current
-      // presentation snapshot instead of scheduling a second full render for
-      // the same content generation.
-      if (isLiveGeometryActive(session) && !session.fullRenderPending) {
-        setPendingRender(session);
-      }
+      // Commit this exact frame, even if newer bytes have already been parsed.
+      // A normal output frame must not require a second full presentation draw.
+      setPendingRender(session);
+      const backend = session.term?.wasmTerm;
+      const painted = backend?.isFrameCurrent ? null : backend?.renderedPresentation?.();
+      if (painted) session.pendingRenderContentGeneration = painted.contentGeneration;
       const completed = markRendered(session);
       if (
         !completed
@@ -1200,6 +1225,10 @@ export function createTerminalPresentationController({
   };
 
   return Object.freeze({
+    holdDiagnostics: (session) => {
+      const hold = holdObservations.get(session);
+      return hold ? { ...hold, elapsedMs: hold.active ? now() - hold.startedAt : hold.durationMs } : null;
+    },
     advanceContentGeneration,
     beginHold,
     cancelFrameRelease: lifecycle.cancelFrameRelease,

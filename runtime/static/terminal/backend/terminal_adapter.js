@@ -87,7 +87,8 @@ export function installBackendTerminalAdapter(term) {
     const backend = term.wasmTerm;
     if (!backend?.isReady || term.backendResizePending || backend.cols !== term.cols || backend.rows !== term.rows) return false;
     if (!backend.getViewport()) return false;
-    return renderNow(...args);
+    if (backend.hasRenderedFrame && !backend.dirty && !backend.isFrameCurrent) return false;
+    return backend.renderWithFrame(() => renderNow(...args));
   };
   term.getSelectionAsync = () => {
     const range = terminalSelectionRange(term.selectionManager);

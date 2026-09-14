@@ -1,0 +1,34 @@
+--- a/src/terminal/c/terminal.zig
++++ b/src/terminal/c/terminal.zig
+@@ -474,9 +474,18 @@
+     alloc.destroy(wrapper);
+ }
+
++var last_resize_error: []const u8 = "";
++pub fn resizeErrorPtr() callconv(.c) usize { return @intFromPtr(last_resize_error.ptr); }
++pub fn resizeErrorLen() callconv(.c) usize { return last_resize_error.len; }
++
+ pub fn resize(ptr: ?*anyopaque, cols: c_int, rows: c_int) callconv(.c) c_int {
+     const wrapper: *TerminalWrapper = @ptrCast(@alignCast(ptr orelse return 0));
+-    wrapper.terminal.resize(wrapper.alloc, @intCast(cols), @intCast(rows)) catch return 0; return 1;
++    last_resize_error = "";
++    wrapper.terminal.resize(wrapper.alloc, @intCast(cols), @intCast(rows)) catch |err| {
++        last_resize_error = @errorName(err);
++        return 0;
++    };
++    return 1;
+ }
+
+ pub fn setScrollbackLimit(ptr: ?*anyopaque, max_bytes: u32) callconv(.c) void {
+--- a/src/terminal/c/main.zig
++++ b/src/terminal/c/main.zig
+@@ -62,1 +62,3 @@
++pub const terminal_resize_error_ptr = terminal.resizeErrorPtr;
++pub const terminal_resize_error_len = terminal.resizeErrorLen;
+ pub const terminal_diagnostic_cells = terminal.diagnosticCells;
+--- a/src/lib_vt.zig
++++ b/src/lib_vt.zig
+@@ -149,1 +149,3 @@
++        @export(&c.terminal_resize_error_ptr, .{ .name = "ghostty_terminal_resize_error_ptr" });
++        @export(&c.terminal_resize_error_len, .{ .name = "ghostty_terminal_resize_error_len" });
+         @export(&c.terminal_diagnostic_cells, .{ .name = "ghostty_terminal_diagnostic_cells" });
