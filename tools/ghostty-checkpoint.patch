@@ -1,0 +1,49 @@
+--- a/src/terminal/c/terminal.zig
++++ b/src/terminal/c/terminal.zig
+@@ -488,6 +488,26 @@
+     }
+ }
+
++pub fn checkpointTheme(ptr: ?*anyopaque, config: *const GhosttyTerminalConfig) callconv(.c) void {
++    const wrapper: *TerminalWrapper = @ptrCast(@alignCast(ptr orelse return));
++    const colors = &wrapper.terminal.colors;
++    colors.foreground.default = if (config.fg_color == 0) null else checkpointRGB(config.fg_color);
++    colors.background.default = if (config.bg_color == 0) null else checkpointRGB(config.bg_color);
++    colors.cursor.default = if (config.cursor_color == 0) null else checkpointRGB(config.cursor_color);
++    var palette = color.default;
++    for (config.palette, 0..) |value, index| {
++        if (value != 0) palette[index] = checkpointRGB(value);
++    }
++    colors.palette.changeDefault(palette);
++    wrapper.terminal.flags.dirty.palette = true;
++    wrapper.render_state.deinit(wrapper.alloc);
++    wrapper.render_state = RenderState.empty;
++}
++
++fn checkpointRGB(value: u32) color.RGB {
++    return .{ .r = @truncate(value >> 16), .g = @truncate(value >> 8), .b = @truncate(value) };
++}
++
+ pub fn write(ptr: ?*anyopaque, data: [*]const u8, len: usize) callconv(.c) c_int {
+     const wrapper: *TerminalWrapper = @ptrCast(@alignCast(ptr orelse return 0));
+     wrapper.stream.nextSlice(data[0..len]) catch return 0; return 1;
+--- a/src/terminal/c/main.zig
++++ b/src/terminal/c/main.zig
+@@ -59,6 +59,7 @@
+ pub const terminal_free = terminal.free;
+ pub const terminal_resize = terminal.resize;
+ pub const terminal_set_scrollback_limit = terminal.setScrollbackLimit;
++pub const terminal_checkpoint_theme = terminal.checkpointTheme;
+ pub const terminal_write = terminal.write;
+
+ // RenderState API - high-performance rendering
+--- a/src/lib_vt.zig
++++ b/src/lib_vt.zig
+@@ -146,6 +146,7 @@
+         @export(&c.terminal_free, .{ .name = "ghostty_terminal_free" });
+         @export(&c.terminal_resize, .{ .name = "ghostty_terminal_resize" });
+         @export(&c.terminal_set_scrollback_limit, .{ .name = "ghostty_terminal_set_scrollback_limit" });
++        @export(&c.terminal_checkpoint_theme, .{ .name = "ghostty_terminal_checkpoint_theme" });
+         @export(&c.terminal_write, .{ .name = "ghostty_terminal_write" });
+
+         // RenderState API - high-performance rendering

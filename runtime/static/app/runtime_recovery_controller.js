@@ -175,7 +175,7 @@ export function createAppRuntimeRecoveryController({
     }
     for (const tab of getTabs()) {
       for (const pane of tab.panes?.values?.() || []) {
-        if (!pane.closed) {
+        if (!pane.closed && !pane.exitExpected) {
           clearUnifiedRetry(pane);
           pane.shellEl.dataset.connection = "offline";
         }
@@ -190,7 +190,7 @@ export function createAppRuntimeRecoveryController({
     }
     const tab = getCurrentTab();
     for (const pane of tab?.panes?.values?.() || []) {
-      if (pane.name !== getActiveName()) {
+      if (pane.name !== getActiveName() || pane.exitExpected) {
         continue;
       }
       if (probe && isReplayRetryPaused(pane)) {

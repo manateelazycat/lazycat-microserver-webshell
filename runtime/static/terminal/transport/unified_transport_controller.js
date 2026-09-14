@@ -231,7 +231,7 @@ export function createTerminalUnifiedTransportController({
         } catch (error) {
         }
       }
-      if (!pane?.closed && pane.name === getActiveName() && pane.connectionChannel === "unified") {
+      if (!pane?.closed && !pane.exitExpected && pane.name === getActiveName() && pane.connectionChannel === "unified") {
         invalidateStartupError(pane, { hidePanel: true });
         pane.connectionRetrying = true;
         if (pane.shellEl?.dataset) {

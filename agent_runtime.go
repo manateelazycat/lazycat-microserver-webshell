@@ -82,7 +82,7 @@ func isCurrentAgentProtocolVersion(version string) bool {
 
 func isAttachCompatibleAgentProtocolVersion(version string) bool {
 	switch strings.TrimSpace(version) {
-	case agentProtocolVersion, "lcmd-webshell-agent-v12", "lcmd-webshell-agent-v11", "lcmd-webshell-agent-v10", "lcmd-webshell-agent-v9":
+	case agentProtocolVersion, "lcmd-webshell-agent-v16", "lcmd-webshell-agent-v15", "lcmd-webshell-agent-v14", "lcmd-webshell-agent-v13", "lcmd-webshell-agent-v12", "lcmd-webshell-agent-v11", "lcmd-webshell-agent-v10", "lcmd-webshell-agent-v9":
 		return true
 	default:
 		return false
@@ -516,6 +516,12 @@ func ensurePersistentAgent(ctx context.Context, scope agentScope) (string, error
 }
 
 func ensurePersistentAgentOnce(ctx context.Context, scope agentScope) (string, error) {
+	lifecycle := persistentAgentLifecycleLock(scope)
+	lifecycle.RLock()
+	defer lifecycle.RUnlock()
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
 	trace := newPersistentAgentStartupTrace(scope)
 	trace.add("ensure started")
 	cacheKey := scope.cacheKey()
@@ -1238,6 +1244,17 @@ func persistentAgentAttachCommandArgs(scope agentScope, paneID string, cols, row
 	}
 	if syncRequest.integrityProtocol != "" {
 		commandArgs = append(commandArgs, "--integrity-protocol", syncRequest.integrityProtocol)
+	}
+	if syncRequest.checkpointProtocol == terminalMemoryCheckpointProtocol {
+		// A compatible older daemon/binary remains usable until explicit update.
+		quoted := make([]string, 0, len(commandArgs)-3)
+		for _, arg := range commandArgs[3:] {
+			quoted = append(quoted, shellScriptQuote(arg))
+		}
+		script := "set -- " + strings.Join(quoted, " ") + "\n" +
+			"if [ \"$(" + shellScriptQuote(agentInstallPath) + " agent version)\" = " + shellScriptQuote(agentProtocolVersion) + " ]; then\n" +
+			"set -- \"$@\" --checkpoint-protocol " + shellScriptQuote(terminalMemoryCheckpointProtocol) + "\nfi\nexec \"$@\""
+		return []string{"exec", "-i", scope.Selector, "/bin/sh", "-c", script}
 	}
 	return commandArgs
 }

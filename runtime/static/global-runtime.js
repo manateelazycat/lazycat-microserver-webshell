@@ -74,6 +74,8 @@ import {
 import { createTerminalOverviewController } from "./terminal/overview/index.js";
 import {
   createTerminalPresentationController,
+  createTerminalScreenRefreshController,
+  createTerminalRenderProbe,
   createTerminalRendererAdapter,
   createTerminalRuntimeController,
   installKittyGraphicsSupport,
@@ -87,6 +89,8 @@ import { createTerminalMobileViewportController } from "./terminal/viewport/inde
 import {
   createTerminalOutputController,
 } from "./terminal/output/index.js";
+import { createTerminalWorkScheduler } from "./terminal/scheduling/index.js";
+import { createTerminalBackendManager } from "./terminal/backend/index.js";
 import {
   createTerminalInputController,
   createTerminalIMEController,
@@ -106,6 +110,8 @@ import {
 } from "./terminal/config/index.js";
 import {
   createTerminalSessionController,
+  createTerminalSessionExitController,
+  createTerminalSessionHealthController,
   createTerminalSessionInstallationController,
   createTerminalSessionResourceFactory,
   createTerminalSessionRecoveryController,
@@ -209,6 +215,7 @@ export function startGlobalRuntime() {
     startup: {
       errorPanel: startupErrorPanel,
       errorText: startupErrorText,
+      errorRetry: startupErrorRetry,
       networkBanner,
       toast,
     },
@@ -320,6 +327,7 @@ export function startGlobalRuntime() {
   let terminalUnifiedTransport = null;
   let terminalTransportRuntime = null;
   let terminalSessionController = null;
+  let terminalSessionExit = null;
   let terminalSessionInstallation = null;
   let sessionRecovery = null;
   let terminalStartupError = null;
@@ -330,6 +338,8 @@ export function startGlobalRuntime() {
   let terminalLinks = null;
   let terminalMouse = null;
   let terminalPresentation = null;
+  let terminalScreenRefresh = null;
+  let terminalRenderProbe = null;
   let terminalRenderer = null;
   let terminalRuntime = null;
   let terminalResize = null;
@@ -456,6 +466,10 @@ export function startGlobalRuntime() {
     copyText: (text) => terminalClipboard?.copyText(text) || false,
     showToast: (message) => showToast(message),
     onDebugModeChange: () => settings?.syncDebugModeDependents(),
+    onAutoScreenRefreshChange: (enabled) => terminalScreenRefresh?.setEnabled(enabled),
+    getRenderCaptureContext: () => ({ tab: getActiveTabId(), target: getActiveName(),
+      sessions: currentTab()?.panes?.values?.() || [] }),
+    captureTerminalRenderState: (session, options) => terminalRenderProbe?.capture(session, options) || { pane: session.id, status: "probe_not_ready" },
   });
   const {
     appendError: appendDebugError,
@@ -473,6 +487,40 @@ export function startGlobalRuntime() {
     refreshNetworkView: renderTerminalNetworkMonitor,
     syncNetworkSockets: syncTerminalNetworkMonitorSockets,
   } = diagnostics;
+  const terminalHealth = createTerminalSessionHealthController({
+    windowObject: window,
+    isOnline: () => navigator.onLine !== false,
+    now: () => performanceTaskNow(),
+    isCommitted: (session) => terminalReplay?.isCommitted(session) === true,
+    getOutput: (session) => terminalOutput?.getSnapshot(session) || {},
+    getResize: (session) => terminalResize?.snapshot(session) || {},
+    recover: (session) => {
+      terminalBackend.prepareRecovery(session);
+      return requestSessionHistoryReplay(session);
+    },
+    report: (session, reason, exhausted) => {
+      appendDebugError(exhausted ? "终端自动恢复已停止" : "终端处理停滞，正在恢复", `${session.name}/${session.id}: ${reason}`);
+      if (exhausted) showToast("终端暂时无法恢复，请刷新页面重试。");
+    },
+  });
+  const terminalWorkScheduler = createTerminalWorkScheduler({
+    windowObject: window,
+    now: () => performanceTaskNow(),
+    onError: (session, key, error) => terminalHealth.fail(session, `${key}: ${error?.message || error}`),
+  });
+  const terminalBackend = createTerminalBackendManager({
+    wasmURL: ghosttyWASMURL,
+    diagnosticsEnabled: () => diagnostics.isInitializationCollecting() || diagnostics.isByteIOLogEnabled(),
+    recordEvent: recordTerminalSessionEvent,
+    isVisible: (session) => !document.hidden && session?.tabId === getActiveTabId(),
+    onError: (session, error) => {
+      if (session && !session.closed) terminalHealth.fail(session, error.message);
+      else appendDebugError("终端后台启动失败", error.message);
+    },
+    onReady: (session) => {
+      if (session && !session.closed && (session.pendingConnect || session.connectionRetrying)) terminalTransportRuntime?.connectPendingSession(session);
+    },
+  });
   if (window.__testsAutoPresentationProbe) {
     window.__testsAutoTerminalTimelineSnapshot = () => getAllSessions().map((session) => ({
       paneID: String(session?.id || ""),
@@ -813,13 +861,15 @@ export function startGlobalRuntime() {
   });
 
   terminalPresentation = createTerminalPresentationController({
+    isByteIOLogEnabled: () => diagnostics.isByteIOLogEnabled(),
     windowObject: window,
+    workScheduler: terminalWorkScheduler,
     getActiveName,
     getActiveTabId,
     getBackground: () => appearance.getActiveTheme()?.background || terminalOptionsBase.theme?.background || "#000000",
     isReplayCommitted: (session) => terminalReplay.isCommitted(session),
     isReplayCommitPending: (session) => terminalReplay.commitIsPending(session),
-    isPaneVisible: (session) => terminalResize?.isVisible(session) === true,
+    isPaneVisible: (session) => !document.hidden && terminalResize?.isVisible(session) === true,
     isPaneMeasurable: (session) => terminalResize?.isMeasurable(session) === true,
     isLiveGeometryActive: (session) => terminalResize?.isLiveGeometryActive(session) === true,
     isCurrentDeviceClaimRequired: (session) => terminalResize?.isCurrentDeviceClaimRequired(session) === true,
@@ -839,7 +889,7 @@ export function startGlobalRuntime() {
         terminalOverview?.capturePreview(session);
       }
     },
-    recoverTransport: (session, reason, options) => terminalTransportRuntime?.recycleUnifiedSession(session, reason, options),
+    recoverTransport: (session, reason) => terminalHealth.fail(session, reason),
     isSocketOpen: (session) => session?.socket?.readyState === WebSocket.OPEN,
     now: () => performanceTaskNow(),
     registerSessionCleanup: (session, cleanup) => terminalSessionController?.addCleanup(session, cleanup),
@@ -859,6 +909,8 @@ export function startGlobalRuntime() {
 
   terminalResize = createTerminalResizeController({
     windowObject: window,
+    workScheduler: terminalWorkScheduler,
+    onResizeError: (session, error) => terminalHealth.fail(session, error?.message || String(error)),
     ResizeObserverCtor: globalThis.ResizeObserver,
     getActiveName,
     getActiveTabId,
@@ -879,6 +931,7 @@ export function startGlobalRuntime() {
     flushOutput: (session, options) => terminalOutput?.flush(session, options) ?? true,
     scheduleOutputFlush: (session) => terminalOutput?.scheduleFlush(session) === true,
     getOutputQueueEntryCount: (session) => terminalOutput?.getQueueEntryCount(session) || 0,
+    getOutputAppliedEntryCount: (session) => terminalOutput?.getAppliedEntryCount(session) || 0,
     getOutputQueuedBytes: (session) => terminalOutput?.getQueuedBytes(session) || 0,
     resetHostViewport: (session, options) => terminalIME?.resetHostViewport(session, options),
     positionInput: (session) => terminalIME?.positionInput(session),
@@ -895,6 +948,19 @@ export function startGlobalRuntime() {
     sizeReassertIntervalMs: terminalSizeReassertIntervalMs,
     sizeClaimIntervalMs: terminalSizeClaimIntervalMs,
   });
+
+  terminalScreenRefresh = createTerminalScreenRefreshController({
+    windowObject: window,
+    documentObject: document,
+    getSessions: () => getAllSessions(),
+    presentation: terminalPresentation,
+    resize: terminalResize,
+    workScheduler: terminalWorkScheduler,
+    recordEvent: (session, event, details) => recordTerminalSessionEvent(session, event, details),
+  });
+  terminalScreenRefresh.setEnabled(diagnostics.isAutoScreenRefreshEnabled());
+  terminalRenderProbe = createTerminalRenderProbe({ windowObject: window, documentObject: document,
+    presentation: terminalPresentation, resize: terminalResize });
 
   terminalMetrics = createTerminalMetricsController({
     windowObject: window,
@@ -1106,7 +1172,7 @@ export function startGlobalRuntime() {
     documentObject: document,
     windowObject: window,
     getActiveSession: () => activeSession(),
-    getFullBufferText: (term) => terminalFullBufferText(term),
+    getFullBufferText: (term) => term.wasmTerm?.isRemote ? term.wasmTerm.text() : terminalFullBufferText(term),
     isTouchSelectionLayout: () => isTouchSelectionLayout(),
     isMobileLayout: () => isMobileLayout(),
     isOverviewOpen: () => terminalOverview?.isOpen() === true,
@@ -1152,6 +1218,9 @@ export function startGlobalRuntime() {
   );
 
   terminalStartupError = createTerminalStartupErrorController({
+    retryButton: startupErrorRetry,
+    restartSession: (session) => workspaceTabController.restartExitedPane(session),
+    getTerminalText: (session, range) => session.term.wasmTerm?.isRemote ? session.term.wasmTerm.text(range) : terminalFullBufferText(session.term),
     windowObject: window,
     navigatorObject: navigator,
     fetchImpl: fetch,
@@ -1371,6 +1440,7 @@ export function startGlobalRuntime() {
   const setActiveTabByIndex = (index) => workspaceTabNavigation.activateByIndex(index);
 
   workspacePaneActivation = createWorkspacePaneActivationController({
+    onActivated: () => terminalStartupError?.syncActiveExit(),
     documentObject: document,
     ElementCtor: globalThis.Element,
     HTMLElementCtor: globalThis.HTMLElement,
@@ -1453,6 +1523,11 @@ export function startGlobalRuntime() {
     notice: agentProtocolUpdateNotice,
     getActiveName,
     getTerminalInput: () => terminalInput,
+    prepareUpdate: async () => {
+      suppressBeforeUnloadForNavigation();
+      disposeRuntime({ keepUpdateUI: true });
+      await terminalUnifiedTransport.getClosingPromise();
+    },
     openDialog: (options) => openDialog(options),
     suppressBeforeUnloadForNavigation: () => suppressBeforeUnloadForNavigation(),
     showToast: (message) => showToast(message),
@@ -1662,6 +1737,7 @@ export function startGlobalRuntime() {
     appendDebugError: (title, details) => appendDebugError(title, details),
     holdCursorVisible: (session) => holdTerminalCursorVisible(session),
     reassertSize: (session) => terminalResize.reassertSize(session),
+    claimCurrentDeviceSize: (session) => terminalResize.claimForCurrentDevice(session),
     registerSessionCleanup: (session, cleanup) => terminalSessionController?.addCleanup(session, cleanup),
   });
 
@@ -1736,13 +1812,22 @@ export function startGlobalRuntime() {
   });
 
   terminalOutput = createTerminalOutputController({
+    observeReplayBytes: (session, data, options) => diagnostics.observeTerminalReplayBytes(session, data, options),
+    isByteIOLogEnabled: () => diagnostics.isByteIOLogEnabled(),
     windowObject: window,
+    workScheduler: terminalWorkScheduler,
+    getPriority: (session) => session.tabId === getActiveTabId() ? 2 : 0,
+    onProcessingError: (session, error) => terminalHealth.fail(session, error?.message || String(error)),
     getActiveName,
     isReplayCommitted: (session) => terminalReplay.isCommitted(session),
     getResizeTransition: (session) => terminalResize?.transitionState(session) || {},
     noteResizeOutput: (session) => terminalResize?.noteOutput(session),
     requestHistoryReplay: (session) => requestSessionHistoryReplay(session),
-    finishHistoryReplayIfReady: (session) => terminalReplay.finishIfReady(session),
+    finishHistoryReplayIfReady: (session) => {
+      const result = terminalReplay.finishIfReady(session);
+      terminalSessionExit?.settle(session);
+      return result;
+    },
     queueHistoryCacheWrite: (session, data, startCursor, endCursor) => (
       clientHistory.queueWrite(session, data, startCursor, endCursor)
     ),
@@ -1757,9 +1842,7 @@ export function startGlobalRuntime() {
     drainGeneratedResponses: (session) => terminalInput?.drainGeneratedResponses(session),
     resetHostViewport: (session, options) => terminalIME?.resetHostViewport(session, options),
     positionInput: (session) => terminalIME?.positionInput(session),
-    recoverQueueTurnAck: (session, pending) => {
-      terminalSessionConnection.closeSocketForReconnect(session, pending.socket, "Terminal queue turn acknowledgement failed.");
-    },
+    recoverQueueTurnAck: (session) => terminalHealth.fail(session, "Terminal queue turn acknowledgement failed."),
     recordMetric: (name, value) => recordTerminalRuntimeMetric(name, value),
     recordMaxMetric: (name, value) => recordTerminalRuntimeMaxMetric(name, value),
     recordEvent: (session, event, details) => recordTerminalSessionEvent(session, event, details),
@@ -1772,7 +1855,23 @@ export function startGlobalRuntime() {
     onDiscard: (session) => terminalReplay.discardSession(session),
   });
 
+  terminalSessionExit = createTerminalSessionExitController({
+    isReplayCommitted: (session) => terminalReplay.isCommitted(session),
+    hasQueuedOutput: (session) => terminalOutput.hasQueued(session),
+    finishResize: (session) => terminalResize.finishExited(session),
+    clearConnectionTimers: (session) => terminalSessionConnection.clearConnectionTimers(session),
+    clearRetry: (session) => terminalTransportRuntime.clearUnifiedRetry(session, { resetAttempts: true }),
+    discardInput: (session) => terminalInput.discardSession(session),
+    stopHealth: (session) => terminalHealth.disposeSession(session),
+    flushOutput: (session) => terminalOutput.flush(session),
+    retireTransport: (session) => terminalTransportRuntime.finishExitedSession(session),
+    showError: (session, message, readOutput) => terminalStartupError.showExited(session, message, readOutput),
+    ensurePresentation: (session, options) => terminalPresentation.ensure(session, options),
+    recordEvent: recordTerminalSessionEvent,
+  });
+
   terminalSessionProtocol = createTerminalSessionProtocolController({
+    isByteIOLogEnabled: () => diagnostics.isByteIOLogEnabled(),
     documentObject: document,
     navigatorObject: navigator,
     WebSocketCtor: WebSocket,
@@ -1804,6 +1903,7 @@ export function startGlobalRuntime() {
     detachSessionSocket: (session, socket, options) => detachSessionSocket(session, socket, options),
     invalidateSessionStartupError,
     showSessionStartupError,
+    handleProcessExit: (session, message) => terminalSessionExit.accept(session, message),
     resetTerminalForHistoryReplay,
     beginTerminalRenderSuppression,
     endTerminalRenderSuppression,
@@ -1820,6 +1920,7 @@ export function startGlobalRuntime() {
   });
 
   const terminalSessionResources = createTerminalSessionResourceFactory({
+    attachBackend: (term) => terminalBackend.attach(term),
     documentObject: document,
     TerminalCtor: Terminal,
     FitAddonCtor: FitAddon,
@@ -1857,7 +1958,11 @@ export function startGlobalRuntime() {
       clearUnifiedRetry: (session, options) => terminalTransportRuntime?.clearUnifiedRetry(session, options),
       detachLogicalStream: (session, reason) => terminalTransportRuntime?.detachUnifiedSession(session, reason),
       disposeHistoryCache: (session) => clientHistory.disposeSession(session),
-      disposeOutput: (session) => terminalOutput?.disposeSession(session),
+      disposeOutput: (session) => {
+        terminalOutput?.disposeSession(session);
+        terminalHealth.disposeSession(session);
+        terminalWorkScheduler.cancelOwner(session);
+      },
       flushHistoryCacheWrites: (session) => clientHistory.flushSession(session),
       releaseTerminalFrame: (session) => terminalPresentation.releaseHold(session),
       unregisterConnection: (session, reason) => terminalTransportRuntime?.unregisterSession(session, reason),
@@ -1920,6 +2025,7 @@ export function startGlobalRuntime() {
   });
 
   terminalSessionInstallation = createTerminalSessionInstallationController({
+    backend: terminalBackend,
     documentObject: document,
     sessionController: terminalSessionController,
     getActiveTheme: () => appearance.getActiveTheme(),
@@ -2013,6 +2119,7 @@ export function startGlobalRuntime() {
   const moveTab = (tabId, position) => workspaceTabController.moveTab(tabId, position);
 
   workspaceTabActivation = createWorkspaceTabActivationController({
+    finishLayoutInteraction: () => workspaceLayoutView?.finishDrag(),
     tabRegistry: workspaceTabRegistry,
     tabView: workspaceTabView,
     getInstanceGeneration: getActiveGeneration,
@@ -2309,6 +2416,80 @@ export function startGlobalRuntime() {
     tabsElement: tabsEl,
   });
 
+  const disposeRuntime = ({ keepUpdateUI = false } = {}) => {
+    if (disposed) return;
+    appLifecycle?.dispose();
+    disposed = true;
+    appBootstrap?.dispose();
+    terminalScreenRefresh?.dispose();
+    diagnostics.stopTerminalRenderCapture();
+    terminalRenderProbe?.dispose();
+    legacyStorageCleanup?.dispose();
+    workspaceTargetController?.dispose();
+    runtimeRecovery?.dispose();
+    workspaceActivity?.dispose();
+    workspaceTabLabels?.dispose();
+    workspaceTabNavigation?.dispose();
+    workspacePaneActivation?.dispose();
+    workspaceTabActivation?.dispose();
+    workspaceTabReorder?.dispose();
+    workspaceTabController?.dispose();
+    workspaceStateApply?.dispose();
+    workspacePersistence.dispose();
+    workspaceAPI?.dispose();
+    terminalViewport?.dispose();
+    terminalIME?.dispose();
+    terminalKeyOverrides?.dispose();
+    terminalInput?.dispose();
+    terminalOutput?.dispose();
+    terminalSessionInstallation?.dispose();
+    terminalSessionController?.disposeAll(getAllSessions());
+    terminalStartupError?.dispose();
+    serverRevision?.dispose();
+    if (!keepUpdateUI) agentProtocolUpdate?.dispose();
+    terminalTransportRuntime?.dispose("page_disposed");
+    terminalSessionConnection.dispose();
+    terminalReplay.dispose();
+    terminalResize?.dispose();
+    terminalPresentation?.dispose();
+    terminalRuntime?.dispose();
+    clientHistory.dispose();
+    terminalUnifiedTransport.dispose("page_disposed");
+    instances.dispose();
+    appearance.dispose();
+    appearanceRuntime?.dispose();
+    workspaceRefresh.dispose();
+    if (!keepUpdateUI) diagnostics.dispose();
+    serviceForwarding.dispose();
+    appPaste?.dispose();
+    appFileDrop?.dispose();
+    attachments.dispose();
+    terminalLinks?.dispose();
+    terminalMouse?.dispose();
+    terminalPolicy?.dispose();
+    terminalMetrics?.dispose();
+    terminalTheme?.dispose();
+    terminalRenderer?.dispose();
+    terminalSelection?.dispose();
+    terminalClipboard?.dispose();
+    terminalInteraction?.dispose();
+    terminalSearch?.dispose();
+    terminalOverview?.dispose();
+    devices.dispose();
+    settings?.dispose();
+    appCommands?.dispose();
+    shortcutController?.dispose();
+    mobileShortcutsController?.dispose();
+    mobileSelect?.dispose();
+    layoutController?.dispose();
+    dialogController?.dispose();
+    if (!keepUpdateUI) feedback?.dispose();
+    sessionRecovery?.dispose();
+    terminalHealth.dispose();
+    terminalWorkScheduler.dispose();
+    terminalBackend.dispose();
+  };
+
   appLifecycle = createAppLifecycle({
     windowObject: window,
     documentObject: document,
@@ -2397,72 +2578,10 @@ export function startGlobalRuntime() {
           event.returnValue = "";
           return "";
         }
-        appLifecycle?.dispose();
-        disposed = true;
-        appBootstrap?.dispose();
-        legacyStorageCleanup?.dispose();
-        workspaceTargetController?.dispose();
-        runtimeRecovery?.dispose();
-        workspaceActivity?.dispose();
-        workspaceTabLabels?.dispose();
-        workspaceTabNavigation?.dispose();
-        workspacePaneActivation?.dispose();
-        workspaceTabActivation?.dispose();
-        workspaceTabReorder?.dispose();
-        workspaceTabController?.dispose();
-        workspaceStateApply?.dispose();
-        workspacePersistence.dispose();
-        workspaceAPI?.dispose();
-        terminalViewport?.dispose();
-        terminalIME?.dispose();
-        terminalKeyOverrides?.dispose();
-        terminalInput?.dispose();
-        terminalOutput?.dispose();
-        terminalSessionInstallation?.dispose();
-        terminalSessionController?.disposeAll(getAllSessions());
-        terminalStartupError?.dispose();
-        serverRevision?.dispose();
-        agentProtocolUpdate?.dispose();
-        terminalTransportRuntime?.dispose("page_disposed");
-        terminalSessionConnection.dispose();
-        terminalReplay.dispose();
-        terminalResize?.dispose();
-        terminalPresentation?.dispose();
-        terminalRuntime?.dispose();
-        clientHistory.dispose();
-        terminalUnifiedTransport.dispose("page_disposed");
-        instances.dispose();
-        appearance.dispose();
-        appearanceRuntime?.dispose();
-        workspaceRefresh.dispose();
-        diagnostics.dispose();
-        serviceForwarding.dispose();
-        appPaste?.dispose();
-        appFileDrop?.dispose();
-        attachments.dispose();
-        terminalLinks?.dispose();
-        terminalMouse?.dispose();
-        terminalPolicy?.dispose();
-        terminalMetrics?.dispose();
-        terminalTheme?.dispose();
-        terminalRenderer?.dispose();
-        terminalSelection?.dispose();
-        terminalClipboard?.dispose();
-        terminalInteraction?.dispose();
-        terminalSearch?.dispose();
-        terminalOverview?.dispose();
-        devices.dispose();
-        settings?.dispose();
-        appCommands?.dispose();
-        shortcutController?.dispose();
-        mobileShortcutsController?.dispose();
-        mobileSelect?.dispose();
-        layoutController?.dispose();
-        dialogController?.dispose();
-        feedback?.dispose();
-        sessionRecovery?.dispose();
+        disposeRuntime();
       },
       onHeartbeat: () => {
+        terminalHealth.check(getAllSessions());
         rememberWorkspaceRestoreState();
         clientHistory.touchAll();
       },

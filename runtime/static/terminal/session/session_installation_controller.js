@@ -18,6 +18,7 @@ export function createTerminalSessionInstallationController({
   clearUnifiedRetry = noop,
   presentation = null,
   output = null,
+  backend = null,
   clearRuntimeBuffer = noop,
   ime = null,
   renderer = null,
@@ -52,6 +53,7 @@ export function createTerminalSessionInstallationController({
   };
 
   const installFeatureControllers = (session) => {
+    backend?.bindSession(session);
     presentation?.installSession?.(session);
     output?.installSession?.(session);
     clearRuntimeBuffer(session);
@@ -126,12 +128,16 @@ export function createTerminalSessionInstallationController({
     addCleanup(session, cleanup);
 
     const contextMenuCleanup = interaction?.bindPane?.(session.shellEl, {
+      tabId: session.tabId,
+      paneId: session.id,
       activate: () => {
         const current = getTabById(session.tabId);
         setActivePane(current, session.id, { focus: false });
       },
-      getTarget: (event) => {
-        const link = links?.findAtPosition?.(session, event?.clientX, event?.clientY);
+      getTarget: async (event) => {
+        let link = null;
+        try { link = await links?.findAtPosition?.(session, event?.clientX, event?.clientY); } catch { /* The pane menu remains available while a link lookup is retired. */ }
+        if (session.closed) return null;
         return {
           type: "pane",
           tabId: session.tabId,
@@ -151,7 +157,7 @@ export function createTerminalSessionInstallationController({
       return false;
     }
     input?.flushPending?.(session);
-    if (isReplayCommitted(session)) {
+    if (isReplayCommitted(session) && !session.exitExpected) {
       appendStartupTrace(
         "终端输入已就绪",
         `pane=${session.id}`,

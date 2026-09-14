@@ -53,6 +53,7 @@ export default defineConfig({
   root: sourceRoot,
   base: "./",
   publicDir: false,
+  worker: { format: "es" },
   plugins: [resolveSourceAssetBase, restoreRuntimeAssetBase, emitRuntimeSupportAssets],
   build: {
     outDir: outputRoot,

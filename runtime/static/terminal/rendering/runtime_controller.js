@@ -18,7 +18,10 @@ export function createTerminalRuntimeController({
       return false;
     }
     try {
-      term.wasmTerm.write(terminalRuntimeClearSequence);
+      const backend = term.wasmTerm;
+      const generation = backend.generation;
+      const complete = () => {
+      if (disposed || session.closed || term.wasmTerm !== backend || backend.generation !== generation) return false;
       advanceContentGeneration(session);
       term.viewportY = 0;
       term.targetViewportY = 0;
@@ -27,6 +30,15 @@ export function createTerminalRuntimeController({
         term.requestRender?.({ full: true });
       }
       return true;
+      };
+      const result = backend.write(terminalRuntimeClearSequence);
+      if (result?.then) {
+        result.then(complete).catch((error) => {
+          if (error?.code !== "BACKEND_CANCELLED") appendDebugError("终端清理失败", error?.message || String(error));
+        });
+        return true;
+      }
+      return complete();
     } catch (error) {
       return false;
     }
@@ -88,6 +100,9 @@ export function createTerminalRuntimeController({
       return false;
     }
     session.initialRuntimeResetDone = true;
+    // Worker initialization already created an empty engine. A late initial
+    // DOM fit must never reset history that has started arriving meanwhile.
+    if (term.wasmTerm?.isRemote) return true;
     return reset(session);
   };
 

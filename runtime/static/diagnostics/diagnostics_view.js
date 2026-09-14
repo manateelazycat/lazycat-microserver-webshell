@@ -69,15 +69,29 @@ export function createDiagnosticsView({ documentObject = globalThis.document } =
     debugLogPanel: byID("debugLogPanel"),
     debugLogList: byID("debugLogList"),
     debugLogCopy: byID("debugLogCopy"),
+    debugLogDownload: byID("debugLogDownload"),
     debugLogClear: byID("debugLogClear"),
     initializationPerformancePanel: byID("initializationPerformancePanel"),
     initializationPerformanceStatus: byID("initializationPerformanceStatus"),
     initializationPerformanceCopy: byID("initializationPerformanceCopy"),
+    initializationPerformanceDownload: byID("initializationPerformanceDownload"),
     initializationPerformanceTotal: byID("initializationPerformanceTotal"),
     initializationPerformanceList: byID("initializationPerformanceList"),
     performanceTaskMeter: byID("performanceTaskMeter"),
     performanceTaskMeterList: byID("performanceTaskMeterList"),
     settingsDebugModeToggle: byID("settingsDebugModeToggle"),
+    settingsAutoScreenRefreshToggle: byID("settingsAutoScreenRefreshToggle"),
+    settingsByteIOLogToggle: byID("settingsByteIOLogToggle"),
+    byteIOLogPanel: byID("byteIOLogPanel"),
+    byteIOLogCopy: byID("byteIOLogCopy"),
+    byteIOLogDownload: byID("byteIOLogDownload"),
+    byteIOLogList: byID("byteIOLogList"),
+    settingsTerminalRenderCaptureToggle: byID("settingsTerminalRenderCaptureToggle"),
+    terminalRenderCapturePanel: byID("terminalRenderCapturePanel"),
+    terminalRenderCaptureNow: byID("terminalRenderCaptureNow"),
+    terminalRenderCaptureCopy: byID("terminalRenderCaptureCopy"),
+    terminalRenderCaptureDownload: byID("terminalRenderCaptureDownload"),
+    terminalRenderCaptureList: byID("terminalRenderCaptureList"),
     settingsDebugLogToggle: byID("settingsDebugLogToggle"),
     settingsNetworkMonitorToggle: byID("settingsNetworkMonitorToggle"),
     settingsNetworkConsumptionToggle: byID("settingsNetworkConsumptionToggle"),
@@ -95,6 +109,7 @@ export function createDiagnosticsView({ documentObject = globalThis.document } =
     networkConsumptionTotal: byID("networkConsumptionTotal"),
     networkConsumptionList: byID("networkConsumptionList"),
     networkConsumptionCopy: byID("networkConsumptionCopy"),
+    networkConsumptionDownload: byID("networkConsumptionDownload"),
   };
   let initializationRowKeys = [];
   const networkConsumptionRows = new Map();
@@ -322,6 +337,7 @@ export function createDiagnosticsView({ documentObject = globalThis.document } =
         normal: "历史回放消费正常",
         high: "异常：历史回放消费大于本次应回放字节",
         low: "异常：历史回放消费不足本次应回放字节的一半",
+        incomplete: "未完整采集本次快照回放",
       };
       for (const shell of shells) {
         const calibration = calibrations.get(String(shell.dataset?.paneId || "")) || {};
@@ -359,9 +375,12 @@ export function createDiagnosticsView({ documentObject = globalThis.document } =
         const stateLabel = stateLabels[calibrationState] || stateLabels.idle;
         const expected = formatMegabytes(calibration.expectedReplayBytes);
         const syncMode = String(calibration.syncMode || "unknown");
+        const payloadScope = calibration.recoveryBaseline === "ghostty-memory-v1"
+          ? "压缩快照载荷＋原始增量，不含 Base64/JSON 封装"
+          : "原始历史回放载荷";
         const metricsLabel = `当前历史回放流量消费 ${formatMegabytes(replayBytes)} MB 当前会话历史总字节大小 ${formatMegabytes(historyBytes)} MB`;
         panel.setAttribute("aria-label", `${metricsLabel} ${stateLabel}`);
-        panel.title = `${stateLabel} · 本次应回放 ${expected} MB · 模式 ${syncMode}`;
+        panel.title = `${stateLabel} · 本次应回放 ${expected} MB · 模式 ${syncMode} · ${payloadScope}`;
         panel.hidden = false;
       }
     },
@@ -406,6 +425,10 @@ export function createDiagnosticsView({ documentObject = globalThis.document } =
         "初始化性能",
         `状态: ${initializationStatusLabel(snapshot.status)}`,
         `总耗时: ${formatInitializationMs(snapshot.totalMs)}`,
+        `页面标识: ${snapshot.pageID || ""}`,
+        `浏览器: ${snapshot.userAgent || ""}`,
+        `时间基准 Unix ms: ${snapshot.timeOriginUnixMs || 0}`,
+        `计时起点 performance.now ms: ${snapshot.startedAt || 0}（运行时启动，不含此前资源加载）`,
       ];
       if (snapshot.sessionID) {
         lines.push(`Session: ${snapshot.sessionID}`);
@@ -504,6 +527,25 @@ export function createDiagnosticsView({ documentObject = globalThis.document } =
         elements.performanceTaskMeterList.appendChild(row);
       }
     },
+    renderByteIOLog(snapshot, { visible = false } = {}) {
+      if (elements.byteIOLogPanel) elements.byteIOLogPanel.hidden = !visible;
+      const list = elements.byteIOLogList;
+      if (!list) return;
+      if (!visible) { list.textContent = ""; return; }
+      const follow = list.scrollHeight - list.scrollTop - list.clientHeight < 24;
+      list.textContent = `events=${snapshot.retained || 0}; dropped=${snapshot.dropped || 0}; showing latest 80\n`
+        + snapshot.lines.join("\n");
+      if (follow) list.scrollTop = list.scrollHeight;
+    },
+    renderTerminalRenderCapture(snapshot, { visible = false } = {}) {
+      if (elements.terminalRenderCapturePanel) elements.terminalRenderCapturePanel.hidden = !visible;
+      const list = elements.terminalRenderCaptureList;
+      if (!list) return;
+      if (!visible) { list.textContent = ""; return; }
+      const follow = list.scrollHeight - list.scrollTop - list.clientHeight < 24;
+      list.textContent = `records=${snapshot.retained || 0}; dropped=${snapshot.dropped || 0}\n` + snapshot.lines.join("\n");
+      if (follow) list.scrollTop = list.scrollHeight;
+    },
     syncControls(state) {
       const debugMode = state.debugMode === true;
       if (elements.settingsDebugModeToggle) {
@@ -513,6 +555,9 @@ export function createDiagnosticsView({ documentObject = globalThis.document } =
         elements.settingsDebugOptions.hidden = !debugMode;
       }
       for (const [element, checked] of [
+        [elements.settingsAutoScreenRefreshToggle, state.autoScreenRefresh],
+        [elements.settingsByteIOLogToggle, state.byteIOLog],
+        [elements.settingsTerminalRenderCaptureToggle, state.terminalRenderCapture],
         [elements.settingsInitializationPerformanceToggle, state.initializationPerformance],
         [elements.settingsDebugLogToggle, state.debugLog],
         [elements.settingsNetworkMonitorToggle, state.networkMonitor],

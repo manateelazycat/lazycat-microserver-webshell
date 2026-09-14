@@ -783,15 +783,7 @@ func buildAttachmentUserScopedScript(username, script string) string {
 	return strings.Join([]string{
 		buildUserShellBootstrapScript(username),
 		"script=" + shellScriptQuote(script),
-		"if command -v setpriv >/dev/null 2>&1; then",
-		"  exec env HOME=\"$home\" USER=\"$user\" LOGNAME=\"$user\" XDG_CONFIG_HOME=\"$xdg_config_home\" setpriv --reuid \"$uid\" --regid \"$gid\" --init-groups /bin/sh -lc \"$script\"",
-		"fi",
-		"if command -v su >/dev/null 2>&1; then",
-		"  export HOME=\"$home\" USER=\"$user\" LOGNAME=\"$user\" XDG_CONFIG_HOME=\"$xdg_config_home\"",
-		"  exec su -s /bin/sh \"$user\" -c \"$script\"",
-		"fi",
-		"echo 'setpriv or su is required for webshell file browser.' >&2",
-		"exit 127",
+		buildUserIdentityExecScript(`/bin/sh -lc "$script"`, `su -s /bin/sh "$user" -c "$script"`),
 	}, "\n")
 }
 

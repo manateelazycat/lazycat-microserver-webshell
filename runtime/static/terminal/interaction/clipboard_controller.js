@@ -65,7 +65,16 @@ export function createTerminalClipboardController({
     if (disposed || !session?.term) {
       return false;
     }
-    const text = getSelectedText(session);
+    let text;
+    try { text = await getSelectedText(session); }
+    catch (error) {
+      if (disposed || session.closed || error?.code === "BACKEND_CANCELLED") return false;
+      consoleObject?.warn?.("Terminal selection read failed", error);
+      showToast(error?.code === "HISTORY_CHANGED" ? "选区内容已变化，请重新选择后复制。"
+        : error?.code === "TEXT_TOO_LARGE" ? "选区内容过多，请缩小范围后复制。" : "复制未完成，请稍后重试。");
+      return false;
+    }
+    if (disposed || session.closed) return false;
     clearSelectionState(session);
     if (!text) {
       showToast("没有可复制的选区。");
@@ -125,7 +134,9 @@ export function createTerminalClipboardController({
   };
 
   const copyCurrentSelection = async (session) => {
-    const text = session?.term?.getSelection?.() || "";
+    let text;
+    try { text = await (session?.term?.getSelectionAsync?.() ?? session?.term?.getSelection?.() ?? ""); }
+    catch (error) { consoleObject?.warn?.("Terminal selection read failed", error); return false; }
     if (disposed || session?.closed || !text) {
       return false;
     }

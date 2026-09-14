@@ -1,4 +1,5 @@
 import { createTerminalOutputLifecycle } from "./output_lifecycle.js";
+import { createReplayBatch } from "./replay_batch.js";
 import {
   coalesceTerminalOutputBatch,
   parseTerminalOutputCursor,
@@ -15,7 +16,8 @@ export const TERMINAL_OUTPUT_FLUSH_MAX_BATCHES = 8;
 export const TERMINAL_OUTPUT_FLUSH_TIME_BUDGET_MS = 12;
 export const TERMINAL_REPLAY_WRITE_BATCH_BYTES = 512 * 1024;
 // Check the wall-clock budget between parser calls, not only while partitioning.
-const TERMINAL_OUTPUT_WRITE_SLICE_BYTES = 32 * 1024;
+const TERMINAL_OUTPUT_WRITE_SLICE_BYTES = 8 * 1024;
+const MAX_QUEUED_TERMINAL_OUTPUT_ENTRIES = 8192;
 export const TERMINAL_OUTPUT_QUEUE_SOFT_LIMIT_BYTES = 1 * 1024 * 1024;
 export const MAX_QUEUED_TERMINAL_OUTPUT_BYTES = 4 * 1024 * 1024;
 
@@ -23,6 +25,9 @@ const noop = () => {};
 
 export function createTerminalOutputController({
   windowObject = globalThis.window,
+  workScheduler = null,
+  getPriority = () => 0,
+  onProcessingError = null,
   getActiveName = () => "",
   isReplayCommitted = () => false,
   getResizeTransition = () => ({ active: false, outputSettleActive: false }),
@@ -67,6 +72,8 @@ export function createTerminalOutputController({
   recordPerformanceTask = noop,
   now = () => globalThis.performance?.now?.() || Date.now(),
   isDebugLogEnabled = () => false,
+  isByteIOLogEnabled = () => false,
+  observeReplayBytes = noop,
   appendDebugLog = noop,
   appendStartupTrace = noop,
   onDiscard = noop,
@@ -80,10 +87,25 @@ export function createTerminalOutputController({
   queueSoftLimitBytes = TERMINAL_OUTPUT_QUEUE_SOFT_LIMIT_BYTES,
   maxQueuedBytes = MAX_QUEUED_TERMINAL_OUTPUT_BYTES,
 } = {}) {
-  const lifecycle = lifecycleFactory({ windowObject });
+  const lifecycle = lifecycleFactory({
+    windowObject,
+    workScheduler,
+    getPriority: (session) => getPriority(session) + (session.outputQueueSize >= queueSoftLimitBytes ? 1 : 0),
+  });
   const sessions = new Set();
+  let byteIOBatchID = 0;
+  const flushing = new WeakSet();
+  const inFlight = new WeakMap();
+  const failed = new WeakSet();
+  const parsedBytes = new WeakMap();
+  const appliedEntries = new WeakMap();
+  const replayBatch = createReplayBatch({ maxQueuedBytes, now, recordEvent });
   const disposedSessions = new WeakSet();
   let disposed = false;
+  const recoverProcessingError = (session, error) => {
+    if (onProcessingError) onProcessingError(session, error);
+    else requestHistoryReplay(session);
+  };
 
   const ensureState = (session) => {
     if (!session) {
@@ -108,6 +130,10 @@ export function createTerminalOutputController({
       generation: state?.outputQueueGeneration || 0,
       overloadPending: state?.outputOverloadPending === true,
       pendingQueueTurnAck: Boolean(state?.pendingQueueTurnAck),
+      pendingAck: Boolean(state?.pendingQueueTurnAck),
+      pendingAckCursor: state?.pendingQueueTurnAck?.cursor?.toString?.() || "",
+      appliedCursor: state?.appliedHistoryCursor?.toString?.() || "0",
+      parsedBytes: parsedBytes.get(state) || 0,
     });
   };
 
@@ -117,6 +143,9 @@ export function createTerminalOutputController({
       return false;
     }
     state.outputOverloadPending = true;
+    if (isByteIOLogEnabled()) recordEvent(state, "byte_io_overload", { reason, queuedBytes: state.outputQueueSize });
+    failed.add(state);
+    lifecycle.clear(state);
     recordMetric("outputOverloads");
     globalThis.console?.warn?.("[terminal-output] queue overload; requesting cursor resync", {
       name: state.name,
@@ -124,16 +153,17 @@ export function createTerminalOutputController({
       queuedBytes: state.outputQueueSize,
       reason,
     });
-    requestHistoryReplay(state);
+    recoverProcessingError(state, new Error(reason));
     return true;
   };
 
-  const writeBatch = (session, data, replayOutput, allowGeneratedInput, suppressRender = false) => {
+  const writeBatch = async (session, data, replayOutput, allowGeneratedInput, suppressRender = false) => {
     const kind = terminalOutputKind(data);
     if (!kind || (kind === "text" ? data.length === 0 : data.byteLength === 0)) {
       return false;
     }
     const previousAllowGeneratedInput = session.allowGeneratedInputDuringReplay;
+    const generation = session.outputQueueGeneration;
     if (replayOutput) {
       session.allowGeneratedInputDuringReplay = allowGeneratedInput === true;
       armReplayGeneratedSuppression(session);
@@ -149,13 +179,14 @@ export function createTerminalOutputController({
       }
       recordMetric("terminalOutputBatches");
       recordMetric("terminalOutputBytes", terminalOutputByteLength(data));
-      measureTask("terminal write", () => {
+      await measureTask("terminal write", () => {
         if (replayWriter) {
-          session.term.writeReplay(data);
+          return session.term.writeReplay(data);
         } else {
-          session.term.write(data);
+          return session.term.write(data);
         }
       });
+      if (session.closed || session.outputQueueGeneration !== generation) return false;
       session.lastTerminalOutputAt = now();
       if (!replayWriter && isRenderAllowed(session)) {
         session.term.requestRender?.({ throttle: true });
@@ -170,7 +201,7 @@ export function createTerminalOutputController({
       }
       return true;
     } finally {
-      if (replayOutput) {
+      if (replayOutput && session.outputQueueGeneration === generation) {
         session.replayOutputDepth = Math.max(0, Number(session.replayOutputDepth || 0) - 1);
         session.allowGeneratedInputDuringReplay = previousAllowGeneratedInput;
       }
@@ -212,7 +243,7 @@ export function createTerminalOutputController({
     }
   };
 
-  const flush = (session, {
+  const drain = async (session, {
     force = false,
     maxBytes = 0,
     maxEntries = 0,
@@ -238,6 +269,7 @@ export function createTerminalOutputController({
       });
     }
     const queue = state.outputQueue;
+    const drainGeneration = state.outputQueueGeneration;
     if (queue.length === 0) {
       if (traceFlush) {
         recordEvent(state, "output_flush_empty", {
@@ -259,6 +291,7 @@ export function createTerminalOutputController({
       || entry.historyGeneration !== String(state.historyGeneration || "")
     ));
     if (outputIdentityMismatch) {
+      if (isByteIOLogEnabled()) recordEvent(state, "byte_io_discard", { reason: "output_identity_changed", queuedBytes: state.outputQueueSize });
       recordMetric("staleOutputQueueDrops");
       state.outputQueue = [];
       state.outputQueueSize = 0;
@@ -274,43 +307,53 @@ export function createTerminalOutputController({
       state.replayCompletionPending = false;
       return true;
     }
+    if (workScheduler && workScheduler.remainingMs() <= 0) {
+      if (scheduleRemainder) scheduleFlush(state);
+      return false;
+    }
     let drained = false;
-    measureTask("output flush", () => {
+    await measureTask("output flush", async () => {
       const flushQueue = [];
       let flushedBytes = 0;
       const requestedBudgetBytes = Math.max(0, Math.floor(Number(maxBytes) || 0));
       const requestedEntryLimit = Math.max(0, Math.floor(Number(maxEntries) || 0));
       const requestedTimeBudgetMs = Math.max(0, Number(maxTimeMs) || 0);
+      const snapshotBatch = replayBatch.get(state);
+      const aggregateReplay = snapshotBatch?.aggregate && !snapshotBatch.waiting
+        && queue[0]?.replayBatch === snapshotBatch;
       const budgetBytes = requestedBudgetBytes || (queue[0]?.replayOutput
-        ? replayWriteBatchBytes
+        ? (aggregateReplay ? snapshotBatch.bytes : replayWriteBatchBytes)
         : flushBudgetBytes);
       // Small transport frames must coalesce before the default work limit is
       // applied. Eight 110-byte frames per animation tick cannot keep up with
       // normal PTY output. Explicit entry limits still bound resize/ACK drains.
       const entryLimit = requestedEntryLimit;
-      const batchLimit = force || queue[0]?.replayOutput ? 0 : flushMaxBatches;
-      const timeBudgetMs = requestedTimeBudgetMs || (force ? 0 : flushTimeBudgetMs);
-      const unlimited = force && !requestedBudgetBytes && !requestedEntryLimit && !requestedTimeBudgetMs;
+      const batchLimit = queue[0]?.replayOutput ? 0 : flushMaxBatches;
+      const timeBudgetMs = Math.min(requestedTimeBudgetMs || flushTimeBudgetMs, workScheduler?.remainingMs() ?? flushTimeBudgetMs);
       const drainStartedAt = now();
       let wrote = false;
       let consumed = 0;
       let flushedBatches = 0;
       while (state.outputQueue.length > 0) {
+        if (!force && getResizeTransition(state)?.blockOutput) break;
         const pending = state.outputQueue;
         if (consumed > 0 && (
           (entryLimit > 0 && consumed >= entryLimit)
           || (batchLimit > 0 && flushedBatches >= batchLimit)
-          || (!unlimited && flushedBytes + pending[0].byteLength > budgetBytes)
+          || (flushedBytes + pending[0].byteLength > budgetBytes)
           || (timeBudgetMs > 0 && now() - drainStartedAt >= timeBudgetMs)
         )) break;
         const first = pending[0];
         const batch = { ...first, chunks: [], byteLength: 0 };
         let batchEntries = 0;
-        const sliceBytes = Math.min(TERMINAL_OUTPUT_WRITE_SLICE_BYTES, first.replayOutput ? replayWriteBatchBytes : flushBudgetBytes);
+        const bulk = aggregateReplay && first.replayBatch === snapshotBatch;
+        const sliceBytes = bulk ? snapshotBatch.bytes
+          : Math.min(TERMINAL_OUTPUT_WRITE_SLICE_BYTES, first.replayOutput ? replayWriteBatchBytes : flushBudgetBytes);
         while (batchEntries < pending.length) {
           const entry = pending[batchEntries];
           if (batch.chunks.length > 0 && (
             batch.kind !== entry.kind
+            || batch.replayBatch !== entry.replayBatch
             || batch.replayOutput !== entry.replayOutput
             || batch.suppressRender !== entry.suppressRender
             || batch.allowGeneratedInput !== entry.allowGeneratedInput
@@ -318,8 +361,8 @@ export function createTerminalOutputController({
             || (batch.historyEndCursor !== null && entry.historyStartCursor !== batch.historyEndCursor)
             || batch.byteLength + entry.byteLength > sliceBytes
             || (entryLimit > 0 && consumed >= entryLimit)
-            || (!unlimited && flushedBytes + entry.byteLength > budgetBytes)
-            || (timeBudgetMs > 0 && now() - drainStartedAt >= timeBudgetMs)
+            || (flushedBytes + entry.byteLength > budgetBytes)
+            || (!bulk && timeBudgetMs > 0 && now() - drainStartedAt >= timeBudgetMs)
           )) break;
           batch.chunks.push(entry.data);
           batch.byteLength += entry.byteLength;
@@ -329,24 +372,51 @@ export function createTerminalOutputController({
           consumed += 1;
           batchEntries += 1;
         }
-        // Remove only this batch before invoking callbacks. A reset during write
-        // must not reintroduce retired output or overwrite a replacement queue.
-        state.outputQueue = pending.slice(batchEntries);
-        state.outputQueueSize = Math.max(0, state.outputQueueSize - batch.byteLength);
+        const measureIO = isByteIOLogEnabled();
+        const coalesceAt = measureIO ? now() : 0;
         const data = coalesceTerminalOutputBatch(batch.chunks, batch.kind, batch.byteLength);
+        const writeAt = measureIO ? now() : 0;
+        const batchID = measureIO ? ++byteIOBatchID : 0;
+        if (measureIO) recordEvent(state, "byte_io_batch_start", {
+          batchID, bytes: batch.byteLength, entries: batchEntries, aggregate: Boolean(bulk),
+          replayOutput: batch.replayOutput, coalesceMs: writeAt - coalesceAt,
+          oldestQueueWaitMs: first.byteIOEnqueuedAt == null ? null : coalesceAt - first.byteIOEnqueuedAt,
+          newestQueueWaitMs: pending[batchEntries - 1].byteIOEnqueuedAt == null ? null : coalesceAt - pending[batchEntries - 1].byteIOEnqueuedAt,
+          startCursor: batch.historyStartCursor?.toString(), endCursor: batch.historyEndCursor?.toString(),
+        });
         flushedBatches += 1;
-        if (writeBatch(state, data, batch.replayOutput, batch.allowGeneratedInput, batch.suppressRender)) {
+        const written = await writeBatch(state, data, batch.replayOutput, batch.allowGeneratedInput, batch.suppressRender);
+        const writeDoneAt = measureIO ? now() : 0;
+        if (written) {
           if (state.closed || state.outputQueueGeneration !== first.queueGeneration) break;
+          // Keep in-flight bytes visible to replay/fence owners until the worker
+          // confirms parsing. Preserve bytes enqueued while awaiting the reply.
+          state.outputQueue = pending.slice(batchEntries);
+          state.outputQueueSize = Math.max(0, state.outputQueueSize - batch.byteLength);
           wrote = true;
+          parsedBytes.set(state, (parsedBytes.get(state) || 0) + batch.byteLength);
+          appliedEntries.set(state, (appliedEntries.get(state) || 0) + batchEntries);
+          let cacheEnqueueMs = 0;
           if (batch.historyEndCursor !== null) {
             state.appliedHistoryCursor = batch.historyEndCursor;
+            replayBatch.applied(state);
             if (batch.historyCacheable && data instanceof Uint8Array) {
+              const cacheAt = measureIO ? now() : 0;
               queueHistoryCacheWrite(state, data, batch.historyStartCursor, batch.historyEndCursor);
+              if (measureIO) cacheEnqueueMs = now() - cacheAt;
             }
           }
+          if (measureIO && isByteIOLogEnabled()) recordEvent(state, "byte_io_batch_complete", {
+            batchID, bytes: batch.byteLength, writeAwaitMs: writeDoneAt - writeAt, cacheEnqueueMs,
+            queuedBytes: state.outputQueueSize, queueEntries: state.outputQueue.length,
+            endCursor: batch.historyEndCursor?.toString(),
+          });
+        } else {
+          break;
         }
       }
 
+      if (state.closed || state.outputQueueGeneration !== drainGeneration) return;
       if (wrote) {
         resetHostViewport(state, { clean: true, source: "output" });
         positionInput(state);
@@ -390,7 +460,7 @@ export function createTerminalOutputController({
         });
       }
       trySendPendingQueueTurnAck(state);
-      if (!drained && scheduleRemainder) {
+      if (!drained && scheduleRemainder && !getResizeTransition(state)?.blockOutput) {
         lifecycle.schedule(state, () => flush(state), flushFallbackMs);
       } else {
         finishHistoryReplayIfReady(state);
@@ -399,9 +469,49 @@ export function createTerminalOutputController({
     return drained;
   };
 
+  const flush = (session, options = {}) => {
+    if (!session || disposed || session.closed || failed.has(session)) return false;
+    if (inFlight.has(session)) return inFlight.get(session);
+    if (options.force) replayBatch.interrupt(session);
+    if (replayBatch.get(session)?.waiting) {
+      lifecycle.clear(session);
+      return false;
+    }
+    // ACK-fenced drains belong exclusively to the resize owner until it has
+    // switched grids. A normal output turn must not consume post-ACK bytes.
+    if (!options.force && getResizeTransition(session)?.blockOutput) return false;
+    if (workScheduler && !workScheduler.isRunning()) {
+      const result = workScheduler.runNow(() => flush(session, options));
+      if (result === false && options.scheduleRemainder !== false && !failed.has(session)) scheduleFlush(session);
+      return result;
+    }
+    if (workScheduler && workScheduler.remainingMs() <= 0) {
+      if (options.scheduleRemainder !== false) scheduleFlush(session);
+      return false;
+    }
+    flushing.add(session);
+    const generation = session.outputQueueGeneration;
+    const promise = drain(session, options).catch((error) => {
+      if (session.closed || session.outputQueueGeneration !== generation || error?.code === "BACKEND_CANCELLED") return false;
+      // A parser can consume a prefix before failing. Only a fresh runtime and
+      // authoritative replay can safely recover; never retry this batch in place.
+      failed.add(session);
+      lifecycle.clear(session);
+      try { beginPresentationHold(session); } catch { /* Preserve recovery even if Canvas failed. */ }
+      recoverProcessingError(session, error);
+      return false;
+    }).finally(() => {
+      flushing.delete(session);
+      if (inFlight.get(session) === promise) inFlight.delete(session);
+      if (!session.closed && !failed.has(session) && session.outputQueueSize > 0 && options.scheduleRemainder !== false && !getResizeTransition(session)?.blockOutput) scheduleFlush(session);
+    });
+    inFlight.set(session, promise);
+    return promise;
+  };
+
   const scheduleFlush = (session) => {
     const state = ensureState(session);
-    if (!state || disposed || disposedSessions.has(state) || state.closed) {
+    if (!state || disposed || disposedSessions.has(state) || state.closed || failed.has(state)) {
       return false;
     }
     return lifecycle.schedule(state, () => flush(state), flushFallbackMs);
@@ -412,18 +522,21 @@ export function createTerminalOutputController({
     startCursor = null,
     endCursor = null,
     deferRender = false,
+    localOutput = false,
   } = {}) => {
     const state = ensureState(session);
     if (
       disposed
       || !state?.term
       || state.closed
+      || failed.has(state)
       || disposedSessions.has(state)
       || state.name !== getActiveName()
     ) {
       return false;
     }
     const outputData = data instanceof ArrayBuffer ? new Uint8Array(data) : data;
+    const byteIOEnqueuedAt = isByteIOLogEnabled() ? now() : null;
     const kind = terminalOutputKind(outputData);
     if (!kind) {
       return false;
@@ -432,7 +545,7 @@ export function createTerminalOutputController({
       handleOverload(state, "queued output would exceed hard limit");
       return false;
     }
-    const replayOutput = !isReplayCommitted(state);
+    const replayOutput = !localOutput && !isReplayCommitted(state);
     const resizeTransition = getResizeTransition(state) || {};
     if (resizeTransition.outputSettleActive) {
       noteResizeOutput(state);
@@ -447,12 +560,13 @@ export function createTerminalOutputController({
     const connectionEpoch = Number(state.connectionEpoch || 0);
     const channelGeneration = Number(state.connectionChannelGeneration || 0);
     const historyGeneration = String(state.historyGeneration || "");
+    const activeReplayBatch = replayBatch.get(state);
     const enqueueEntry = (entryData) => {
       const byteLength = terminalOutputByteLength(entryData);
       if (byteLength <= 0) {
         return true;
       }
-      if (state.outputQueueSize + byteLength > maxQueuedBytes) {
+      if (state.outputQueueSize + byteLength > maxQueuedBytes || state.outputQueue.length >= MAX_QUEUED_TERMINAL_OUTPUT_ENTRIES) {
         handleOverload(state, "queued output exceeded hard limit");
         return false;
       }
@@ -463,6 +577,7 @@ export function createTerminalOutputController({
         state.receivedHistoryCursor = historyEndCursor;
       }
       state.outputQueue.push({
+        byteIOEnqueuedAt,
         data: entryData,
         kind,
         byteLength,
@@ -478,6 +593,8 @@ export function createTerminalOutputController({
         historyCacheable: historySource === "server" && historyEndCursor !== null,
         historyStartCursor,
         historyEndCursor,
+        replayBatch: activeReplayBatch && historySource === "server" && historyStartCursor !== null
+          && historyStartCursor >= activeReplayBatch.start && historyEndCursor <= activeReplayBatch.end ? activeReplayBatch : null,
       });
       state.outputQueueSize += byteLength;
       recordMetric("outputQueuedBytes", byteLength);
@@ -504,6 +621,11 @@ export function createTerminalOutputController({
     if (trackHistory && endCursor !== null && nextHistoryCursor !== endCursor) {
       throw new Error("Terminal history output range does not match payload length.");
     }
+    observeReplayBytes(state, outputData, { replayOutput, historySource });
+    if (byteIOEnqueuedAt !== null) recordEvent(state, "byte_io_enqueue", {
+      inputBytes: terminalOutputByteLength(outputData), enqueueMs: now() - byteIOEnqueuedAt,
+      queuedBytes: state.outputQueueSize, queueEntries: state.outputQueue.length, replayOutput, historySource,
+    });
     if (state.startupTraceActive || !isReplayCommitted(state)) {
       recordEvent(state, "output_queued", {
         bytes: terminalOutputByteLength(outputData),
@@ -518,42 +640,17 @@ export function createTerminalOutputController({
     }
     if (state.outputQueueSize >= maxQueuedBytes) {
       handleOverload(state, "queued output exceeded hard limit");
-    } else if (state.outputQueueSize >= queueSoftLimitBytes) {
-      flush(state);
-    } else {
+    } else if (!replayBatch.get(state)?.waiting) {
       scheduleFlush(state);
     }
     return true;
   };
 
   const writeImmediate = (session, data) => {
-    const state = ensureState(session);
-    if (disposed || !state?.term || state.closed || disposedSessions.has(state)) {
-      return false;
-    }
-    flush(state, { force: true });
-    if (state.closed) {
-      return false;
-    }
-    const writeStartedAt = state.startupTraceActive ? now() : 0;
-    measureTask("terminal render", () => state.term.write(data));
-    if (state.startupTraceActive) {
-      appendStartupTrace(
-        "终端写入完成",
-        `pane=${state.id} bytes=${data?.byteLength || 0} duration=${Math.round(now() - writeStartedAt)}ms`,
-        { dedupeKey: `terminal-write:${state.id}` },
-      );
-    }
-    state.lastTerminalOutputAt = now();
-    if (isRenderAllowed(state)) {
-      state.term.requestRender?.({ throttle: true });
-    }
-    advanceContentGeneration(state);
-    drainGeneratedResponses(state);
-    deferHiddenRender(state);
-    resetHostViewport(state, { clean: true, source: "output" });
-    positionInput(state);
-    schedulePresentationValidation(state);
+    if (!write(session, data, { historySource: "local", localOutput: true })) return false;
+    // Startup errors still follow pending PTY bytes if the current turn runs
+    // out of budget; writing directly here would reorder the terminal stream.
+    flush(session);
     return true;
   };
 
@@ -563,6 +660,12 @@ export function createTerminalOutputController({
       return false;
     }
     lifecycle.clear(state);
+    failed.delete(state);
+    parsedBytes.delete(state);
+    appliedEntries.delete(state);
+    replayBatch.discard(state);
+    state.outputOverloadPending = false;
+    state.replayOutputDepth = 0;
     state.outputQueueGeneration = Number(state.outputQueueGeneration || 0) + 1;
     state.outputQueue = [];
     state.outputQueueSize = 0;
@@ -640,7 +743,8 @@ export function createTerminalOutputController({
       sequence: sequenceText,
       queuedBytes: state.outputQueueSize,
     });
-    flush(state, {
+    const aggregateReplay = replayBatch.get(state)?.aggregate === true;
+    flush(state, aggregateReplay ? {} : {
       maxBytes: flushBudgetBytes,
       maxEntries: flushMaxEntries,
       maxTimeMs: flushTimeBudgetMs,
@@ -659,6 +763,9 @@ export function createTerminalOutputController({
       return true;
     },
     write,
+    getReplayBatchLimit: replayBatch.limit,
+    beginReplayBatch: replayBatch.begin,
+    completeReplayBatch: replayBatch.complete,
     writeImmediate,
     flush,
     scheduleFlush,
@@ -670,6 +777,7 @@ export function createTerminalOutputController({
     getSnapshot,
     getQueuedBytes: (session) => getSnapshot(session).queuedBytes,
     getQueueEntryCount: (session) => getSnapshot(session).entryCount,
+    getAppliedEntryCount: (session) => appliedEntries.get(session) || 0,
     hasQueued: (session) => getSnapshot(session).queuedBytes > 0,
     clearOverload(session) {
       const state = ensureState(session);

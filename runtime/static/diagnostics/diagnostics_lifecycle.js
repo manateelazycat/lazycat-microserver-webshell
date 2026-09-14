@@ -27,6 +27,14 @@ export function createDiagnosticsLifecycle({ elements = {}, handlers = {} } = {}
       }
       started = true;
       listen(elements.settingsDebugModeToggle, "change", handlers.onDebugModeChange);
+      listen(elements.settingsAutoScreenRefreshToggle, "change", handlers.onAutoScreenRefreshChange);
+      listen(elements.settingsByteIOLogToggle, "change", handlers.onByteIOLogChange);
+      listen(elements.byteIOLogCopy, "click", handlers.onByteIOLogCopy);
+      listen(elements.byteIOLogDownload, "click", handlers.onByteIOLogDownload);
+      listen(elements.settingsTerminalRenderCaptureToggle, "change", handlers.onTerminalRenderCaptureChange);
+      listen(elements.terminalRenderCaptureNow, "click", handlers.onTerminalRenderCaptureNow);
+      listen(elements.terminalRenderCaptureCopy, "click", handlers.onTerminalRenderCaptureCopy);
+      listen(elements.terminalRenderCaptureDownload, "click", handlers.onTerminalRenderCaptureDownload);
       listen(elements.settingsDebugLogToggle, "change", handlers.onDebugLogChange);
       listen(elements.settingsNetworkMonitorToggle, "change", handlers.onNetworkMonitorChange);
       listen(elements.settingsNetworkConsumptionToggle, "change", handlers.onNetworkConsumptionChange);
@@ -35,8 +43,11 @@ export function createDiagnosticsLifecycle({ elements = {}, handlers = {} } = {}
       listen(elements.settingsPerformanceTasksToggle, "change", handlers.onPerformanceTasksChange);
       listen(elements.settingsInitializationPerformanceToggle, "change", handlers.onInitializationPerformanceChange);
       listen(elements.initializationPerformanceCopy, "click", handlers.onInitializationPerformanceCopy);
+      listen(elements.initializationPerformanceDownload, "click", handlers.onInitializationPerformanceDownload);
       listen(elements.networkConsumptionCopy, "click", handlers.onNetworkConsumptionCopy);
+      listen(elements.networkConsumptionDownload, "click", handlers.onNetworkConsumptionDownload);
       listen(elements.debugLogCopy, "click", handlers.onDebugLogCopy);
+      listen(elements.debugLogDownload, "click", handlers.onDebugLogDownload);
       listen(elements.debugLogClear, "click", handlers.onDebugLogClear);
     },
   };

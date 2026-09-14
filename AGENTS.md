@@ -3,9 +3,10 @@
 ## 代码边界
 
 - `runtime/static/main.js` 只能作为前端启动入口。
-- `runtime/static/global-runtime.js` 是应用根目录下唯一的全局运行时 owner。
+- `runtime/static/global-runtime.js` 是 UI 全局运行时 owner；同级 `global-backend-worker.js` 是 Worker 全局运行时 owner。两者只编排各自模块和生命周期，具体实现分模块维护。
 - 本项目禁止引入 `tmux`。
 - 本项目禁止引入 `xterm.js`。
+- 修改服务端代码时，必须同步更新 `agent.go` 的 `agentProtocolVersion`，并核对 `agent_runtime.go` 的显式兼容列表和协议版本说明。
 
 ## 测试规则
 

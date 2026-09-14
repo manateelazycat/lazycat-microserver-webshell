@@ -1,4 +1,5 @@
 import { decodeFastBinaryFrame } from "./terminal_fast_integrity.js";
+import { createCheckpointReceiver, memoryCheckpointProtocol } from "./checkpoint_transport.js";
 
 const noop = () => {};
 
@@ -20,6 +21,7 @@ export function createTerminalSessionProtocolController({
   navigatorObject = globalThis.navigator,
   WebSocketCtor = globalThis.WebSocket,
   getActiveName = () => "",
+  isByteIOLogEnabled = () => false,
   getActiveTabId = () => null,
   getCurrentTab = () => null,
   getTerminalTransportRuntime = () => null,
@@ -49,6 +51,7 @@ export function createTerminalSessionProtocolController({
   detachSessionSocket = noop,
   invalidateSessionStartupError = noop,
   showSessionStartupError = noop,
+  handleProcessExit = noop,
   resetTerminalForHistoryReplay = () => false,
   beginTerminalRenderSuppression = noop,
   endTerminalRenderSuppression = noop,
@@ -141,7 +144,7 @@ export function createTerminalSessionProtocolController({
     });
     if (isClientInstanceName(session.name)) {
       await clientHistory.prepareSession(session);
-      terminalOutput.flush(session, { force: true });
+      await terminalOutput.flush(session, { force: true });
       await clientHistory.flushSession(session);
     }
     if (
@@ -220,6 +223,7 @@ export function createTerminalSessionProtocolController({
       replayStartedAt: 0,
     };
     const replayController = session.replayController || (session.replayController = new TerminalReplayController());
+    const checkpointReceiver = createCheckpointReceiver(session);
     const isClientDirectTransport = channel === "fast" && isClientInstanceName(session.name);
     const clientReplayAdapter = isClientDirectTransport
       ? new ClientTerminalReplayAdapter(replayController)
@@ -312,6 +316,8 @@ export function createTerminalSessionProtocolController({
         workspace_generation: isClientInstanceName(session.name) ? "" : session.workspaceGeneration,
         history_replay_mode: session.resetOnNextReplay ? "snapshot" : "",
         flow_control: "turn-ack-v1",
+        replay_burst_limit_bytes: terminalOutput.getReplayBatchLimit(session),
+        checkpoint_protocol: !isClientInstanceName(session.name) && typeof DecompressionStream === "function" ? memoryCheckpointProtocol : "",
         foreground: themePayload.foreground,
         background: themePayload.background,
         cursor: themePayload.cursor,
@@ -587,6 +593,14 @@ export function createTerminalSessionProtocolController({
               });
             }
             switch (message.type) {
+              case "terminal-checkpoint-error":
+                checkpointReceiver.clear();
+                rejectHistorySync(message.message || "Terminal recovery checkpoint unavailable");
+                return;
+              case "terminal-checkpoint-part":
+                try { checkpointReceiver.accept(message); }
+                catch (error) { checkpointReceiver.clear(); rejectHistorySync(error.message); }
+                return;
               case "server-log": {
                 const sequence = Number(message.server_log_seq || 0);
                 const source = String(message.source || "server").trim();
@@ -662,12 +676,15 @@ export function createTerminalSessionProtocolController({
                   deltaFromCursor: message.delta_from_cursor || "",
                   deltaToCursor: message.delta_to_cursor || "",
                   serverHistoryBytes: Number(message.server_history_bytes || 0),
+                  replayBurstBytes: Number(message.replay_burst_bytes || 0),
                   serverHistoryChunks: Number(message.server_history_chunks || 0),
                   serverReplayFrames: Number(message.server_replay_frames || 0),
                   serverReplayStartedUnixMs: Number(message.server_replay_started_unix_ms || 0),
                   resizeEpoch: String(message.resize_epoch || ""),
                   cols: Number(message.cols || 0),
                   rows: Number(message.rows || 0),
+                  recoveryBaseline: String(message.recovery_baseline || "raw-history"),
+                  checkpointMemoryBytes: Number(message.memory_checkpoint?.memory_bytes || 0),
                 });
                 // Keep one suppression scope across all replay drain tasks.
                 // writeReplay() alone only protects one synchronous chunk.
@@ -708,6 +725,7 @@ export function createTerminalSessionProtocolController({
                     terminalSessionConnection.closeSocketForReconnect(session, currentSocket, "Terminal reset for legacy replay failed.");
                     return;
                   }
+                  terminalResize.prepareReplayGeometry(session, message);
                   terminalReplay.setAuthorization(
                     session,
                     replayMessageHasIdentity(message) ? "identified" : "legacy",
@@ -784,17 +802,36 @@ export function createTerminalSessionProtocolController({
                 session.serverBaseCursor = serverBaseCursor;
                 session.resetOnNextReplay = false;
                 if (syncMode === "snapshot") {
+                  let checkpoint;
+                  try { checkpoint = checkpointReceiver.take(message); }
+                  catch (error) { checkpointReceiver.clear(); rejectHistorySync(error.message); return; }
                   if (!resetTerminalForHistoryReplay(session)) {
                     rejectHistorySync("terminal reset failed");
                     return;
                   }
+                  if (checkpoint) {
+                    const backend = session.term.wasmTerm;
+                    recordTerminalSessionEvent(session, "state_checkpoint_restore_start", {
+                      cursor: checkpoint.cursor, memoryBytes: checkpoint.memory_bytes, cols: checkpoint.cols, rows: checkpoint.rows,
+                    });
+                    const generation = backend.generation;
+                    backend.restoreCheckpoint(checkpoint).then(() => {
+                      if (session.term.wasmTerm === backend && backend.generation === generation && !session.closed && session.connectionEpoch === connectionEpoch) {
+                        if (session.appliedHistoryCursor < deltaFromCursor) session.appliedHistoryCursor = deltaFromCursor;
+                        recordTerminalSessionEvent(session, "state_checkpoint_restore_complete", { cursor: checkpoint.cursor });
+                      }
+                    }).catch((error) => {
+                      if (session.term.wasmTerm === backend && backend.generation === generation && !session.closed) rejectHistorySync(error.message);
+                    });
+                  }
+                  terminalResize.prepareReplayGeometry(session, message);
                   session.historyGeneration = historyGeneration;
                   session.historyProtocolActive = true;
                   session.historySyncMode = syncMode;
                   session.serverBaseCursor = serverBaseCursor;
                   session.localBaseCursor = serverBaseCursor;
                   session.receivedHistoryCursor = deltaFromCursor;
-                  session.appliedHistoryCursor = deltaFromCursor;
+                  session.appliedHistoryCursor = checkpoint ? 0n : deltaFromCursor;
                   session.persistedHistoryCursor = deltaFromCursor;
                   terminalReplay.setAuthorization(session, "identified");
                   if (isClientDirectTransport) {
@@ -822,6 +859,7 @@ export function createTerminalSessionProtocolController({
                       rejectHistorySync("terminal reset for cached history failed");
                       return;
                     }
+                    terminalResize.prepareReplayGeometry(session, message);
                     session.historyGeneration = historyGeneration;
                     session.historyProtocolActive = true;
                     session.historySyncMode = syncMode;
@@ -850,6 +888,7 @@ export function createTerminalSessionProtocolController({
                 session.allowGeneratedInputDuringReplay = message.allow_generated_input === true || message.allowGeneratedInput === true;
                 terminalInput?.clearGeneratedSuppression(session);
                 session.shellEl.dataset.connection = sessionConnectingState(session);
+                if (usesMultiplexedTransport) terminalOutput.beginReplayBatch(session, message);
                 return;
               case "history-replay-complete":
                 appendStartupTrace(
@@ -943,6 +982,7 @@ export function createTerminalSessionProtocolController({
                   serverReplayDurationScope: "agent_attach_write",
                 });
                 session.replayCompletionPending = true;
+                terminalOutput.completeReplayBatch(session);
                 terminalReplay.finishIfReady(session) || terminalOutput.flush(session);
                 return;
               case "queue-turn-complete":
@@ -983,6 +1023,7 @@ export function createTerminalSessionProtocolController({
                 refreshWorkspaceWithRetry({ focus: session.tabId === getActiveTabId() }).catch((error) => showToast(error.message));
                 return;
               case "connection-error":
+                if (session.exitExpected) return;
                 console.warn("[client-terminal] retryable connection error", {
                   name: session.name,
                   pane: session.id,
@@ -1005,6 +1046,8 @@ export function createTerminalSessionProtocolController({
                   pane: session.id,
                   retryable: message.retryable === true,
                   exitCode: message.exit_code,
+                  retained: message.retained === true,
+                  authoritative: message.authoritative === true,
                   message: message.message || "",
                 });
                 if (message.retryable === true && !/pane not found/i.test(String(message.message || ""))) {
@@ -1012,17 +1055,8 @@ export function createTerminalSessionProtocolController({
                   terminalSessionConnection.closeSocketForReconnect(session, currentSocket, message.message || "Terminal process exited with a retryable error.");
                   return;
                 }
+                handleProcessExit(session, message);
                 if (message.retained === true) {
-                  session.exitExpected = true;
-                  session.workspaceExitPending = false;
-                  session.terminalExitRetained = true;
-                  session.pendingConnect = false;
-                  session.shellEl.dataset.connection = "error";
-                  terminalTransportRuntime?.releaseDirectSession(session, "tab_or_target_removed");
-                  showSessionStartupError(
-                    session,
-                    message.message || `Terminal process exited with code ${Number(message.exit_code ?? -1)}.`,
-                  );
                   return;
                 }
                 const shouldFocusAfterExit = session.tabId === getActiveTabId() && currentTab()?.activePaneId === session.id;
@@ -1048,6 +1082,9 @@ export function createTerminalSessionProtocolController({
         return;
       }
       if (event.data instanceof ArrayBuffer) {
+        if (isByteIOLogEnabled()) recordTerminalSessionEvent(session, "byte_io_receive", {
+          bytes: event.data.byteLength, replayOutput: !terminalReplay.isCommitted(session), channel,
+        });
         socketDebug.binaryMessages += 1;
         socketDebug.binaryBytes += event.data.byteLength;
         if (!validateTerminalChannelMessageIdentity(event, "", true)) {
@@ -1157,6 +1194,7 @@ export function createTerminalSessionProtocolController({
     });
 
     currentSocket.addEventListener("close", (event) => {
+      checkpointReceiver.clear();
       if (session.socket !== currentSocket || (!usesMultiplexedTransport && session.connectionLeaseID !== leaseID)) {
         return;
       }
@@ -1174,6 +1212,27 @@ export function createTerminalSessionProtocolController({
           ? Math.max(0, Date.now() - Number(session.startupTraceStartedAt))
           : 0,
       });
+      if (session.terminalExitRetained) {
+        // This close retires transport only. Resetting replay here would hide
+        // the final frame whose bytes have already been parsed successfully.
+        terminalSessionConnection.clearConnectionTimers(session);
+        terminalOutput.resetQueueTurn(session);
+        terminalTransportRuntime?.clearUnifiedRetry(session, { resetAttempts: true });
+        if (!usesMultiplexedTransport) terminalTransportRuntime?.notifyDirectClosed(session, leaseID, { reason: "terminal_exited" });
+        session.socket = null;
+        // A physical close can precede the final Worker reply. Keep received
+        // output identity until the exit controller drains those bytes.
+        if (!terminalOutput.hasQueued(session)) {
+          session.connectionChannel = "";
+          session.connectionChannelGeneration = 0;
+          session.unifiedStreamID = "";
+        }
+        session.unifiedConnectPending = false;
+        session.pendingConnect = false;
+        session.connectionRetrying = false;
+        session.shellEl.dataset.connection = "error";
+        return;
+      }
       const schedulerCloseReason = usesMultiplexedTransport
         ? String(session.connectionCloseReason || "")
         : String(session.connectionLeaseCloseReason || "");
@@ -1256,7 +1315,7 @@ export function createTerminalSessionProtocolController({
         if (sharedPhysicalTransportLost) {
           return;
         }
-        if (!session.closed && !intentionallyClosed && !intentionallyParked) {
+        if (!session.closed && !session.exitExpected && !intentionallyClosed && !intentionallyParked) {
           terminalTransportRuntime?.scheduleUnifiedPaneRetry(
             session,
             `${terminalLocationDescription(session)}: ${schedulerCloseReason || event.reason || "unified_stream_closed"}`,

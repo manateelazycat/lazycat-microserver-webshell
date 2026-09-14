@@ -43,11 +43,21 @@ resize 请求状态机严格绑定当前 logical `connectionEpoch`。transport �
 
 ## 状态所有权
 
+普通 deferred resize 与分屏 live geometry 进入页面共享重任务调度器。拖动保留最新 DOM 目标，80ms 限频以实际执行时刻计；同一 pane 的本地 resize 与绘制保持同一次任务，避免 backing store 清空后出现空白帧，两个 pane 的任务分别争取预算。释放后先完成最终本地 fit，再提交最终尺寸；连接变化、取消与销毁均撤销过时任务。
+
+WASM resize 失败必须向上传递，不能提前提交本地已应用行列数。失败会话暂停后续 fit，并交由 session health owner 恢复。`resizeFenceAckReceived` 标记 matching ACK/权威 observation 已到达，此时普通输出暂停，由 resize 独占冻结队列排空；成功切换网格后解除。输入还需等待 fence 与 settle 结束，不能仅凭收到网络 ACK 就解除门禁。
+
 `resize_controller.js` 是以下状态的唯一修改者：`requestedResizeEpoch`、`appliedResizeEpoch`、requested/server geometry、`pendingResizeTarget`、`resizeAckPending`、`resizeConnectionEpoch`、`resizeConnectionTransitionPending`、`resizeFence*`、`resizeOutputSettle*`、`measuredFitGeneration`、`sizeClaimRequired`、`sizeClaimed`、`requestedResizeClaim`、`pendingSizeClaim*` 和 observer 记录尺寸。presentation 只读取这些门禁并在 render 成功后推进 `presentedResizeEpoch`；transport 只能调用 `beginConnection()`，不能直接写这些字段。
 
 `resize_controller.js` 还独占 interactive source、metrics source 和 live session 集合、本地重排节流时间、trailing fit timer 和桌面 window settle timer；workspace/metrics 只能通过各自公开命令开始/update/结束事务，不能修改这些状态。只有所有 source 都结束后才能发送最终 target；ACK 完成后才能退出 live session。`resize_lifecycle.js` 独占普通 scheduler timer/RAF、ResizeObserver、Ghostty `onResize` disposable、owner/pending-target RAF 和 tab RAF。`geometry_state.js` 与 `viewport_controller.js` 不保存业务状态。
 
 ## 生命周期与清理
+
+首次回放排空后，未持有尺寸控制权的窗口按已经应用的服务端网格完成显示，DOM 可用空间不同不构成首帧门禁。真实输入、pane/tab 激活和用户调整显示区域通过现有 claim 入口申请当前窗口尺寸；被动收到 owner released 不自动反抢。远端 resize-applied 的异步 fence 必须保留到 Worker 确认，后续明确的本地 claim 在该边界完成后继续。
+
+连续权威尺寸变化按接收顺序排队，每个边界冻结当时的输出末端。output owner 提供已应用条目计数，resize 据此计算剩余前缀，避免等待 Worker 时收到的新输出干扰排空判断。队列最多保留 64 个待应用边界，超限通过既有失败恢复路径处理；连接变化和清理退休旧边界。
+
+`async_geometry.js` 在 Worker resize 期间保留事务与发送 suppression，按连接 epoch、backend generation 和操作 token 校验完成回调。新目标合并等待旧操作结束；最终尺寸只在 Worker 确认后提交。fence/settle 的异步 drain 各有独占标识，不重复扣减条目，也不因新输出更新 quiet timer 而丢失 drain 进度。连接变化/销毁退休旧 native operation。UI 等待期间仍可滚动，完成时只夹紧当前 viewport，不覆盖新的滚动意图。
 
 `installSession()` 为 pane 安装 ResizeObserver 和 Ghostty `onResize`，两者都注册到 session cleanup。新 logical connection 在 socket/timer 安装前调用 `beginConnection()`，replay start 再采用服务端 resize 基线并调度迁移后的 latest-only 意图。`cancelPane()` 取消 scheduler、session RAF、live geometry/trailing fit、output settle 和 presentation hold；`cancelTab()` 取消 tab RAF 与 window settle timer；`dispose()` 拒绝迟到 observer/timer/RAF 并清理全部模块资源。
 

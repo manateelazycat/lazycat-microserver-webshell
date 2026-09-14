@@ -4,6 +4,7 @@ const noop = () => {};
 
 export function createTerminalResizeLifecycle({
   windowObject = globalThis.window,
+  workScheduler = null,
   ResizeObserverCtor = globalThis.ResizeObserver,
   applyResize,
   registerSessionCleanup = noop,
@@ -20,11 +21,21 @@ export function createTerminalResizeLifecycle({
   const framedSessions = new Set();
   const tabFrames = new WeakMap();
   const framedTabs = new Set();
+  const pendingResizes = new Map();
   const scheduler = createTerminalResizeScheduler({
-    apply: (...args) => {
-      if (!disposed) {
-        applyResize?.(...args);
-      }
+    apply: (session, options, phase) => {
+      if (disposed || disposedSessions.has(session) || session.closed) return;
+      if (!workScheduler) return applyResize?.(session, options, phase);
+      if (!phase.settled) return;
+      const previous = pendingResizes.get(session) || {};
+      const merged = { ...options };
+      for (const key of ["forceFullRender", "hideUntilRender", "forceSizeSync", "claimSize"]) merged[key] ||= previous[key] === true;
+      pendingResizes.set(session, merged);
+      workScheduler.schedule(session, "resize", () => {
+        const latest = pendingResizes.get(session);
+        pendingResizes.delete(session);
+        if (!disposed && !disposedSessions.has(session) && !session.closed && latest) applyResize?.(session, latest, phase);
+      }, { priority: () => 2 });
     },
     throttleMs,
     settleMs,
@@ -52,6 +63,8 @@ export function createTerminalResizeLifecycle({
       return;
     }
     disposedSessions.add(session);
+    pendingResizes.delete(session);
+    workScheduler?.cancel(session, "resize");
     scheduler.cancel(session);
     cancelSessionFrames(session);
     observers.get(session)?.disconnect?.();
@@ -72,6 +85,8 @@ export function createTerminalResizeLifecycle({
     },
 
     cancel(session) {
+      pendingResizes.delete(session);
+      workScheduler?.cancel(session, "resize");
       scheduler.cancel(session);
       cancelSessionFrames(session);
     },
@@ -192,6 +207,8 @@ export function createTerminalResizeLifecycle({
         return;
       }
       disposed = true;
+      for (const session of pendingResizes.keys()) workScheduler?.cancel(session, "resize");
+      pendingResizes.clear();
       for (const session of observedSessions) {
         disposeSession(session);
       }

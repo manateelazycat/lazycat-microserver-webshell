@@ -14,8 +14,11 @@ export function createClientTerminalHistoryController({
   averageHistoryBytesPerLine = 350,
   flushBytes = 256 * 1024,
   flushDelayMs = 50,
+  maxPendingBytes = 4 * 1024 * 1024,
 } = {}) {
   let disposed = false;
+  const inFlight = new WeakMap();
+  const touching = new WeakSet();
 
   const uses = (session) => Boolean(!disposed && session && !session.closed && isClientTarget(session.name));
 
@@ -108,13 +111,18 @@ export function createClientTerminalHistoryController({
     if (!uses(session) || session.historyCacheDisabled || session.historyCacheWriteQueue.length === 0) {
       return session?.historyCacheWritePromise || Promise.resolve();
     }
+    const pending = inFlight.get(session);
+    if (pending) return pending.then(() => flushSession(session));
     clearSessionSchedule(session);
     const chunks = session.historyCacheWriteQueue;
     const generation = session.historyGeneration;
+    // Capture this barrier now. Reading a future reset promise inside the
+    // callback can make this write wait on a reset that is waiting on it.
+    const resetPromise = session.historyCacheResetPromise;
     session.historyCacheWriteQueue = [];
     session.historyCacheWriteBytes = 0;
-    session.historyCacheWritePromise = session.historyCacheWritePromise
-      .then(() => session.historyCacheResetPromise)
+    const promise = Promise.resolve(session.historyCacheWritePromise)
+      .then(() => resetPromise)
       .then(() => historyStore.append(session.name, session.id, generation, chunks, {
         limitBytes: Math.max(1, Number(getHistoryWindowLines() || 0) * averageHistoryBytesPerLine),
       }))
@@ -125,7 +133,21 @@ export function createClientTerminalHistoryController({
         session.localBaseCursor = result.baseCursor;
         session.persistedHistoryCursor = result.endCursor;
       })
-      .catch((error) => disableSession(session, error));
+      .catch((error) => {
+        if (session.historyGeneration === generation) disableSession(session, error);
+      })
+      .finally(() => {
+        if (inFlight.get(session) === promise) inFlight.delete(session);
+        if (uses(session) && !session.historyCacheDisabled && session.historyCacheWriteQueue.length > 0) {
+          clearSessionSchedule(session);
+          session.historyCacheWriteTimer = windowObject.setTimeout(() => {
+            session.historyCacheWriteTimer = 0;
+            flushSession(session);
+          }, 0);
+        }
+      });
+    inFlight.set(session, promise);
+    session.historyCacheWritePromise = promise;
     return session.historyCacheWritePromise;
   };
 
@@ -133,8 +155,14 @@ export function createClientTerminalHistoryController({
     if (!uses(session) || session.historyCacheDisabled || !session.historyGeneration || !(data instanceof Uint8Array) || endCursor <= startCursor) {
       return false;
     }
-    session.historyCacheWriteQueue.push({ startCursor, endCursor, data });
+    if (session.historyCacheWriteBytes + data.byteLength > maxPendingBytes || session.historyCacheWriteQueue.length >= 8192) {
+      disableSession(session, new Error("Terminal history storage cannot keep up with output"));
+      return false;
+    }
+    // A tiny tail must not retain an entire large transport ArrayBuffer.
+    session.historyCacheWriteQueue.push({ startCursor, endCursor, data: data.slice() });
     session.historyCacheWriteBytes += data.byteLength;
+    if (inFlight.has(session)) return true;
     if (session.historyCacheWriteBytes >= flushBytes) {
       flushSession(session);
     } else if (!session.historyCacheWriteTimer) {
@@ -239,8 +267,9 @@ export function createClientTerminalHistoryController({
 
   const touchAll = () => {
     for (const session of getSessions() || []) {
-      if (uses(session) && !session.historyCacheDisabled && session.historyGeneration) {
-        historyStore.touch(session.name, session.id).catch(() => {});
+      if (uses(session) && !session.historyCacheDisabled && session.historyGeneration && !touching.has(session)) {
+        touching.add(session);
+        historyStore.touch(session.name, session.id).catch(() => {}).finally(() => touching.delete(session));
       }
     }
   };
@@ -263,6 +292,11 @@ export function createClientTerminalHistoryController({
     },
     disposeSession(session) {
       clearSessionSchedule(session);
+      if (session) {
+        session.historyCacheWriteQueue = [];
+        session.historyCacheWriteBytes = 0;
+        session.historyCacheSnapshot = null;
+      }
       return Boolean(session);
     },
     flushAll,

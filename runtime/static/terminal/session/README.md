@@ -17,6 +17,7 @@
 外部只能从 `terminal/session/index.js` 导入：
 
 - `createTerminalSessionController(options)`：创建模块 controller。
+- `createTerminalSessionHealthController(options)`：观察已提交会话的待处理输出/待确认边界及尺寸事务进度，接收处理异常，并通过注入的恢复命令有限恢复当前会话。
 - `createTerminalSessionInstallationController(options)`：创建 pane 后按固定顺序接入各责任域、注册应用级 DOM 命令，并接收 presentation-ready 的跨模块副作用。
 - `createTerminalStartupErrorController(options)`：查询并呈现当前 session 的启动错误，区分可重试网络错误、普通失败和 last-known-good frame。
 
@@ -39,6 +40,8 @@ controller 公开：
 禁止其他模块直接修改 session lifecycle 的私有状态，也禁止重新在 `global-runtime.js` 建立 session cleanup 数组或复制局部销毁逻辑。
 
 ## 生命周期
+
+`session_health_controller.js` 私有保存每个会话的输出/尺寸观察、恢复次数和一个重试 timer。页面 heartbeat 触发检查，正常空闲不算停滞；已有工作连续 12 秒无进度才触发恢复，重试至多三次，稳定空闲 30 秒后清零计数。离线或页面被暂停导致的长采样间隔重建观察起点。恢复耗尽时报告明确错误，新的连接可以解除耗尽状态。session 销毁取消观察及重试；该模块不修改输出游标、resize epoch 或连接协议状态。
 
 销毁顺序必须保持：
 
@@ -75,3 +78,7 @@ controller 公开：
 - 历史 guard：对应 `spec-tests` 场景 README、终端 history/transport 测试以及当前模块 README 中记录的 cursor、Unified、历史回放和 last-known-good frame 契约。
 
 最小回归步骤：创建多个 tab/pane，关闭其中一个 pane，确认兄弟 pane 持续输出和输入；断网后恢复，确认已有画面未被清空；刷新并等待历史恢复，确认中间 replay 过程不可见。
+
+`session_exit_controller.js` 接收进程退出终态，退休输入/健康/尺寸请求，等待已接收历史排空后释放 logical stream。`startup_error_controller.js` 从完成解析的终端读取原始输出，显示退出原因和“重新创建终端”按钮；按钮调用 workspace 的 `restart_pane`，成功后旧 pane identity 被新 identity 替代，保留原标签布局。服务器拒绝重建仍在运行的 pane。
+
+服务端 `user_switch.go` 统一终端和文件操作的用户切换：当前 UID/GID 已匹配时直接执行，否则先探测 setpriv --init-groups，再探测 --keep-groups；探测必须验证目标 UID/GID。受限降级保留父进程的附加组，不添加目标用户的其他附加组。su 也先以无输入探测后再执行。全部失败时输出实际身份、各路径错误和 setgroups/映射/能力诊断并退出，不以其他身份继续执行。

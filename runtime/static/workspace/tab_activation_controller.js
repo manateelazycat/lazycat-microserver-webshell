@@ -6,6 +6,7 @@ export function createWorkspaceTabActivationController({
   getInstanceGeneration = () => 0,
   isAppDisposed = () => false,
   isApplyingWorkspaceState = () => false,
+  finishLayoutInteraction = () => {},
   measureTask = (_name, task) => task(),
   presentationStateIsCurrent = () => false,
   holdPresentationFrame = () => {},
@@ -68,6 +69,7 @@ export function createWorkspaceTabActivationController({
       const previousTab = tabRegistry.get(previousTabId);
       const wasActive = previousTabId === tab.id;
       if (!wasActive) {
+        finishLayoutInteraction();
         // A current live Canvas keeps its pixels while its tab is hidden.
         // Only capture a hold when a presentation transition is already pending.
         preserveTabFrames(previousTab, { onlyIfStale: true });

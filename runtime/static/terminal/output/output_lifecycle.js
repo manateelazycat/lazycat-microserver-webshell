@@ -1,5 +1,7 @@
 export function createTerminalOutputLifecycle({
   windowObject = globalThis.window,
+  workScheduler = null,
+  getPriority = () => 0,
 } = {}) {
   const sessions = new Set();
   let disposed = false;
@@ -9,6 +11,7 @@ export function createTerminalOutputLifecycle({
       return false;
     }
     let cleared = false;
+    cleared = workScheduler?.cancel(session, "output") || cleared;
     if (session.outputFlushFrame) {
       windowObject?.cancelAnimationFrame?.(session.outputFlushFrame);
       session.outputFlushFrame = 0;
@@ -36,6 +39,9 @@ export function createTerminalOutputLifecycle({
         return false;
       }
       sessions.add(session);
+      if (workScheduler) {
+        return workScheduler.schedule(session, "output", callback, { priority: () => getPriority(session) });
+      }
       if (typeof windowObject?.requestAnimationFrame === "function") {
         session.outputFlushFrame = windowObject.requestAnimationFrame(callback);
       }

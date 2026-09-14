@@ -298,6 +298,15 @@ export function createWorkspaceTabController({
   };
 
   return Object.freeze({
+    async restartExitedPane(session) {
+      if (disposed || !session?.terminalExitRetained || session.closed || tabs.get(session.tabId)?.panes.get(session.id) !== session) return false;
+      const dimensions = session.fitAddon?.proposeDimensions?.() || {};
+      return postWorkspaceAction("restart_pane", {
+        tab_id: session.tabId, pane_id: session.id,
+        cols: dimensions.cols || session.term.cols,
+        rows: dimensions.rows || session.term.rows,
+      }, { focus: true, preferStateActiveTab: true });
+    },
     closeOtherTabs,
     closePane,
     closeTab,

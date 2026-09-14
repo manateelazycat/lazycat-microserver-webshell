@@ -1,4 +1,7 @@
 import { createDebugLog } from "./debug_log.js";
+import { createByteIOLog } from "./byte_io_log.js";
+import { createTerminalRenderCapture } from "./terminal_render_capture.js";
+import { createDiagnosticLogDownload } from "./log_download.js";
 import {
   createDiagnosticsLifecycle,
   createInitializationPerformanceLifecycle,
@@ -33,10 +36,16 @@ export function createDiagnosticsController({
   copyText = async () => false,
   showToast = () => {},
   onDebugModeChange = () => {},
+  onAutoScreenRefreshChange = () => {},
+  getRenderCaptureContext = () => ({}),
+  captureTerminalRenderState = () => ({}),
   now = defaultNow,
   networkModuleLoader,
   } = {}) {
   const storageKeys = {
+    autoScreenRefresh: `${storagePrefix}.autoScreenRefresh`,
+    byteIOLog: `${storagePrefix}.byteIOLog`,
+    terminalRenderCapture: `${storagePrefix}.terminalRenderCapture`,
     debugMode: `${storagePrefix}.debugMode`,
     debugLog: `${storagePrefix}.debugLog`,
     networkMonitor: `${storagePrefix}.networkMonitor`,
@@ -46,11 +55,12 @@ export function createDiagnosticsController({
     performanceTasks: `${storagePrefix}.performanceTasks`,
     initializationPerformance: `${storagePrefix}.initializationPerformance`,
   };
-  const readStoredFlag = (key) => {
+  const readStoredFlag = (key, fallback = false) => {
     try {
-      return storage?.getItem?.(key) === "true";
+      const value = storage?.getItem?.(key);
+      return value === "true" ? true : value === "false" ? false : fallback;
     } catch (error) {
-      return false;
+      return fallback;
     }
   };
   const writeStoredFlag = (key, enabled) => {
@@ -60,6 +70,9 @@ export function createDiagnosticsController({
     }
   };
   const state = {
+    autoScreenRefresh: readStoredFlag(storageKeys.autoScreenRefresh, true),
+    byteIOLog: readStoredFlag(storageKeys.byteIOLog),
+    terminalRenderCapture: readStoredFlag(storageKeys.terminalRenderCapture),
     debugMode: readStoredFlag(storageKeys.debugMode),
     debugLog: readStoredFlag(storageKeys.debugLog),
     networkMonitor: readStoredFlag(storageKeys.networkMonitor),
@@ -73,6 +86,22 @@ export function createDiagnosticsController({
   let disposed = false;
   let resumeGeneration = 0;
   const view = createDiagnosticsView({ documentObject });
+  const byteIOLog = createByteIOLog({
+    windowObject, now,
+    onChange: (snapshot) => view.renderByteIOLog(snapshot, {
+      visible: !disposed && state.debugMode && state.byteIOLog,
+    }),
+  });
+  byteIOLog.setEnabled(state.debugMode && state.byteIOLog);
+  const renderCapture = createTerminalRenderCapture({
+    windowObject, documentObject, now,
+    getContext: () => ({ ...getRenderCaptureContext(), autoScreenRefresh: state.autoScreenRefresh }),
+    captureSession: captureTerminalRenderState,
+    onChange: (snapshot) => view.renderTerminalRenderCapture(snapshot, {
+      visible: !disposed && state.debugMode && state.terminalRenderCapture,
+    }),
+  });
+  renderCapture.setEnabled(state.debugMode && state.terminalRenderCapture);
   let networkSnapshot = null;
 
   let initializationPerformance = null;
@@ -170,6 +199,8 @@ export function createDiagnosticsController({
 
   const applyState = ({ notifyDebugMode = false } = {}) => {
     view.syncControls(state);
+    byteIOLog.setEnabled(!disposed && state.debugMode && state.byteIOLog);
+    renderCapture.setEnabled(!disposed && state.debugMode && state.terminalRenderCapture);
     const debugLogActive = state.debugMode && state.debugLog && !disposed;
     debugLog.setState({ capture: debugLogActive, show: debugLogActive });
     const runtimeActive = started && !disposed && state.debugMode;
@@ -195,9 +226,58 @@ export function createDiagnosticsController({
     applyState({ notifyDebugMode });
   };
 
+  const logDownload = createDiagnosticLogDownload({ documentObject, windowObject });
+  const exportLog = {
+    terminalRenderCapture: () => renderCapture.clipboardText(),
+    byteIO: () => byteIOLog.clipboardText(),
+    initializationPerformance: () => view.initializationPerformanceClipboardText(initializationPerformance.snapshot()),
+    networkConsumption: () => networkSnapshot ? view.networkConsumptionClipboardText(networkSnapshot) : "",
+    debug: () => debugLog.clipboardText(),
+  };
+  const downloadLog = (kind, getText) => {
+    if (disposed) return;
+    try {
+      const text = getText();
+      if (!text) { showToast("暂无可下载的日志。"); return; }
+      logDownload.download(kind, text);
+    } catch {
+      showToast("下载日志失败。");
+    }
+  };
+
   const lifecycle = createDiagnosticsLifecycle({
     elements: view.elements,
     handlers: {
+      onTerminalRenderCaptureDownload: () => downloadLog("terminal-render-capture", exportLog.terminalRenderCapture),
+      onByteIOLogDownload: () => downloadLog("byte-io", exportLog.byteIO),
+      onInitializationPerformanceDownload: () => downloadLog("initialization-performance", exportLog.initializationPerformance),
+      onNetworkConsumptionDownload: () => downloadLog("network-consumption", exportLog.networkConsumption),
+      onDebugLogDownload: () => downloadLog("debug", exportLog.debug),
+      onTerminalRenderCaptureChange: () => updateFlag("terminalRenderCapture", view.elements.settingsTerminalRenderCaptureToggle),
+      onTerminalRenderCaptureNow: () => renderCapture.capture("manual", true),
+      onTerminalRenderCaptureCopy: async () => {
+        try {
+          if (await copyText(exportLog.terminalRenderCapture())) {
+            showToast("终端渲染异常捕获日志已复制。");
+            return;
+          }
+        } catch {}
+        showToast("复制终端渲染异常捕获日志失败。");
+      },
+      onByteIOLogChange: () => updateFlag("byteIOLog", view.elements.settingsByteIOLogToggle),
+      onByteIOLogCopy: async () => {
+        try {
+          if (await copyText(exportLog.byteIO())) {
+            showToast("字节io日志已复制。");
+            return;
+          }
+        } catch {}
+        showToast("复制字节io日志失败。");
+      },
+      onAutoScreenRefreshChange: () => {
+        updateFlag("autoScreenRefresh", view.elements.settingsAutoScreenRefreshToggle);
+        onAutoScreenRefreshChange(state.autoScreenRefresh);
+      },
       onDebugModeChange: () => updateFlag("debugMode", view.elements.settingsDebugModeToggle, { notifyDebugMode: true }),
       onDebugLogChange: () => {
         updateFlag("debugLog", view.elements.settingsDebugLogToggle);
@@ -213,7 +293,7 @@ export function createDiagnosticsController({
           showToast("暂无可复制的流量消费数据。");
           return;
         }
-        const text = view.networkConsumptionClipboardText(networkSnapshot);
+        const text = exportLog.networkConsumption();
         try {
           if (await copyText(text)) {
             showToast("流量消费统计已复制。");
@@ -227,7 +307,7 @@ export function createDiagnosticsController({
       onPerformanceTasksChange: () => updateFlag("performanceTasks", view.elements.settingsPerformanceTasksToggle),
       onInitializationPerformanceChange: () => updateFlag("initializationPerformance", view.elements.settingsInitializationPerformanceToggle),
       onInitializationPerformanceCopy: async () => {
-        const text = view.initializationPerformanceClipboardText(initializationPerformance.snapshot());
+        const text = exportLog.initializationPerformance();
         try {
           if (await copyText(text)) {
             showToast("初始化性能数据已复制。");
@@ -238,7 +318,7 @@ export function createDiagnosticsController({
         showToast("复制初始化性能数据失败。");
       },
       onDebugLogCopy: async () => {
-        const text = debugLog.clipboardText();
+        const text = exportLog.debug();
         if (!text) {
           showToast("暂无可复制的调试日志。");
           return;
@@ -273,6 +353,11 @@ export function createDiagnosticsController({
         return;
       }
       disposed = true;
+      logDownload.dispose();
+      byteIOLog.dispose();
+      renderCapture.dispose();
+      view.renderTerminalRenderCapture({ lines: [] }, { visible: false });
+      view.renderByteIOLog({ lines: [] }, { visible: false });
       lifecycle.dispose();
       networkMonitorLifecycle.dispose();
       performanceTaskMonitor.setEnabled(false);
@@ -288,6 +373,21 @@ export function createDiagnosticsController({
     isDebugModeEnabled() {
       return state.debugMode;
     },
+    isAutoScreenRefreshEnabled() {
+      return !disposed && state.autoScreenRefresh;
+    },
+    isByteIOLogEnabled() {
+      return byteIOLog.isEnabled();
+    },
+    stopTerminalRenderCapture() {
+      renderCapture.setEnabled(false);
+    },
+    observeTerminalReplayBytes(session, data, options) {
+      try { renderCapture.observeOutput(session, data, options); } catch {}
+    },
+    isInitializationCollecting() {
+      return initializationPerformance.isCollecting();
+    },
     measurePerformanceTask(name, fn) {
       return performanceTaskMonitor.measure(name, fn);
     },
@@ -298,6 +398,16 @@ export function createDiagnosticsController({
     recordTerminalRuntimeMaxMetric,
     recordTerminalRuntimeMetric,
     recordTerminalSessionEvent(session, event, details = {}) {
+      try { renderCapture.record(session, event, details); } catch {}
+      // Byte-level traces have their own bounded sink; do not duplicate them
+      // in the generic timeline or cause its per-event DOM logging work.
+      try { byteIOLog.record(session, event, details); } catch {}
+      if (event.startsWith("byte_io_")) return;
+      // Keep high-frequency IO events out of the older, DOM-heavy debug log.
+      // Its existing startup diagnostics only need large or slow writes.
+      if (details.operation === "write" && Number(details.bytes || 0) < 512 * 1024
+        && (event === "backend_rpc_start" || (event === "backend_rpc_complete"
+          && Number(details.roundTripMs || 0) < 50 && !details.error))) return;
       const result = terminalTimeline.record(session, event, details);
       initializationPerformance.recordTerminalEvent(session, event, details);
       return result;
@@ -311,6 +421,7 @@ export function createDiagnosticsController({
         return;
       }
       started = true;
+      renderCapture.start();
       lifecycle.start();
       applyState({ notifyDebugMode: true });
     },

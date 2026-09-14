@@ -116,7 +116,7 @@ const rowCellText = (geometry, cell, rowIndex, activeRow, col, isScrollback) => 
   return String.fromCodePoint(normalizedNumber(cell?.codepoint) || 32);
 };
 
-export const snapshotTerminalRows = (geometry, start, end) => {
+export const snapshotTerminalRows = (geometry, start, end, suppliedRows = null) => {
   if (!geometry || start < geometry.startRow || end < start || end > geometry.endRow) {
     return null;
   }
@@ -124,7 +124,7 @@ export const snapshotTerminalRows = (geometry, start, end) => {
   for (let rowIndex = start; rowIndex < end; rowIndex += 1) {
     const isScrollback = rowIndex < geometry.scrollbackRows;
     const activeRow = rowIndex - geometry.scrollbackRows;
-    const source = isScrollback
+    const source = suppliedRows ? suppliedRows[rowIndex - start] : isScrollback
       ? geometry.manager.getScrollbackLine?.(rowIndex)
       : geometry.manager.getLine?.(activeRow);
     if (!source) {
@@ -411,7 +411,9 @@ export const createTerminalLongScreenshot = ({
       if (!terminalGeometryMatches(geometry, session, renderer)) throw new Error("终端布局已变化，请重试截图。");
       const start = geometry.startRow + part * plan.rowsPerPart;
       const end = Math.min(geometry.endRow, start + plan.rowsPerPart);
-      const rows = snapshotTerminalRows(geometry, start, end);
+      const supplied = geometry.manager.isRemote ? await geometry.manager.readRows(start, end) : null;
+      if (!terminalGeometryMatches(geometry, session, renderer)) throw new Error("终端内容已变化，请重试截图。");
+      const rows = snapshotTerminalRows(geometry, start, end, supplied);
       if (!rows) throw new Error("终端历史在截图过程中发生变化，请重试。");
       const includeHeader = part === 0;
       const includeFooter = part === plan.partCount - 1;
@@ -465,7 +467,7 @@ export const createTerminalLongScreenshot = ({
       const result = await deliverScreenshotFiles(files);
       showToast(result === "shared" ? "截图已打开分享。" : result === "cancelled" ? "已取消截图分享。" : files.length > 1 ? `截图已保存，共 ${files.length} 张。` : "截图已保存。");
     } catch (error) {
-      showToast(error?.message || "截图失败。");
+      if (!session.closed && error?.code !== "BACKEND_CANCELLED") showToast(error?.code?.startsWith("BACKEND_") ? "截图未完成，请稍后重试。" : error?.message || "截图失败。");
     } finally {
       captureActive = false;
     }

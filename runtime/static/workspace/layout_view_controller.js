@@ -37,7 +37,7 @@ export function createWorkspaceLayoutViewController({
 
   const installSplitResizeHandle = (divider, tab, node, childIndex, direction) => {
     divider.addEventListener("pointerdown", (event) => {
-      if (disposed) {
+      if (disposed || event.isPrimary === false || (event.button !== undefined && event.button !== 0)) {
         return;
       }
       event.preventDefault();
@@ -63,9 +63,6 @@ export function createWorkspaceLayoutViewController({
       divider.classList.add("is-dragging");
       container.classList.add("is-resizing");
       documentObject?.body?.classList.add("split-resize-active");
-      divider.setPointerCapture?.(event.pointerId);
-      beginTabInteractiveResize(tab);
-
       let finished = false;
       let layoutFrame = 0;
       let pendingCurrent = null;
@@ -118,23 +115,30 @@ export function createWorkspaceLayoutViewController({
           windowObject?.cancelAnimationFrame?.(layoutFrame);
           layoutFrame = 0;
         }
-        applyPendingLayout();
+        try {
+          applyPendingLayout();
+        } catch (error) {
+          showToast(error?.message || "分屏调整失败");
+        }
         divider.classList.remove("is-dragging");
         container.classList.remove("is-resizing");
         documentObject?.body?.classList.remove("split-resize-active");
         divider.removeEventListener("pointermove", onMove);
         divider.removeEventListener("pointerup", onUp);
         divider.removeEventListener("pointercancel", onUp);
+        divider.removeEventListener("lostpointercapture", onUp);
+        windowObject?.removeEventListener?.("pointerup", onUp);
+        windowObject?.removeEventListener?.("pointercancel", onUp);
+        windowObject?.removeEventListener?.("blur", onBlur);
+        documentObject?.removeEventListener?.("visibilitychange", onVisibilityChange);
+        if (activeDragFinish === finish) activeDragFinish = null;
         if (
           event.pointerId !== undefined
           && divider.hasPointerCapture?.(event.pointerId)
         ) {
-          divider.releasePointerCapture?.(event.pointerId);
+          try { divider.releasePointerCapture?.(event.pointerId); } catch { /* Capture may already be retired by the browser. */ }
         }
-        endTabInteractiveResize(tab);
-        if (activeDragFinish === finish) {
-          activeDragFinish = null;
-        }
+        try { endTabInteractiveResize(tab); } catch (error) { showToast(error?.message || "分屏调整失败"); }
         if (persist && tab && !disposed && !isApplyingWorkspaceState()) {
           // The drag already applied this layout. Its acknowledgement must
           // not rebuild dividers or replace a newer local interaction.
@@ -157,11 +161,25 @@ export function createWorkspaceLayoutViewController({
         }
         finish();
       };
+      const onBlur = () => finish();
+      const onVisibilityChange = () => { if (documentObject.hidden) finish(); };
 
       activeDragFinish = finish;
       divider.addEventListener("pointermove", onMove);
       divider.addEventListener("pointerup", onUp);
       divider.addEventListener("pointercancel", onUp);
+      divider.addEventListener("lostpointercapture", onUp);
+      windowObject?.addEventListener?.("pointerup", onUp);
+      windowObject?.addEventListener?.("pointercancel", onUp);
+      windowObject?.addEventListener?.("blur", onBlur);
+      documentObject?.addEventListener?.("visibilitychange", onVisibilityChange);
+      try {
+        divider.setPointerCapture?.(event.pointerId);
+        beginTabInteractiveResize(tab);
+      } catch (error) {
+        finish({ persist: false });
+        showToast(error?.message || "分屏调整失败");
+      }
     });
   };
 
@@ -229,6 +247,7 @@ export function createWorkspaceLayoutViewController({
 
   return Object.freeze({
     dispose,
+    finishDrag: () => activeDragFinish?.() || false,
     isDisposed: () => disposed,
     renderTabLayout,
   });

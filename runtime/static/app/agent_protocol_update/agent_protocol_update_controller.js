@@ -11,6 +11,7 @@ export function createAgentProtocolUpdateController({
   notice = null,
   getActiveName = () => "",
   getTerminalInput = () => null,
+  prepareUpdate = () => {},
   openDialog = () => Promise.resolve(false),
   suppressBeforeUnloadForNavigation = () => {},
   reload = () => windowObject?.location?.reload?.(),
@@ -90,7 +91,10 @@ export function createAgentProtocolUpdateController({
     render();
     const terminalInput = getTerminalInput();
     terminalInput?.discardAll?.();
+    let runtimeRetired = false;
     try {
+      runtimeRetired = true;
+      await prepareUpdate();
       const result = await updateAPI.update({
         name: requestedState.targetName,
         currentProtocolVersion: requestedState.currentProtocolVersion,
@@ -115,6 +119,9 @@ export function createAgentProtocolUpdateController({
       const message = String(error?.message || translate("终端服务协议更新失败")).trim();
       appendDebugError("终端服务协议更新失败", message);
       showToast(message);
+      // A retired page cannot safely resume its old sessions after either a
+      // successful replacement or a partially completed/failed replacement.
+      if (runtimeRetired && !disposed) scheduleForcedReload();
       return false;
     } finally {
       if (!disposed) {

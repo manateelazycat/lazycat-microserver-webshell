@@ -13,11 +13,14 @@ import { createTerminalResizeLifecycle } from "./resize_lifecycle.js";
 import { TerminalResizeController } from "./terminal_resize_controller.js";
 import { shouldSendTerminalSize, terminalSizeDiffersFromServer } from "./terminal_size_sync.js";
 import { createTerminalViewportController } from "./viewport_controller.js";
+import { createAsyncGeometry } from "./async_geometry.js";
 
 const noop = () => {};
 
 export function createTerminalResizeController({
   windowObject = globalThis.window,
+  workScheduler = null,
+  onResizeError = noop,
   ResizeObserverCtor = globalThis.ResizeObserver,
   getActiveName = () => "",
   getActiveTabId = () => "",
@@ -48,6 +51,7 @@ export function createTerminalResizeController({
   flushOutput = noop,
   scheduleOutputFlush = noop,
   getOutputQueueEntryCount = () => 0,
+  getOutputAppliedEntryCount = () => null,
   getOutputQueuedBytes = () => 0,
   resetHostViewport = noop,
   positionInput = noop,
@@ -71,12 +75,54 @@ export function createTerminalResizeController({
 } = {}) {
   let disposed = false;
   const ownedSessions = new Set();
+  const failedSessions = new WeakSet();
+  const failResize = (session, error) => {
+    failedSessions.add(session);
+    workScheduler?.cancel(session, "live-geometry");
+    beginRenderSuppression(session, "resize");
+    onResizeError(session, error);
+  };
   const interactiveResizeSessions = new Set();
   const metricsLiveGeometrySessions = new Set();
   const liveGeometrySessions = new Set();
   const windowLiveResizeTimers = new Map();
   const liveGeometryResizeTimers = new Map();
   const liveGeometryLastResizeAt = new WeakMap();
+  const pendingNativeOptions = new Map();
+  const observedResizeQueues = new WeakMap();
+  const fenceDrainEnds = new WeakMap();
+  const settleDrainEnds = new WeakMap();
+  const outputBoundary = (session) => {
+    const applied = getOutputAppliedEntryCount(session);
+    return Number.isFinite(applied) ? applied + getOutputQueueEntryCount(session) : null;
+  };
+  const remainingToBoundary = (session, end, fallback) => (
+    Number.isFinite(end) ? Math.max(0, end - getOutputAppliedEntryCount(session)) : fallback
+  );
+  const settleDrains = new WeakMap();
+  const nativeGeometry = createAsyncGeometry({
+    recordEvent,
+    onError: failResize,
+    onSettled: (session) => {
+      if (disposed || session.closed || failedSessions.has(session)) return;
+      if (session.resizeFenceAckReceived) {
+        applyFence(session);
+      } else if (session.exitExpected) {
+        finishExited(session);
+      } else if (liveGeometrySessions.has(session)) {
+        if (!isVisible(session) && !hasActiveLiveGeometrySource(session)) finishLiveGeometry(session, "interactive_resize_hidden");
+        else resizePaneLiveGeometry(session, { force: true });
+      } else if (session.pendingSizeClaim && !session.replayGeometryLocked) {
+        schedulePendingSizeClaim(session);
+      } else if (pendingNativeOptions.has(session)) {
+        const options = pendingNativeOptions.get(session);
+        pendingNativeOptions.delete(session);
+        schedulePane(session, options, { immediate: true });
+      } else if (session.pendingConnect || session.connectionRetrying) {
+        connectPendingSession(session);
+      }
+    },
+  });
   const hasActiveLiveGeometrySource = (session) => (
     interactiveResizeSessions.has(session) || metricsLiveGeometrySessions.has(session)
   );
@@ -186,10 +232,13 @@ export function createTerminalResizeController({
     cancelFrame: (frame) => windowObject.cancelAnimationFrame(frame),
   });
 
-  const clearFence = (session) => {
+  const clearFence = (session, reason = "cleanup") => {
     if (!session) {
       return null;
     }
+    const wasBlocked = session.resizeFenceAckReceived === true;
+    fenceDrainEnds.delete(session);
+    if (reason !== "native_committed") observedResizeQueues.delete(session);
     if (session.resizeFenceDrainTimer) {
       windowObject.clearTimeout(session.resizeFenceDrainTimer);
     }
@@ -198,7 +247,18 @@ export function createTerminalResizeController({
     session.resizeFenceDrainRemainingEntries = null;
     const target = session.resizeFenceTarget;
     session.resizeFenceActive = false;
+    session.resizeFenceAckReceived = false;
+    const cancelledScheduledTask = workScheduler?.cancel(session, "resize-fence") === true;
     session.resizeFenceTarget = null;
+    if (target) recordEvent(session, "resize_fence_cleared", {
+      reason, cancelledScheduledTask, resizeFenceAckReceived: wasBlocked,
+      nativePending: nativeGeometry.isPending(session),
+      targetSize: { cols: target.cols, rows: target.rows },
+      terminalSize: { cols: session.term?.cols, rows: session.term?.rows },
+      requestedResizeEpoch: session.requestedResizeEpoch,
+      appliedResizeEpoch: session.appliedResizeEpoch,
+    });
+    if (wasBlocked && !disposed && !session.closed && getOutputQueuedBytes(session) > 0) scheduleOutputFlush(session);
     return target;
   };
 
@@ -206,6 +266,9 @@ export function createTerminalResizeController({
     if (!session) {
       return;
     }
+    settleDrains.delete(session);
+    settleDrainEnds.delete(session);
+    const wasBlocked = session.resizeOutputSettleDrainRemainingEntries != null;
     if (session.resizeOutputSettleTimer) {
       windowObject.clearTimeout(session.resizeOutputSettleTimer);
     }
@@ -217,32 +280,39 @@ export function createTerminalResizeController({
     session.resizeOutputSettleDeadline = 0;
     session.resizeOutputSettleToken = Number(session.resizeOutputSettleToken || 0) + 1;
     endRenderSuppression(session, { render: false, reason: "resize" });
+    if (wasBlocked && !disposed && !session.closed && getOutputQueuedBytes(session) > 0) scheduleOutputFlush(session);
   };
 
-  const finishOutputSettle = (session, reason = "quiet") => {
+  const finishOutputSettle = async (session, reason = "quiet") => {
     if (disposed || !session || session.closed || !session.resizeOutputSettleActive) {
       return false;
     }
+    if (settleDrains.has(session)) return false;
+    const drainToken = {};
+    settleDrains.set(session, drainToken);
+    try {
     if (
       session.resizeOutputSettleDrainRemainingEntries === null
       || session.resizeOutputSettleDrainRemainingEntries === undefined
     ) {
       session.resizeOutputSettleDrainRemainingEntries = getOutputQueueEntryCount(session);
+      settleDrainEnds.set(session, outputBoundary(session));
     }
+    session.resizeOutputSettleDrainRemainingEntries = remainingToBoundary(session,
+      settleDrainEnds.get(session), session.resizeOutputSettleDrainRemainingEntries);
     const drainEntriesBefore = getOutputQueueEntryCount(session);
     if (session.resizeOutputSettleDrainRemainingEntries > 0) {
-      flushOutput(session, {
+      await flushOutput(session, {
         force: true,
         maxBytes: outputFlushBudgetBytes,
         maxEntries: session.resizeOutputSettleDrainRemainingEntries,
         scheduleRemainder: false,
       });
+      if (disposed || session.closed || !session.resizeOutputSettleActive || settleDrains.get(session) !== drainToken) return false;
       const drainEntriesAfter = getOutputQueueEntryCount(session);
       const drainedEntries = Math.max(0, drainEntriesBefore - drainEntriesAfter);
-      session.resizeOutputSettleDrainRemainingEntries = Math.max(
-        0,
-        session.resizeOutputSettleDrainRemainingEntries - drainedEntries,
-      );
+      session.resizeOutputSettleDrainRemainingEntries = remainingToBoundary(session,
+        settleDrainEnds.get(session), Math.max(0, session.resizeOutputSettleDrainRemainingEntries - drainedEntries));
     }
     if (session.resizeOutputSettleDrainRemainingEntries > 0) {
       if (!session.resizeOutputSettleDrainPending) {
@@ -271,6 +341,12 @@ export function createTerminalResizeController({
       reason: `resize_output_${reason}`,
       forceHistory: true,
     }) === true;
+    } catch (error) {
+      if (!disposed && !session.closed && settleDrains.get(session) === drainToken) failResize(session, error);
+      return false;
+    } finally {
+      if (settleDrains.get(session) === drainToken) settleDrains.delete(session);
+    }
   };
 
   const scheduleOutputSettle = (session, { reason = "resize_ack" } = {}) => {
@@ -310,7 +386,7 @@ export function createTerminalResizeController({
     return true;
   };
 
-  const applyFence = (session) => {
+  const applyFence = async (session) => {
     if (
       disposed
       || !session
@@ -318,28 +394,52 @@ export function createTerminalResizeController({
       || !session.resizeFenceActive
       || !session.resizeFenceTarget
       || session.resizeFenceApplying
+      || failedSessions.has(session)
     ) {
+      return false;
+    }
+    session.resizeFenceAckReceived = true;
+    if (nativeGeometry.isPending(session)) {
+      if (!session.resizeFenceDrainTimer) session.resizeFenceDrainTimer = windowObject.setTimeout(() => {
+        session.resizeFenceDrainTimer = 0;
+        applyFence(session);
+      }, outputFlushFallbackMs);
+      return false;
+    }
+    if (workScheduler && (!workScheduler.isRunning() || workScheduler.remainingMs() <= 0)) {
+      recordEvent(session, "resize_fence_queued", {
+        reason: "scheduler", targetSize: { cols: session.resizeFenceTarget.cols, rows: session.resizeFenceTarget.rows },
+        nativePending: nativeGeometry.isPending(session),
+      });
+      workScheduler.schedule(session, "resize-fence", () => applyFence(session), { priority: () => isVisible(session) ? 3 : 1 });
       return false;
     }
     session.resizeFenceApplying = true;
     const target = session.resizeFenceTarget;
+    const connectionEpoch = session.connectionEpoch;
     if (session.resizeFenceDrainRemainingEntries === null || session.resizeFenceDrainRemainingEntries === undefined) {
       session.resizeFenceDrainRemainingEntries = getOutputQueueEntryCount(session);
+      fenceDrainEnds.set(session, outputBoundary(session));
     }
+    session.resizeFenceDrainRemainingEntries = remainingToBoundary(session,
+      fenceDrainEnds.get(session), session.resizeFenceDrainRemainingEntries);
     const drainEntriesBefore = getOutputQueueEntryCount(session);
     if (session.resizeFenceDrainRemainingEntries > 0) {
-      flushOutput(session, {
+      await flushOutput(session, {
         force: true,
         maxBytes: outputFlushBudgetBytes,
         maxEntries: session.resizeFenceDrainRemainingEntries,
         scheduleRemainder: false,
       });
+      if (disposed || session.closed || session.resizeFenceTarget !== target || session.connectionEpoch !== connectionEpoch) return false;
       const drainEntriesAfter = getOutputQueueEntryCount(session);
       const drainedEntries = Math.max(0, drainEntriesBefore - drainEntriesAfter);
-      session.resizeFenceDrainRemainingEntries = Math.max(
-        0,
-        session.resizeFenceDrainRemainingEntries - drainedEntries,
-      );
+      for (const boundary of observedResizeQueues.get(session) || []) {
+        boundary.remainingEntries = remainingToBoundary(session, boundary.endEntries,
+          Math.max(0, boundary.remainingEntries - drainedEntries));
+      }
+      session.resizeFenceDrainRemainingEntries = remainingToBoundary(session,
+        fenceDrainEnds.get(session), Math.max(0, session.resizeFenceDrainRemainingEntries - drainedEntries));
     }
     if (session.resizeFenceDrainRemainingEntries > 0) {
       session.resizeFenceApplying = false;
@@ -356,36 +456,37 @@ export function createTerminalResizeController({
       }
       return false;
     }
-    session.suppressTerminalResizeSend = true;
     beginRenderSuppression(session, "resize");
-    try {
-      session.term.resize(target.cols, target.rows);
+    return nativeGeometry.apply(session, target, () => {
+      if (disposed || session.closed || session.resizeFenceTarget !== target || session.connectionEpoch !== connectionEpoch) return false;
       viewport.restore(session.term, target.viewport);
       recordEvent(session, "term_resize", {
         cols: target.cols,
         rows: target.rows,
         deferredUntilAck: true,
       });
-    } catch (error) {
-      session.suppressTerminalResizeSend = false;
-      endRenderSuppression(session, { render: false, reason: "resize" });
-      session.resizeFenceApplying = false;
-      session.lastHistoryResetFailureReason = "resize_fence_apply_failed";
-      clearFence(session);
-      consoleObject?.warn?.("[terminal-resize] deferred local resize failed", {
-        name: session.name,
-        pane: session.id,
-        cols: target.cols,
-        rows: target.rows,
-        error: error?.message || String(error),
-      });
-      return false;
-    }
-    session.suppressTerminalResizeSend = false;
-    clearFence(session);
+    clearFence(session, "native_committed");
     session.resizeFenceApplying = false;
     session.activationFitPending = false;
     session.measuredFitGeneration = Number(session.measuredFitGeneration || 0) + 1;
+    const boundaries = observedResizeQueues.get(session);
+    const nextBoundary = boundaries?.shift();
+    if (!boundaries?.length) observedResizeQueues.delete(session);
+    if (nextBoundary) {
+      // Keep output suppressed across consecutive authority boundaries. Each
+      // frozen prefix belongs to the grid immediately preceding that boundary.
+      session.resizeFenceActive = true;
+      session.resizeFenceAckReceived = true;
+      session.resizeFenceTarget = nextBoundary.target;
+      fenceDrainEnds.set(session, nextBoundary.endEntries);
+      session.resizeFenceDrainRemainingEntries = remainingToBoundary(session, nextBoundary.endEntries, nextBoundary.remainingEntries);
+      applyFence(session);
+      return true;
+    }
+    if (!session.resizeAckPending) {
+      session.sizeClaimRequired = !dimensionsEqual(session, { cols: session.serverCols, rows: session.serverRows });
+      if (target.claim && !session.sizeClaimRequired) session.sizeClaimed = true;
+    }
     resetHostViewport(session, { clean: true });
     positionInput(session);
     syncViewportPan(session);
@@ -403,7 +504,14 @@ export function createTerminalResizeController({
     if (getOutputQueuedBytes(session) > 0) {
       scheduleOutputFlush(session);
     }
+    if (session.pendingResizeTarget && !session.resizeAckPending && isVisible(session)) {
+      const pending = session.pendingResizeTarget;
+      session.pendingResizeTarget = null;
+      schedulePane(session, { forceSizeSync: true, claimSize: pending.claim === true }, { immediate: true });
+    }
+    if (session.pendingSizeClaim) schedulePendingSizeClaim(session);
     return true;
+    });
   };
 
   const applyObservedResize = (session, message) => {
@@ -415,6 +523,28 @@ export function createTerminalResizeController({
     if (cols <= 0 || rows <= 0) {
       return false;
     }
+    if (session.resizeFenceActive && session.resizeFenceAckReceived) {
+      const boundaries = observedResizeQueues.get(session) || [];
+      const previous = boundaries.at(-1)?.target || session.resizeFenceTarget;
+      if (previous?.cols === cols && previous?.rows === rows) return true;
+      if (boundaries.length >= 64) {
+        failResize(session, new Error("Terminal resize boundary queue exceeded capacity"));
+        return false;
+      }
+      boundaries.push({
+        target: {
+          cols, rows,
+          pixelWidth: Math.max(0, Math.floor(Number(message?.pixel_width) || 0)),
+          pixelHeight: Math.max(0, Math.floor(Number(message?.pixel_height) || 0)),
+          viewport: viewport.capture(session.term),
+        },
+        remainingEntries: getOutputQueueEntryCount(session),
+        endEntries: outputBoundary(session),
+      });
+      observedResizeQueues.set(session, boundaries);
+      recordEvent(session, "resize_observed_queued", { cols, rows, queuedResizes: boundaries.length });
+      return true;
+    }
     if (session.hasPresentedFrame && !session.resizePresentationHold) {
       if (!presentation()?.beginHold(session)) {
         recordEvent(session, "resize_observed_deferred", { reason: "presentation_hold_unavailable" });
@@ -422,6 +552,7 @@ export function createTerminalResizeController({
       }
     }
     clearOutputSettle(session);
+    clearFence(session);
     session.resizeFenceActive = true;
     session.resizeFenceTarget = {
       cols,
@@ -430,6 +561,10 @@ export function createTerminalResizeController({
       pixelHeight: Math.max(0, Math.floor(Number(message?.pixel_height) || 0)),
       viewport: viewport.capture(session.term),
     };
+    // Freeze at receipt, before deferring to the worker/scheduler. Later replay
+    // bytes belong to this new geometry, not the pre-resize drain.
+    session.resizeFenceDrainRemainingEntries = getOutputQueueEntryCount(session);
+    fenceDrainEnds.set(session, outputBoundary(session));
     return applyFence(session);
   };
 
@@ -462,7 +597,8 @@ export function createTerminalResizeController({
       return false;
     }
     return lifecycle.scheduleSessionFrame(session, "pending-size-claim", () => {
-      if (session.resizeAckPending) {
+      if (session.resizeAckPending || session.resizeFenceAckReceived || nativeGeometry.isPending(session)
+        || (session.replayGeometryLocked && !isReplayCommitted(session))) {
         return;
       }
       if (!isVisible(session)) {
@@ -511,6 +647,19 @@ export function createTerminalResizeController({
     const previousConnectionEpoch = Number(session.resizeConnectionEpoch || 0);
     const retiredResizeEpoch = normalizeTerminalResizeEpoch(session.requestedResizeEpoch);
 
+    lifecycle.cancel(session);
+    nativeGeometry.cancel(session);
+    pendingNativeOptions.delete(session);
+    session.replayGeometryPending = false;
+    session.replayGeometryLocked = false;
+    failedSessions.delete(session);
+    workScheduler?.cancel(session, "live-geometry");
+    interactiveResizeSessions.delete(session);
+    metricsLiveGeometrySessions.delete(session);
+    liveGeometrySessions.delete(session);
+    const liveTimer = liveGeometryResizeTimers.get(session);
+    if (liveTimer) windowObject.clearTimeout(liveTimer);
+    liveGeometryResizeTimers.delete(session);
     clearOutputSettle(session);
     clearFence(session);
     session.resizeAckPending = false;
@@ -543,7 +692,7 @@ export function createTerminalResizeController({
 
   const sendSize = (session, { force = false, dimensions = null, claim = false } = {}) => {
     trace(session, "send_size_enter", { force, claim });
-    if (disposed || !session || !isSocketOpen(session)) {
+    if (disposed || !session || session.exitExpected || !isSocketOpen(session)) {
       trace(session, "send_size_skip", { reason: "socket_unavailable" });
       return false;
     }
@@ -708,6 +857,7 @@ export function createTerminalResizeController({
     if (claim) {
       session.sizeClaimed = true;
       session.lastSizeClaimAt = now();
+      clearPendingSizeClaim(session);
     }
     recordEvent(session, "resize_request", {
       requestedResizeEpoch: resizeEpoch,
@@ -729,7 +879,7 @@ export function createTerminalResizeController({
   };
 
   const resendPendingSize = (session) => {
-    if (disposed || !session || session.closed || !isSocketOpen(session) || !session.resizeAckPending) {
+    if (disposed || !session || session.closed || session.exitExpected || !isSocketOpen(session) || !session.resizeAckPending) {
       return false;
     }
     const resizeEpoch = normalizeTerminalResizeEpoch(session.requestedResizeEpoch);
@@ -794,6 +944,9 @@ export function createTerminalResizeController({
     if (epoch && appliedEpoch && BigInt(epoch) < BigInt(appliedEpoch)) {
       return false;
     }
+    const requestedEpoch = normalizeTerminalResizeEpoch(session.requestedResizeEpoch);
+    if (session.resizeAckPending && session.requestedResizeClaim && epoch && requestedEpoch
+      && BigInt(epoch) < BigInt(requestedEpoch)) return true;
     if (epoch) {
       session.appliedResizeEpoch = epoch;
     }
@@ -808,18 +961,10 @@ export function createTerminalResizeController({
       appliedResizeEpoch: epoch,
       ...visualDetails(session),
     });
-    if (!isVisible(session)) {
-      return true;
-    }
-    lifecycle.scheduleSessionFrame(session, "owner-released", () => {
-      if (session.resizeAckPending || session.tabId !== getActiveTabId()) {
-        return;
-      }
-      claimForCurrentDevice(session, {
-        forceFullRender: true,
-        hideUntilRender: true,
-      });
-    });
+    // An owner detaching is not a user interaction. Visible followers must
+    // not race to reclaim the shared PTY merely because they received it.
+    if (session.pendingSizeClaim) schedulePendingSizeClaim(session);
+    presentation()?.ensure(session, { reason: "resize_owner_released", forceHistory: true });
     return true;
   };
 
@@ -914,6 +1059,7 @@ export function createTerminalResizeController({
     const resizeFenceTarget = session.resizeFenceTarget;
     const resizeFenceMatchesAck = Boolean(
       session.resizeFenceActive
+      && !observedResizeQueues.has(session)
       && resizeFenceTarget
       && resizeFenceTarget.cols === session.serverCols
       && resizeFenceTarget.rows === session.serverRows
@@ -926,9 +1072,13 @@ export function createTerminalResizeController({
       // before the ACK is parsed on the old Ghostty grid. Bytes delivered after
       // this handler returns belong to the applied geometry and remain queued
       // for the new grid.
-      session.resizeFenceDrainRemainingEntries = getOutputQueueEntryCount(session);
+      if (!session.resizeFenceAckReceived) {
+        session.resizeFenceDrainRemainingEntries = getOutputQueueEntryCount(session);
+        fenceDrainEnds.set(session, outputBoundary(session));
+      }
       applyFence(session);
-    } else if (session.resizeFenceActive && requestedEpoch && epoch === requestedEpoch) {
+    } else if (!liveGeometrySessions.has(session)
+      && (session.resizeFenceActive || !dimensionsEqual(session, ackDimensions))) {
       applyObservedResize(session, message);
     }
     const appliedGeometryMatchesLocal = dimensionsEqual(session, {
@@ -937,6 +1087,9 @@ export function createTerminalResizeController({
     });
     const remoteEpoch = Boolean(requestedEpoch && BigInt(epoch) > BigInt(requestedEpoch));
     if (remoteEpoch) {
+      // An older local target can have the same grid as the newer owner. Its
+      // delayed native completion must not restore our previous claim flag.
+      if (session.resizeFenceTarget) session.resizeFenceTarget.claim = false;
       session.requestedResizeEpoch = epoch;
       session.requestedCols = session.serverCols;
       session.requestedRows = session.serverRows;
@@ -961,17 +1114,12 @@ export function createTerminalResizeController({
         return true;
       }
       if (session.pendingSizeClaim) {
-        clearOutputSettle(session);
-        clearFence(session);
+        // Finish the authoritative boundary before the newer local claim.
         schedulePendingSizeClaim(session);
         return true;
       }
-      clearOutputSettle(session);
-      clearFence(session);
-      endRenderSuppression(session, { render: false, reason: "resize" });
-      if (session.hasPresentedFrame) {
-        presentation()?.beginHold(session);
-      }
+      // applyObservedResize is asynchronous. Clearing its fence here cancels
+      // the just-enqueued Worker resize and strands the first frame.
       return true;
     }
     if (!requestedEpoch || epoch === requestedEpoch || BigInt(epoch) > BigInt(requestedEpoch)) {
@@ -1044,6 +1192,16 @@ export function createTerminalResizeController({
     }
     const epoch = normalizeTerminalResizeEpoch(message?.resize_epoch);
     const requestedEpoch = normalizeTerminalResizeEpoch(session.requestedResizeEpoch);
+    // Record before early returns, including owner rejection without a queued claim.
+    recordEvent(session, "resize_control_error", {
+      reason: String(message?.reason || ""), resizeErrorEpoch: epoch,
+      requestedResizeEpoch: requestedEpoch, appliedEpoch: String(message?.applied_epoch || ""),
+      current: !epoch || !requestedEpoch || epoch === requestedEpoch,
+      requestWasClaim: session.requestedResizeClaim === true,
+      pendingSizeClaim: session.pendingSizeClaim === true,
+      terminalSize: { cols: session.term?.cols, rows: session.term?.rows },
+      serverSize: { cols: Number(message?.cols || 0), rows: Number(message?.rows || 0) },
+    });
     if (epoch && requestedEpoch && epoch !== requestedEpoch) {
       return false;
     }
@@ -1059,9 +1217,7 @@ export function createTerminalResizeController({
       return false;
     }
     session.resizeAckPending = false;
-    if (session.requestedResizeClaim === true) {
-      session.sizeClaimed = false;
-    }
+    session.sizeClaimed = false;
     session.requestedResizeClaim = false;
     session.sizeClaimRequired = true;
     if (String(message?.reason || "").trim() === "resize_owner_active") {
@@ -1090,23 +1246,16 @@ export function createTerminalResizeController({
         }
         return true;
       }
-      if (session.pendingSizeClaim) {
+      // Rejected passive fits adopt the authoritative grid for presentation.
+      if (session.resizeFenceAckReceived || !dimensionsEqual(session, { cols: session.serverCols, rows: session.serverRows })) {
+        applyObservedResize(session, message);
+      } else if (!session.resizeFenceAckReceived) {
         clearOutputSettle(session);
-        clearFence(session);
-        recordEvent(session, "resize_error", {
-          resizeErrorEpoch: epoch,
-          reason: "resize_owner_active",
-          pendingCurrentDeviceClaim: true,
-        });
-        schedulePendingSizeClaim(session);
-        return true;
+        clearFence(session, "owner_rejection_same_grid");
+        endRenderSuppression(session, { render: false, reason: "resize" });
       }
-      clearOutputSettle(session);
-      clearFence(session);
-      endRenderSuppression(session, { render: false, reason: "resize" });
-      if (session.hasPresentedFrame) {
-        presentation()?.beginHold(session);
-      }
+      if (session.pendingSizeClaim) schedulePendingSizeClaim(session);
+      presentation()?.ensure(session, { reason: "resize_owner_observed", forceHistory: true });
       return true;
     }
     clearOutputSettle(session);
@@ -1156,6 +1305,29 @@ export function createTerminalResizeController({
     claimSize: shouldClaimSize = false,
     settlePresentation,
   } = {}) => {
+    if (session?.exitExpected) return failedTerminalFit(isMeasurable(session));
+    if (failedSessions.has(session)) return failedTerminalFit(isMeasurable(session));
+    if (nativeGeometry.isPending(session) || (session?.replayGeometryLocked && !isReplayCommitted(session))) {
+      const previous = pendingNativeOptions.get(session) || {};
+      pendingNativeOptions.set(session, {
+        visibleOnly,
+        forceFullRender: forceFullRender || previous.forceFullRender,
+        hideUntilRender: hideUntilRender || previous.hideUntilRender,
+        forceSizeSync: forceSizeSync || previous.forceSizeSync,
+        claimSize: shouldClaimSize || previous.claimSize,
+        settlePresentation,
+      });
+      return { ok: true, pending: true, measurable: isMeasurable(session), ...size(session) };
+    }
+    if (session?.replayGeometryLocked) {
+      session.replayGeometryLocked = false;
+      const pending = pendingNativeOptions.get(session);
+      pendingNativeOptions.delete(session);
+      shouldClaimSize ||= pending?.claimSize === true;
+      shouldClaimSize ||= session.pendingSizeClaim === true;
+      forceSizeSync ||= pending?.forceSizeSync === true;
+      forceFullRender ||= pending?.forceFullRender === true;
+    }
     if (liveGeometrySessions.has(session)) {
       return failedTerminalFit(isMeasurable(session));
     }
@@ -1191,6 +1363,24 @@ export function createTerminalResizeController({
     if (!shouldSettlePresentation && session.resizePresentationHold) {
       return failedTerminalFit(isMeasurable(session));
     }
+    if (session.term?.wasmTerm?.isRemote && isReplayCommitted(session)
+      && !shouldClaimSize && !session.sizeClaimed) {
+      // A follower's DOM viewport can differ from the shared PTY. Display the
+      // authoritative grid; only user intent may request a different grid.
+      if (session.resizeFenceActive || session.resizeAckPending || session.resizeOutputSettleActive) {
+        return { ok: true, pending: true, measurable: isMeasurable(session), ...size(session) };
+      }
+      const finishFollowerFit = () => {
+        session.activationFitPending = false;
+        presentation()?.ensure(session, { reason: "server_geometry_follow", forceHistory: true });
+        return { ok: true, measurable: isMeasurable(session), ...size(session), sizeChanged: false, canvasChanged: false };
+      };
+      if (!canvasMatchesExpectedSize(session)) {
+        const result = nativeGeometry.apply(session, size(session), finishFollowerFit);
+        return result?.then ? { ok: true, pending: true, measurable: isMeasurable(session), ...size(session) } : result;
+      }
+      return finishFollowerFit();
+    }
     return measureTask("resize/fit", () => {
       const dimensions = session.fitAddon?.proposeDimensions?.();
       if (!dimensions || dimensions.cols <= 0 || dimensions.rows <= 0) {
@@ -1211,6 +1401,15 @@ export function createTerminalResizeController({
         pixelWidth: Math.max(0, Math.floor(Number(targetCanvas?.pixelWidth) || 0)),
         pixelHeight: Math.max(0, Math.floor(Number(targetCanvas?.pixelHeight) || 0)),
       };
+      // The ACK's old-grid boundary must finish before a later DOM fit can
+      // replace it. Keep the new intent and resume after the native commit.
+      if (session.resizeFenceAckReceived) {
+        session.pendingResizeTarget = {
+          ...targetDimensions,
+          claim: shouldClaimSize || session.sizeClaimed === true || session.pendingResizeTarget?.claim === true,
+        };
+        return { ok: true, measurable: true, pending: true, ...sizeBefore, sizeChanged: false, canvasChanged: false };
+      }
       // Once this pane has claimed the current device, every later geometry
       // correction must retain that ownership.  Conversely, a passive fit
       // must not overwrite a newer remote owner after a visible frame exists;
@@ -1416,6 +1615,7 @@ export function createTerminalResizeController({
         session.resizeFenceTarget = {
           ...targetDimensions,
           viewport: capturedViewport,
+          claim: claimSizeForTransaction,
         };
         session.resizeFenceDrainRemainingEntries = getOutputQueueEntryCount(session);
         flushOutput(session, {
@@ -1451,6 +1651,38 @@ export function createTerminalResizeController({
         endRenderSuppression(session, { render: false, reason: "resize" });
         clearFence(session);
       }
+      const finishFit = () => {
+      if (disposed || session.closed || liveGeometrySessions.has(session)) return failedTerminalFit(isMeasurable(session));
+      viewport.restore(session.term, capturedViewport);
+      const sizeAfter = size(session);
+      const canvasAfter = terminalCanvasSize(session);
+      const sizeChanged = sizeBefore.cols !== sizeAfter.cols || sizeBefore.rows !== sizeAfter.rows;
+      const canvasChanged = canvasBefore.width !== canvasAfter.width || canvasBefore.height !== canvasAfter.height;
+      const fitGenerationChanged = firstMeasuredFit || sizeChanged || canvasChanged || canvasNeedsResize;
+      if (fitGenerationChanged) session.measuredFitGeneration = Number(session.measuredFitGeneration || 0) + 1;
+      session.activationFitPending = false;
+      resetHostViewport(session, { clean: true });
+      positionInput(session);
+      syncViewportPan(session);
+      if (!session.initialRuntimeResetDone && !isReplayCommitted(session)) resetAfterInitialFit(session);
+      if (fitGenerationChanged && isReplayCommitted(session)) presentation()?.setReady(session, false, { preserveFrame: false, reason: "resize_fit_changed" });
+      const sentTerminalSize = sendSize(session, { force: forceSizeSync, dimensions: targetDimensions, claim: claimSizeForTransaction });
+      updateSelectionHandles(session);
+      if (sentTerminalSize && dimensionsWillChange && isReplayCommitted(session) && session.resizeEpochSupported === false && scheduleOutputSettle(session, { reason: "legacy_resize" })) {
+        return { ok: true, measurable: true, pending: true, ...sizeAfter, sizeChanged, canvasChanged };
+      }
+      if (legacyResizeSuppression && !session.resizeOutputSettleActive) endRenderSuppression(session, { render: false, reason: "resize" });
+      if (shouldCommitAfterHold && !session.resizeAckPending && !resizeOutputSettlePending) {
+        presentation()?.requestFullRender(session);
+        presentation()?.commitNow(session);
+      } else if (forceFullRender || fitGenerationChanged || hideUntilRender || session.fullRenderPending || !session.hasPresentedFrame) {
+        presentation()?.renderFullNow(session);
+      }
+      if (shouldSettlePresentation && !shouldCommitAfterHold && !session.resizeAckPending && !resizeOutputSettlePending) {
+        presentation()?.cancelHold(session, { restoreReady: !session.fullRenderPending && session.hasPresentedFrame });
+      }
+      return { ok: true, measurable: true, ...sizeAfter, sizeChanged, canvasChanged, sentTerminalSize, claimSent: sentTerminalSize && claimSizeForTransaction };
+      };
       try {
         if (legacyResizeSuppression) {
           beginRenderSuppression(session, "resize");
@@ -1460,11 +1692,9 @@ export function createTerminalResizeController({
             cols: fittedDimensions.cols,
             rows: fittedDimensions.rows,
           });
-          session.term.resize(fittedDimensions.cols, fittedDimensions.rows);
-          trace(session, "term_resize_after", {
-            cols: session.term.cols,
-            rows: session.term.rows,
-          });
+          const result = nativeGeometry.apply(session, fittedDimensions, finishFit);
+          if (result?.then) return { ok: true, pending: true, measurable: true, ...sizeBefore };
+          return result || failedTerminalFit(true);
         }
       } catch (error) {
         if (legacyResizeSuppression) {
@@ -1476,79 +1706,16 @@ export function createTerminalResizeController({
         if (shouldSettlePresentation) {
           presentation()?.cancelHold(session, { restoreReady: session.hasPresentedFrame });
         }
+        failResize(session, error);
         return failedTerminalFit(true);
       }
-      viewport.restore(session.term, capturedViewport);
-      const sizeAfter = size(session);
-      const canvasAfter = terminalCanvasSize(session);
-      const sizeChanged = sizeBefore.cols !== sizeAfter.cols || sizeBefore.rows !== sizeAfter.rows;
-      const canvasChanged = canvasBefore.width !== canvasAfter.width || canvasBefore.height !== canvasAfter.height;
-      const fitGenerationChanged = firstMeasuredFit || sizeChanged || canvasChanged || canvasNeedsResize;
-      if (fitGenerationChanged) {
-        session.measuredFitGeneration = Number(session.measuredFitGeneration || 0) + 1;
-      }
-      session.activationFitPending = false;
-      resetHostViewport(session, { clean: true });
-      positionInput(session);
-      syncViewportPan(session);
-      if (!session.initialRuntimeResetDone && !isReplayCommitted(session)) {
-        resetAfterInitialFit(session);
-      }
-      if (fitGenerationChanged && isReplayCommitted(session)) {
-        presentation()?.setReady(session, false, { preserveFrame: false, reason: "resize_fit_changed" });
-      }
-      const sentTerminalSize = sendSize(session, {
-        force: forceSizeSync,
-        dimensions: targetDimensions,
-        claim: claimSizeForTransaction,
-      });
-      updateSelectionHandles(session);
-      if (
-        sentTerminalSize
-        && dimensionsWillChange
-        && isReplayCommitted(session)
-        && session.resizeEpochSupported === false
-        && scheduleOutputSettle(session, { reason: "legacy_resize" })
-      ) {
-        return {
-          ok: true,
-          measurable: true,
-          pending: true,
-          cols: sizeAfter.cols,
-          rows: sizeAfter.rows,
-          sizeChanged,
-          canvasChanged,
-        };
-      }
-      if (legacyResizeSuppression && !session.resizeOutputSettleActive) {
-        endRenderSuppression(session, { render: false, reason: "resize" });
-      }
-      if (shouldCommitAfterHold && !session.resizeAckPending && !resizeOutputSettlePending) {
-        presentation()?.requestFullRender(session);
-        presentation()?.commitNow(session);
-      } else if (forceFullRender || fitGenerationChanged || hideUntilRender || session.fullRenderPending || !session.hasPresentedFrame) {
-        presentation()?.renderFullNow(session);
-      }
-      if (shouldSettlePresentation && !shouldCommitAfterHold && !session.resizeAckPending && !resizeOutputSettlePending) {
-        presentation()?.cancelHold(session, {
-          restoreReady: !session.fullRenderPending && session.hasPresentedFrame,
-        });
-      }
-      return {
-        ok: true,
-        measurable: true,
-        cols: sizeAfter.cols,
-        rows: sizeAfter.rows,
-        sizeChanged,
-        canvasChanged,
-        sentTerminalSize,
-        claimSent: sentTerminalSize && claimSizeForTransaction,
-      };
+      return finishFit();
     });
   };
 
   lifecycle = lifecycleFactory({
     windowObject,
+    workScheduler,
     ResizeObserverCtor,
     applyResize: (session, options, { settled = true } = {}) => {
       if (!settled) {
@@ -1590,6 +1757,9 @@ export function createTerminalResizeController({
   );
 
   const cancelPane = (session) => {
+    nativeGeometry.cancel(session);
+    pendingNativeOptions.delete(session);
+    workScheduler?.cancel(session, "live-geometry");
     lifecycle.cancel(session);
     if (session) {
       interactiveResizeSessions.delete(session);
@@ -1613,7 +1783,7 @@ export function createTerminalResizeController({
       return false;
     }
     for (const session of tab.panes.values()) {
-      resizePane(session, options);
+      schedulePane(session, options, { immediate: true });
     }
     for (const session of tab.panes.values()) {
       connectPendingSession(session);
@@ -1627,6 +1797,7 @@ export function createTerminalResizeController({
     if (!liveGeometrySessions.delete(session)) {
       return false;
     }
+    workScheduler?.cancel(session, "live-geometry");
     const resizeTimer = liveGeometryResizeTimers.get(session);
     if (resizeTimer) {
       windowObject.clearTimeout(resizeTimer);
@@ -1644,12 +1815,13 @@ export function createTerminalResizeController({
     return true;
   };
 
-  const resizePaneLiveGeometry = (session, { force = false } = {}) => {
+  const resizePaneLiveGeometry = (session, { force = false, scheduled = false } = {}) => {
     if (
       disposed
       || !session
       || session.closed
       || !liveGeometrySessions.has(session)
+      || failedSessions.has(session)
       || !isReplayCommitted(session)
       || !isVisible(session)
     ) {
@@ -1657,6 +1829,15 @@ export function createTerminalResizeController({
     }
     const currentTime = now();
     const lastResizeAt = liveGeometryLastResizeAt.get(session) ?? Number.NEGATIVE_INFINITY;
+    if (workScheduler && !scheduled) {
+      workScheduler.schedule(session, "live-geometry", () => {
+        const result = resizePaneLiveGeometry(session, { force: true, scheduled: true });
+        if (result.ok && !result.pending && !hasActiveLiveGeometrySource(session)) commitLiveGeometryTarget(session);
+        else if (!isVisible(session) && !hasActiveLiveGeometrySource(session)) finishLiveGeometry(session, "interactive_resize_hidden");
+      }, { priority: () => 3, delayMs: force ? 0 : Math.max(0, throttleMs - (currentTime - lastResizeAt)) });
+      return { ok: true, measurable: true, pending: true, ...size(session), sizeChanged: false, canvasChanged: false };
+    }
+    if (nativeGeometry.isPending(session)) return { ok: true, pending: true, measurable: true, ...size(session) };
     if (!force && currentTime - lastResizeAt < throttleMs) {
       if (!liveGeometryResizeTimers.has(session)) {
         const delay = Math.max(0, throttleMs - (currentTime - lastResizeAt));
@@ -1711,15 +1892,8 @@ export function createTerminalResizeController({
         };
       }
       const capturedViewport = viewport.capture(session.term);
-      const previousSuppressTerminalResizeSend = session.suppressTerminalResizeSend === true;
-      try {
-        session.suppressTerminalResizeSend = true;
-        session.term.resize(fittedDimensions.cols, fittedDimensions.rows);
-      } catch (error) {
-        return failedTerminalFit(true);
-      } finally {
-        session.suppressTerminalResizeSend = previousSuppressTerminalResizeSend;
-      }
+      const result = nativeGeometry.apply(session, fittedDimensions, () => {
+      if (!liveGeometrySessions.has(session)) return failedTerminalFit(isMeasurable(session));
       viewport.restore(session.term, capturedViewport);
       const sizeAfter = size(session);
       const canvasAfter = terminalCanvasSize(session);
@@ -1732,6 +1906,8 @@ export function createTerminalResizeController({
       syncViewportPan(session);
       updateSelectionHandles(session);
       presentation()?.setReady(session, true, { reason: "live_geometry_resize" });
+      // Canvas resize clears its pixels. Keep this pane's resize + draw atomic;
+      // the shared scheduler yields before starting the other pane's work.
       const rendered = presentation()?.renderLiveGeometryNow(session) === true;
       return {
         ok: true,
@@ -1742,6 +1918,8 @@ export function createTerminalResizeController({
         canvasChanged,
         rendered,
       };
+      });
+      return result?.then ? { ok: true, pending: true, measurable: true, ...sizeBefore } : result || failedTerminalFit(true);
     });
   };
 
@@ -1770,6 +1948,8 @@ export function createTerminalResizeController({
       || !session
       || session.closed
       || sourceSessions.has(session)
+      || failedSessions.has(session)
+      || !session.hasPresentedFrame
       || !isReplayCommitted(session)
       || !isVisible(session)
     ) {
@@ -1801,7 +1981,7 @@ export function createTerminalResizeController({
     lifecycle.cancel(session);
     resizePaneLiveGeometry(session, { force: true });
     recordEvent(session, eventType, visualDetails(session));
-    if (!hasActiveLiveGeometrySource(session)) {
+    if (!workScheduler && !hasActiveLiveGeometrySource(session)) {
       commitLiveGeometryTarget(session);
     }
     return true;
@@ -1969,8 +2149,12 @@ export function createTerminalResizeController({
   };
 
   const claimForCurrentDevice = (session, options = {}) => {
-    if (disposed || !session || session.closed) {
+    if (disposed || !session || session.closed || session.exitExpected) {
       return false;
+    }
+    if (!isSocketOpen(session) || nativeGeometry.isPending(session) || session.resizeFenceAckReceived
+      || (session.replayGeometryLocked && !isReplayCommitted(session))) {
+      return queuePendingSizeClaim(session, options);
     }
     if (!isVisible(session)) {
       if (session.resizeAckPending && session.requestedResizeClaim !== true) {
@@ -2125,6 +2309,66 @@ export function createTerminalResizeController({
     return true;
   };
 
+  const prepareReplayGeometry = (session, message) => {
+    if (disposed || !session || session.closed || !session.term?.wasmTerm?.isRemote) return false;
+    const cols = Math.floor(Number(message?.cols) || 0);
+    const rows = Math.floor(Number(message?.rows) || 0);
+    if (cols < 1 || rows < 1) return false;
+    nativeGeometry.cancel(session);
+    clearOutputSettle(session);
+    clearFence(session, "replay_geometry_start");
+    session.replayGeometryPending = true;
+    session.replayGeometryLocked = true;
+    session.activationFitPending = true;
+    // Restore the producer's replay grid before parsing its bytes. The latest
+    // local DOM fit is retained as an intent until replay has fully drained.
+    nativeGeometry.apply(session, { cols, rows }, () => {
+      session.replayGeometryPending = false;
+      session.measuredFitGeneration = Number(session.measuredFitGeneration || 0) + 1;
+      scheduleOutputFlush(session);
+      return true;
+    });
+    return true;
+  };
+
+  const finishExited = (session) => {
+    if (disposed || !session || session.closed) return false;
+    lifecycle.cancel(session);
+    pendingNativeOptions.delete(session);
+    clearPendingSizeClaim(session);
+    interactiveResizeSessions.delete(session);
+    metricsLiveGeometrySessions.delete(session);
+    liveGeometrySessions.delete(session);
+    const timer = liveGeometryResizeTimers.get(session);
+    if (timer) windowObject.clearTimeout(timer);
+    liveGeometryResizeTimers.delete(session);
+    workScheduler?.cancel(session, "live-geometry");
+    session.resizeAckPending = false;
+    session.requestedResizeClaim = false;
+    session.sizeClaimRequired = false;
+    session.sizeClaimed = false;
+    // Retire the request rather than pretending the dead PTY acknowledged it.
+    // Presentation also compares requested/applied epochs after the ACK flag.
+    session.requestedResizeEpoch = normalizeTerminalResizeEpoch(session.appliedResizeEpoch);
+    session.requestedCols = session.term?.cols || 0;
+    session.requestedRows = session.term?.rows || 0;
+    session.pendingResizeTarget = null;
+    session.resizeController?.reset();
+    clearOutputSettle(session);
+    // Preserve already acknowledged output boundaries and in-flight native
+    // initialization. Only requests the exited process can never ACK retire.
+    if (session.resizeFenceAckReceived) applyFence(session);
+    else clearFence(session, "process_exit");
+    if (!nativeGeometry.isPending(session) && !session.replayGeometryPending) {
+      session.replayGeometryLocked = false;
+      session.activationFitPending = false;
+    }
+    presentation()?.clearRetry(session);
+    presentation()?.clearValidation(session);
+    scheduleOutputFlush(session);
+    return true;
+  };
+
   const observeServerGeometry = (session, paneState) => {
     if (disposed || !session || session.closed) {
       return false;
@@ -2154,6 +2398,7 @@ export function createTerminalResizeController({
   };
 
   return Object.freeze({
+    finishExited,
     snapshot: (session) => Object.freeze({
       connectionEpoch: Number(session?.connectionEpoch || 0),
       requestedResizeEpoch: String(session?.requestedResizeEpoch || ""),
@@ -2166,6 +2411,9 @@ export function createTerminalResizeController({
       resizeOutputSettleActive: session?.resizeOutputSettleActive === true,
       pendingResizeTarget: Boolean(session?.pendingResizeTarget),
       pendingSizeClaim: session?.pendingSizeClaim === true,
+      nativePending: nativeGeometry.isPending(session),
+      fenceDrainEntries: session?.resizeFenceDrainRemainingEntries ?? null,
+      settleDrainEntries: session?.resizeOutputSettleDrainRemainingEntries ?? null,
       liveGeometryActive: liveGeometrySessions.has(session),
       liveGeometrySourceActive: hasActiveLiveGeometrySource(session),
     }),
@@ -2208,6 +2456,7 @@ export function createTerminalResizeController({
     handleApplied,
     handleError,
     handleReplayStart,
+    prepareReplayGeometry,
     observeServerGeometry,
     clearOutputSettle,
     scheduleOutputSettle,
@@ -2218,6 +2467,7 @@ export function createTerminalResizeController({
       return Object.freeze({
         outputSettleActive,
         active: outputSettleActive || session?.resizeFenceActive === true,
+        blockOutput: Boolean(failedSessions.has(session) || session?.replayGeometryPending || session?.resizeFenceAckReceived || session?.resizeOutputSettleDrainRemainingEntries != null),
       });
     },
     noteOutput(session) {
@@ -2227,6 +2477,11 @@ export function createTerminalResizeController({
     },
     cancelTab,
     disposeSession(session) {
+      nativeGeometry.cancel(session);
+      pendingNativeOptions.delete(session);
+      workScheduler?.cancel(session, "live-geometry");
+      clearOutputSettle(session);
+      clearFence(session);
       interactiveResizeSessions.delete(session);
       metricsLiveGeometrySessions.delete(session);
       liveGeometrySessions.delete(session);
@@ -2244,7 +2499,10 @@ export function createTerminalResizeController({
         return;
       }
       disposed = true;
+      nativeGeometry.dispose();
+      pendingNativeOptions.clear();
       for (const session of ownedSessions) {
+        workScheduler?.cancel(session, "live-geometry");
         clearPendingSizeClaim(session);
         clearOutputSettle(session);
         clearFence(session);
