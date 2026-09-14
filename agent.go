@@ -27,8 +27,8 @@ import (
 )
 
 const (
-	// v17 negotiates a pinned Ghostty state checkpoint followed by cursor-ordered output.
-	agentProtocolVersion = "lcmd-webshell-agent-v17"
+	// v18 prevents late PTY output from using a disposed checkpoint when panes close.
+	agentProtocolVersion = "lcmd-webshell-agent-v18"
 
 	agentFrameBinary         = byte('B')
 	agentFrameText           = byte('T')
@@ -548,6 +548,13 @@ func (d *agentDaemon) handleAttach(ctx context.Context, conn net.Conn, reader *b
 	syncRequest.checkpointProtocol = request.CheckpointProtocol
 	history, client, allowGeneratedInputDuringReplay, exit, err := pane.attachClient(syncRequest)
 	if err != nil {
+		if errors.Is(err, errTerminalPaneClosing) {
+			// Membership can change after paneForAttach releases workspace.mu.
+			_ = writeAgentControlFrame(conn, map[string]any{
+				"type": "workspace-refresh-required", "selector": workspace.selector, "reason": err.Error(),
+			})
+			return
+		}
 		if request.CheckpointProtocol == terminalMemoryCheckpointProtocol {
 			_ = writeAgentControlFrame(conn, map[string]any{"type": "terminal-checkpoint-error", "selector": workspace.selector,
 				"pane_id": request.PaneID, "message": err.Error()})
