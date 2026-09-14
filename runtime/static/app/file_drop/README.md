@@ -16,11 +16,13 @@
 
 `file_drop_controller.js` 是以下状态的唯一 owner：
 
-- started/disposed 与当前遮罩宿主/文案。
+- started/disposed 与页面拖入/拖出计数。
 - window 捕获阶段的 `dragenter` / `dragover` / `dragleave` / `drop` / `dragend` listener。
 - 遮罩 DOM 节点。
 
 View 只创建、移动和移除遮罩节点；lifecycle 只注册和移除 listener；model 只判断文件拖放、目录项和遮罩文案。
+
+遮罩通过 `data-file-drop-overlay="true"` 标记归属，IME 的 host 清理保留该节点，避免持续终端输出将其误删。每次显示均交给 view 检查节点连接与宿主；controller 不缓存显示结果，view 仅在文案或宿主变化时写入 DOM。
 
 ## 依赖方向
 
