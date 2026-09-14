@@ -51,11 +51,11 @@ export class RenderSnapshot {
       && this.geometry.pixelHeight === other.geometry.pixelHeight;
   }
 
-  static fromSession(session, { presented = false } = {}) {
+  static fromSession(session, { presented = false, contentGeneration, appliedCursor } = {}) {
     return new RenderSnapshot({
-      contentGeneration: session?.terminalContentGeneration,
+      contentGeneration: contentGeneration ?? session?.terminalContentGeneration,
       historyGeneration: session?.historyGeneration,
-      appliedCursor: session?.appliedHistoryCursor,
+      appliedCursor: appliedCursor ?? session?.appliedHistoryCursor,
       resizeEpoch: session?.appliedResizeEpoch || session?.requestedResizeEpoch,
       geometry: {
         cols: session?.term?.cols || session?.serverCols,

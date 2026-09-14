@@ -32,7 +32,9 @@ export function createTerminalBackendManager({ wasmURL, isVisible = () => true, 
               }
             },
             viewport: () => term.viewportY,
-            visible: () => isVisible(sessions.get(term)) && term.renderSuppressionDepth === 0,
+            // Presentation suppression must not suppress frame preparation.
+            // A visible pane needs a current viewport as soon as its write ends.
+            visible: () => isVisible(sessions.get(term)),
             onChange: () => {
               term.linkDetector?.invalidateCache();
               if (isVisible(sessions.get(term))) term.requestRender?.({ full: true, throttle: true });
@@ -56,7 +58,11 @@ export function createTerminalBackendManager({ wasmURL, isVisible = () => true, 
     },
     prepareRecovery(session) {
       const backend = session?.term?.wasmTerm;
-      if (!disposed && !session?.closed && backend?.isRemote && (backend.failed || backend.isPending || !backend.isReady)) session.term.reset();
+      if (!disposed && !session?.closed && backend?.isRemote
+        && (backend.failed || backend.isPending || !backend.isReady || session.term.backendResizePending)) {
+        session.term.reset();
+        backend.markPreparedForReplay();
+      }
     },
     dispose() {
       disposed = true;

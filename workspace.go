@@ -2603,6 +2603,7 @@ func (p *terminalPane) resizeWithPixelsUnlocked(cols, rows, pixelWidth, pixelHei
 }
 
 func (p *terminalPane) applyResize(message terminalControlMessage, source *paneClient) error {
+	resizeStartedAt := time.Now()
 	epoch, hasEpoch := parseTerminalResizeEpoch(message.ResizeEpoch)
 	if !hasEpoch {
 		if strings.TrimSpace(message.ResizeEpoch) != "" {
@@ -2670,7 +2671,9 @@ func (p *terminalPane) applyResize(message terminalControlMessage, source *paneC
 		p.enqueueResizeError(source, epoch, "resize_owner_active")
 		return errors.New("resize owner is active")
 	}
+	outputWaitStartedAt := time.Now()
 	p.outputMu.Lock()
+	outputWaitMS := float64(time.Since(outputWaitStartedAt).Microseconds()) / 1000
 	if err := p.resizeWithPixelsUnlocked(cols, rows, pixelWidth, pixelHeight); err != nil {
 		p.outputMu.Unlock()
 		p.enqueueResizeError(source, epoch, "pty_resize_failed")
@@ -2690,7 +2693,8 @@ func (p *terminalPane) applyResize(message terminalControlMessage, source *paneC
 		clients = append(clients, client)
 	}
 	p.mu.Unlock()
-	p.enqueueResizeApplied(epoch, currentCols, currentRows, currentPixelWidth, currentPixelHeight, clients)
+	p.enqueueResizeApplied(epoch, currentCols, currentRows, currentPixelWidth, currentPixelHeight, clients,
+		map[string]any{"apply_duration_ms": float64(time.Since(resizeStartedAt).Microseconds()) / 1000, "output_lock_wait_ms": outputWaitMS})
 	p.outputMu.Unlock()
 	return nil
 }
@@ -2714,16 +2718,18 @@ func (p *terminalPane) enqueueResizeOwnerReleased(epoch uint64, cols, rows, pixe
 	}
 }
 
-func (p *terminalPane) enqueueResizeApplied(epoch uint64, cols, rows, pixelWidth, pixelHeight int, clients []*paneClient) {
+func (p *terminalPane) enqueueResizeApplied(epoch uint64, cols, rows, pixelWidth, pixelHeight int, clients []*paneClient, timing map[string]any) {
 	payload, err := json.Marshal(map[string]any{
-		"type":         "resize-applied",
-		"selector":     p.selector,
-		"pane_id":      p.id,
-		"resize_epoch": formatTerminalResizeEpoch(epoch),
-		"cols":         cols,
-		"rows":         rows,
-		"pixel_width":  pixelWidth,
-		"pixel_height": pixelHeight,
+		"type":                   "resize-applied",
+		"checkpoint_diagnostics": p.checkpointDiagnostics(),
+		"resize_diagnostics":     timing,
+		"selector":               p.selector,
+		"pane_id":                p.id,
+		"resize_epoch":           formatTerminalResizeEpoch(epoch),
+		"cols":                   cols,
+		"rows":                   rows,
+		"pixel_width":            pixelWidth,
+		"pixel_height":           pixelHeight,
 	})
 	if err != nil {
 		return

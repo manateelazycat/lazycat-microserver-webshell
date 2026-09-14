@@ -315,7 +315,7 @@ export function createTerminalSessionProtocolController({
         pixel_height: size.pixelHeight,
         workspace_generation: isClientInstanceName(session.name) ? "" : session.workspaceGeneration,
         history_replay_mode: session.resetOnNextReplay ? "snapshot" : "",
-        flow_control: "turn-ack-v1",
+        flow_control: "window-ack-v1",
         replay_burst_limit_bytes: terminalOutput.getReplayBatchLimit(session),
         checkpoint_protocol: !isClientInstanceName(session.name) && typeof DecompressionStream === "function" ? memoryCheckpointProtocol : "",
         foreground: themePayload.foreground,
@@ -354,7 +354,7 @@ export function createTerminalSessionProtocolController({
     session.replayComplete = false;
     terminalReplay.setAuthorization(session, false);
     session.replayCompletionPending = false;
-    terminalOutput?.resetQueueTurn(session);
+    terminalOutput?.resetQueueTurn(session, usesMultiplexedTransport ? "window-ack-v1" : "turn-ack-v1");
     session.allowGeneratedInputDuringReplay = false;
     invalidateSessionStartupError(session);
     session.shellEl.dataset.connection = sessionConnectingState(session);
@@ -591,6 +591,18 @@ export function createTerminalSessionProtocolController({
                 serverEndCursor: message.server_end_cursor || "",
                 textMessages: socketDebug.textMessages,
               });
+            }
+            if ((message.type === "resize-applied" || message.type === "terminal-checkpoint-error") && message.checkpoint_diagnostics) {
+              try {
+                recordTerminalSessionEvent(session, "checkpoint_resize_diagnostic", {
+                  checkpoint: message.checkpoint_diagnostics, resizeTiming: message.resize_diagnostics || null,
+                  resizeEpoch: message.resize_epoch || "",
+                });
+                if (message.checkpoint_diagnostics.error) {
+                  appendDebugError("服务端快照 resize 失败", JSON.stringify({ pane: session.id,
+                    checkpoint: message.checkpoint_diagnostics, resizeTiming: message.resize_diagnostics || null }));
+                }
+              } catch {}
             }
             switch (message.type) {
               case "terminal-checkpoint-error":
@@ -1185,7 +1197,7 @@ export function createTerminalSessionProtocolController({
         }
         terminalOutput.write(session, outputPayload, {
             connectionEpoch,
-            deferRender: usesMultiplexedTransport && terminalReplay.isCommitted(session),
+            deferRender: false,
           });
         } catch (error) {
           rejectHistorySync(error?.message || "terminal history output range failed");

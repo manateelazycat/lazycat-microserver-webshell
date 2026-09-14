@@ -26,7 +26,7 @@ live geometry 期间 `renderLiveGeometryNow()` 只提交当前 session 的真实
 
 - `screen_refresh_controller.js`：可插拔的显示兜底模块，由全局运行时注入会话枚举、presentation、resize 的只读检查及共享调度器。默认每秒检查可见 pane，进入/恢复显示或连接、回放、几何代际变化后稳定至少 500ms 补绘一次；之后仅对持续未提交的画面补绘，同一代际最多 3 次。遵守回放、resize、hold、Worker 帧就绪门禁，复用完整绘制，不清屏、不发送尺寸、不申请历史回放。正常画面不周期性重绘。关闭开关会撤销本模块定时器、事件监听、排队任务和会话观察状态；隐藏页面暂停，页面销毁释放全部资源。日志事件为 `screen_auto_refresh` 和 `screen_auto_refresh_exhausted`。无法识别所有像素层面的错误，不能修复错误的 VT 内容。
 
-持续输出的绘制请求在 Ghostty 内部即使用 33ms 限频，交互/恢复绘制仍可显式申请。presentation 安装共享调度 hook，统一取消旧 RAF、节流 timer 和共享任务；隐藏页面及隐藏 pane 保留待绘制标记，恢复可见后由现有 presentation 路径提交。普通完整绘制在预算不足时推迟，同一 live geometry 的 resize + draw 保持原子。
+v21 的前台普通绘制由浏览器 RAF 与共享预算合并，不再叠加 33ms 固定限频。presentation 安装共享调度 hook，统一取消旧 RAF、节流 timer 和共享任务；隐藏页面及隐藏 pane 保留待绘制标记，恢复可见后由现有 presentation 路径提交。普通完整绘制在预算不足时推迟，同一 live geometry 的 resize + draw 保持原子。
 
 Kitty 图形适配对不完整命令、传输总量、并发解码、图片缓存及 placement 数量设置上限；超限向终端程序回复协议错误。不完整超限命令以有界丢弃状态寻找结束符，不继续累积字符串。reset/删除/销毁会释放位图，迟到解码结果不得重新放回已清理的画面；PNG 尺寸和解压后字节量在分配前或读取过程中限制。
 
@@ -39,7 +39,7 @@ Kitty 图形适配对不完整命令、传输总量、并发解码、图片缓�
 - `runtime_controller.js`：Ghostty runtime reset、清屏、引用同步、首次 fit reset 和按 reason 幂等嵌套 render suppression 的唯一 owner；同一 reason 重复 begin 不增加底层 suppression depth，未知 reason end 不释放其他作用域；不决定 history replay 时机。
 - `kitty_graphics.js`：Ghostty Kitty graphics patch、响应识别和像素尺寸。
 - `terminal_render_snapshot.js`：render/presentation 快照和匹配校验。
-- `terminal_frame_release_scheduler.js`：跨双 RAF 的 latest-only hold frame 释放。
+- `terminal_frame_release_scheduler.js`：单 RAF 的 latest-only hold frame 释放。
 
 ## 验证
 
@@ -52,3 +52,9 @@ Kitty 图形适配对不完整命令、传输总量、并发解码、图片缓�
 永久旧帧尚未稳定复现。保留原有 presentation/hold 释放逻辑；本轮未验证的候选变更已撤回。调查用例与条件位于 spec-tests/investigations/network-presentation-recovery，后续由真实失败截图、cursor、resize/connection epoch 和 trace 再决定修复，不认定断网为根因。
 
 闲置 hold Canvas 的 backing store 保持 0×0，捕获时才按当前 host/DPR 分配；释放时销毁位图缓冲。不得将此操作用于仍在展示的 hold 或 live Canvas。
+
+占位诊断由 presentation owner 的弱引用表记录复制次数、单次复制耗时和持续时间；原有释放检查失败时记录阻塞条件。render probe 仅被动读取这些字段及 resize snapshot，不增加轮询或触发呈现。占位实现是 Canvas drawImage，不生成 PNG。
+
+连续 resize 的呈现：可见 pane 在渲染抑制期间仍接收 Worker 完整视口，抑制只阻止 Canvas 提交。旧帧保持捕获时的 CSS 像素尺寸，由宿主裁剪，不随窗口或键盘改变拉伸。有效画面提交后在下一次 RAF 检查释放，后续提交仅更新检查条件，不重置等待；普通新输出的 fullRenderPending 不阻止释放，连接、Worker、回放、尺寸代次和原生 resize 门禁仍需通过。交互式 live geometry 已允许提前显示的完整画面不再被旧 ACK 等待遮挡。重建 Worker 前先保护画面并退休 ready 状态。
+
+普通输出完成后直接保留一次绘制任务，呈现校验不承担动画驱动，也不会因新输出反复后移已有校验。每次实际 Canvas 绘制直接提交该帧的内容代际和消费游标；仅当几何及回放代际已经一致时，允许完整画面落后于最新解析进度。同步输出持有期间暂缓呈现，不阻塞解析 ACK。

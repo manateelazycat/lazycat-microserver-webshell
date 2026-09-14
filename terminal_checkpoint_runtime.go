@@ -59,6 +59,8 @@ type terminalCheckpointEngine struct {
 	pending                []byte
 	err                    error
 	legacyGraphics         bool
+	resizeObservations     []checkpointResizeObservation
+	skippedResizes         uint64
 }
 
 func checkpointHash(data []byte) string {
@@ -197,9 +199,26 @@ func (e *terminalCheckpointEngine) write(data []byte) {
 }
 
 func (e *terminalCheckpointEngine) resize(cols, rows, lines int) {
+	if e != nil && e.err != nil {
+		e.skippedResizes++
+	}
 	if e == nil || e.module == nil || e.err != nil || e.legacyGraphics {
 		return
 	}
+	startedAt := time.Now()
+	observation := checkpointResizeObservation{AtUnixMS: startedAt.UnixMilli(), FromCols: e.cols, FromRows: e.rows,
+		ToCols: cols, ToRows: rows, MemoryBefore: e.memoryBytes()}
+	defer func() {
+		observation.DurationMS = float64(time.Since(startedAt).Microseconds()) / 1000
+		observation.MemoryAfter = e.memoryBytes()
+		if e.err != nil {
+			observation.Error = e.err.Error()
+		}
+		e.resizeObservations = append(e.resizeObservations, observation)
+		if len(e.resizeObservations) > 8 {
+			e.resizeObservations = e.resizeObservations[len(e.resizeObservations)-8:]
+		}
+	}()
 	e.scrollback = lines
 	capacity := e.scrollbackCapacity(cols, rows)
 	if capacity > e.capacity {
@@ -212,7 +231,13 @@ func (e *terminalCheckpointEngine) resize(cols, rows, lines int) {
 	if cols != e.cols || rows != e.rows {
 		ok, err := e.call("ghostty_terminal_resize", uint64(e.handle), uint64(cols), uint64(rows))
 		if err != nil || ok != 1 {
-			e.err = fmt.Errorf("checkpoint resize failed: %v", err)
+			if err != nil {
+				e.err = fmt.Errorf("checkpoint resize failed: %w", err)
+			} else {
+				observation.NativeError = e.nativeResizeError()
+				e.err = fmt.Errorf("checkpoint resize failed: native=%s result=%d from=%dx%d to=%dx%d memory=%d limit=%d",
+					observation.NativeError, ok, e.cols, e.rows, cols, rows, e.memoryBytes(), terminalCheckpointMaxMemory)
+			}
 			return
 		}
 		e.cols, e.rows = cols, rows

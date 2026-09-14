@@ -403,6 +403,14 @@ export function createDiagnosticsController({
     recordTerminalRuntimeMetric,
     recordTerminalSessionEvent(session, event, details = {}) {
       try { renderCapture.record(session, event, details); } catch {}
+      if ((event === "presentation_hold_release" && Number(details.holdDurationMs) >= 1000)
+        || (event === "resize_output_settle_complete" && Number(details.settleDurationMs) >= 1000)) {
+        try {
+          appendWarning("终端 resize 呈现等待较长", JSON.stringify({ pane: session?.id, event,
+            holdDurationMs: details.holdDurationMs, settleDurationMs: details.settleDurationMs,
+            reason: details.reason, queuedBytes: details.queuedBytes }));
+        } catch {}
+      }
       // Byte-level traces have their own bounded sink; do not duplicate them
       // in the generic timeline or cause its per-event DOM logging work.
       try { byteIOLog.record(session, event, details); } catch {}

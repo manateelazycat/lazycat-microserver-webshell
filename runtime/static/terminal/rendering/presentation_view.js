@@ -99,8 +99,12 @@ export function createTerminalPresentationView({
     const cssHeight = hostCssHeight > 0 ? hostCssHeight : sourceCssHeight;
     hold.width = Math.max(1, Math.round(cssWidth * ratio));
     hold.height = Math.max(1, Math.round(cssHeight * ratio));
-    hold.style.width = "100%";
-    hold.style.height = "100%";
+    // Preserve the captured pixel scale. The host clips the old surface while
+    // the new grid is prepared; changing host size must not stretch its text.
+    hold.style.width = `${cssWidth}px`;
+    hold.style.height = `${cssHeight}px`;
+    hold.style.maxWidth = "none";
+    hold.style.maxHeight = "none";
     hold.style.objectPosition = "left top";
     ctx.save();
     ctx.setTransform(ratio, 0, 0, ratio, 0, 0);

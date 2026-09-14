@@ -4,7 +4,6 @@ var H = /* @__PURE__ */ ((Q) => (Q[Q.CURSOR_KEY_APPLICATION = 0] = "CURSOR_KEY_A
 const d = 80;
 const GHOSTTY_WASM_WRITE_CHUNK_BYTES = 128 * 1024;
 const GHOSTTY_WASM_WRITE_STRING_CHARS = 32 * 1024;
-const GHOSTTY_OUTPUT_RENDER_INTERVAL_MS = 33;
 const GHOSTTY_TEXT_ENCODER = new TextEncoder();
 const recordTerminalPerformance = (name, value = 1) => {
   const root = globalThis.__webshellTerminalPerformance || (globalThis.__webshellTerminalPerformance = {
@@ -2970,20 +2969,7 @@ class IA {
       return;
     if (this.renderFullNextFrame = this.renderFullNextFrame || A.full === !0, this.renderSuppressionDepth > 0)
       return;
-    if (A.throttle === !0) {
-      const B = performance.now(), g = Math.max(0, GHOSTTY_OUTPUT_RENDER_INTERVAL_MS - (B - this.lastRenderAt));
-      if (this.lastRenderAt > 0 && g > 0) {
-        if (this.renderThrottleTimer === void 0) {
-          this.renderThrottleTimer = window.setTimeout(() => {
-            this.renderThrottleTimer = void 0;
-            this.requestRender({ throttle: !0 });
-          }, g);
-        }
-        return;
-      }
-    } else if (this.renderThrottleTimer !== void 0) {
-      window.clearTimeout(this.renderThrottleTimer), this.renderThrottleTimer = void 0;
-    }
+    // The shared frame scheduler already coalesces output at display cadence.
     if (this.animationFrameId || this.renderTaskPending)
       return;
     const render = () => {

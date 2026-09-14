@@ -16,7 +16,7 @@ export const TERMINAL_OUTPUT_FLUSH_MAX_BATCHES = 8;
 export const TERMINAL_OUTPUT_FLUSH_TIME_BUDGET_MS = 12;
 export const TERMINAL_REPLAY_WRITE_BATCH_BYTES = 512 * 1024;
 // Check the wall-clock budget between parser calls, not only while partitioning.
-const TERMINAL_OUTPUT_WRITE_SLICE_BYTES = 8 * 1024;
+const TERMINAL_OUTPUT_WRITE_SLICE_BYTES = 64 * 1024;
 const MAX_QUEUED_TERMINAL_OUTPUT_ENTRIES = 8192;
 export const TERMINAL_OUTPUT_QUEUE_SOFT_LIMIT_BYTES = 1 * 1024 * 1024;
 export const MAX_QUEUED_TERMINAL_OUTPUT_BYTES = 4 * 1024 * 1024;
@@ -100,6 +100,8 @@ export function createTerminalOutputController({
   const failed = new WeakSet();
   const parsedBytes = new WeakMap();
   const appliedEntries = new WeakMap();
+  const flowModes = new WeakMap();
+  const ackBoundaries = new WeakMap();
   const replayBatch = createReplayBatch({ maxQueuedBytes, now, recordEvent });
   const disposedSessions = new WeakSet();
   let disposed = false;
@@ -215,15 +217,20 @@ export function createTerminalOutputController({
 
   const trySendPendingQueueTurnAck = (session) => {
     const state = ensureState(session);
-    const pending = state?.pendingQueueTurnAck;
+    const windowed = flowModes.get(state) === "window-ack-v1";
+    const boundaries = ackBoundaries.get(state) || [];
+    let consumed = 0;
+    if (windowed) {
+      while (consumed < boundaries.length && boundaries[consumed].cursor <= state.appliedHistoryCursor) consumed += 1;
+    }
+    const pending = windowed ? boundaries[consumed - 1] : state?.pendingQueueTurnAck;
     if (!pending || state.closed || state.socket !== pending.socket || state.connectionChannel !== "unified") {
       return false;
     }
     if (
       Number(state.connectionEpoch || 0) !== pending.connectionEpoch
       || Number(state.connectionChannelGeneration || 0) !== pending.channelGeneration
-      || state.outputQueueSize > 0
-      || state.appliedHistoryCursor !== pending.cursor
+      || (!windowed && (state.outputQueueSize > 0 || state.appliedHistoryCursor !== pending.cursor))
     ) {
       return false;
     }
@@ -235,7 +242,10 @@ export function createTerminalOutputController({
       if (sent !== true) {
         return false;
       }
-      state.pendingQueueTurnAck = null;
+      if (windowed) {
+        boundaries.splice(0, consumed);
+        state.pendingQueueTurnAck = boundaries.at(-1) || null;
+      } else state.pendingQueueTurnAck = null;
       recordEvent(state, "queue_turn_ack_sent", {
         cursor: pending.cursor.toString(),
         sequence: String(pending.sequence),
@@ -243,6 +253,7 @@ export function createTerminalOutputController({
       return true;
     } catch (error) {
       state.pendingQueueTurnAck = null;
+      ackBoundaries.delete(state);
       recoverQueueTurnAck(state, pending, error);
       return false;
     }
@@ -259,7 +270,6 @@ export function createTerminalOutputController({
     if (!state) {
       return true;
     }
-    lifecycle.clear(state);
     const traceFlush = state.startupTraceActive || !isReplayCommitted(state);
     const flushStartedAt = now();
     if (traceFlush) {
@@ -411,6 +421,11 @@ export function createTerminalOutputController({
               if (measureIO) cacheEnqueueMs = now() - cacheAt;
             }
           }
+          state.term.wasmTerm?.markOutputApplied?.({
+            contentGeneration: state.terminalContentGeneration,
+            appliedCursor: state.appliedHistoryCursor?.toString?.() || "0",
+          });
+          trySendPendingQueueTurnAck(state);
           if (measureIO && isByteIOLogEnabled()) recordEvent(state, "byte_io_batch_complete", {
             batchID, bytes: batch.byteLength, writeAwaitMs: writeDoneAt - writeAt, cacheEnqueueMs,
             queuedBytes: state.outputQueueSize, queueEntries: state.outputQueue.length,
@@ -425,7 +440,10 @@ export function createTerminalOutputController({
       if (wrote) {
         resetHostViewport(state, { clean: true, source: "output" });
         positionInput(state);
-        schedulePresentationValidation(state);
+        // A pending frame is not postponed by subsequent output. Validation
+        // is reserved for an actual replay/geometry gate.
+        if (isReplayCommitted(state) && isRenderAllowed(state)) state.term.requestRender?.();
+        else schedulePresentationValidation(state);
       }
       if (wrote && flushQueue.some((entry) => entry.replayOutput)) {
         scheduleReplayPresentationCheckpoint(state);
@@ -476,10 +494,14 @@ export function createTerminalOutputController({
 
   const flush = (session, options = {}) => {
     if (!session || disposed || session.closed || failed.has(session)) return false;
+    // Consume the scheduled wake even when it meets an in-flight write or a
+    // resize gate. Stale RAF/timer handles must not block the next schedule.
+    lifecycle.clear(session);
+    // The running turn retains responsibility for queued output. Its finally
+    // re-evaluates current gates, including a resize cancelled while awaiting.
     if (inFlight.has(session)) return inFlight.get(session);
     if (options.force) replayBatch.interrupt(session);
     if (replayBatch.get(session)?.waiting) {
-      lifecycle.clear(session);
       return false;
     }
     // ACK-fenced drains belong exclusively to the resize owner until it has
@@ -506,9 +528,15 @@ export function createTerminalOutputController({
       recoverProcessingError(session, error);
       return false;
     }).finally(() => {
+      if (inFlight.get(session) !== promise) return;
       flushing.delete(session);
-      if (inFlight.get(session) === promise) inFlight.delete(session);
-      if (!session.closed && !failed.has(session) && session.outputQueueSize > 0 && options.scheduleRemainder !== false && !getResizeTransition(session)?.blockOutput) scheduleFlush(session);
+      inFlight.delete(session);
+      // scheduleRemainder:false limits the original fenced turn, not all later
+      // output. Once its owner releases the gate, this queue must keep moving
+      // without another network frame, user gesture, or watchdog recovery.
+      if (!disposed && !session.closed && !disposedSessions.has(session) && !failed.has(session)
+        && session.outputQueueSize > 0 && !replayBatch.get(session)?.waiting
+        && !getResizeTransition(session)?.blockOutput) scheduleFlush(session);
     });
     inFlight.set(session, promise);
     return promise;
@@ -677,11 +705,12 @@ export function createTerminalOutputController({
     state.outputQueue = [];
     state.outputQueueSize = 0;
     state.pendingQueueTurnAck = null;
+    ackBoundaries.delete(state);
     onDiscard(state);
     return true;
   };
 
-  const resetQueueTurn = (session) => {
+  const resetQueueTurn = (session, flowControl = "turn-ack-v1") => {
     const state = ensureState(session);
     if (!state) {
       return false;
@@ -689,6 +718,8 @@ export function createTerminalOutputController({
     state.queueTurnReceivedCursor = null;
     state.queueTurnReceivedSequence = null;
     state.pendingQueueTurnAck = null;
+    ackBoundaries.delete(state);
+    flowModes.set(state, flowControl);
     return true;
   };
 
@@ -745,6 +776,12 @@ export function createTerminalOutputController({
       cursor,
       sequence: sequenceText,
     };
+    if (flowModes.get(state) === "window-ack-v1") {
+      const boundaries = ackBoundaries.get(state) || [];
+      if (boundaries.length >= 512) return Object.freeze({ status: "invalid", reason: "too many unconsumed output boundaries" });
+      boundaries.push(state.pendingQueueTurnAck);
+      ackBoundaries.set(state, boundaries);
+    }
     recordEvent(state, "queue_turn_ack_pending", {
       cursor: cursorText,
       sequence: sequenceText,

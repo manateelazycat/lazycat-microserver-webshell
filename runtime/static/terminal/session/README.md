@@ -82,3 +82,5 @@ controller 公开：
 `session_exit_controller.js` 接收进程退出终态，退休输入/健康/尺寸请求，等待已接收历史排空后释放 logical stream。`startup_error_controller.js` 从完成解析的终端读取原始输出，显示退出原因和“重新创建终端”按钮；按钮调用 workspace 的 `restart_pane`，成功后旧 pane identity 被新 identity 替代，保留原标签布局。服务器拒绝重建仍在运行的 pane。
 
 服务端 `user_switch.go` 统一终端和文件操作的用户切换：当前 UID/GID 已匹配时直接执行，否则先探测 setpriv --init-groups，再探测 --keep-groups；探测必须验证目标 UID/GID。受限降级保留父进程的附加组，不添加目标用户的其他附加组。su 也先以无输入探测后再执行。全部失败时输出实际身份、各路径错误和 setgroups/映射/能力诊断并退出，不以其他身份继续执行。
+
+会话恢复由 health controller 持有进行中状态，覆盖 Worker 重建、重新接入、回放和首次新画面提交。旧操作的重复失败不能重启健康的新 Worker；恢复尚未提交时也检查进度，不能因 replay 未提交而永久跳过健康检查。连接就绪事件和已有延后同步任务推进接入，不依赖用户手势。重试次数仍受既有上限约束。

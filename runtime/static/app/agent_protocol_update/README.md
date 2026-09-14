@@ -4,7 +4,7 @@
 
 本模块消费 Unified Queue 握手提供的当前/推荐 agent 协议版本，展示一次更新提示，在用户明确确认后调用 scoped agent 更新 API，并在成功后安排页面重载。
 
-当前 Provider 推荐协议为 `lcmd-webshell-agent-v19`，嵌入新增只读单元格诊断接口的 WASM。新旧 WASM 指纹不同，使用状态基线恢复前需明确更新 Agent；v18 已修复关闭会话时残余 PTY 输出访问已释放的 Ghostty 快照引擎、导致整个 Agent 退出的问题。v17 引入的状态基线协议及格式保持不变。v18、v17、v16、v15、v14、v13、v12、v11、v10 和 v9 仍显式兼容，旧 Agent 可继续承载原会话；仅在用户确认后通过 scoped `replace-active` 更新，不能自动销毁现有 PTY。兼容 v17 不代表旧进程已获得此修复，必须明确更新正在运行的 Agent 才会生效。新页面通过 `checkpoint_protocol=ghostty-memory-v1` 协商，未协商或旧 Agent 仍使用原始历史回放；Kitty 图形会话暂沿用原路径。整段原始回放仍由 `replay_burst_bytes` 标识。
+当前 Provider 推荐协议为 `lcmd-webshell-agent-v22`，修复原生重排时页面局部字符串、样式和组合字符的扩容与复制失败；前后端使用同一份新 WASM。v21 的窗口流控与按帧发布保持不变。v21 至 v9 仍显式兼容传输，兼容不代表旧 Agent 获得原生修复；新 WASM 指纹的状态基线恢复需要更新正在运行的 Agent。协议更新仍仅在用户确认后通过 scoped `replace-active` 执行，不能自动销毁现有 PTY。v18 的关闭生命周期修复与 v17 的完整状态基线保留；Kitty 图形会话沿用原路径。
 
 本模块不拥有终端 session、连接、PTY 或输入状态，不创建本地或远程输入锁。确认更新后允许清理当前页面尚未发送的 pending 输入，避免即将销毁的旧会话残留队列，但不得在 Provider、persistent agent 或 pane 上保存 blocker。
 
@@ -34,3 +34,5 @@ controller 独占 `targetName`、当前/推荐版本、`updateAvailable`、`upda
 依赖方向为 `global-runtime -> agent_protocol_update -> API/view`。行为测试为 `tests/agent_protocol_update_controller_test.mjs`，真实旧控制帧兼容和跨页面输入隔离由 `spec-tests/terminal/input-lock-lifecycle` 覆盖。最小回归需确认取消、失败、成功重载、required 自动提示和页面销毁均不会创建 `input_lock` 控制帧或影响其他设备输入。
 
 确认更新后调用 `prepareUpdate()`，复用页面完整销毁编排退休旧会话、Worker、尺寸、恢复与 workspace 任务，等待旧物理连接关闭后再发更新请求。仅保留更新 controller、诊断及反馈以处理结果；成功或失败后均重新加载，不能恢复已销毁的旧运行时。Provider 按 selector/account 对自动 ensure 和显式替换做生命周期互斥。
+
+v21 增加 Provider 的窗口消费协议（1 MiB／256 个轮次），保留旧逐轮协议；前端解析与画面生成分离，增加同步绘制保护。继续显式兼容 v20 至 v9，WASM 与 checkpoint ABI 沿用 v20，本轮未修改原生 resize。新消费协议由 Provider 执行，不要求自动替换仍在运行的旧 Agent。

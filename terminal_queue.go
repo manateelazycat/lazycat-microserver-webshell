@@ -146,6 +146,7 @@ type terminalQueuePaneStream struct {
 	awaitingTurnAck     bool
 	turnAckCursor       uint64
 	turnAckSequence     uint64
+	window              terminalQueueWindow
 	replayBurstActive   bool
 	pendingTurnCursor   uint64
 	pendingTurnSequence uint64
@@ -597,7 +598,7 @@ func validateTerminalQueueSubscription(subscription terminalQueueSubscription) (
 	if subscription.CheckpointProtocol != "" && subscription.CheckpointProtocol != terminalMemoryCheckpointProtocol {
 		return subscription, historySyncRequest{}, errors.New("unsupported terminal checkpoint protocol")
 	}
-	if subscription.FlowControl != "" && subscription.FlowControl != "turn-ack-v1" {
+	if subscription.FlowControl != "" && subscription.FlowControl != "turn-ack-v1" && subscription.FlowControl != terminalQueueWindowProtocol {
 		return subscription, historySyncRequest{}, errors.New("unsupported queue flow control")
 	}
 	if subscription.PaneID == "" || len(subscription.PaneID) > 128 {
@@ -1137,6 +1138,7 @@ func (s *terminalQueuePaneStream) overload(reason string) {
 	s.pendingTurnCursor = 0
 	s.pendingTurnSequence = 0
 	s.awaitingTurnAck = false
+	s.window = terminalQueueWindow{}
 	s.buffer = nil
 	s.bufferBytes = 0
 	s.nextSequence++
@@ -1163,6 +1165,14 @@ func (s *terminalQueuePaneStream) acknowledgeTurn(value string) error {
 		return errors.New("invalid queue turn acknowledgement")
 	}
 	s.mu.Lock()
+	if s.usesWindow() {
+		err := s.acknowledgeWindow(cursor, sequence)
+		s.mu.Unlock()
+		if err == nil {
+			s.broker.signalWriter()
+		}
+		return err
+	}
 	if s.subscription.FlowControl != "turn-ack-v1" || !s.awaitingTurnAck || cursor != s.turnAckCursor || sequence != s.turnAckSequence {
 		s.mu.Unlock()
 		return errors.New("queue turn acknowledgement does not match")
@@ -1181,6 +1191,9 @@ func (s *terminalQueuePaneStream) targetSequence() uint64 {
 	if !s.active || s.awaitingTurnAck || len(s.buffer) == 0 {
 		return 0
 	}
+	if !s.windowAllows(s.buffer[0]) {
+		return 0
+	}
 	return s.buffer[len(s.buffer)-1].sequence
 }
 
@@ -1191,6 +1204,9 @@ func (s *terminalQueuePaneStream) popThrough(target uint64, alreadyWritten int) 
 		return terminalQueueOutbound{}, false
 	}
 	entry := s.buffer[0]
+	if !s.windowAllows(entry) {
+		return terminalQueueOutbound{}, false
+	}
 	if alreadyWritten > 0 && entry.byteCost > 0 && alreadyWritten+entry.byteCost > terminalQueueRoundByteBudget {
 		return terminalQueueOutbound{}, false
 	}
@@ -1202,6 +1218,10 @@ func (s *terminalQueuePaneStream) popThrough(target uint64, alreadyWritten int) 
 	}
 	if entry.replayBurstFinish {
 		s.replayBurstActive = false
+	}
+	if s.usesWindow() && entry.messageType == websocket.BinaryMessage {
+		s.window.inFlight += entry.byteCost
+		s.window.currentTurnBytes += entry.byteCost
 	}
 	s.bufferBytes -= entry.byteCost
 	if s.bufferBytes < 0 {

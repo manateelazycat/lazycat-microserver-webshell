@@ -19,7 +19,7 @@ Agent v12 的权威 `process-exit` 可以携带 `retained=true`。这表示异�
 
 ## 文件
 
-Unified 订阅可携带 `replay_burst_limit_bytes`。Provider 只为 snapshot 且实际范围字节数不超过客户端预算及 3,500,000 字节（包含等于）时，在 `history-replay-start` 回传 `replay_burst_bytes`。前后端均支持时才启用整段接收：Provider 仍以 512 KiB / 8ms 调度片轮转各 pane，但回放中间不等待消费 ACK；回放完成控制消息发出后，再对最后发送的二进制 cursor/sequence 请求最终 ACK。服务端实现位于 `terminal_queue_replay.go`。旧客户端不声明预算，旧 Provider 不回传确认，两种组合都继续逐轮 ACK，避免客户端等待整段而旧服务端等待中间 ACK 的死锁。实时输出和超过预算的历史继续遵守原消费流控。
+Unified 订阅可携带 `replay_burst_limit_bytes`。Provider 只为 snapshot 且实际范围字节数不超过客户端预算及 3,500,000 字节（包含等于）时，在 `history-replay-start` 回传 `replay_burst_bytes`。前后端均支持时才启用整段接收：Provider 仍以 512 KiB / 8ms 调度片轮转各 pane，但回放中间不等待消费 ACK；回放完成控制消息发出后，再对最后发送的二进制 cursor/sequence 请求最终 ACK。服务端实现位于 `terminal_queue_replay.go`。旧客户端不声明预算，旧 Provider 不回传确认，两种组合都继续逐轮 ACK，避免客户端等待整段而旧服务端等待中间 ACK 的死锁。实时输出和超过预算的历史遵守所协商的消费流控。
 
 - `index.js`：唯一公开入口。
 - `session_connection_controller.js`：pane 连接健康判断、direct/unified 重连分流和 scheduler 协作。
@@ -42,3 +42,7 @@ Unified 订阅可携带 `replay_burst_limit_bytes`。Provider 只为 snapshot �
 行为测试包括 `terminal_session_connection_controller_test.mjs`、`terminal_transport_runtime_controller_test.mjs`、`terminal_unified_transport_controller_test.mjs`、`terminal_connection_scheduler_test.mjs`、`terminal_queue_connection_test.mjs`、`terminal_unified_health_test.mjs`、`terminal_unified_membership_test.mjs`、`terminal_fast_integrity_test.mjs`、`terminal_websocket_url_test.mjs` 和 `terminal_theme_controller_test.mjs`。最小回归是同容器创建多个 pane、关闭一个 pane、断网恢复，以及 `client:` 四 pane 争用三条直连；确认新增 stream 的首个 identity 帧是 `replace-subscriptions`、其后才允许 priority/control，旧 `input_lock` 不产生 agent frame，旧物理 close fence 完成前不会创建替代连接、普通容器始终只有一条物理连接且兄弟 pane 不受影响。真实兼容回归见 `spec-tests/terminal/input-lock-lifecycle`。
 
 权威 process-exit 交给 session exit owner：立即阻止新输入、resize 和重连，保留已收到的输出直到解析完成。retained pane 之后只退订自己的 logical stream，close 不重置已提交 replay；首次刷新仍允许一次 attach 读取历史，观察到退出后停止恢复。
+
+容器会话已有有效网格时，Worker-ready 接入不再要求旧 resize 流程先成功；新的几何测量和 claim 在新连接中处理。Worker 尚未就绪则保留 pendingConnect，并通过现有延后同步任务和 Worker-ready 事件继续推进。失败 Worker 的重建由 health/recovery 负责，连接层不单独重复重建。
+
+v21 默认订阅 `window-ack-v1`，每 pane 最多 1 MiB 已发送未消费字节和 256 个未确认轮次。Provider 在窗口内连续发送，客户端按已解析游标累计确认；超过窗口后等待消费确认，不需要每轮往返。所有文本控制与 binary 保持流内顺序，resize-applied 不越过前序输出。准入的整段 replay 临时使用已确认的 burst 预算，发送 replay-complete 后必须等待消费将占用降回普通窗口。旧 `turn-ack-v1` 客户端仍按原逐轮规则处理。Agent 的快照格式及完整性协议保持原样；v20 Agent 仍可配合新 Provider 工作。
