@@ -51,6 +51,7 @@ export function createWorkspaceTabView({
     button.innerHTML = `
       <span class="tab-content">
         <span class="tab-label"></span>
+        <small class="tab-network-metrics" hidden></small>
         <span class="tab-close" aria-hidden="true">x</span>
       </span>
     `;

@@ -74,13 +74,11 @@ export function createDiagnosticsView({ documentObject = globalThis.document } =
     settingsInitializationPerformanceToggle: byID("settingsInitializationPerformanceToggle"),
     settingsPerformanceMeterToggle: byID("settingsPerformanceMeterToggle"),
     settingsPerformanceTasksToggle: byID("settingsPerformanceTasksToggle"),
+    mobileActiveTabTitle: byID("mobileActiveTabTitle"),
     terminalNetworkMonitorPanel: byID("terminalNetworkMonitor"),
     terminalNetworkMonitorStatus: byID("terminalNetworkMonitorStatus"),
-    terminalNetworkMonitorChannels: byID("terminalNetworkMonitorChannels"),
     terminalNetworkMonitorRate: byID("terminalNetworkMonitorRate"),
-    terminalNetworkMonitorRateDetail: byID("terminalNetworkMonitorRateDetail"),
     terminalNetworkMonitorUsage: byID("terminalNetworkMonitorUsage"),
-    terminalNetworkMonitorUsageDetail: byID("terminalNetworkMonitorUsageDetail"),
   };
   let initializationRowKeys = [];
 
@@ -138,27 +136,31 @@ export function createDiagnosticsView({ documentObject = globalThis.document } =
     return Number.isFinite(thresholds?.[field]) && Number(value) >= thresholds[field];
   };
 
-  const emptyNetworkState = (layout) => ({
+  const emptyNetworkState = () => ({
     status: "idle",
-    channels: (layout === "direct" ? ["直连通道 1", "直连通道 2", "直连通道 3"] : [])
-      .map((label, index) => ({
-        index,
-        label,
-        state: "idle",
-        receivedBytes: 0,
-        sentBytes: 0,
-        totalBytes: 0,
-        receivedBytesPerSecond: 0,
-        sentBytesPerSecond: 0,
-        bytesPerSecond: 0,
-      })),
     receivedBytes: 0,
     sentBytes: 0,
     totalBytes: 0,
     receivedBytesPerSecond: 0,
     sentBytesPerSecond: 0,
     bytesPerSecond: 0,
+    tabs: [],
   });
+
+  const renderTabNetworkMetrics = (tabs = [], visible = false) => {
+    const metricsByTab = new Map(tabs.map((tab) => [String(tab.tabId || ""), tab]));
+    for (const button of documentObject?.querySelectorAll?.(".tab") || []) {
+      const metrics = button.querySelector?.(".tab-network-metrics");
+      if (!metrics) continue;
+      const tab = metricsByTab.get(String(button.dataset?.tabId || ""));
+      metrics.hidden = !visible;
+      if (visible) {
+        metrics.textContent = `${formatMegabytes(tab?.bytesPerSecond)} MB/s - ${formatMegabytes(tab?.totalBytes)} MB`;
+      } else {
+        metrics.textContent = "";
+      }
+    }
+  };
 
   return {
     elements,
@@ -199,16 +201,19 @@ export function createDiagnosticsView({ documentObject = globalThis.document } =
       visible = false,
       online = true,
       retrying = false,
-      layout = "unified",
     } = {}) {
       if (!elements.terminalNetworkMonitorPanel) {
         return;
       }
       elements.terminalNetworkMonitorPanel.hidden = !visible;
+      if (elements.mobileActiveTabTitle) {
+        elements.mobileActiveTabTitle.hidden = visible;
+      }
       if (!visible) {
+        renderTabNetworkMetrics([], false);
         return;
       }
-      const snapshot = state || emptyNetworkState(layout);
+      const snapshot = state || emptyNetworkState();
       let status = online === false ? "error" : String(snapshot.status || "idle");
       if (status === "idle" && retrying) {
         status = "retrying";
@@ -219,55 +224,13 @@ export function createDiagnosticsView({ documentObject = globalThis.document } =
         elements.terminalNetworkMonitorStatus.setAttribute("aria-label", label);
         elements.terminalNetworkMonitorStatus.title = label;
       }
-      if (elements.terminalNetworkMonitorChannels) {
-        const channels = snapshot.channels || [];
-        elements.terminalNetworkMonitorChannels.hidden = channels.length === 0;
-        elements.terminalNetworkMonitorChannels.textContent = "";
-        for (const channel of channels) {
-          const row = documentObject.createElement("div");
-          row.className = "terminal-network-monitor-channel";
-          const name = documentObject.createElement("span");
-          name.className = "terminal-network-monitor-channel-name";
-          name.textContent = channel.label;
-          const channelState = documentObject.createElement("span");
-          channelState.className = "terminal-network-monitor-channel-state";
-          channelState.dataset.state = channel.state || "idle";
-          channelState.textContent = stateLabel(channel.state);
-          const rateLabel = documentObject.createElement("span");
-          rateLabel.className = "terminal-network-monitor-channel-metric-label";
-          rateLabel.textContent = "当前流量";
-          const rate = documentObject.createElement("strong");
-          rate.className = "terminal-network-monitor-channel-metric-value";
-          rate.textContent = `${formatMegabytes(channel.bytesPerSecond)} MB/s`;
-          const usageLabel = documentObject.createElement("span");
-          usageLabel.className = "terminal-network-monitor-channel-metric-label";
-          usageLabel.textContent = "已使用流量";
-          const usage = documentObject.createElement("strong");
-          usage.className = "terminal-network-monitor-channel-metric-value";
-          usage.textContent = `${formatMegabytes(channel.totalBytes)} MB`;
-          const detail = documentObject.createElement("small");
-          detail.className = "terminal-network-monitor-channel-detail";
-          detail.textContent = `接收 ${formatMegabytes(channel.receivedBytesPerSecond)} MB/s / ${formatMegabytes(channel.receivedBytes)} MB · 发送 ${formatMegabytes(channel.sentBytesPerSecond)} MB/s / ${formatMegabytes(channel.sentBytes)} MB`;
-          row.append(name, channelState, rateLabel, rate, usageLabel, usage, detail);
-          elements.terminalNetworkMonitorChannels.appendChild(row);
-        }
-      }
-      const receivedRate = formatMegabytes(snapshot.receivedBytesPerSecond);
-      const sentRate = formatMegabytes(snapshot.sentBytesPerSecond);
-      const receivedUsage = formatMegabytes(snapshot.receivedBytes);
-      const sentUsage = formatMegabytes(snapshot.sentBytes);
       if (elements.terminalNetworkMonitorRate) {
         elements.terminalNetworkMonitorRate.textContent = `${formatMegabytes(snapshot.bytesPerSecond)} MB/s`;
-      }
-      if (elements.terminalNetworkMonitorRateDetail) {
-        elements.terminalNetworkMonitorRateDetail.textContent = `接收 ${receivedRate} MB/s · 发送 ${sentRate} MB/s`;
       }
       if (elements.terminalNetworkMonitorUsage) {
         elements.terminalNetworkMonitorUsage.textContent = `${formatMegabytes(snapshot.totalBytes)} MB`;
       }
-      if (elements.terminalNetworkMonitorUsageDetail) {
-        elements.terminalNetworkMonitorUsageDetail.textContent = `接收 ${receivedUsage} MB · 发送 ${sentUsage} MB`;
-      }
+      renderTabNetworkMetrics(snapshot.tabs || [], true);
     },
     initializationPerformanceClipboardText(state) {
       const snapshot = state || {};

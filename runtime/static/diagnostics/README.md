@@ -43,12 +43,12 @@
 - `diagnostics_controller.js`：状态 owner 和模块编排。
 - `diagnostics_lifecycle.js`：设置事件、初始化性能渐进刷新 timer、网络动态加载、timer 和 socket instrumentation 生命周期。
 - `diagnostics_view.js`：诊断控件、日志、性能任务和网络面板 DOM 适配。
-- `network_context.js`：把当前终端连接转换为只读网络快照，不修改 session 或连接状态。
+- `network_context.js`：把当前工作区的终端会话与逻辑连接转换为只读网络快照，不修改 session 或连接状态。
 - `debug_log.js`：日志去重、脱敏、console/window 捕获和复制文本生成。
 - `performance_meter.js`：FPS/刷新率 RAF 与 DOM 生命周期。
 - `performance_tasks.js`：无 DOM 的性能任务采样器。
 - `initialization_performance.js`：渐进收集页面启动指标和候选终端 session 初始化事件，按终端里程碑选择当前领先候选，构建 live rows、pending step 和动态总耗时；以第一个完成 presentation 的 session 作为最终结果并冻结。复制数据时仅导出白名单中的物理 WebSocket、逻辑层 socket、gate、generation、resize、replay 和 Canvas 几何详情。
-- `network_monitor.js`：无业务依赖的 WebSocket 字节与速率采样器，按需加载。
+- `network_monitor.js`：按会话记录 WebSocket 字节、按标签汇总速率与用量的采样器，按需加载。
 - `startup_trace.js`：启动指标 owner 和追踪队列。
 - `terminal_timeline.js`：终端/页面诊断时间线和 Ghostty runtime 计数适配。
 

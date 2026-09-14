@@ -442,9 +442,7 @@ export function startGlobalRuntime() {
 
   const getDiagnosticsNetworkContext = createDiagnosticsNetworkContext({
     getActiveName,
-    isClientInstanceName,
     getTabs: () => tabs.values(),
-    getUnifiedTransport: () => terminalUnifiedTransport,
     isOnline: () => navigator.onLine !== false,
   });
   const diagnostics = createDiagnosticsController({
