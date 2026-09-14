@@ -26,6 +26,7 @@ export function createAppFileDropController({
   const view = viewFactory({ documentObject });
   let started = false;
   let disposed = false;
+  let dragDepth = 0;
   let overlayHost = null;
   let overlayText = "";
 
@@ -44,6 +45,11 @@ export function createAppFileDropController({
     overlayHost = null;
     overlayText = "";
     view.hide();
+  };
+
+  const endFileDrag = () => {
+    dragDepth = 0;
+    hideOverlay();
   };
 
   const showOverlay = (session, label) => {
@@ -87,12 +93,20 @@ export function createAppFileDropController({
     return true;
   };
 
+  const handleFileDragEnter = (event) => {
+    if (!started || disposed || !isFileDrag(event?.dataTransfer)) {
+      return false;
+    }
+    dragDepth += 1;
+    return handleFileDragOver(event);
+  };
+
   const handleFileDrop = (event) => {
     if (!started || disposed || !isFileDrag(event?.dataTransfer)) {
       return false;
     }
     consume(event);
-    hideOverlay();
+    endFileDrag();
     if (isBlocked()) {
       return true;
     }
@@ -114,11 +128,13 @@ export function createAppFileDropController({
   };
 
   const handleDragLeave = (event) => {
-    if (!started || disposed || !isFileDrag(event?.dataTransfer)) {
+    if (!started || disposed || (dragDepth === 0 && !isFileDrag(event?.dataTransfer))) {
       return false;
     }
-    const related = event?.relatedTarget;
-    if (related && documentObject?.documentElement?.contains?.(related)) {
+    // Internal target changes enter the new element before leaving the old one.
+    // Balance those events because relatedTarget may be null inside the page.
+    dragDepth = Math.max(0, dragDepth - 1);
+    if (dragDepth > 0) {
       return false;
     }
     hideOverlay();
@@ -129,11 +145,11 @@ export function createAppFileDropController({
     windowObject,
     documentObject,
     handlers: {
-      onDragEnter: handleFileDragOver,
+      onDragEnter: handleFileDragEnter,
       onDragOver: handleFileDragOver,
       onDragLeave: handleDragLeave,
       onDrop: handleFileDrop,
-      onDragEnd: hideOverlay,
+      onDragEnd: endFileDrag,
     },
   });
 
@@ -143,7 +159,7 @@ export function createAppFileDropController({
         return false;
       }
       disposed = true;
-      hideOverlay();
+      endFileDrag();
       view.dispose();
       lifecycle.dispose();
       return true;
