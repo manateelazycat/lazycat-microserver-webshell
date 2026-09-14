@@ -19,6 +19,7 @@ export function createDiagnosticsNetworkContext({
         sessions.push({
           sessionId: String(pane.id || ""),
           tabId: String(tab.id || pane.tabId || ""),
+          replayActive: pane.replayComplete !== true,
           socket: (pane.connectionChannel === "fast" || pane.connectionChannel === "unified")
             && Number(pane.socket?.readyState) < 3
             ? pane.socket
