@@ -11,6 +11,7 @@
 
 - 测试以真实用户使用场景和可复现的真实故障场景为主，可以根据 spec-workflow skill 以及 Environment MCP 的构建规范，并使用已安装的 `agent-device-mcp` skill、注册的 MCP tools 和 `spec-tests/environment/webshell-test-harness` 项目适配新增真实测试模块。
 - 不新增脱离真实产品行为链路的单元测试、Mock 测试或假数据验收测试。
+- 每个任务完成后默认由开发者手工测试，除非开发者要求创建自动真机测试场景，否则不要编写任何多余的代码。
 
 ## 规格与执行器
 
