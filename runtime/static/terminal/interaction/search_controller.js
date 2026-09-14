@@ -26,6 +26,9 @@ export function createTerminalSearchController({
   };
   let started = false;
   let disposed = false;
+  let queryGeneration = 0;
+  let queryPending = null;
+  let queryAgain = false;
 
   const updateCount = () => {
     const total = state.query ? state.matches.length : 0;
@@ -45,8 +48,11 @@ export function createTerminalSearchController({
     return true;
   };
 
-  const rebuildMatches = () => {
+  const rebuildMatches = async () => {
+    const generation = ++queryGeneration;
     const session = getActiveSession();
+    if (queryPending?.session === session) { queryAgain = true; return; }
+    queryAgain = false;
     state.matches = [];
     state.index = -1;
     state.sessionId = session?.id || "";
@@ -54,7 +60,29 @@ export function createTerminalSearchController({
       updateCount();
       return;
     }
-    state.matches = findMatches(session.term, state.query);
+    const query = state.query;
+    const pending = { session };
+    queryPending = pending;
+    try {
+      const matches = session.term.wasmTerm?.isRemote
+        ? await session.term.wasmTerm.search(query)
+        : findMatches(session.term, query);
+      if (disposed || generation !== queryGeneration || getActiveSession() !== session || !state.open) return;
+      state.matches = matches;
+    } catch (error) {
+      if (!disposed && !session.closed && getActiveSession() === session && generation === queryGeneration && error?.code !== "BACKEND_CANCELLED") {
+        showToast(error?.code === "TOO_MANY_MATCHES" ? "匹配结果过多，请缩小搜索范围。" : "搜索未完成，请稍后重试。");
+      }
+      return;
+    } finally {
+      if (queryPending === pending) {
+        queryPending = null;
+        if (queryAgain) {
+          queryAgain = false;
+          if (!disposed && state.open) rebuildMatches();
+        }
+      }
+    }
     state.index = state.matches.length > 0 ? 0 : -1;
     selectCurrentMatch();
     updateCount();
@@ -74,6 +102,8 @@ export function createTerminalSearchController({
       return;
     }
     state.open = false;
+    queryGeneration += 1;
+    queryAgain = false;
     searchView.close();
     refreshOverlayLayout();
     if (focus) {
@@ -141,11 +171,14 @@ export function createTerminalSearchController({
     },
     move,
     open,
-    openFromSelection(session = getActiveSession()) {
+    async openFromSelection(session = getActiveSession()) {
       if (disposed) {
         return false;
       }
-      const query = String(getSearchSeed(session) || "").replace(/\s+/g, " ").trim().slice(0, 200);
+      let query;
+      try { query = String(await getSearchSeed(session) || "").replace(/\s+/g, " ").trim().slice(0, 200); }
+      catch { showToast("读取选区失败，请重试。"); return false; }
+      if (disposed || session.closed || getActiveSession() !== session) return false;
       if (!query) {
         showToast("没有可搜索的选区。");
         return false;

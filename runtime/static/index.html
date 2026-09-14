@@ -105,11 +105,33 @@
           <button class="empty-state-action" id="emptyStateAction" type="button" aria-label="{{ $t('新建终端') }}">{{ $t('新建终端') }}</button>
         </div>
         <div class="debug-overlay" id="debugOverlay">
+          <div class="byte-io-panel" id="terminalRenderCapturePanel" aria-live="off" hidden>
+            <div class="debug-log-panel-head">
+              <span class="debug-log-panel-title">{{ $t('终端渲染异常捕获') }}</span>
+              <div class="debug-log-panel-actions">
+                <button class="debug-log-copy" id="terminalRenderCaptureNow" type="button">{{ $t('捕获当前状态') }}</button>
+                <button class="debug-log-copy" id="terminalRenderCaptureDownload" type="button" aria-label="{{ $t('下载终端渲染异常捕获日志') }}">{{ $t('下载') }}</button>
+                <button class="debug-log-copy" id="terminalRenderCaptureCopy" type="button">{{ $t('复制所有日志') }}</button>
+              </div>
+            </div>
+            <pre class="byte-io-log-list" id="terminalRenderCaptureList"></pre>
+          </div>
+          <div class="byte-io-panel" id="byteIOLogPanel" aria-live="off" hidden>
+            <div class="debug-log-panel-head">
+              <span class="debug-log-panel-title">{{ $t('字节io') }}</span>
+              <div class="debug-log-panel-actions">
+                <button class="debug-log-copy" id="byteIOLogDownload" type="button" aria-label="{{ $t('下载字节io日志') }}">{{ $t('下载') }}</button>
+                <button class="debug-log-copy" id="byteIOLogCopy" type="button">{{ $t('复制所有日志') }}</button>
+              </div>
+            </div>
+            <pre class="byte-io-log-list" id="byteIOLogList"></pre>
+          </div>
           <div class="initialization-performance-panel" id="initializationPerformancePanel" aria-live="polite" hidden>
             <div class="initialization-performance-head">
               <span class="initialization-performance-title">{{ $t('初始化性能') }}</span>
               <div class="initialization-performance-actions">
                 <span class="initialization-performance-status" id="initializationPerformanceStatus">{{ $t('采集中') }}</span>
+                <button class="initialization-performance-copy" id="initializationPerformanceDownload" type="button" aria-label="{{ $t('下载初始化性能日志') }}">{{ $t('下载') }}</button>
                 <button class="initialization-performance-copy" id="initializationPerformanceCopy" type="button" aria-label="{{ $t('复制初始化性能数据') }}" title="{{ $t('复制初始化性能数据') }}">{{ $t('复制') }}</button>
               </div>
             </div>
@@ -128,6 +150,7 @@
               <span class="network-consumption-title">{{ $t('流量消费统计') }}</span>
               <div class="network-consumption-actions">
                 <strong id="networkConsumptionTotal">0 B</strong>
+                <button class="network-consumption-copy" id="networkConsumptionDownload" type="button" aria-label="{{ $t('下载流量消费日志') }}">{{ $t('下载') }}</button>
                 <button class="network-consumption-copy" id="networkConsumptionCopy" type="button" aria-label="{{ $t('复制流量消费统计') }}" title="{{ $t('复制流量消费统计') }}">{{ $t('复制') }}</button>
               </div>
             </div>
@@ -147,6 +170,7 @@
             <div class="debug-log-panel-head">
               <span class="debug-log-panel-title">{{ $t('调试日志') }}</span>
               <div class="debug-log-panel-actions">
+                <button class="debug-log-copy" id="debugLogDownload" type="button" aria-label="{{ $t('下载全部调试日志') }}">{{ $t('下载') }}</button>
                 <button class="debug-log-copy" id="debugLogCopy" type="button" aria-label="{{ $t('复制全部调试日志') }}" title="{{ $t('复制全部调试日志') }}">{{ $t('复制') }}</button>
                 <button class="debug-log-clear" id="debugLogClear" type="button" aria-label="{{ $t('清空调试日志') }}" title="{{ $t('清空调试日志') }}">{{ $t('清空') }}</button>
               </div>
@@ -156,6 +180,7 @@
         </div>
         <div class="startup-error-panel" id="startupErrorPanel" hidden>
           <pre class="startup-error-text" id="startupErrorText"></pre>
+          <button class="empty-state-action startup-error-retry" id="startupErrorRetry" type="button" hidden>{{ $t('重新创建终端') }}</button>
         </div>
       </main>
     </div>
@@ -362,6 +387,30 @@
                   <span class="settings-switch" aria-hidden="true"></span>
                 </label>
                 <div class="settings-debug-options" id="settingsDebugOptions" hidden>
+                  <label class="settings-switch-row" for="settingsTerminalRenderCaptureToggle">
+                    <span class="settings-switch-label">
+                      <span>{{ $t('终端渲染异常捕获') }}</span>
+                      <span>{{ $t('记录当前标签所有分屏的渲染状态，默认关闭') }}</span>
+                    </span>
+                    <input class="settings-switch-input" id="settingsTerminalRenderCaptureToggle" type="checkbox" />
+                    <span class="settings-switch" aria-hidden="true"></span>
+                  </label>
+                  <label class="settings-switch-row" for="settingsByteIOLogToggle">
+                    <span class="settings-switch-label">
+                      <span>{{ $t('字节io日志') }}</span>
+                      <span>{{ $t('记录接收、排队、解析和绘制耗时，默认关闭') }}</span>
+                    </span>
+                    <input class="settings-switch-input" id="settingsByteIOLogToggle" type="checkbox" />
+                    <span class="settings-switch" aria-hidden="true"></span>
+                  </label>
+                  <label class="settings-switch-row" for="settingsAutoScreenRefreshToggle">
+                    <span class="settings-switch-label">
+                      <span>{{ $t('自动刷新屏幕') }}</span>
+                      <span>{{ $t('默认开启，检查可见终端并按需补绘；独立于调试模式') }}</span>
+                    </span>
+                    <input class="settings-switch-input" id="settingsAutoScreenRefreshToggle" type="checkbox" checked />
+                    <span class="settings-switch" aria-hidden="true"></span>
+                  </label>
                   <button class="settings-debug-action" id="settingsOnlineDevicesButton" type="button">
                     <span class="settings-switch-label">
                       <span>{{ $t('在线设备') }}</span>

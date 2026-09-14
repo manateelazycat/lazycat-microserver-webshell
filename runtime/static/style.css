@@ -1089,6 +1089,31 @@ body.split-resize-active * {
   pointer-events: none;
 }
 
+.byte-io-panel {
+  width: min(560px, calc(100% - 10px));
+  box-sizing: border-box;
+  padding: 8px;
+  border: 1px solid color-mix(in srgb, var(--terminal-fg) 28%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--terminal-bg) 94%, transparent);
+  color: var(--terminal-fg);
+  font: 11px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  pointer-events: auto;
+  user-select: text;
+}
+
+.byte-io-panel[hidden] { display: none; }
+
+.byte-io-log-list {
+  margin: 6px 0 0;
+  max-height: min(35vh, 300px);
+  overflow: auto;
+  overscroll-behavior: contain;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: inherit;
+}
+
 .initialization-performance-panel {
   position: static;
   width: min(420px, calc(100% - 10px));
@@ -1453,6 +1478,7 @@ body.split-resize-active * {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  flex-wrap: wrap;
 }
 
 .debug-log-panel-title {
@@ -1463,6 +1489,16 @@ body.split-resize-active * {
   display: flex;
   align-items: center;
   gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  margin-left: auto;
+}
+
+.initialization-performance-head,
+.initialization-performance-actions,
+.network-consumption-head,
+.network-consumption-actions {
+  flex-wrap: wrap;
 }
 
 .debug-log-copy,
@@ -1601,6 +1637,10 @@ body.split-resize-active * {
   margin: 0;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+.startup-error-retry {
+  margin-top: 12px;
 }
 
 .empty-state[hidden] {

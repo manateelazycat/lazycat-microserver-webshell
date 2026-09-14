@@ -2,6 +2,7 @@ import { createTerminalFrameReleaseScheduler } from "./terminal_frame_release_sc
 
 export function createTerminalPresentationLifecycle({
   windowObject = globalThis.window,
+  workScheduler = null,
   registerSessionCleanup = () => {},
   isCanvasElement = () => false,
   frameReleaseScheduler = createTerminalFrameReleaseScheduler({
@@ -30,6 +31,7 @@ export function createTerminalPresentationLifecycle({
       windowObject.cancelAnimationFrame(session.presentationFrameHandle);
     }
     const hadFrame = Boolean(session.presentationFrameHandle || session.presentationFramePending);
+    workScheduler?.cancel(session, "presentation");
     session.presentationFrameHandle = 0;
     session.presentationFramePending = false;
     session.presentationFrameReason = "";
@@ -42,7 +44,7 @@ export function createTerminalPresentationLifecycle({
     }
     session.presentationFramePending = true;
     session.presentationFrameReason = String(reason || "presentation_frame");
-    session.presentationFrameHandle = windowObject.requestAnimationFrame(() => {
+    const run = () => {
       session.presentationFrameHandle = 0;
       session.presentationFramePending = false;
       const frameReason = session.presentationFrameReason || reason;
@@ -50,7 +52,12 @@ export function createTerminalPresentationLifecycle({
       if (!disposed) {
         callback(frameReason);
       }
-    });
+    };
+    if (workScheduler) {
+      workScheduler.schedule(session, "presentation", run, { priority: () => 2 });
+    } else {
+      session.presentationFrameHandle = windowObject.requestAnimationFrame(run);
+    }
     return true;
   };
 

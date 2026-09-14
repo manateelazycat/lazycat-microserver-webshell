@@ -18,9 +18,10 @@ const isNetworkFailureReason = (reason) => {
 };
 
 const sessionHasKnownSize = (session) => Boolean(
-  Number(session?.measuredFitGeneration || 0) > 0
+  (!session?.term?.wasmTerm?.isRemote || (session.term.wasmTerm.isReady && !session.term.backendResizePending))
+  && (Number(session?.measuredFitGeneration || 0) > 0
     || (Number(session?.initialCols || 0) >= 2 && Number(session?.initialRows || 0) >= 1)
-    || (Number(session?.term?.cols || 0) >= 2 && Number(session?.term?.rows || 0) >= 1)
+    || (Number(session?.term?.cols || 0) >= 2 && Number(session?.term?.rows || 0) >= 1))
 );
 
 const layoutPaneOrder = (node, paneOrder = []) => {
@@ -117,7 +118,7 @@ export function createTerminalTransportRuntimeController({
     const panes = [];
     for (const tab of tabsArray()) {
       for (const pane of tab?.panes?.values?.() || []) {
-        if (!pane?.closed && pane.name === activeName) {
+        if (!pane?.closed && (!pane.exitExpected || pane.socket) && pane.name === activeName) {
           panes.push(pane);
         }
       }
@@ -245,7 +246,7 @@ export function createTerminalTransportRuntimeController({
   const clearUnifiedRetry = (session, options) => lifecycle.clearUnifiedRetry(session, options);
 
   const scheduleUnifiedPaneRetry = (session, reason, { immediate = false } = {}) => {
-    if (disposed || getDisposed() || !session || session.closed || !isCurrentSession(session) || isReplayRetryPaused(session)) {
+    if (disposed || getDisposed() || !session || session.closed || session.exitExpected || !isCurrentSession(session) || isReplayRetryPaused(session)) {
       return false;
     }
     if (!isOnline()) {
@@ -296,6 +297,7 @@ export function createTerminalTransportRuntimeController({
       || getDisposed()
       || !session
       || session.closed
+      || session.exitExpected
       || session.unifiedConnectPending
       || lifecycle.hasUnifiedRetry(session)
       || isReplayRetryPaused(session)
@@ -587,6 +589,7 @@ export function createTerminalTransportRuntimeController({
       || getDisposed()
       || !session
       || session.closed
+      || session.exitExpected
       || !isCurrentSession(session)
       || Number(session.measuredFitGeneration || 0) <= 0
     ) {
@@ -679,7 +682,7 @@ export function createTerminalTransportRuntimeController({
   }
 
   const connectPendingSession = (session, { allowHidden = false } = {}) => {
-    if (!session || session.closed || !isCurrentSession(session)) {
+    if (!session || session.closed || session.exitExpected || !isCurrentSession(session)) {
       return false;
     }
     const socketReadyState = session.socket?.readyState;
@@ -714,7 +717,7 @@ export function createTerminalTransportRuntimeController({
   };
 
   const recycleUnifiedSession = (session, reason, { immediate = false } = {}) => {
-    if (!session || session.connectionChannel !== "unified") {
+    if (!session || session.exitExpected || session.connectionChannel !== "unified") {
       return false;
     }
     session.connectionRetrying = true;
@@ -755,6 +758,14 @@ export function createTerminalTransportRuntimeController({
   };
 
   return Object.freeze({
+    finishExitedSession(session) {
+      if (!session?.exitExpected) return false;
+      clearUnifiedRetry(session, { resetAttempts: true });
+      if (session.connectionChannel === "unified") detachUnifiedSession(session, "terminal_exited");
+      else scheduler?.release?.(session, "tab_or_target_removed");
+      refreshMembership({ reason: "terminal_exited" });
+      return true;
+    },
     clearUnifiedRetry,
     connectPendingSession,
     connectPendingSessionsForTab,

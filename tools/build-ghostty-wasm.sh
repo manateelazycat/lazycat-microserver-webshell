@@ -4,7 +4,7 @@ set -euo pipefail
 repo_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 source_dir="${GHOSTTY_WEB_DIR:-${repo_dir}/ghostty-web}"
 native_dir="${source_dir}/ghostty"
-patches=("${source_dir}/patches/ghostty-wasm-api.patch" "${source_dir}/patches/ghostty-scrollback-generation.patch" "${repo_dir}/tools/ghostty-reflow.patch")
+patches=("${source_dir}/patches/ghostty-wasm-api.patch" "${source_dir}/patches/ghostty-scrollback-generation.patch" "${repo_dir}/tools/ghostty-reflow.patch" "${repo_dir}/tools/ghostty-checkpoint.patch")
 applied=()
 
 command -v zig >/dev/null
@@ -27,3 +27,4 @@ done
   zig build lib-vt -Dtarget=wasm32-freestanding -Doptimize=ReleaseSmall
 )
 cp "$native_dir/zig-out/bin/ghostty-vt.wasm" "$source_dir/ghostty-vt.wasm"
+node "$repo_dir/tools/prepare-checkpoint-wasm.mjs" "$source_dir/ghostty-vt.wasm"

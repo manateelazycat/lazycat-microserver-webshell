@@ -112,7 +112,7 @@ export function createTerminalSessionConnectionController({
   };
 
   const closeSocketForReconnect = (session, currentSocket, reason, { allowHidden = false } = {}) => {
-    if (disposed || session?.socket !== currentSocket) {
+    if (disposed || session?.exitExpected || session?.socket !== currentSocket) {
       return false;
     }
     session.connectionRetrying = true;
@@ -157,7 +157,7 @@ export function createTerminalSessionConnectionController({
   });
 
   const checkHealth = (session, { connect = true, force = false, allowHidden = false } = {}) => {
-    if (disposed || getDisposed() || !session || session.closed || !isCurrentSession(session)) {
+    if (disposed || getDisposed() || !session || session.closed || session.exitExpected || !isCurrentSession(session)) {
       return false;
     }
     if (!isOnline()) {

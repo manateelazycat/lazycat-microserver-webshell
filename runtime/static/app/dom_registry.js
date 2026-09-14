@@ -29,6 +29,7 @@ export function createAppDOMRegistry({ documentObject = globalThis.document } = 
     startup: freezeGroup({
       errorPanel: get("startupErrorPanel"),
       errorText: get("startupErrorText"),
+      errorRetry: get("startupErrorRetry"),
       networkBanner: get("networkBanner"),
       toast: get("toast"),
     }),

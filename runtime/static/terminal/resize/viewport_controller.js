@@ -33,6 +33,12 @@ export function createTerminalViewportController({
       if (!term || !viewport) {
         return false;
       }
+      if (term.wasmTerm?.isRemote) {
+        // Worker resize leaves the UI scroll position untouched. Keep any user
+        // scroll made while awaiting it, then clamp against the returned grid.
+        term.normalizeViewportBounds?.(term.viewportY);
+        return true;
+      }
       stopScrollAnimation(term);
       if (isAlternateScreen(term) || viewport.atBottom) {
         term.viewportY = 0;

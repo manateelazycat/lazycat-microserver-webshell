@@ -56,6 +56,12 @@ func (e *staleAgentProtocolVersionError) Error() string {
 }
 
 var persistentAgentProtocolUpdateMu sync.Mutex
+var persistentAgentLifecycleLocks sync.Map
+
+func persistentAgentLifecycleLock(scope agentScope) *sync.RWMutex {
+	value, _ := persistentAgentLifecycleLocks.LoadOrStore(scope.cacheKey(), &sync.RWMutex{})
+	return value.(*sync.RWMutex)
+}
 
 func updatePersistentAgentProtocol(ctx context.Context, scope agentScope, expectedVersion string) (agentProtocolUpdateResponse, error) {
 	persistentAgentProtocolUpdateMu.Lock()
@@ -67,6 +73,12 @@ func updatePersistentAgentProtocol(ctx context.Context, scope agentScope, expect
 	}
 	if scope.AccountID == "" {
 		return agentProtocolUpdateResponse{}, errors.New("account id is required")
+	}
+	lifecycle := persistentAgentLifecycleLock(scope)
+	lifecycle.Lock()
+	defer lifecycle.Unlock()
+	if err := ctx.Err(); err != nil {
+		return agentProtocolUpdateResponse{}, err
 	}
 
 	currentVersion := ""
@@ -89,10 +101,16 @@ func updatePersistentAgentProtocol(ctx context.Context, scope agentScope, expect
 
 	trace := newPersistentAgentStartupTrace(scope)
 	trace.add("explicit protocol update started: current=%s preferred=%s", currentVersion, agentProtocolVersion)
-	username, err := cachedInstanceUsername(ctx, scope.Selector)
+	// Explicit replacement must use the current target configuration rather
+	// than a login user remembered before this update.
+	username, err := resolveInstanceLoginUser(ctx, scope.Selector)
 	if err != nil {
 		return agentProtocolUpdateResponse{}, trace.errorf("resolve username for agent protocol update failed: %v", err)
 	}
+	persistentAgentCache.Lock()
+	persistentAgentCache.username[scope.Selector] = username
+	persistentAgentCache.Unlock()
+	trace.add("resolved current login user=%s", username)
 	if _, err := ensureAgentBinaryInstalled(ctx, scope, trace); err != nil {
 		return agentProtocolUpdateResponse{}, trace.errorf("install agent protocol update failed: %v", err)
 	}

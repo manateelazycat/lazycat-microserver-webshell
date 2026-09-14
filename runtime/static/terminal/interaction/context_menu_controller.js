@@ -63,6 +63,7 @@ export function createTerminalContextMenuController({
 } = {}) {
   const menuView = view || createTerminalContextMenuView({ documentObject, windowObject });
   let contextTarget = null;
+  let contextGeneration = 0;
   let lastTerminalTouchContextMenuCandidate = null;
   let mobileActionSheetIgnoreClicksUntil = 0;
   let started = false;
@@ -149,6 +150,7 @@ export function createTerminalContextMenuController({
   };
 
   const closeContextMenu = () => {
+    contextGeneration += 1;
     menuView.closeDesktop();
     contextTarget = null;
   };
@@ -389,24 +391,26 @@ export function createTerminalContextMenuController({
             closeContextMenu();
             return;
           }
-          contextTarget = typeof getTarget === "function"
-            ? getTarget(event)
-            : {
+          const generation = ++contextGeneration;
+          const render = (target) => {
+            if (disposed || generation !== contextGeneration || !target) return;
+            contextTarget = target;
+            menuView.renderDesktop({
+              x: event.clientX,
+              y: event.clientY,
+              target,
+              isActionVisible: (action) => isDesktopActionVisible(action, target),
+            });
+          };
+          const fallback = {
               type: "pane",
               tabId,
               paneId,
               link: String(findLink(event) || ""),
-            };
-          if (!contextTarget) {
-            closeContextMenu();
-            return;
-          }
-          menuView.renderDesktop({
-            x: event.clientX,
-            y: event.clientY,
-            target: contextTarget,
-            isActionVisible: (action) => isDesktopActionVisible(action, contextTarget),
-          });
+          };
+          // Basic pane actions remain available even while its worker is busy.
+          render(fallback);
+          if (typeof getTarget === "function") Promise.resolve(getTarget(event)).then(render).catch(() => {});
         },
       });
     },

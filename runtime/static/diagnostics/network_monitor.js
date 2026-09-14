@@ -127,22 +127,68 @@ const historyReplayPayloadBytes = (payload) => {
   return data.byteLength;
 };
 
+const noteCheckpointReplayPart = (record, message) => {
+  const index = messageByteCount(message, "index");
+  const data = message.data;
+  const valid = index !== null && index < 256 && typeof data === "string"
+    && data.length > 0 && data.length <= 87384 && data.length % 4 === 0;
+  if (!valid) return;
+  const bytes = data.length / 4 * 3 - (data.endsWith("==") ? 2 : data.endsWith("=") ? 1 : 0);
+  let checkpoint = record.historyCheckpoint;
+  if (!checkpoint || record.historyCalibrationState !== "replaying"
+    || checkpoint.history !== message.history_generation || checkpoint.cursor !== message.cursor) {
+    checkpoint = { history: message.history_generation, cursor: message.cursor, parts: new Map(), bytes: 0 };
+    record.historyCheckpoint = checkpoint;
+    record.historyExpectedReplayBytes = 0;
+  }
+  checkpoint.parts.set(index, bytes);
+  checkpoint.bytes += bytes;
+  record.historyReplayBytes = checkpoint.bytes;
+  record.historyCalibrationState = "replaying";
+};
+
 const beginHistoryReplayCalibration = (record, message) => {
-  record.historyReplayBytes = 0;
-  record.historyExpectedReplayBytes = messageByteCount(message, "server_history_bytes") || 0;
+  const metadata = message.memory_checkpoint;
+  const checkpoint = record.historyCheckpoint;
+  const matches = metadata?.protocol === "ghostty-memory-v1" && checkpoint
+    && checkpoint.history === message.history_generation && checkpoint.cursor === metadata.cursor;
+  record.historyCheckpointBytes = matches ? checkpoint.bytes : 0;
+  record.historyExpectedCheckpointBytes = 0;
+  record.historyCheckpointIncomplete = false;
+  if (metadata) {
+    const count = Number(metadata.parts);
+    const lastBytes = matches && Number.isSafeInteger(count) && count > 0 && count <= 256
+      ? checkpoint.parts.get(count - 1) : undefined;
+    // ghostty-memory-v1 sends full 64 KiB compressed chunks except the last.
+    if (lastBytes !== undefined) record.historyExpectedCheckpointBytes = (count - 1) * 65536 + lastBytes;
+    record.historyCheckpointIncomplete = lastBytes === undefined || checkpoint.parts.size !== count;
+    if (!record.historyCheckpointIncomplete) {
+      for (let index = 0; index < count; index += 1) {
+        if (!checkpoint.parts.has(index) || (index < count - 1 && checkpoint.parts.get(index) !== 65536)) {
+          record.historyCheckpointIncomplete = true;
+          break;
+        }
+      }
+    }
+  }
+  record.historyCheckpoint = null;
+  record.historyReplayBytes = record.historyCheckpointBytes;
+  record.historyExpectedReplayBytes = (messageByteCount(message, "server_history_bytes") || 0) + record.historyExpectedCheckpointBytes;
   record.historyServerTotalBytes = messageHistoryTotalBytes(message) || 0;
   record.historySyncMode = String(message?.sync_mode || "").trim();
+  record.historyRecoveryBaseline = String(message?.recovery_baseline || "raw-history");
   record.historyCalibrationState = "replaying";
 };
 
 const finishHistoryReplayCalibration = (record, message) => {
   const expected = messageByteCount(message, "server_history_bytes");
   const total = messageHistoryTotalBytes(message);
-  if (expected !== null) record.historyExpectedReplayBytes = expected;
+  if (expected !== null) record.historyExpectedReplayBytes = expected + record.historyExpectedCheckpointBytes;
   if (total !== null) record.historyServerTotalBytes = total;
   const replayBytes = record.historyReplayBytes;
   const expectedBytes = record.historyExpectedReplayBytes;
-  if (replayBytes > expectedBytes) record.historyCalibrationState = "high";
+  if (record.historyCheckpointIncomplete) record.historyCalibrationState = "incomplete";
+  else if (replayBytes > expectedBytes) record.historyCalibrationState = "high";
   else if (expectedBytes > 0 && replayBytes * 2 < expectedBytes) record.historyCalibrationState = "low";
   else record.historyCalibrationState = "normal";
 };
@@ -161,6 +207,10 @@ const receivedConsumer = (record, payload) => {
   const message = parseControlPayload(payload);
   const type = String(message?.type || "").trim();
   if (!type) return record.replayActive ? networkConsumers.history : networkConsumers.liveOutput;
+  if (type === "terminal-checkpoint-part") {
+    noteCheckpointReplayPart(record, message);
+    return networkConsumers.history;
+  }
   if (type === "history-replay-start") {
     beginHistoryReplayCalibration(record, message);
     record.replayActive = true;
@@ -234,6 +284,11 @@ const createRecord = (sessionId, tabId) => ({
   lastSampleSentBytes: 0,
   replayActive: false,
   historyReplayBytes: 0,
+  historyCheckpoint: null,
+  historyCheckpointBytes: 0,
+  historyExpectedCheckpointBytes: 0,
+  historyCheckpointIncomplete: false,
+  historyRecoveryBaseline: "raw-history",
   historyExpectedReplayBytes: 0,
   historyServerTotalBytes: 0,
   historySyncMode: "",
@@ -296,6 +351,8 @@ export const createTerminalNetworkMonitor = ({
         sessionId: session.sessionId,
         tabId: session.tabId,
         replayBytes: session.historyReplayBytes,
+        checkpointBytes: session.historyCheckpointBytes,
+        recoveryBaseline: session.historyRecoveryBaseline,
         expectedReplayBytes: session.historyExpectedReplayBytes,
         serverHistoryTotalBytes: session.historyServerTotalBytes,
         syncMode: session.historySyncMode,
@@ -374,6 +431,11 @@ export const createTerminalNetworkMonitor = ({
     if (record.attachment) releaseAttachment(record.attachment, { emitChange: false });
     record.replayActive = replayActive === true;
     record.historyReplayBytes = 0;
+    record.historyCheckpoint = null;
+    record.historyCheckpointBytes = 0;
+    record.historyExpectedCheckpointBytes = 0;
+    record.historyCheckpointIncomplete = false;
+    record.historyRecoveryBaseline = "raw-history";
     record.historyExpectedReplayBytes = 0;
     record.historyServerTotalBytes = 0;
     record.historySyncMode = "";

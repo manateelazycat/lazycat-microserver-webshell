@@ -2,10 +2,13 @@
 
 `runtime/static/` 是 WebShell 页面源码根目录。页面脚本只从 `main.js` 开始加载；`main.js` 仅导入并调用 `global-runtime.js` 的 `startGlobalRuntime()`。发布时 Vite 将该模块树构建到 `build/runtime/static/`，LPK 只打包构建产物，不直接发布源码模块。
 
+服务端推荐协议 `lcmd-webshell-agent-v17`：支持固定 Ghostty 构建的状态基线与后续增量恢复。Agent 编译时嵌入的 `ghostty-vt.wasm` 必须与 Vite 发布资产一致；构建顺序先同步 WASM、再构建前端及 Go，禁止只替换一端。旧协议显式兼容范围见 `agent_runtime.go`，状态协议及限制见 `terminal/history/README.md`。
+
 ## 根目录职责
 
 - `main.js`：唯一页面脚本入口，不实现业务逻辑。
-- `global-runtime.js`：全局运行时唯一 owner，负责全局状态声明、feature controller 创建、启动/恢复/销毁顺序和显式依赖接线。
+- `global-runtime.js`：UI 全局运行时 owner，负责 UI 状态、feature controller、后台 manager、启动/恢复/销毁顺序和依赖接线。
+- `global-backend-worker.js`：Worker 全局运行时 owner，编排 `terminal/backend/worker/` 的 engine、消息服务及生命周期；每个 pane 独立后台，具体逻辑分模块维护。
 - `i18n.js`：浏览器语言默认驱动的轻量国际化运行时，支持模板标记 `{{ $t('中文') }}`，并在运行时输出阶段自动本地化 DOM 文案。
 - `index.html`、`style.css`：页面结构和样式。
 - `ghostty-web.js`、`ghostty-vt.wasm`：随包发布的终端运行时。
@@ -16,6 +19,7 @@
 ## 构建和发布边界
 
 - `vite.config.js` 以本目录的 `index.html` 为入口，把源码模块、Ghostty 运行时、WASM、主题和 CSS 构建到 `build/runtime/static/`。
+- 后台入口由 Vite module worker 构建，随版本化资源发布，不直接发布未打包的 Worker 源码。
 - 构建后的 `index.html` 保留 `__LCMD_ASSET_BASE__`，由 Provider 在响应入口页面时替换为当前内容版本路径。
 - `.vite/manifest.json` 是 Vite 产物标记。独立 WebShell LPK 和 `lightos-admin` 内嵌 WebShell 都必须包含该文件。
 - `tools/verify-vite-build.mjs` 固定发布 JS 文件不超过 8 个，拒绝把 `global-runtime.js` 或 `workspace/` 等源码模块复制到构建目录。

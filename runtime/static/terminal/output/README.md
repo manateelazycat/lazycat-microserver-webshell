@@ -19,11 +19,19 @@
 
 Queue turn complete 只登记待确认 cursor/sequence。只有对应输出已经按序写入 Ghostty、输出队列为空且 `appliedHistoryCursor` 到达边界后才发送 ACK；ACK 不等待 Canvas 绘制。默认 ACK serializer 由 `output_controller.js` 持有，会再次校验当前 socket、Unified channel、connection epoch 和 channel generation 后才发送 JSON；单 pane ACK 失败只能请求该 logical stream 恢复，不能关闭 Unified 物理连接或影响兄弟 pane。output lifecycle 对每个 pane 只允许一个待执行的 RAF/fallback timer；重复 schedule 不创建新任务，flush 入口会清理另一句柄。
 
-大历史回放不使用 live 输出默认的每轮 8 条限制；默认回放轮次受 512 KiB / 12ms 预算约束。单次 Ghostty 写入切成最多 32 KiB 的片段，相邻兼容条目在写入前合并，每次实际解析后重新检查耗时，避免大量原始小帧拖成数千次 RAF，也避免一次大 parse 独占主线程。显式 `maxEntries` 仍按入队原始条目计数，保留 resize ACK fence 的冻结边界；显式 force 且无预算的调用保持完整 drain 语义。写入回调中新增的输出按序保留，reset/dispose 后不得推进旧 batch 的 cursor。
+普通回放轮次受 512 KiB / 12ms 局部预算约束，并服从页面共享调度器剩余预算。普通 Ghostty 写入最多 8 KiB，相邻兼容条目合并后逐批解析；live 输出每轮最多 8 批。显式 `maxEntries` 仍按入队条目计数，保留 resize ACK fence 的冻结边界；`force` 也必须有界，调用者根据返回值继续排空。队列同时限制 4 MiB 和 8192 个条目。普通输出与 startup error 共用按序队列，不能因立即显示错误而越过尚未处理的 PTY 数据。
+
+Unified snapshot 协商到 `replay_burst_bytes` 时，`replay_batch.js` 将不超过 **3,500,000 字节（包含等于）** 的整段历史暂存在上述输出队列。身份、sequence、checksum、cursor 与完成通知校验通过后，一次合并并提交给该 pane 的 Worker；该批合并不受 8 KiB 分片和普通合并时间预算打断。后续 live 字节通过独立 batch 标记隔离，只有实际解析完成才推进游标和最终 Queue ACK。接收期间的尺寸边界 force drain 会退出整段聚合，按原网格顺序分段处理；这不会取消服务端的有界连续传输。超过上限或未协商的后端使用原分批路径，4 MiB 队列上限保持有效。
+
+页面共享调度器由全局运行时注入，output lifecycle 只提交/取消本会话的 output 任务；不可见会话仍公平解析，隐藏页面不绘制 Canvas。matching resize ACK 后的冻结排空只由 resize owner 通过 force 命令推进，普通输出等待网格切换；settle 冻结排空同样独占，避免剩余条目计数被其他任务消费而失效。
+
+解析异常会停止该会话的 drain，保留最后确认游标，并交给 session health owner 有限恢复。由于 WASM 可能已消费部分字节，不在同一运行时重放失败 batch；新连接/历史恢复调用 discard 后解除失败门禁。reset/dispose 后不得推进旧 batch 的 cursor。写入成功的判定要求随包 WASM 的 write/resize 返回状态接口与 JavaScript 同步发布。
 
 输出写入后的宿主复位显式标记 source=output，由 IME 在移动触摸布局下跳过；移动端输入框使用固定 CSS 锚点，positionInput 仅在 composition 期间更新独立预览，不因普通输出改写输入值和选区。桌面宿主复位和光标定位维持原行为。
 
 ## 状态所有权
+
+Worker 写入是异步确认：flush 返回完成 Promise（无法开始时返回 false）。在途条目继续计入队列，直到后台成功回复才出队并推进 cursor。每个 pane 只允许一个 drain 进行中；resize fence/settle await 同一 drain 后再扣减冻结条目数。输出回调在代际切换后不得推进新连接；旧 Worker 取消只退休旧操作，不触发新一轮错误恢复。
 
 `output_controller.js` 是 `outputQueue`、`outputQueueSize`、`outputQueueGeneration`、`outputOverloadPending`、`queueTurnReceived*` 和 `pendingQueueTurnAck` 的唯一修改者。session state 只提供初始字段；resize 只能调用 `getQueueEntryCount()`、`getQueuedBytes()`、`flush()` 和 `scheduleFlush()`，不得读取或修改队列数组。
 
@@ -41,6 +49,7 @@ Queue turn complete 只登记待确认 cursor/sequence。只有对应输出已�
 - `output_controller.js`：队列、分类、drain、Ghostty 写入、过载、Queue turn ACK 编排及默认 ACK 协议序列化。
 - `output_lifecycle.js`：RAF/timeout 生命周期。
 - `output_model.js`：字节测量、分片、cursor 解析和批次合并纯函数。
+- `replay_batch.js`：整段 snapshot 聚合的容量协商、接收完成与解析状态；实际字节仍由 output 队列持有。
 
 ## 依赖、guard 与最小回归
 

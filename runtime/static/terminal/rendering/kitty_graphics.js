@@ -7,6 +7,23 @@ var KITTY_RESPONSE_PATTERN = /^(?:\x1B_Gi=\d+(?:,p=\d+)?;(?:OK|EINVAL: [^\x1B]*)
 var TERMINAL_CLEAR_PATTERN = /\x1Bc|(?:\x1B\[|\x9B)([0-9:;<=>?]*)(?:[ -\/]*)J/g;
 var TERMINAL_CONTROL_SUFFIX_LENGTH = 64;
 var KITTY_TEXT_DECODE_CHUNK_BYTES = 128 * 1024;
+const KITTY_MAX_COMMAND_CHARS = 1024 * 1024;
+const KITTY_MAX_TRANSFER_CHARS = 32 * 1024 * 1024;
+const KITTY_MAX_IMAGE_BYTES = 64 * 1024 * 1024;
+const KITTY_MAX_IMAGES = 64;
+const KITTY_MAX_TRANSFERS = 16;
+const KITTY_MAX_DECODES = 4;
+const KITTY_MAX_PLACEMENTS = 256;
+const imageByteSize = (image) => Math.max(0, Number(image?.width) || 0) * Math.max(0, Number(image?.height) || 0) * 4;
+const releaseImage = (image) => {
+  image?.close?.();
+  if (typeof HTMLCanvasElement !== "undefined" && image instanceof HTMLCanvasElement) image.width = image.height = 0;
+};
+const validateImageDimensions = (width, height) => {
+  if (!Number.isInteger(width) || !Number.isInteger(height) || width <= 0 || height <= 0 || width * height * 4 > KITTY_MAX_IMAGE_BYTES) {
+    throw new Error("Kitty Graphics image dimensions exceed capacity");
+  }
+};
 function isKittyGraphicsResponse(data) {
   return typeof data === "string" && KITTY_RESPONSE_PATTERN.test(data);
 }
@@ -37,6 +54,9 @@ function decodeBase64(payload) {
   return bytes;
 }
 async function decodePng(bytes) {
+  const dimensions = pngDimensions(bytes);
+  if (!dimensions) throw new Error("Kitty Graphics PNG dimensions are invalid");
+  validateImageDimensions(dimensions.width, dimensions.height);
   const blob = new Blob([bytes.buffer], { type: "image/png" });
   if (typeof createImageBitmap === "function") {
     return createImageBitmap(blob);
@@ -59,7 +79,25 @@ async function inflate(bytes) {
     throw new Error("Kitty Graphics zlib decompression is unavailable");
   }
   const stream = new Blob([bytes.buffer]).stream().pipeThrough(new DecompressionStream("deflate"));
-  return new Uint8Array(await new Response(stream).arrayBuffer());
+  const reader = stream.getReader();
+  const chunks = [];
+  let length = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      length += value.byteLength;
+      if (length > KITTY_MAX_IMAGE_BYTES) {
+        await reader.cancel();
+        throw new Error("Kitty Graphics decompressed image exceeds capacity");
+      }
+      chunks.push(value);
+    }
+  } finally { reader.releaseLock(); }
+  const result = new Uint8Array(length);
+  let offset = 0;
+  for (const chunk of chunks) { result.set(chunk, offset); offset += chunk.byteLength; }
+  return result;
 }
 async function decodeRaw(bytes, attributes, format) {
   if (attributes.get("o") === "z") {
@@ -69,6 +107,7 @@ async function decodeRaw(bytes, attributes, format) {
   }
   const width = numeric(attributes, "s");
   const height = numeric(attributes, "v");
+  validateImageDimensions(width, height);
   const channels = format === 32 ? 4 : 3;
   const expectedLength = width * height * channels;
   if (!width || !height || bytes.length !== expectedLength) {
@@ -146,6 +185,7 @@ function placementGridSize(attributes, dimensions, cursor) {
 function cursorMovement(attributes, dimensions, cursor) {
   if (numeric(attributes, "C") === 1 || numeric(attributes, "U") === 1) return "";
   const size = placementGridSize(attributes, dimensions, cursor);
+  if (size.rows > 65535 || size.columns > 65535) throw new Error("Kitty Graphics placement exceeds capacity");
   if (size.rows <= 0) return "";
   const column = Math.max(1, Math.floor(Number(cursor.x) || 0) + size.columns + 2);
   return "\x1BD".repeat(size.rows) + `\x1B[${column}G`;
@@ -164,23 +204,40 @@ var KittyGraphics = class {
     this.placements = /* @__PURE__ */ new Map();
     this.nextImageId = 1;
     this.nextPlacementId = 1;
+    this.generation = 0;
+    this.placementGeneration = 0;
+    this.discardingCommand = false;
+    this.transferChars = 0;
+    this.imageBytes = 0;
+    this.activeDecodes = 0;
   }
   /**
    * Consume a stream chunk. Ordinary terminal data is emitted in order so
    * callers can write it to the VT parser before the next image placement.
    */
-  consume(data, cursor, writeText) {
+  async consume(data, cursor, writeText) {
     if (data instanceof Uint8Array) {
       for (let offset = 0; offset < data.byteLength; offset += KITTY_TEXT_DECODE_CHUNK_BYTES) {
         const end = Math.min(data.byteLength, offset + KITTY_TEXT_DECODE_CHUNK_BYTES);
-        this.consumeText(this.decoder.decode(data.subarray(offset, end), { stream: true }), cursor, writeText);
+        await this.consumeText(this.decoder.decode(data.subarray(offset, end), { stream: true }), cursor, writeText);
       }
       return;
     }
     const pending = this.decoder.decode();
-    this.consumeText(pending + data, cursor, writeText);
+    await this.consumeText(pending + data, cursor, writeText);
   }
-  consumeText(data, cursor, writeText) {
+  async consumeText(data, cursor, writeText) {
+    if (this.discardingCommand) {
+      const combined = this.inputBuffer + data;
+      const end = combined.indexOf(KITTY_END);
+      if (end === -1) {
+        this.inputBuffer = combined.endsWith("\x1B") ? "\x1B" : "";
+        return;
+      }
+      this.discardingCommand = false;
+      this.inputBuffer = "";
+      data = combined.slice(end + KITTY_END.length);
+    }
     if (
       this.inputBuffer.length === 0
       && this.terminalControlBuffer.length === 0
@@ -188,7 +245,7 @@ var KittyGraphics = class {
       && data.indexOf("\x1B") === -1
       && data.indexOf("\x9B") === -1
     ) {
-      writeText(data);
+      await writeText(data);
       return;
     }
     this.observeTerminalControls(data);
@@ -198,13 +255,13 @@ var KittyGraphics = class {
       if (!next) {
         const keep = this.incompleteStartLength();
         if (this.inputBuffer.length > keep) {
-          writeText(this.inputBuffer.slice(0, this.inputBuffer.length - keep));
+          await writeText(this.inputBuffer.slice(0, this.inputBuffer.length - keep));
           this.inputBuffer = this.inputBuffer.slice(this.inputBuffer.length - keep);
         }
         break;
       }
       if (next.index > 0) {
-        writeText(this.inputBuffer.slice(0, next.index));
+        await writeText(this.inputBuffer.slice(0, next.index));
         this.inputBuffer = this.inputBuffer.slice(next.index);
       }
       if (next.sequence === WINDOW_PIXEL_SIZE_QUERY) {
@@ -213,25 +270,38 @@ var KittyGraphics = class {
         continue;
       }
       const end = this.inputBuffer.indexOf(KITTY_END, KITTY_START.length);
-      if (end === -1) break;
+      if (end === -1) {
+        if (this.inputBuffer.length > KITTY_MAX_COMMAND_CHARS) {
+          this.respond(new Map(), 0, "EINVAL: image command exceeds capacity");
+          this.discardingCommand = true;
+          this.inputBuffer = this.inputBuffer.endsWith("\x1B") ? "\x1B" : "";
+        }
+        break;
+      }
       const body = this.inputBuffer.slice(KITTY_START.length, end);
       this.inputBuffer = this.inputBuffer.slice(end + KITTY_END.length);
-      this.handleCommand(body, cursor(), writeText);
+      await this.handleCommand(body, cursor(), writeText);
     }
   }
   getPlacements() {
     return [...this.placements.values()];
   }
   clear() {
+    this.generation += 1;
+    this.discardingCommand = false;
     this.inputBuffer = "";
     this.decoder.decode();
     this.terminalControlBuffer = "";
     this.transfers.clear();
+    this.transferChars = 0;
+    for (const { image } of this.images.values()) releaseImage(image);
     this.images.clear();
+    this.imageBytes = 0;
     this.loading.clear();
     this.clearPlacements();
   }
   clearPlacements() {
+    this.placementGeneration += 1;
     if (this.placements.size === 0) return;
     this.placements.clear();
     this.onChange();
@@ -333,38 +403,83 @@ var KittyGraphics = class {
     if (action !== "t" && action !== "T") return;
     let transfer = this.transfers.get(imageId);
     if (!transfer) {
-      transfer = { imageId, action, attributes, chunks: [] };
+      if (this.transfers.size >= KITTY_MAX_TRANSFERS) {
+        this.respond(attributes, imageId, "EINVAL: too many image transfers");
+        return;
+      }
+      transfer = { imageId, action, attributes, chunks: [], chars: 0 };
       this.transfers.set(imageId, transfer);
     }
-    transfer.chunks.push(payload);
+    if (transfer.rejected || transfer.chunks.length >= 8192 || this.transferChars + payload.length > KITTY_MAX_TRANSFER_CHARS) {
+      this.transferChars -= transfer.chars;
+      transfer.chunks = [];
+      transfer.chars = 0;
+      transfer.rejected = true;
+      if (!more) this.transfers.delete(imageId);
+      this.respond(attributes, imageId, "EINVAL: image transfer exceeds capacity");
+      return;
+    }
+    if (payload.length) transfer.chunks.push(payload);
+    transfer.chars += payload.length;
+    this.transferChars += payload.length;
     if (more) return;
     this.transfers.delete(imageId);
-    this.finishTransfer(transfer, cursor, writeText).catch(() => {
-      this.respond(attributes, imageId, "EINVAL: image decode failed");
+    this.transferChars -= transfer.chars;
+    const generation = this.generation;
+    return this.finishTransfer(transfer, cursor, writeText).catch((error) => {
+      if (error?.code?.startsWith("BACKEND_")) throw error;
+      if (this.generation === generation) this.respond(attributes, imageId, "EINVAL: image decode failed");
     });
   }
   async finishTransfer(transfer, cursor, writeText) {
+    if (this.activeDecodes >= KITTY_MAX_DECODES) {
+      this.respond(transfer.attributes, transfer.imageId, "EINVAL: image decoder is busy");
+      return;
+    }
     const bytes = decodeBase64(transfer.chunks.join(""));
+    transfer.chunks = [];
+    const generation = this.generation;
+    const placementGeneration = this.placementGeneration;
     if (transfer.action === "T") {
       const movement = cursorMovement(
         transfer.attributes,
         transmittedImageDimensions(bytes, transfer.attributes),
         cursor
       );
-      if (movement) writeText(movement);
+      if (movement) await writeText(movement);
     }
+    if (this.generation !== generation) return;
+    this.activeDecodes += 1;
     const promise = decodeImage(bytes, transfer.attributes).then((image) => ({ image }));
     this.loading.set(transfer.imageId, promise);
-    try {
-      const image = await promise;
+    promise.then((image) => {
+      if (this.generation !== generation || this.loading.get(transfer.imageId) !== promise) {
+        releaseImage(image.image);
+        return;
+      }
+      const previous = this.images.get(transfer.imageId);
+      const nextBytes = this.imageBytes - imageByteSize(previous?.image) + imageByteSize(image.image);
+      if (nextBytes > KITTY_MAX_IMAGE_BYTES || (!previous && this.images.size >= KITTY_MAX_IMAGES)) {
+        releaseImage(image.image);
+        this.respond(transfer.attributes, transfer.imageId, "EINVAL: image cache is full");
+        return;
+      }
+      if (previous) {
+        for (const placement of this.placements.values()) if (placement.imageId === transfer.imageId) placement.image = image.image;
+        releaseImage(previous.image);
+      }
+      this.imageBytes = nextBytes;
       this.images.set(transfer.imageId, image);
-      if (transfer.action === "T") {
+      if (transfer.action === "T" && this.placementGeneration === placementGeneration) {
         this.place(image, transfer.imageId, transfer.attributes, cursor);
       }
       this.onChange();
-    } finally {
-      this.loading.delete(transfer.imageId);
-    }
+    }).catch(() => {
+      if (this.generation === generation) this.respond(transfer.attributes, transfer.imageId, "EINVAL: image decode failed");
+    }).finally(() => {
+      this.activeDecodes -= 1;
+      if (this.loading.get(transfer.imageId) === promise) this.loading.delete(transfer.imageId);
+    }).catch(() => {});
   }
   query(attributes, imageId) {
     const transmission = attributes.get("t") || "d";
@@ -393,7 +508,10 @@ var KittyGraphics = class {
     }
     const loading = this.loading.get(imageId);
     if (!loading) return;
+    const generation = this.generation;
+    const placementGeneration = this.placementGeneration;
     loading.then((ready) => {
+      if (this.generation !== generation || this.placementGeneration !== placementGeneration || this.images.get(imageId) !== ready) return;
       this.place(ready, imageId, attributes, cursor);
       this.onChange();
     }).catch(() => void 0);
@@ -401,6 +519,10 @@ var KittyGraphics = class {
   place(image, imageId, attributes, cursor) {
     const placementId = numeric(attributes, "p", 0) || this.nextPlacementId++;
     const key = `${imageId}:${placementId}`;
+    if (!this.placements.has(key) && this.placements.size >= KITTY_MAX_PLACEMENTS) {
+      this.respond(attributes, imageId, "EINVAL: too many image placements");
+      return;
+    }
     const absoluteRow = Number(cursor.absoluteRow);
     this.placements.set(key, {
       image: image.image,
@@ -424,9 +546,23 @@ var KittyGraphics = class {
   delete(attributes, imageId) {
     const target = attributes.get("d");
     if (!target || target === "a" || target === "A") {
-      this.placements.clear();
-      if (target === "a" || target === "A") this.images.clear();
+      this.clearPlacements();
+      if (target === "a" || target === "A") {
+        this.generation += 1;
+        this.loading.clear();
+        this.transfers.clear();
+        this.transferChars = 0;
+        for (const { image } of this.images.values()) releaseImage(image);
+        this.images.clear();
+        this.imageBytes = 0;
+      }
     } else if (target === "i" || target === "I") {
+      this.loading.delete(imageId);
+      this.transferChars -= this.transfers.get(imageId)?.chars || 0;
+      this.transfers.delete(imageId);
+      const previous = this.images.get(imageId);
+      this.imageBytes -= imageByteSize(previous?.image);
+      releaseImage(previous?.image);
       this.images.delete(imageId);
       for (const [key, placement] of this.placements) {
         if (placement.imageId === imageId) this.placements.delete(key);
@@ -565,14 +701,13 @@ function installKittyGraphicsSupport(TerminalClass) {
       return rendered;
     };
   };
-  prototype.write = function(data, callback) {
+  prototype.write = async function(data, callback) {
     const terminal = this;
     const graphics = terminal.__kittyGraphics;
     if (!graphics || !terminal.wasmTerm) {
-      originalWrite.call(this, data, callback);
-      return;
+      return originalWrite.call(this, data, callback);
     }
-    graphics.consume(
+    await graphics.consume(
       data,
       () => {
         const cursor = terminal.wasmTerm.getCursor();
@@ -589,7 +724,7 @@ function installKittyGraphicsSupport(TerminalClass) {
         };
       },
       (text) => {
-        if (text.length > 0) originalWrite.call(this, text);
+        if (text.length > 0) return originalWrite.call(this, text);
       }
     );
     if (callback) requestAnimationFrame(callback);

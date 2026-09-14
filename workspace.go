@@ -93,6 +93,7 @@ type terminalPane struct {
 	ptyFile                    *os.File
 	clients                    map[*paneClient]struct{}
 	history                    paneHistory
+	checkpoint                 *terminalCheckpointEngine
 	historyGeneration          string
 	historyLimitBytes          int
 	cols                       int
@@ -149,6 +150,7 @@ type paneHistory struct {
 }
 
 type paneHistorySnapshot struct {
+	checkpoint  *terminalMemoryCheckpoint
 	chunks      [][]byte
 	generation  string
 	syncMode    string
@@ -164,6 +166,7 @@ type paneHistorySnapshot struct {
 }
 
 type historySyncRequest struct {
+	checkpointProtocol  string
 	generation          string
 	workspaceGeneration string
 	localBase           uint64
@@ -609,6 +612,8 @@ func (w *terminalWorkspace) applyAction(request workspaceActionRequest) error {
 		return w.splitPaneLocked(request.TabID, request.PaneID, request.Direction, normalizeCols(request.Cols), normalizeRows(request.Rows))
 	case "close_pane":
 		return w.closePaneLocked(request.TabID, request.PaneID)
+	case "restart_pane":
+		return w.restartExitedPaneLocked(request.TabID, request.PaneID, normalizeCols(request.Cols), normalizeRows(request.Rows))
 	case "move_pane_to_tab":
 		return w.movePaneToTabLocked(request.TabID, request.PaneID)
 	case "move_tab":
@@ -1305,6 +1310,7 @@ func (w *terminalWorkspace) setHistoryLimitBytesLocked(limit int) {
 	for _, pane := range w.panes {
 		pane.mu.Lock()
 		pane.historyLimitBytes = limit
+		pane.checkpoint.resize(pane.cols, pane.rows, limit/averageHistoryBytesPerLine)
 		pane.trimHistoryLocked()
 		pane.mu.Unlock()
 	}
@@ -1387,6 +1393,14 @@ func newTerminalPane(workspace *terminalWorkspace, paneID string, cols, rows int
 		done:              make(chan struct{}),
 	}
 	_ = pty.Setsize(ptyFile, &pty.Winsize{Cols: uint16(pane.cols), Rows: uint16(pane.rows)})
+	if workspace.localPTY {
+		pane.checkpoint, err = newTerminalCheckpointEngine(pane.cols, pane.rows, historyLimitBytes/averageHistoryBytesPerLine)
+		if err != nil {
+			_ = ptyFile.Close()
+			_ = killCommand(command)
+			return nil, fmt.Errorf("initialize terminal recovery state: %w", err)
+		}
+	}
 	go pane.readLoop()
 	return pane, nil
 }
@@ -1462,21 +1476,7 @@ if [ -n "$xdg_runtime_dir" ]; then
 else
   unset XDG_RUNTIME_DIR
 fi
-current_uid=$(id -u 2>/dev/null || true)
-current_gid=$(id -g 2>/dev/null || true)
-if [ "$current_uid" = "$uid" ] && [ "$current_gid" = "$gid" ]; then
-  exec env HOME="$home" USER="$user" LOGNAME="$user" SHELL="$__webshell_shell" XDG_CONFIG_HOME="$xdg_config_home" "$__webshell_shell"
-fi
-if command -v setpriv >/dev/null 2>&1 && setpriv --reuid "$uid" --regid "$gid" --init-groups /bin/sh -c ':' 2>/dev/null; then
-  exec env HOME="$home" USER="$user" LOGNAME="$user" SHELL="$__webshell_shell" XDG_CONFIG_HOME="$xdg_config_home" setpriv --reuid "$uid" --regid "$gid" --init-groups "$__webshell_shell"
-fi
-if command -v su >/dev/null 2>&1; then
-  export HOME="$home" USER="$user" LOGNAME="$user" SHELL="$__webshell_shell"
-  exec su -s "$__webshell_shell" "$user"
-fi
-echo "webshell cannot switch to the configured login user: setpriv is not permitted and su is unavailable."
-exit 127
-`
+` + buildUserIdentityExecScript(`"$__webshell_shell"`, `su -s "$__webshell_shell" "$user"`)
 }
 
 func buildInitialCWDChangeScript(initialCWD string) string {
@@ -1536,6 +1536,7 @@ func (p *terminalPane) appendOutput(data []byte) {
 	var clients []*paneClient
 	p.mu.Lock()
 	if !p.exited {
+		p.checkpoint.write(filtered)
 		for _, chunk := range chunks {
 			p.history.append(chunk)
 		}
@@ -2345,7 +2346,22 @@ func (p *terminalPane) attachClient(syncRequest historySyncRequest) (paneHistory
 	history.pixelWidth = p.pixelWidth
 	history.pixelHeight = p.pixelHeight
 	history.syncMode = "snapshot"
-	if !syncRequest.forceSnapshot && syncRequest.hasRange && syncRequest.generation == p.historyGeneration && syncRequest.localEnd >= p.history.base && syncRequest.localEnd <= p.history.end {
+	if syncRequest.checkpointProtocol == terminalMemoryCheckpointProtocol && p.checkpoint != nil {
+		checkpoint, err := p.checkpoint.snapshot(p.history.end)
+		if err != nil {
+			return paneHistorySnapshot{}, nil, false, paneExitSnapshot{}, fmt.Errorf("terminal recovery checkpoint unavailable: %w", err)
+		}
+		if checkpoint != nil {
+			history.checkpoint = checkpoint
+			history.deltaFrom = p.history.end - uint64(len(p.checkpoint.pending))
+			history.serverBase = min(history.serverBase, history.deltaFrom)
+			history.chunks = nil
+			if len(p.checkpoint.pending) > 0 {
+				history.chunks = [][]byte{append([]byte(nil), p.checkpoint.pending...)}
+			}
+		}
+	}
+	if history.checkpoint == nil && !syncRequest.forceSnapshot && syncRequest.hasRange && syncRequest.generation == p.historyGeneration && syncRequest.localEnd >= p.history.base && syncRequest.localEnd <= p.history.end {
 		history = p.history.snapshotFrom(syncRequest.localEnd)
 		history.generation = p.historyGeneration
 		history.resizeEpoch = p.resizeEpoch
@@ -2554,6 +2570,7 @@ func (p *terminalPane) resizeWithPixelsUnlocked(cols, rows, pixelWidth, pixelHei
 	p.rows = rows
 	p.pixelWidth = pixelWidth
 	p.pixelHeight = pixelHeight
+	p.checkpoint.resize(cols, rows, p.historyLimitBytes/averageHistoryBytesPerLine)
 	p.mu.Unlock()
 	if exited || ptyFile == nil {
 		return nil
@@ -2733,6 +2750,7 @@ func (p *terminalPane) enqueueResizeError(client *paneClient, epoch uint64, reas
 
 func (p *terminalPane) close() {
 	p.mu.Lock()
+	p.checkpoint.close()
 	ptyFile := p.ptyFile
 	clients := make([]*paneClient, 0, len(p.clients))
 	for client := range p.clients {

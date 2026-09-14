@@ -10,6 +10,7 @@ export function createWorkspacePaneActivationController({
   isApplyingWorkspaceState = () => false,
   resetSessionUserInput = () => {},
   refreshTabAutoLabel = () => {},
+  onActivated = () => {},
   syncCursorBlinkState = () => {},
   updateSelectionHandles = () => {},
   schedulePaneResize = () => {},
@@ -42,6 +43,7 @@ export function createWorkspacePaneActivationController({
       pane.shellEl.classList.toggle("active", pane.id === paneId);
     }
     const activePane = tab.panes.get(paneId);
+    onActivated(activePane);
     if (!wasActive) {
       resetSessionUserInput(activePane);
     }

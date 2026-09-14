@@ -1,5 +1,15 @@
 # 终端历史模块
 
+## v17 状态基线
+
+普通容器的新页面协商 `checkpoint_protocol=ghostty-memory-v1`。Agent 用同一份固定构建的 Ghostty WASM 在每个 PTY 内持续维护独立终端状态；原始历史仍有界保留给旧客户端。attach 在 pane 锁内取得状态及游标并注册实时订阅，随后以有界控制帧传输 gzip 状态，最后发送历史开始/完成以及该游标之后的字节。尚未结束的 UTF-8/控制序列保留为基线后的原始增量，不从半截 UI 解码状态恢复。
+
+`terminal_checkpoint_runtime.go` 持有 Agent 模块，`worker/memory_checkpoint.js` 在新建的独立 WASM 实例中导入。快照包含固定构建的线性内存、唯一可变全局栈指针、terminal handle、网格和游标，因此覆盖两套屏幕、保存光标和解析器状态；这是内部 ABI，不是跨版本语义序列化。WASM SHA-256、内存 SHA-256、长度、分片顺序和恢复游标必须全部匹配，失败走现有恢复错误路径，不能标作就绪。构建脚本显式导出并校验全局布局；引擎变化必须重新审查 ABI 并更新服务端协议。
+
+模块内存上限 256 MiB，压缩快照上限 16 MiB，分片 64 KiB；后台保留的未完成控制序列上限 1 MiB。Worker 校验后限长解压、在当前连接代次内导入，初始 clear 在导入前完成，尺寸操作和增量在导入后顺序执行，呈现须等待这些操作结束。恢复在 Worker 中执行，主线程不解压大内存。主题默认值通过独立桥接覆盖，程序设置的动态颜色保留。
+
+旧 Agent、未协商的浏览器和客户端主机终端保持原路径；检测到 Kitty 图形协议的 pane 停用影子引擎并使用原始历史，当前基线不宣称包含独立 UI 图形资源。Agent 维护状态会增加解析与内存成本，不是零开销。原始字节裁剪仍存在，但不会再用于支持新基线的普通 TUI 首屏恢复。
+
 ## 职责
 
 本目录负责 replay identity、cursor、sequence、authorization、checkpoint 和最终提交门禁。普通容器只消费同一 Unified WebSocket 上由 persistent agent 提供的权威 `snapshot + live`；本目录不再包含 Cache API、warm replay、preview、manifest、compaction 或浏览器持久化逻辑。
@@ -25,6 +35,8 @@
 `session_replay_controller.js` 是 session replay authorization、失败次数/暂停、commit phase 和最终 presentation 请求的唯一 owner；`session_replay_lifecycle.js` 独占 checkpoint timer。
 
 `client_history_controller.js` 独占 `client:` load/reset/write/flush/touch/delete、timer 和迟到 Promise guard。session dispose 会先 flush 客户端历史，再取消其 schedule；普通容器不会创建任何浏览器历史任务。
+
+兼容缓存每个会话只允许一笔写入进行中，后续字节留在有界队列，完成后再提交。写入在创建时固定 reset Promise，避免后来产生的 reset 反向等待该写入而成环；过期 generation 的失败不禁用新缓存。暂存最多 4 MiB / 8192 条，复制独立字节片段避免小尾片持有整个网络包；存储无法跟上时沿用缓存故障禁用路径，当前终端输出仍继续。touch 请求也按会话合并，销毁释放未提交队列与 snapshot 引用。
 
 ## 文件清单
 

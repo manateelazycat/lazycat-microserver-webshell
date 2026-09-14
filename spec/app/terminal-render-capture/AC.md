@@ -1,0 +1,23 @@
+# 场景 1：按当前标签观察所有分屏
+ID: SC-TERMINAL-RENDER-CAPTURE-TAB
+Profile: draft
+Gate: required
+Given 用户尚未设置终端渲染异常捕获选项，当前标签包含多个终端分屏
+When 用户打开调试模式
+Then 终端渲染异常捕获默认关闭
+When 用户开启终端渲染异常捕获
+Then 日志包含当前标签各终端分屏的身份、消费进度、帧准备、尺寸与呈现状态
+When 用户切换到另一个标签
+Then 后续采集针对新的当前标签，旧记录仍可以按标签和分屏识别
+When 用户关闭该选项或调试模式
+Then 停止该功能采集并隐藏窗口，不影响正常终端输出
+
+# 场景 2：复制异常现场且不主动修复画面
+ID: SC-TERMINAL-RENDER-CAPTURE-COPY
+Profile: draft
+Gate: required
+Given 用户已开启终端渲染异常捕获并正在观察显示异常
+When 用户点击捕获当前状态或复制所有日志
+Then 采集当前标签各分屏的最新状态和画面区域统计，读取失败时注明原因
+And 采集本身不请求重绘、回放或改变尺寸
+And 复制所有日志包含全部保留记录、采样口径与容量裁剪说明，不仅是窗口显示的摘要

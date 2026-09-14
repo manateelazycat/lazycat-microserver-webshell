@@ -6,6 +6,7 @@ require (
 	gitee.com/linakesi/lzc-sdk v0.1.0
 	github.com/creack/pty v1.1.24
 	github.com/gorilla/websocket v1.5.3
+	github.com/tetratelabs/wazero v1.10.1
 	golang.org/x/image v0.36.0
 )
 

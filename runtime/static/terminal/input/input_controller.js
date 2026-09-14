@@ -34,6 +34,7 @@ export function createTerminalInputController({
   appendDebugError = noop,
   holdCursorVisible = noop,
   reassertSize = noop,
+  claimCurrentDeviceSize = noop,
   registerSessionCleanup = noop,
   now = () => Date.now(),
   chunkChars = 16 * 1024,
@@ -57,9 +58,15 @@ export function createTerminalInputController({
 
   const isReady = (session) => Boolean(
     !disposed
+    && !session.exitExpected
     && isReplayCommitted(session)
     && isSocketOpen(session)
     && !session.resizeAckPending
+    && !session.resizeFenceActive
+    && !session.resizeOutputSettleActive
+    && !session.pendingSizeClaim
+    && (!session.term?.wasmTerm?.isRemote || session.term.wasmTerm.isReady)
+    && !session.term?.backendResizePending
     && (
       session.connectionChannel === "unified"
       || (
@@ -404,7 +411,7 @@ export function createTerminalInputController({
   };
 
   const sendOrQueue = (session, data, { userInput = true } = {}) => {
-    if (!session || disposed) {
+    if (!session || disposed || session.exitExpected) {
       return false;
     }
     if (shouldSuppressGenerated(session, data)) {
@@ -429,6 +436,7 @@ export function createTerminalInputController({
     );
     if (data && userInput) {
       markUserInput(session);
+      if (!session.sizeClaimed || session.sizeClaimRequired) claimCurrentDeviceSize(session);
       scrollToBottom(session);
       requestConnection(session, {
         reason: "user_input",

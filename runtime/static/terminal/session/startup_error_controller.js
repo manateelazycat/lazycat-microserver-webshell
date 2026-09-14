@@ -35,6 +35,9 @@ export const isRetryableTerminalStartupError = (message) => {
 
 export function createTerminalStartupErrorController({
   windowObject = globalThis.window,
+  retryButton = null,
+  restartSession = () => Promise.resolve(false),
+  getTerminalText = () => Promise.resolve(""),
   navigatorObject = globalThis.navigator,
   fetchImpl = globalThis.fetch,
   apiFactory = createTerminalStartupErrorAPI,
@@ -51,6 +54,59 @@ export function createTerminalStartupErrorController({
 } = {}) {
   const api = apiFactory({ windowObject, fetchImpl });
   const lifecycle = lifecycleFactory();
+  let exitSession = null;
+  const exitMessages = new WeakMap();
+  const isActive = (session) => session?.tabId === getActiveTabId()
+    && getTabById(session.tabId)?.activePaneId === session.id;
+  let restarting = false;
+  const translate = (text) => globalThis.$t?.(text) || text;
+  const retryExited = async () => {
+    const session = exitSession;
+    if (restarting || lifecycle.isDisposed() || !session?.terminalExitRetained || session.closed || !isActive(session) || !isCurrentSession(session)) return;
+    restarting = true;
+    if (retryButton) {
+      retryButton.disabled = true;
+      retryButton.textContent = translate("正在重新创建终端...");
+    }
+    try {
+      const result = await restartSession(session);
+      if (result !== false && exitSession === session) {
+        exitSession = null;
+        hideStartupErrorPanel();
+      }
+    } catch (error) {
+      if (!session.closed && exitSession === session) showStartupErrorPanel(error?.message || translate("重新创建终端失败。"));
+    } finally {
+      restarting = false;
+      if (retryButton && !lifecycle.isDisposed()) {
+        retryButton.disabled = false;
+        retryButton.textContent = translate("重新创建终端");
+      }
+    }
+  };
+  retryButton?.addEventListener("click", retryExited);
+
+  const showExited = async (session, message, readOutput = false) => {
+    if (lifecycle.isDisposed() || session.closed || !isCurrentSession(session)) return false;
+    exitMessages.set(session, message);
+    if (!isActive(session)) return false;
+    const requestID = lifecycle.nextRequest(session);
+    exitSession = session;
+    const summary = String(message.message || `Terminal process exited with code ${Number(message.exit_code ?? -1)}.`);
+    let output = "";
+    if (readOutput) {
+      const totalRows = Number(session.term.getScrollbackLength?.() || 0) + Number(session.term.rows || 1);
+      const range = {
+        startRow: Math.max(0, totalRows - 64), startCol: 0,
+        endRow: totalRows - 1, endCol: Math.max(0, Number(session.term.cols || 1) - 1),
+      };
+      try { output = String(await getTerminalText(session, range) || "").trim(); } catch {}
+      if (lifecycle.isDisposed() || session.closed || !isActive(session) || !lifecycle.isCurrent(session, requestID) || !isCurrentSession(session)) return false;
+    }
+    showStartupErrorPanel(output ? `${summary}\n\n${output}` : summary);
+    if (retryButton) retryButton.hidden = false;
+    return true;
+  };
 
   const isGenericFallback = (message) => (
     genericWebSocketStartupFallbacks.has(String(message || "").trim())
@@ -68,6 +124,7 @@ export function createTerminalStartupErrorController({
       return true;
     }
     showStartupErrorPanel(text);
+    if (retryButton) retryButton.hidden = !session.terminalExitRetained;
     writeImmediate(session, `\r\n[webshell error]\r\n${text}\r\n`);
     return true;
   };
@@ -131,7 +188,24 @@ export function createTerminalStartupErrorController({
   };
 
   return Object.freeze({
-    dispose: lifecycle.dispose,
+    dispose() {
+      lifecycle.dispose();
+      retryButton?.removeEventListener("click", retryExited);
+      exitSession = null;
+    },
+    showExited,
+    syncActiveExit() {
+      const tab = getTabById(getActiveTabId());
+      const session = tab?.panes.get(tab.activePaneId);
+      if (session?.terminalExitRetained && exitMessages.has(session)) {
+        return showExited(session, exitMessages.get(session), true);
+      }
+      if (exitSession && !isActive(exitSession)) {
+        exitSession = null;
+        hideStartupErrorPanel();
+      }
+      return false;
+    },
     invalidate,
     isGenericFallback,
     isRetryable: isRetryableTerminalStartupError,

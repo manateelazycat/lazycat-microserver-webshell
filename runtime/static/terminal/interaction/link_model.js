@@ -29,6 +29,7 @@ export const findTerminalURLAtPosition = (session, clientX, clientY) => {
   }
   const scrollback = term.wasmTerm?.getScrollbackLength?.() || 0;
   const absoluteRow = scrollback + viewportRow - Math.floor(term.getViewportY?.() || term.viewportY || 0);
+  if (term.wasmTerm?.isRemote) return term.wasmTerm.findLink(absoluteRow, col);
   const logical = terminalLogicalLineAt(term, absoluteRow);
   if (!logical) {
     return null;

@@ -22,6 +22,14 @@ live geometry 期间 `renderLiveGeometryNow()` 只提交当前 session 的真实
 
 ## 文件
 
+- `render_probe.js`：渲染异常的被动检查模块。采集 Canvas/host/祖先布局、显示样式、尺寸、generation、呈现门禁和 UI 缓存帧内容数量；手动捕获时使用独立小 Canvas 读取区域统计，不修改源 Canvas，不触发 Worker 请求、resize、重绘或 replay。运行时销毁释放采样 Canvas。
+
+- `screen_refresh_controller.js`：可插拔的显示兜底模块，由全局运行时注入会话枚举、presentation、resize 的只读检查及共享调度器。默认每秒检查可见 pane，进入/恢复显示或连接、回放、几何代际变化后稳定至少 500ms 补绘一次；之后仅对持续未提交的画面补绘，同一代际最多 3 次。遵守回放、resize、hold、Worker 帧就绪门禁，复用完整绘制，不清屏、不发送尺寸、不申请历史回放。正常画面不周期性重绘。关闭开关会撤销本模块定时器、事件监听、排队任务和会话观察状态；隐藏页面暂停，页面销毁释放全部资源。日志事件为 `screen_auto_refresh` 和 `screen_auto_refresh_exhausted`。无法识别所有像素层面的错误，不能修复错误的 VT 内容。
+
+持续输出的绘制请求在 Ghostty 内部即使用 33ms 限频，交互/恢复绘制仍可显式申请。presentation 安装共享调度 hook，统一取消旧 RAF、节流 timer 和共享任务；隐藏页面及隐藏 pane 保留待绘制标记，恢复可见后由现有 presentation 路径提交。普通完整绘制在预算不足时推迟，同一 live geometry 的 resize + draw 保持原子。
+
+Kitty 图形适配对不完整命令、传输总量、并发解码、图片缓存及 placement 数量设置上限；超限向终端程序回复协议错误。不完整超限命令以有界丢弃状态寻找结束符，不继续累积字符串。reset/删除/销毁会释放位图，迟到解码结果不得重新放回已清理的画面；PNG 尺寸和解压后字节量在分配前或读取过程中限制。
+
 - `index.js`：唯一公开入口。
 - `presentation_controller.js`：render generation、presentation gate、full-render validation/retry、retry exhausted 终态、hold 提交和 stall recovery 的唯一 owner。
 - `presentation_state.js`：presentation session 字段的唯一初始化定义。

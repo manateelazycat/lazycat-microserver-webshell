@@ -3,6 +3,7 @@ const normalizeID = (value) => String(value || "").trim();
 const paneIsEligible = (pane, targetName) => Boolean(
   pane
   && pane.closed !== true
+  && !(pane.exitExpected && !pane.socket)
   && normalizeID(pane.name) === targetName
   && (
     Number(pane.measuredFitGeneration || 0) > 0

@@ -122,7 +122,7 @@ export function createTerminalSessionRecoveryController({
   };
 
   const requestSessionHistoryReplay = (session) => {
-    if (disposed || !session?.term || session.closed || session.name !== getActiveName()) {
+    if (disposed || !session?.term || session.closed || session.exitExpected || session.name !== getActiveName()) {
       return false;
     }
     clearOutputSettle(session);

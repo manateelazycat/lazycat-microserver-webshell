@@ -40,6 +40,7 @@ type terminalQueueCheckpointCapability struct {
 }
 
 type terminalQueueSubscription struct {
+	CheckpointProtocol     string                              `json:"checkpoint_protocol,omitempty"`
 	PaneID                 string                              `json:"pane_id"`
 	StreamID               string                              `json:"stream_id"`
 	ChannelGeneration      uint64                              `json:"channel_generation"`
@@ -53,6 +54,7 @@ type terminalQueueSubscription struct {
 	LocalEndCursor         string                              `json:"local_end_cursor,omitempty"`
 	HistoryReplayMode      string                              `json:"history_replay_mode,omitempty"`
 	FlowControl            string                              `json:"flow_control,omitempty"`
+	ReplayBurstLimitBytes  int                                 `json:"replay_burst_limit_bytes,omitempty"`
 	CheckpointCapabilities []terminalQueueCheckpointCapability `json:"checkpoint_capabilities,omitempty"`
 	Priority               int                                 `json:"priority,omitempty"`
 	Foreground             string                              `json:"foreground,omitempty"`
@@ -104,13 +106,15 @@ type terminalQueueBinaryHeader struct {
 }
 
 type terminalQueueOutbound struct {
-	sequence       uint64
-	binarySequence uint64
-	messageType    int
-	payload        []byte
-	startCursor    uint64
-	endCursor      uint64
-	byteCost       int
+	sequence          uint64
+	binarySequence    uint64
+	messageType       int
+	payload           []byte
+	startCursor       uint64
+	endCursor         uint64
+	byteCost          int
+	replayBurstStart  bool
+	replayBurstFinish bool
 }
 
 type terminalQueuePaneStream struct {
@@ -132,20 +136,23 @@ type terminalQueuePaneStream struct {
 	stopped bool
 	exited  chan struct{}
 
-	mu              sync.Mutex
-	active          bool
-	overloaded      bool
-	priority        int
-	terminalControl bool
-	nextSequence    uint64
-	binarySequence  uint64
-	awaitingTurnAck bool
-	turnAckCursor   uint64
-	turnAckSequence uint64
-	buffer          []terminalQueueOutbound
-	bufferBytes     int
-	hasCursor       bool
-	cursor          uint64
+	mu                  sync.Mutex
+	active              bool
+	overloaded          bool
+	priority            int
+	terminalControl     bool
+	nextSequence        uint64
+	binarySequence      uint64
+	awaitingTurnAck     bool
+	turnAckCursor       uint64
+	turnAckSequence     uint64
+	replayBurstActive   bool
+	pendingTurnCursor   uint64
+	pendingTurnSequence uint64
+	buffer              []terminalQueueOutbound
+	bufferBytes         int
+	hasCursor           bool
+	cursor              uint64
 }
 
 type terminalQueueBroker struct {
@@ -478,7 +485,6 @@ func (b *terminalQueueBroker) runWriter() {
 				}
 				startedAt := time.Now()
 				writtenBytes := 0
-				wroteBinary := false
 				turnCursor := uint64(0)
 				turnSequence := uint64(0)
 				for {
@@ -491,7 +497,6 @@ func (b *terminalQueueBroker) runWriter() {
 						return
 					}
 					wrote = true
-					wroteBinary = wroteBinary || entry.messageType == websocket.BinaryMessage
 					if entry.messageType == websocket.BinaryMessage {
 						turnCursor = entry.endCursor
 						turnSequence = entry.binarySequence
@@ -501,12 +506,11 @@ func (b *terminalQueueBroker) runWriter() {
 						break
 					}
 				}
-				if wroteBinary {
-					stream.markTurnAwaitingAck(turnCursor, turnSequence)
+				if cursor, sequence, acknowledge := stream.finishTurn(turnCursor, turnSequence); acknowledge {
 					if err := b.writePaneControl(stream, map[string]any{
 						"type":             "queue-turn-complete",
-						"applied_cursor":   strconv.FormatUint(turnCursor, 10),
-						"applied_sequence": strconv.FormatUint(turnSequence, 10),
+						"applied_cursor":   strconv.FormatUint(cursor, 10),
+						"applied_sequence": strconv.FormatUint(sequence, 10),
 					}); err != nil {
 						b.cancel()
 						return
@@ -590,6 +594,9 @@ func validateTerminalQueueSubscription(subscription terminalQueueSubscription) (
 	subscription.HistoryGeneration = strings.TrimSpace(subscription.HistoryGeneration)
 	subscription.HistoryReplayMode = strings.TrimSpace(subscription.HistoryReplayMode)
 	subscription.FlowControl = strings.TrimSpace(subscription.FlowControl)
+	if subscription.CheckpointProtocol != "" && subscription.CheckpointProtocol != terminalMemoryCheckpointProtocol {
+		return subscription, historySyncRequest{}, errors.New("unsupported terminal checkpoint protocol")
+	}
 	if subscription.FlowControl != "" && subscription.FlowControl != "turn-ack-v1" {
 		return subscription, historySyncRequest{}, errors.New("unsupported queue flow control")
 	}
@@ -715,6 +722,7 @@ func (b *terminalQueueBroker) startPaneStream(
 	subscriptionCount int,
 ) (*terminalQueuePaneStream, error) {
 	processStartRequestedAt := time.Now()
+	syncRequest.checkpointProtocol = subscription.CheckpointProtocol
 	streamCtx, cancel := context.WithCancel(b.ctx)
 	command := exec.CommandContext(streamCtx, lightosctlPath, persistentAgentAttachCommandArgs(
 		b.scope,
@@ -1014,6 +1022,7 @@ func (s *terminalQueuePaneStream) enqueueControl(payload any) {
 
 func (s *terminalQueuePaneStream) enqueueText(payload []byte) {
 	var message map[string]any
+	entry := terminalQueueOutbound{messageType: websocket.TextMessage}
 	if err := json.Unmarshal(payload, &message); err == nil {
 		typeName := strings.TrimSpace(fmt.Sprint(message["type"]))
 		s.mu.Lock()
@@ -1023,18 +1032,31 @@ func (s *terminalQueuePaneStream) enqueueText(payload []byte) {
 				s.cursor = cursor
 				s.hasCursor = true
 			}
+			if size := terminalQueueReplayBurstBytes(s.subscription, message); size > 0 {
+				message["replay_burst_bytes"] = size
+				if encoded, err := json.Marshal(message); err == nil {
+					payload = encoded
+					entry.replayBurstStart = true
+				}
+			}
 		case "history-replay-complete":
 			if cursor, err := strconv.ParseUint(strings.TrimSpace(fmt.Sprint(message["history_cursor"])), 10, 64); err != nil || !s.hasCursor || cursor != s.cursor {
 				s.mu.Unlock()
 				s.overload("queue history cursor is not continuous")
 				return
 			}
-		case "process-exit", "workspace-refresh-required":
+			entry.replayBurstFinish = true
+		case "process-exit", "workspace-refresh-required", "terminal-checkpoint-error":
 			s.terminalControl = true
+			entry.replayBurstFinish = true
+		case "connection-error":
+			entry.replayBurstFinish = true
 		}
 		s.mu.Unlock()
 	}
-	s.enqueue(terminalQueueOutbound{messageType: websocket.TextMessage, payload: append([]byte(nil), payload...), byteCost: len(payload)})
+	entry.payload = append([]byte(nil), payload...)
+	entry.byteCost = len(payload)
+	s.enqueue(entry)
 }
 
 func (s *terminalQueuePaneStream) enqueueBinary(payload []byte) {
@@ -1111,6 +1133,10 @@ func (s *terminalQueuePaneStream) overload(reason string) {
 		return
 	}
 	s.overloaded = true
+	s.replayBurstActive = false
+	s.pendingTurnCursor = 0
+	s.pendingTurnSequence = 0
+	s.awaitingTurnAck = false
 	s.buffer = nil
 	s.bufferBytes = 0
 	s.nextSequence++
@@ -1149,19 +1175,6 @@ func (s *terminalQueuePaneStream) acknowledgeTurn(value string) error {
 	return nil
 }
 
-func (s *terminalQueuePaneStream) markTurnAwaitingAck(cursor, sequence uint64) {
-	if s.subscription.FlowControl != "turn-ack-v1" {
-		return
-	}
-	s.mu.Lock()
-	if s.active && !s.overloaded {
-		s.awaitingTurnAck = true
-		s.turnAckCursor = cursor
-		s.turnAckSequence = sequence
-	}
-	s.mu.Unlock()
-}
-
 func (s *terminalQueuePaneStream) targetSequence() uint64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -1183,6 +1196,13 @@ func (s *terminalQueuePaneStream) popThrough(target uint64, alreadyWritten int) 
 	}
 	s.buffer[0] = terminalQueueOutbound{}
 	s.buffer = s.buffer[1:]
+	// Apply markers in wire order, independently of the agent reader's lead.
+	if entry.replayBurstStart {
+		s.replayBurstActive = true
+	}
+	if entry.replayBurstFinish {
+		s.replayBurstActive = false
+	}
 	s.bufferBytes -= entry.byteCost
 	if s.bufferBytes < 0 {
 		s.bufferBytes = 0

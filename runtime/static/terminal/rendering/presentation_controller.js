@@ -6,6 +6,7 @@ const noop = () => {};
 
 export function createTerminalPresentationController({
   windowObject = globalThis.window,
+  workScheduler = null,
   getActiveName = () => "",
   getActiveTabId = () => "",
   getBackground = () => "#000000",
@@ -22,6 +23,7 @@ export function createTerminalPresentationController({
   retryResize = () => false,
   commitResize = (session) => session?.resizeController?.commit?.(),
   recordEvent = noop,
+  isByteIOLogEnabled = () => false,
   onReady = noop,
   onRenderObserved = noop,
   recoverTransport = () => false,
@@ -38,6 +40,7 @@ export function createTerminalPresentationController({
   view = createTerminalPresentationView({ windowObject, getBackground }),
   lifecycle = createTerminalPresentationLifecycle({
     windowObject,
+    workScheduler,
     registerSessionCleanup,
     isCanvasElement: (value) => view.isCanvasElement(value),
   }),
@@ -74,8 +77,12 @@ export function createTerminalPresentationController({
 
   const renderAllowed = (session) => {
     const liveGeometry = isLiveGeometryActive(session);
+    const backend = session?.term?.wasmTerm;
+    const backendReady = !backend?.isRemote || (backend.isReady && !session.term.backendResizePending
+      && backend.cols === session.term.cols && backend.rows === session.term.rows);
     return Boolean(
       isUsable(session)
+      && backendReady
       && isReplayCommitted(session)
       && (liveGeometry || !session.resizeFenceActive)
       && (liveGeometry || !session.resizeAckPending)
@@ -88,6 +95,7 @@ export function createTerminalPresentationController({
       return false;
     }
     const fullRenderRequested = term.renderFullNextFrame === true;
+    term.cancelRenderLoop?.();
     if (term.animationFrameId) {
       windowObject.cancelAnimationFrame(term.animationFrameId);
     }
@@ -123,6 +131,20 @@ export function createTerminalPresentationController({
       measurable: isPaneMeasurable(session),
       canvasMatches: canvasMatchesExpectedSize(session),
       activationFitPending: session?.activationFitPending === true,
+      sizeClaimRequired: isCurrentDeviceClaimRequired(session),
+      viewportGeometryClaimPending: isViewportGeometryClaimPending(session),
+      sizeClaimed: session?.sizeClaimed === true,
+      requestedResizeClaim: session?.requestedResizeClaim === true,
+      pendingSizeClaim: session?.pendingSizeClaim === true,
+      replayGeometryLocked: session?.replayGeometryLocked === true,
+      replayGeometryPending: session?.replayGeometryPending === true,
+      backendResizePending: session?.term?.backendResizePending === true,
+      workerGeneration: session?.term?.wasmTerm?.generation,
+      workerReady: session?.term?.wasmTerm?.isReady,
+      frameReady: session?.term?.wasmTerm?.isFrameReady,
+      terminalSize: { cols: session?.term?.cols, rows: session?.term?.rows },
+      backendSize: { cols: session?.term?.wasmTerm?.cols, rows: session?.term?.wasmTerm?.rows },
+      serverSize: { cols: session?.serverCols, rows: session?.serverRows },
       resizeFenceActive: session?.resizeFenceActive === true,
       resizeAckPending: session?.resizeAckPending === true,
       resizeOutputSettleActive: session?.resizeOutputSettleActive === true,
@@ -148,7 +170,9 @@ export function createTerminalPresentationController({
       hostCssWidth: Number(hostRect?.width || 0),
       hostCssHeight: Number(hostRect?.height || 0),
       retryPending: session?.presentationRetryPending === true,
-      retryAttempts: Number(session?.presentationValidationAttempts || 0),
+      retryAttempts: Number(session?.presentationRetryAttempts || 0),
+      validationAttempts: Number(session?.presentationValidationAttempts || 0),
+      retryExhausted: session?.presentationRetryExhausted === true,
       retryReason: String(session?.presentationRetryReason || ""),
     };
   };
@@ -717,6 +741,10 @@ export function createTerminalPresentationController({
   };
 
   const renderFullNow = (session) => {
+    if (workScheduler && (!workScheduler.isRunning() || workScheduler.remainingMs() <= 0)) {
+      scheduleFrame(session, "budgeted_full_render", { forceHistory: false });
+      return false;
+    }
     trace(session, "render_full_enter");
     const term = session?.term;
     if (!isUsable(session) || !term || typeof term.renderNow !== "function") {
@@ -731,11 +759,18 @@ export function createTerminalPresentationController({
       });
       return false;
     }
+    if (term.wasmTerm?.isRemote && !term.wasmTerm.isFrameReady) {
+      setPendingRender(session);
+      term.wasmTerm.getViewport();
+      return false;
+    }
     cancelPendingRender(term);
     setPendingRender(session);
     term.renderFullNextFrame = false;
     recordEvent(session, "full_render_start");
+    const drawAt = isByteIOLogEnabled() ? now() : null;
     const rendered = term.renderNow(true) !== false;
+    if (drawAt !== null) recordEvent(session, "byte_io_render", { renderCallMs: now() - drawAt, rendered });
     trace(session, "render_full_after", { rendered });
     if (rendered) {
       recordEvent(session, "presentation_render_start");
@@ -803,7 +838,8 @@ export function createTerminalPresentationController({
 
   const retryPendingResize = (session, reason) => {
     if (
-      !session?.resizeAckPending
+      session?.exitExpected
+      || !session?.resizeAckPending
       || !isUsable(session)
       || !isSocketOpen(session)
       || now() - Number(session.lastResizeRequestAt || 0) < presentationResizeRetryMs
@@ -869,7 +905,8 @@ export function createTerminalPresentationController({
       return false;
     }
     if (session.activationFitPending || !canvasMatchesExpectedSize(session)) {
-      if (isCurrentDeviceClaimRequired(session) || isViewportGeometryClaimPending(session)) {
+      // A follower can present the server grid without owning PTY geometry.
+      if (isViewportGeometryClaimPending(session)) {
         recordEvent(session, "presentation_wait_current_device_claim", {
           reason,
           ...presentationGateDetails(session),
@@ -1049,7 +1086,8 @@ export function createTerminalPresentationController({
 
   const recoverStalled = (session, now = Date.now()) => {
     if (
-      !isUsable(session)
+      session?.exitExpected
+      || !isUsable(session)
       || !isActiveTarget(session)
       || session.tabId !== getActiveTabId()
       || !isReplayCommitted(session)
@@ -1098,7 +1136,25 @@ export function createTerminalPresentationController({
     }
   };
 
-  const installSession = (session) => lifecycle.installSession(session, {
+  const installSession = (session) => {
+    if (workScheduler && session?.term) {
+      const term = session.term;
+      term.cancelRenderLoop?.();
+      term.scheduleRender = (callback) => workScheduler.schedule(session, "render", () => {
+        if (!isUsable(session) || !isPaneVisible(session) || !renderAllowed(session)) {
+          term.cancelRenderLoop?.();
+          return;
+        }
+        callback();
+      }, { priority: () => session.tabId === getActiveTabId() ? 2 : 0 });
+      term.cancelScheduledRender = () => workScheduler.cancel(session, "render");
+      registerSessionCleanup(session, () => {
+        term.cancelRenderLoop?.();
+        term.scheduleRender = undefined;
+        term.cancelScheduledRender = undefined;
+      });
+    }
+    return lifecycle.installSession(session, {
     onContextLost: (event) => {
       event?.preventDefault?.();
       setReady(session, false, { reason: "context_lost" });
@@ -1131,7 +1187,8 @@ export function createTerminalPresentationController({
       }
       onRenderObserved(session);
     },
-  });
+    });
+  };
 
   const dispose = () => {
     if (disposed) {

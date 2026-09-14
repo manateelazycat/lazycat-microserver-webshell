@@ -154,6 +154,7 @@ export function createTerminalSelectionController({
     manager.webshellSelectionCopyPatched = true;
     manager.webshellOriginalGetSelection = manager.getSelection;
     const patchedGetSelection = function (...args) {
+      if (this.wasmTerm?.isRemote) return session.term.getSelectionPreview?.() || "";
       try {
         return terminalSelectionText(this);
       } catch (error) {
@@ -717,7 +718,7 @@ export function createTerminalSelectionController({
       }
       return fullBufferSelections.has(session)
         ? getFullBufferText(session.term)
-        : session.term.getSelection?.() || "";
+        : session.term.getSelectionAsync?.() ?? session.term.getSelection?.() ?? "";
     },
 
     hasSelection,

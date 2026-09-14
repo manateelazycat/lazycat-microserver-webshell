@@ -27,7 +27,8 @@ import (
 )
 
 const (
-	agentProtocolVersion = "lcmd-webshell-agent-v13"
+	// v17 negotiates a pinned Ghostty state checkpoint followed by cursor-ordered output.
+	agentProtocolVersion = "lcmd-webshell-agent-v17"
 
 	agentFrameBinary         = byte('B')
 	agentFrameText           = byte('T')
@@ -82,6 +83,7 @@ func encodeFastBinaryFrame(selector, paneID, historyGeneration string, sequence,
 }
 
 type agentRequest struct {
+	CheckpointProtocol  string                  `json:"checkpoint_protocol,omitempty"`
 	Type                string                  `json:"type"`
 	Selector            string                  `json:"selector,omitempty"`
 	AccountID           string                  `json:"account_id,omitempty"`
@@ -179,6 +181,7 @@ func runAgentCommand(args []string) error {
 		cols := fs.Int("cols", 0, "terminal columns")
 		rows := fs.Int("rows", 0, "terminal rows")
 		terminalScrollback := fs.Int("terminal-scrollback", fonts.DefaultTerminalScrollback, "terminal scrollback lines")
+		checkpointProtocol := fs.String("checkpoint-protocol", "", "terminal state checkpoint protocol")
 		historyGeneration := fs.String("history-generation", "", "terminal history generation")
 		workspaceGeneration := fs.String("workspace-generation", "", "terminal workspace generation")
 		localBaseCursor := fs.String("local-base-cursor", "", "local terminal history base cursor")
@@ -188,7 +191,7 @@ func runAgentCommand(args []string) error {
 		if err := fs.Parse(args[1:]); err != nil {
 			return err
 		}
-		return runAgentAttachClient(*socketPath, *selector, *accountID, *paneID, *cols, *rows, *terminalScrollback, *workspaceGeneration, *historyGeneration, *localBaseCursor, *localEndCursor, *historyReplayMode, *integrityProtocol)
+		return runAgentAttachClient(*socketPath, *selector, *accountID, *paneID, *cols, *rows, *terminalScrollback, *workspaceGeneration, *historyGeneration, *localBaseCursor, *localEndCursor, *historyReplayMode, *integrityProtocol, *checkpointProtocol)
 	default:
 		return fmt.Errorf("unknown agent command %q", args[0])
 	}
@@ -542,8 +545,14 @@ func (d *agentDaemon) handleAttach(ctx context.Context, conn net.Conn, reader *b
 		return
 	}
 	paneResolvedAt := time.Now()
+	syncRequest.checkpointProtocol = request.CheckpointProtocol
 	history, client, allowGeneratedInputDuringReplay, exit, err := pane.attachClient(syncRequest)
 	if err != nil {
+		if request.CheckpointProtocol == terminalMemoryCheckpointProtocol {
+			_ = writeAgentControlFrame(conn, map[string]any{"type": "terminal-checkpoint-error", "selector": workspace.selector,
+				"pane_id": request.PaneID, "message": err.Error()})
+			return
+		}
 		_ = writeAgentControlFrame(conn, map[string]any{
 			"type":          "process-exit",
 			"message":       err.Error(),
@@ -680,7 +689,7 @@ func runAgentRequestClient(socketPath, encodedRequest string) error {
 	return nil
 }
 
-func runAgentAttachClient(socketPath, selector, accountID, paneID string, cols, rows, terminalScrollback int, workspaceGeneration, historyGeneration, localBaseCursor, localEndCursor, historyReplayMode, integrityProtocol string) error {
+func runAgentAttachClient(socketPath, selector, accountID, paneID string, cols, rows, terminalScrollback int, workspaceGeneration, historyGeneration, localBaseCursor, localEndCursor, historyReplayMode, integrityProtocol string, checkpointProtocol ...string) error {
 	if strings.TrimSpace(paneID) == "" {
 		return errors.New("pane is required")
 	}
@@ -703,6 +712,9 @@ func runAgentAttachClient(socketPath, selector, accountID, paneID string, cols, 
 		LocalEndCursor:      strings.TrimSpace(localEndCursor),
 		HistoryReplayMode:   strings.TrimSpace(historyReplayMode),
 		IntegrityProtocol:   strings.TrimSpace(integrityProtocol),
+	}
+	if len(checkpointProtocol) > 0 {
+		request.CheckpointProtocol = checkpointProtocol[0]
 	}
 	data, err := json.Marshal(request)
 	if err != nil {
@@ -773,6 +785,22 @@ func writeAgentHistoryReplay(w io.Writer, identity terminalReplayIdentity, histo
 	if identity.workspaceGeneration != "" && identity.tabID != "" {
 		start["workspace_generation"] = identity.workspaceGeneration
 		start["tab_id"] = identity.tabID
+	}
+	if history.checkpoint != nil {
+		checkpoint := history.checkpoint
+		checkpoint.Parts = (len(checkpoint.Compressed) + 65535) / 65536
+		for index, offset := 0, 0; offset < len(checkpoint.Compressed); index, offset = index+1, offset+65536 {
+			part := checkpoint.Compressed[offset:min(offset+65536, len(checkpoint.Compressed))]
+			if err := writeAgentControlFrame(w, map[string]any{"type": "terminal-checkpoint-part", "selector": identity.selector,
+				"pane_id": identity.paneID, "history_generation": history.generation, "cursor": checkpoint.Cursor,
+				"index": index, "data": base64.StdEncoding.EncodeToString(part)}); err != nil {
+				return false
+			}
+		}
+		start["memory_checkpoint"] = checkpoint
+		start["recovery_baseline"] = terminalMemoryCheckpointProtocol
+	} else {
+		start["recovery_baseline"] = "raw-history"
 	}
 	if err := writeAgentControlFrame(w, start); err != nil {
 		return false

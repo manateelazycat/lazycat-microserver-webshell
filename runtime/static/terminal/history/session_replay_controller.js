@@ -60,6 +60,8 @@ export function createTerminalSessionReplayController({
       || hasQueuedOutput(session)
       || !terminalReplayIsAuthorized(session)
       || session.closed
+      || session.term?.wasmTerm?.checkpointRestorePending
+      || session.term?.backendResizePending
       || session.name !== getActiveName()
       || (session.historyProtocolActive && session.receivedHistoryCursor < session.historyReplayTargetCursor)
       || (session.historyProtocolActive && session.appliedHistoryCursor < session.historyReplayTargetCursor)
@@ -127,12 +129,12 @@ export function createTerminalSessionReplayController({
     session.reconnectAttempts = 0;
     session.connectionRetrying = false;
     if (session.shellEl?.dataset) {
-      session.shellEl.dataset.connection = "open";
+      session.shellEl.dataset.connection = session.exitExpected ? "error" : "open";
     }
     if (session.connectionChannel === "unified") {
       clearUnifiedRetry(session, { resetAttempts: true });
     }
-    if (isActivePane(session)) {
+    if (isActivePane(session) && !session.terminalExitRetained) {
       hideStartupError();
     }
     if (session.connectionChannel === "fast") {

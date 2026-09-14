@@ -26,7 +26,7 @@ const terminalEventLabels = Object.freeze({
   first_binary_output: "首个终端数据",
   history_replay_complete: "历史回放接收完成",
   replay_output_drained: "回放输出排空",
-  resize_applied: "终端尺寸应用",
+  resize_applied: "收到服务端尺寸确认",
   presentation_render_start: "终端渲染开始",
   full_render_start: "完整渲染开始",
   presentation_ready_state: "Presentation 就绪状态",
@@ -39,6 +39,29 @@ const terminalEventLabels = Object.freeze({
 const terminalProgressRanks = new Map(
   Object.keys(terminalEventLabels).map((name, index) => [name, index + 1]),
 );
+
+// Diagnostic events must not advance the candidate session's startup rank.
+const diagnosticEventLabels = Object.freeze({
+  backend_created: "Worker 已创建",
+  backend_restart: "Worker 重建开始",
+  backend_rpc_start: "Worker 请求发出",
+  backend_rpc_complete: "Worker 请求完成",
+  backend_failed: "Worker 失败",
+  resize_fence_cleared: "本地尺寸事务清理",
+  resize_fence_queued: "本地尺寸更新等待调度",
+  resize_observed_queued: "连续服务端尺寸等待按序应用",
+  resize_native_start: "本地尺寸应用开始",
+  resize_native_complete: "本地尺寸应用结果",
+  resize_native_cancel: "本地尺寸应用取消",
+  resize_native_error: "本地尺寸应用失败",
+  resize_control_error: "收到服务端尺寸拒绝",
+  term_resize: "本地终端尺寸已提交",
+  replay_batch_begin: "整段历史接收开始",
+  replay_batch_received: "整段历史接收完成",
+  replay_batch_applied: "整段历史解析完成",
+  replay_batch_interrupted: "历史按尺寸边界分段解析",
+  terminal_process_exited: "终端进程已退出",
+});
 
 const initializationDetailKeys = new Set([
   "ready", "reason", "channel", "channelGeneration", "connectionEpoch",
@@ -75,6 +98,21 @@ const initializationDetailKeys = new Set([
   "serverReplayDurationScope",
   "flushedBytes", "flushedEntries", "durationMs", "bytes", "terminalFrameHeld",
   "resizePresentationHold", "liveCanvas", "holdCanvas",
+  "paneID", "tabID", "target", "eventAt", "backendCount", "workerGeneration",
+  "requestID", "operation", "pendingRequests", "pendingBytes", "workerReady", "frameReady",
+  "roundTripMs", "workerQueueMs", "workerExecutionMs", "wasmLoadMs", "engineCreateMs", "snapshotMs",
+  "claim", "requestWasClaim", "remoteEpoch", "sizeClaimRequired", "sizeClaimed",
+  "requestedResizeClaim", "pendingSizeClaim", "pendingCurrentDeviceClaim", "viewportGeometryClaimPending",
+  "replayGeometryLocked", "replayGeometryPending", "nativePending", "backendResizePending",
+  "resizeFenceAckReceived", "cancelledScheduledTask", "committed", "current", "error",
+  "resizeErrorEpoch", "ackEpoch", "inFlightEpoch", "appliedEpoch", "source",
+  "localSize", "terminalSize", "serverSize", "requestedSize", "targetSize", "backendSize",
+  "resizeEpochs", "requested", "applied", "presented", "flags", "host", "cssWidth", "cssHeight",
+  "fittedCols", "fittedRows", "currentCols", "currentRows", "canvasNeedsResize", "dimensionsWillChange",
+  "attempts", "limit", "validationAttempts", "retryExhausted",
+  "queuedResizes",
+  "replayBurstBytes", "aggregate",
+  "exitCode", "retained", "authoritative",
 ]);
 
 const canvasDetailKeys = new Set([
@@ -142,7 +180,7 @@ const finiteTime = (value) => {
   return Number.isFinite(time) && time > 0 ? time : 0;
 };
 
-const formatEventName = (name) => terminalEventLabels[name] || startupMetricLabels[name] || String(name || "初始化事件");
+const formatEventName = (name) => diagnosticEventLabels[name] || terminalEventLabels[name] || startupMetricLabels[name] || String(name || "初始化事件");
 
 export function createInitializationPerformance({
   startupDiagnostics = null,
@@ -158,8 +196,19 @@ export function createInitializationPerformance({
   let terminalEventsBySession = new Map();
   let terminalProgressBySession = new Map();
   let result = null;
+  let lastEmitAt = -Infinity;
+  const context = {
+    pageID: globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    timeOriginUnixMs: globalThis.performance?.timeOrigin || Date.now() - now(),
+    userAgent: globalThis.navigator?.userAgent || "",
+  };
 
-  const emit = () => {
+  const emit = (force = false) => {
+    // Preserve every event, but avoid rebuilding the whole panel per event.
+    // The existing 250ms ticker delivers the tail; completion is immediate.
+    const at = now();
+    if (!force && at - lastEmitAt < 100) return;
+    lastEmitAt = at;
     onChange(snapshot());
   };
 
@@ -213,6 +262,7 @@ export function createInitializationPerformance({
       });
     }
     return {
+      ...context,
       status,
       sessionID,
       rows,
@@ -276,7 +326,7 @@ export function createInitializationPerformance({
     if (!id) {
       return;
     }
-    const at = finiteTime(now());
+    const at = finiteTime(details.eventAt) || finiteTime(now());
     if (!at) {
       return;
     }
@@ -284,10 +334,16 @@ export function createInitializationPerformance({
     terminalEventsBySession.set(id, events);
     events.push({
       name: String(name || "terminal_event"),
-      label: formatEventName(name),
+      label: String(name || "").startsWith("backend_rpc_") && details.operation
+        ? `${formatEventName(name)} · ${details.operation}`
+        : formatEventName(name),
       source: "终端初始化",
       at,
-      details: normalizeInitializationDetails(details),
+      details: normalizeInitializationDetails({
+        paneID: session.id, tabID: session.tabId, target: session.name,
+        connectionEpoch: session.connectionEpoch,
+        ...details,
+      }),
     });
     selectProgressSession(id, events, String(name || "terminal_event"), at);
     if (name === "presentation_commit_complete") {
@@ -296,7 +352,7 @@ export function createInitializationPerformance({
       completed = true;
       result = buildResult(at);
     }
-    emit();
+    emit(completed);
   };
 
   return {
@@ -312,6 +368,9 @@ export function createInitializationPerformance({
     },
     isEnabled() {
       return enabled;
+    },
+    isCollecting() {
+      return enabled && !disposed && !completed;
     },
     recordStartupEvent(name, diagnosticDetails = {}) {
       if (!enabled || disposed || completed) {
@@ -335,7 +394,7 @@ export function createInitializationPerformance({
       if (!enabled || disposed || completed) {
         return false;
       }
-      emit();
+      emit(true);
       return true;
     },
     setEnabled(nextEnabled) {
@@ -343,7 +402,7 @@ export function createInitializationPerformance({
         return;
       }
       enabled = nextEnabled === true;
-      emit();
+      emit(true);
     },
     snapshot,
   };

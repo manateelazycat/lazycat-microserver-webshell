@@ -4,7 +4,7 @@
 
 本模块消费 Unified Queue 握手提供的当前/推荐 agent 协议版本，展示一次更新提示，在用户明确确认后调用 scoped agent 更新 API，并在成功后安排页面重载。
 
-当前 Provider 推荐协议为 `lcmd-webshell-agent-v12`，用于发布登录用户切换降级和异常退出 pane 的稳定保留语义。v11、v10 和 v9 仍显式兼容，旧 Agent 可继续承载原会话；仅在用户确认后通过 scoped `replace-active` 更新，不能自动销毁现有 PTY。
+当前 Provider 推荐协议为 `lcmd-webshell-agent-v17`，增加协商式 Ghostty 状态基线恢复，避免历史裁剪后丢失 TUI 主体。v16、v15、v14、v13、v12、v11、v10 和 v9 仍显式兼容，旧 Agent 可继续承载原会话；仅在用户确认后通过 scoped `replace-active` 更新，不能自动销毁现有 PTY。新页面通过 `checkpoint_protocol=ghostty-memory-v1` 协商，未协商或旧 Agent 仍使用原始历史回放；Kitty 图形会话暂沿用原路径。整段原始回放仍由 `replay_burst_bytes` 标识。
 
 本模块不拥有终端 session、连接、PTY 或输入状态，不创建本地或远程输入锁。确认更新后允许清理当前页面尚未发送的 pending 输入，避免即将销毁的旧会话残留队列，但不得在 Provider、persistent agent 或 pane 上保存 blocker。
 
@@ -32,3 +32,5 @@ controller 独占 `targetName`、当前/推荐版本、`updateAvailable`、`upda
 ## 依赖与验证
 
 依赖方向为 `global-runtime -> agent_protocol_update -> API/view`。行为测试为 `tests/agent_protocol_update_controller_test.mjs`，真实旧控制帧兼容和跨页面输入隔离由 `spec-tests/terminal/input-lock-lifecycle` 覆盖。最小回归需确认取消、失败、成功重载、required 自动提示和页面销毁均不会创建 `input_lock` 控制帧或影响其他设备输入。
+
+确认更新后调用 `prepareUpdate()`，复用页面完整销毁编排退休旧会话、Worker、尺寸、恢复与 workspace 任务，等待旧物理连接关闭后再发更新请求。仅保留更新 controller、诊断及反馈以处理结果；成功或失败后均重新加载，不能恢复已销毁的旧运行时。Provider 按 selector/account 对自动 ensure 和显式替换做生命周期互斥。
