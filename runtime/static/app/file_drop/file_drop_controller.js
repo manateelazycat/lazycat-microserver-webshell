@@ -27,8 +27,6 @@ export function createAppFileDropController({
   let started = false;
   let disposed = false;
   let dragDepth = 0;
-  let overlayHost = null;
-  let overlayText = "";
 
   const consume = (event) => {
     event?.preventDefault?.();
@@ -42,8 +40,6 @@ export function createAppFileDropController({
   };
 
   const hideOverlay = () => {
-    overlayHost = null;
-    overlayText = "";
     view.hide();
   };
 
@@ -59,11 +55,6 @@ export function createAppFileDropController({
       hideOverlay();
       return false;
     }
-    if (overlayHost === host && overlayText === text) {
-      return true;
-    }
-    overlayHost = host;
-    overlayText = text;
     return view.show(host, text) === true;
   };
 

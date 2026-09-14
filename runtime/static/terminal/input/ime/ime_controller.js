@@ -105,6 +105,10 @@ export function createTerminalIMEController({
       session.compositionPreview,
     ].filter(Boolean));
     for (const node of Array.from(host.childNodes || [])) {
+      // The file-drop controller owns this overlay, including its removal.
+      if (node.dataset?.fileDropOverlay === "true") {
+        continue;
+      }
       if (!keep.has(node) && (node.nodeType === 1 || node.nodeType === 3)) {
         node.remove();
       }
