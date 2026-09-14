@@ -81,6 +81,7 @@ export function createDiagnosticsView({ documentObject = globalThis.document } =
     settingsDebugLogToggle: byID("settingsDebugLogToggle"),
     settingsNetworkMonitorToggle: byID("settingsNetworkMonitorToggle"),
     settingsNetworkConsumptionToggle: byID("settingsNetworkConsumptionToggle"),
+    settingsHistoryReplayCalibrationToggle: byID("settingsHistoryReplayCalibrationToggle"),
     settingsDebugOptions: byID("settingsDebugOptions"),
     settingsInitializationPerformanceToggle: byID("settingsInitializationPerformanceToggle"),
     settingsPerformanceMeterToggle: byID("settingsPerformanceMeterToggle"),
@@ -162,6 +163,7 @@ export function createDiagnosticsView({ documentObject = globalThis.document } =
     bytesPerSecond: 0,
     tabs: [],
     consumers: [],
+    historyCalibrations: [],
   });
 
   const renderTabNetworkMetrics = (tabs = [], visible = false) => {
@@ -298,6 +300,69 @@ export function createDiagnosticsView({ documentObject = globalThis.document } =
           cells[index].textContent = values[index];
           cells[index].title = values[index];
         }
+      }
+    },
+    renderHistoryReplayCalibration(state, { visible = false } = {}) {
+      const shells = Array.from(documentObject?.querySelectorAll?.(".pane-shell") || []);
+      if (!visible) {
+        for (const shell of shells) {
+          const panel = shell.querySelector?.(".history-replay-calibration");
+          if (panel) panel.hidden = true;
+        }
+        return;
+      }
+      const snapshot = state || emptyNetworkState();
+      const calibrations = new Map(Array.from(snapshot.historyCalibrations || [], (item) => [
+        String(item.sessionId || ""),
+        item,
+      ]));
+      const stateLabels = {
+        idle: "等待历史回放",
+        replaying: "正在校准历史回放",
+        normal: "历史回放消费正常",
+        high: "异常：历史回放消费大于本次应回放字节",
+        low: "异常：历史回放消费不足本次应回放字节的一半",
+      };
+      for (const shell of shells) {
+        const calibration = calibrations.get(String(shell.dataset?.paneId || "")) || {};
+        let panel = shell.querySelector?.(".history-replay-calibration");
+        if (!panel) {
+          panel = documentObject.createElement("div");
+          panel.className = "history-replay-calibration";
+          const status = documentObject.createElement("span");
+          status.className = "history-replay-calibration-status";
+          status.setAttribute("aria-hidden", "true");
+          panel.appendChild(status);
+          for (const [label, valueClass] of [
+            ["当前历史回放流量消费", "history-replay-consumption-value"],
+            ["当前会话历史总字节大小", "history-replay-total-value"],
+          ]) {
+            const metric = documentObject.createElement("span");
+            metric.className = "history-replay-calibration-metric";
+            metric.append(`${label} `);
+            const value = documentObject.createElement("strong");
+            value.className = valueClass;
+            value.textContent = "0.000 MB";
+            metric.appendChild(value);
+            panel.appendChild(metric);
+          }
+          shell.appendChild(panel);
+        }
+        const replayBytes = Math.max(0, Number(calibration.replayBytes) || 0);
+        const historyBytes = Math.max(0, Number(calibration.serverHistoryTotalBytes) || 0);
+        const calibrationState = String(calibration.state || "idle");
+        const consumption = panel.querySelector?.(".history-replay-consumption-value");
+        const total = panel.querySelector?.(".history-replay-total-value");
+        if (consumption) consumption.textContent = `${formatMegabytes(replayBytes)} MB`;
+        if (total) total.textContent = `${formatMegabytes(historyBytes)} MB`;
+        panel.dataset.state = calibrationState;
+        const stateLabel = stateLabels[calibrationState] || stateLabels.idle;
+        const expected = formatMegabytes(calibration.expectedReplayBytes);
+        const syncMode = String(calibration.syncMode || "unknown");
+        const metricsLabel = `当前历史回放流量消费 ${formatMegabytes(replayBytes)} MB 当前会话历史总字节大小 ${formatMegabytes(historyBytes)} MB`;
+        panel.setAttribute("aria-label", `${metricsLabel} ${stateLabel}`);
+        panel.title = `${stateLabel} · 本次应回放 ${expected} MB · 模式 ${syncMode}`;
+        panel.hidden = false;
       }
     },
     renderNetworkMonitor(state, {
@@ -452,6 +517,7 @@ export function createDiagnosticsView({ documentObject = globalThis.document } =
         [elements.settingsDebugLogToggle, state.debugLog],
         [elements.settingsNetworkMonitorToggle, state.networkMonitor],
         [elements.settingsNetworkConsumptionToggle, state.networkConsumption],
+        [elements.settingsHistoryReplayCalibrationToggle, state.historyReplayCalibration],
         [elements.settingsPerformanceMeterToggle, state.performanceMeter],
         [elements.settingsPerformanceTasksToggle, state.performanceTasks],
       ]) {
@@ -462,6 +528,9 @@ export function createDiagnosticsView({ documentObject = globalThis.document } =
       }
       if (elements.settingsNetworkConsumptionToggle) {
         elements.settingsNetworkConsumptionToggle.disabled = !debugMode || state.networkMonitor !== true;
+      }
+      if (elements.settingsHistoryReplayCalibrationToggle) {
+        elements.settingsHistoryReplayCalibrationToggle.disabled = !debugMode || state.networkMonitor !== true;
       }
     },
   };
