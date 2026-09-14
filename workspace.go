@@ -37,6 +37,8 @@ const (
 	terminalPTYInputChunkBytes = 16 << 10
 )
 
+var errTerminalPaneClosing = errors.New("pane is closing")
+
 type workspaceManager struct {
 	rootDir string
 
@@ -119,6 +121,7 @@ type terminalPane struct {
 	generatedEchoPending       []terminalGeneratedEcho
 	generatedEchoOutputPending []byte
 	hasAttached                bool
+	closing                    bool
 	exited                     bool
 	exitCode                   int
 	exitText                   string
@@ -1309,6 +1312,10 @@ func (w *terminalWorkspace) setHistoryLimitBytesLocked(limit int) {
 	w.historyLimitBytes = limit
 	for _, pane := range w.panes {
 		pane.mu.Lock()
+		if pane.closing {
+			pane.mu.Unlock()
+			continue
+		}
 		pane.historyLimitBytes = limit
 		pane.checkpoint.resize(pane.cols, pane.rows, limit/averageHistoryBytesPerLine)
 		pane.trimHistoryLocked()
@@ -1535,7 +1542,9 @@ func (p *terminalPane) appendOutput(data []byte) {
 	defer p.outputMu.Unlock()
 	var clients []*paneClient
 	p.mu.Lock()
-	if !p.exited {
+	// Read may already have returned bytes when close starts. Check lifecycle
+	// under the same mutex that protects checkpoint disposal before parsing.
+	if !p.closing && !p.exited {
 		p.checkpoint.write(filtered)
 		for _, chunk := range chunks {
 			p.history.append(chunk)
@@ -2331,6 +2340,9 @@ func newHistoryGeneration() (string, error) {
 func (p *terminalPane) attachClient(syncRequest historySyncRequest) (paneHistorySnapshot, *paneClient, bool, paneExitSnapshot, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if p.closing {
+		return paneHistorySnapshot{}, nil, false, paneExitSnapshot{}, errTerminalPaneClosing
+	}
 	if p.historyGeneration == "" {
 		generation, err := newHistoryGeneration()
 		if err != nil {
@@ -2497,9 +2509,9 @@ func (p *terminalPane) writePTYInput(data []byte) error {
 	}
 	p.mu.Lock()
 	ptyFile := p.ptyFile
-	exited := p.exited
+	notRunning := p.closing || p.exited
 	p.mu.Unlock()
-	if exited || ptyFile == nil {
+	if notRunning || ptyFile == nil {
 		return errors.New("pane is not running")
 	}
 	p.writeMu.Lock()
@@ -2554,6 +2566,10 @@ func (p *terminalPane) resizeWithPixelsUnlocked(cols, rows, pixelWidth, pixelHei
 	pixelWidth = normalizeTerminalPixelDimension(pixelWidth)
 	pixelHeight = normalizeTerminalPixelDimension(pixelHeight)
 	p.mu.Lock()
+	if p.closing {
+		p.mu.Unlock()
+		return errTerminalPaneClosing
+	}
 	if pixelWidth == 0 {
 		pixelWidth = p.pixelWidth
 	}
@@ -2750,6 +2766,13 @@ func (p *terminalPane) enqueueResizeError(client *paneClient, epoch uint64, reas
 
 func (p *terminalPane) close() {
 	p.mu.Lock()
+	if p.closing {
+		p.mu.Unlock()
+		return
+	}
+	// Do not use exited here: readLoop still owns process exit status and done.
+	// Waiting for readLoop here would deadlock callers holding workspace.mu.
+	p.closing = true
 	p.checkpoint.close()
 	ptyFile := p.ptyFile
 	clients := make([]*paneClient, 0, len(p.clients))

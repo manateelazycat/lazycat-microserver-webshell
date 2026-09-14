@@ -49,7 +49,8 @@ type terminalMemoryCheckpoint struct {
 }
 
 // Each pane owns one isolated module. All calls use the pane mutex, including
-// snapshot and resize; a checkpoint is taken only between completed WASM calls.
+// snapshot, resize and close; a checkpoint is taken only between completed WASM
+// calls. A nil module is terminal: disposal must never allow another WASM call.
 type terminalCheckpointEngine struct {
 	module                 api.Module
 	handle                 uint32
@@ -107,6 +108,9 @@ func newTerminalCheckpointEngine(cols, rows, lines int) (*terminalCheckpointEngi
 }
 
 func (e *terminalCheckpointEngine) call(name string, args ...uint64) (uint64, error) {
+	if e == nil || e.module == nil || e.module.IsClosed() {
+		return 0, errors.New("checkpoint terminal is closed")
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	fn := e.module.ExportedFunction(name)
@@ -129,7 +133,7 @@ func (e *terminalCheckpointEngine) scrollbackCapacity(cols, rows int) uint32 {
 }
 
 func (e *terminalCheckpointEngine) write(data []byte) {
-	if e == nil || e.err != nil || e.legacyGraphics {
+	if e == nil || e.module == nil || e.err != nil || e.legacyGraphics {
 		return
 	}
 	input := data
@@ -193,7 +197,7 @@ func (e *terminalCheckpointEngine) write(data []byte) {
 }
 
 func (e *terminalCheckpointEngine) resize(cols, rows, lines int) {
-	if e == nil || e.err != nil || e.legacyGraphics {
+	if e == nil || e.module == nil || e.err != nil || e.legacyGraphics {
 		return
 	}
 	e.scrollback = lines
@@ -216,13 +220,16 @@ func (e *terminalCheckpointEngine) resize(cols, rows, lines int) {
 }
 
 func (e *terminalCheckpointEngine) snapshot(cursor uint64) (*terminalMemoryCheckpoint, error) {
+	if e == nil {
+		return nil, errors.New("checkpoint terminal is closed")
+	}
 	if e.err != nil {
 		return nil, e.err
 	}
 	if e.legacyGraphics {
 		return nil, nil
 	}
-	if e.module == nil {
+	if e.module == nil || e.module.IsClosed() {
 		return nil, errors.New("checkpoint terminal is closed")
 	}
 	memory, ok := e.module.Memory().Read(0, e.module.Memory().Size())
@@ -251,6 +258,7 @@ func (e *terminalCheckpointEngine) close() {
 	if e != nil && e.module != nil {
 		_ = e.module.Close(context.Background())
 		e.module = nil
+		e.pending = nil
 	}
 }
 

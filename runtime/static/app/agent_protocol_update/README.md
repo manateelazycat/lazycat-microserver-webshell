@@ -4,7 +4,7 @@
 
 本模块消费 Unified Queue 握手提供的当前/推荐 agent 协议版本，展示一次更新提示，在用户明确确认后调用 scoped agent 更新 API，并在成功后安排页面重载。
 
-当前 Provider 推荐协议为 `lcmd-webshell-agent-v17`，增加协商式 Ghostty 状态基线恢复，避免历史裁剪后丢失 TUI 主体。v16、v15、v14、v13、v12、v11、v10 和 v9 仍显式兼容，旧 Agent 可继续承载原会话；仅在用户确认后通过 scoped `replace-active` 更新，不能自动销毁现有 PTY。新页面通过 `checkpoint_protocol=ghostty-memory-v1` 协商，未协商或旧 Agent 仍使用原始历史回放；Kitty 图形会话暂沿用原路径。整段原始回放仍由 `replay_burst_bytes` 标识。
+当前 Provider 推荐协议为 `lcmd-webshell-agent-v18`，修复关闭会话时残余 PTY 输出访问已释放的 Ghostty 快照引擎、导致整个 Agent 退出的问题。v17 引入的状态基线协议及格式保持不变。v17、v16、v15、v14、v13、v12、v11、v10 和 v9 仍显式兼容，旧 Agent 可继续承载原会话；仅在用户确认后通过 scoped `replace-active` 更新，不能自动销毁现有 PTY。兼容 v17 不代表旧进程已获得此修复，必须明确更新正在运行的 Agent 才会生效。新页面通过 `checkpoint_protocol=ghostty-memory-v1` 协商，未协商或旧 Agent 仍使用原始历史回放；Kitty 图形会话暂沿用原路径。整段原始回放仍由 `replay_burst_bytes` 标识。
 
 本模块不拥有终端 session、连接、PTY 或输入状态，不创建本地或远程输入锁。确认更新后允许清理当前页面尚未发送的 pending 输入，避免即将销毁的旧会话残留队列，但不得在 Provider、persistent agent 或 pane 上保存 blocker。
 
