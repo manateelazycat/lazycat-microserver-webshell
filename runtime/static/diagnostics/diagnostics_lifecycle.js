@@ -109,15 +109,14 @@ export function createNetworkMonitorLifecycle({
   const context = () => {
     const value = getContext?.() || {};
     return {
-      layout: value.layout === "direct" ? "direct" : "unified",
-      sockets: Array.isArray(value.sockets) ? value.sockets : [],
+      sessions: Array.isArray(value.sessions) ? value.sessions : [],
       online: value.online !== false,
       retrying: value.retrying === true,
     };
   };
 
   const render = (state = monitor?.snapshot?.()) => {
-    onRender(state || null, context());
+    onRender(state || null, active ? context() : {});
   };
 
   const stop = () => {
@@ -128,29 +127,15 @@ export function createNetworkMonitorLifecycle({
     }
     monitor?.dispose?.();
     monitor = null;
-    render(null);
+    onRender(null, {});
   };
 
   const syncSockets = ({ reset = false } = {}) => {
-    if (!monitor) {
-      render(null);
-      return;
-    }
-    const snapshot = context();
-    if (reset) {
-      monitor.detachAll();
-    }
-    monitor.setLayout(snapshot.layout);
-    for (const attachment of snapshot.sockets) {
-      if (!attachment?.socket) {
-        continue;
-      }
-      monitor.attachSocket(attachment.socket, {
-        kind: attachment.kind === "unified" ? "unified" : "fast",
-        slot: attachment.slot,
-      });
-    }
-    render();
+    if (!active || !monitor) return false;
+    const current = context();
+    if (reset) monitor.reset();
+    monitor.syncSessions(current.sessions);
+    return true;
   };
 
   const start = async () => {
@@ -171,7 +156,6 @@ export function createNetworkMonitorLifecycle({
         return;
       }
       monitor = module.createTerminalNetworkMonitor({
-        layout: context().layout,
         onStateChange: (state) => render(state),
       });
       syncSockets();
@@ -180,6 +164,7 @@ export function createNetworkMonitorLifecycle({
           stop();
           return;
         }
+        monitor?.syncSessions?.(context().sessions);
         monitor?.sample?.();
       }, Math.max(100, Number(sampleMs) || 1000)) || 0;
     } catch (error) {
@@ -200,7 +185,8 @@ export function createNetworkMonitorLifecycle({
       stop();
     },
     refresh() {
-      render();
+      if (active) render();
+      else onRender(null, {});
     },
     setActive(nextActive) {
       active = nextActive === true && !disposed;

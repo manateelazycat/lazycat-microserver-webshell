@@ -2,15 +2,12 @@
 // It intentionally returns a fresh snapshot and never mutates a session.
 export function createDiagnosticsNetworkContext({
   getActiveName = () => "",
-  isClientInstanceName = () => false,
   getTabs = () => [],
-  getUnifiedTransport = () => null,
   isOnline = () => true,
 } = {}) {
   return function getNetworkContext() {
     const activeName = String(getActiveName() || "").trim();
-    const direct = isClientInstanceName(activeName);
-    const sockets = [];
+    const sessions = [];
     let retrying = false;
 
     for (const tab of getTabs() || []) {
@@ -19,25 +16,21 @@ export function createDiagnosticsNetworkContext({
           continue;
         }
         retrying ||= pane.connectionRetrying === true;
-        if (direct && pane.connectionChannel === "fast" && pane.socket) {
-          sockets.push({ socket: pane.socket, kind: "fast" });
-        }
-      }
-    }
-
-    const unifiedTransport = getUnifiedTransport();
-    if (!direct && unifiedTransport?.getTargetName?.() === activeName) {
-      const socket = unifiedTransport.getPhysicalSocket?.();
-      if (socket) {
-        sockets.push({ socket, kind: "unified" });
+        sessions.push({
+          sessionId: String(pane.id || ""),
+          tabId: String(tab.id || pane.tabId || ""),
+          socket: (pane.connectionChannel === "fast" || pane.connectionChannel === "unified")
+            && Number(pane.socket?.readyState) < 3
+            ? pane.socket
+            : null,
+        });
       }
     }
 
     return {
-      layout: direct ? "direct" : "unified",
       online: isOnline() !== false,
       retrying,
-      sockets,
+      sessions,
     };
   };
 }

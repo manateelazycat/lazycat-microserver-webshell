@@ -45,6 +45,13 @@
             </svg>
           </button>
         </div>
+        <div class="terminal-network-monitor" id="terminalNetworkMonitor" aria-live="off" hidden>
+          <span class="terminal-network-monitor-status-dot" id="terminalNetworkMonitorStatus" role="img" aria-label="{{ $t('未启用') }}" title="{{ $t('未启用') }}"></span>
+          <div class="terminal-network-monitor-summary">
+            <strong id="terminalNetworkMonitorRate">0.000 MB/s</strong>
+            <strong id="terminalNetworkMonitorUsage">0.000 MB</strong>
+          </div>
+        </div>
         <div class="header-actions">
           <div class="instance-switcher" id="instanceSwitcher">
             <button class="instance-switcher-btn" id="instanceSwitcherButton" type="button" aria-haspopup="listbox" aria-expanded="false" aria-label="{{ $t('切换实例') }}">
@@ -115,21 +122,6 @@
           <div class="performance-task-meter" id="performanceTaskMeter" aria-live="off" hidden>
             <div class="performance-task-meter-title">{{ $t('性能监视器') }}</div>
             <div class="performance-task-meter-list" id="performanceTaskMeterList"></div>
-          </div>
-          <div class="terminal-network-monitor" id="terminalNetworkMonitor" aria-live="off" hidden>
-            <div class="terminal-network-monitor-title">
-              <span>{{ $t('网络监视器') }}</span>
-              <span class="terminal-network-monitor-status-dot" id="terminalNetworkMonitorStatus" role="img" aria-label="{{ $t('未启用') }}" title="{{ $t('未启用') }}"></span>
-            </div>
-            <div class="terminal-network-monitor-channels" id="terminalNetworkMonitorChannels"></div>
-            <div class="terminal-network-monitor-summary">
-              <span>{{ $t('当前流量') }}</span>
-              <strong id="terminalNetworkMonitorRate">0.000 MB/s</strong>
-              <small id="terminalNetworkMonitorRateDetail">{{ $t('接收 0.000 MB/s · 发送 0.000 MB/s') }}</small>
-              <span>{{ $t('已使用流量') }}</span>
-              <strong id="terminalNetworkMonitorUsage">0.000 MB</strong>
-              <small id="terminalNetworkMonitorUsageDetail">{{ $t('接收 0.000 MB · 发送 0.000 MB') }}</small>
-            </div>
           </div>
           <div class="debug-log-panel" id="debugLogPanel" aria-live="polite" hidden>
             <div class="debug-log-panel-head">

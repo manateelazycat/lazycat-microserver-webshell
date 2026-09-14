@@ -222,6 +222,8 @@ body.is-tab-reordering {
   display: flex;
   align-items: center;
   justify-content: center;
+  flex-direction: column;
+  gap: 2px;
   width: 100%;
   min-width: 0;
   height: 100%;
@@ -239,6 +241,25 @@ body.is-tab-reordering {
   text-align: center;
   font-size: 13px;
   font-weight: 600;
+  line-height: 1.05;
+}
+
+.tab-network-metrics {
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  color: color-mix(in srgb, var(--chrome-text-muted) 72%, transparent);
+  font-size: 9px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tab-network-metrics[hidden] {
+  display: none;
 }
 
 .tab.renaming .tab-label {
@@ -1156,18 +1177,15 @@ body.split-resize-active * {
 }
 
 .terminal-network-monitor {
-  position: static;
-  width: min(360px, calc(100% - 10px));
-  max-width: 360px;
-  box-sizing: border-box;
-  display: grid;
-  gap: 6px;
-  padding: 7px;
-  border: 1px solid color-mix(in srgb, var(--terminal-fg) 28%, transparent);
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--terminal-bg) 86%, transparent);
-  color: var(--terminal-fg);
-  font: 600 11px/1.3 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  align-self: stretch;
+  gap: 7px;
+  min-width: 0;
+  padding: 3px 9px;
+  color: var(--chrome-text);
+  font: 600 10px/1.05 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   letter-spacing: 0;
   pointer-events: none;
   user-select: none;
@@ -1175,14 +1193,6 @@ body.split-resize-active * {
 
 .terminal-network-monitor[hidden] {
   display: none;
-}
-
-.terminal-network-monitor-title {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  font-weight: 700;
 }
 
 .terminal-network-monitor-status-dot {
@@ -1214,110 +1224,26 @@ body.split-resize-active * {
   background: #94a3b8;
 }
 
-
-.terminal-network-monitor-channels {
-  display: grid;
-  gap: 5px;
-}
-
-.terminal-network-monitor-channels[hidden] {
-  display: none;
-}
-
-.terminal-network-monitor-channel {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) max-content;
-  gap: 2px 10px;
-  align-items: center;
-  padding: 5px 0;
-  border-top: 1px solid color-mix(in srgb, var(--terminal-fg) 12%, transparent);
-  font-variant-numeric: tabular-nums;
-}
-
-.terminal-network-monitor-channel:first-child {
-  padding-top: 0;
-  border-top: 0;
-}
-
-.terminal-network-monitor-channel-name {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.terminal-network-monitor-channel-state {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  white-space: nowrap;
-  font-variant-numeric: tabular-nums;
-}
-
-.terminal-network-monitor-channel-state::before {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: #64748b;
-  content: "";
-}
-
-.terminal-network-monitor-channel-state[data-state="open"]::before {
-  background: #22c55e;
-}
-
-.terminal-network-monitor-channel-state[data-state="connecting"]::before {
-  background: #94a3b8;
-}
-
-.terminal-network-monitor-channel-state[data-state="closing"]::before {
-  background: #f59e0b;
-}
-
-.terminal-network-monitor-channel-state[data-state="error"]::before {
-  background: #ef4444;
-}
-
-.terminal-network-monitor-channel-metric-label {
-  color: color-mix(in srgb, var(--terminal-fg) 68%, transparent);
-}
-
-.terminal-network-monitor-channel-metric-value {
-  text-align: right;
-  white-space: nowrap;
-}
-
-.terminal-network-monitor-channel-detail {
-  grid-column: 1 / -1;
-  min-width: 0;
-  color: color-mix(in srgb, var(--terminal-fg) 55%, transparent);
-  font: inherit;
-  font-size: 10px;
-  overflow-wrap: anywhere;
-  text-align: right;
-}
-
 .terminal-network-monitor-summary {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) max-content;
-  gap: 2px 10px;
-  padding-top: 5px;
-  border-top: 1px solid color-mix(in srgb, var(--terminal-fg) 18%, transparent);
+  grid-template-columns: repeat(2, max-content);
+  gap: 2px 12px;
+  align-items: center;
   font-variant-numeric: tabular-nums;
+}
+
+.terminal-network-monitor-summary span {
+  color: color-mix(in srgb, var(--chrome-text-muted) 72%, transparent);
+  font-size: 9px;
+  font-weight: 500;
+  white-space: nowrap;
 }
 
 .terminal-network-monitor-summary strong {
-  text-align: right;
-  white-space: nowrap;
-}
-
-.terminal-network-monitor-summary small {
-  grid-column: 1 / -1;
-  color: color-mix(in srgb, var(--terminal-fg) 62%, transparent);
-  font: inherit;
+  color: var(--chrome-text-strong);
   font-size: 10px;
-  text-align: right;
-  white-space: normal;
+  font-weight: 650;
+  white-space: nowrap;
 }
 
 .debug-log-panel {
@@ -5012,6 +4938,27 @@ body.is-tab-overview-dragging {
     pointer-events: none;
   }
 
+  .mobile-active-tab-title[hidden] {
+    display: none;
+  }
+
+  .terminal-network-monitor {
+    position: absolute;
+    top: var(--lzc-safe-area-inset-top);
+    left: 50%;
+    z-index: 0;
+    width: min(52vw, 210px);
+    height: 42px;
+    box-sizing: border-box;
+    justify-content: center;
+    padding: 3px 0;
+    transform: translateX(-50%);
+  }
+
+  .terminal-network-monitor-summary {
+    gap: 2px 8px;
+  }
+
   .tab-overview-toggle,
   .attachment-toggle,
   .tab-add {
@@ -6738,6 +6685,16 @@ body.force-pc-mode .tabs {
 
 body.force-pc-mode .mobile-active-tab-title {
   display: none !important;
+}
+
+body.force-pc-mode .terminal-network-monitor {
+  position: static;
+  top: auto;
+  width: auto;
+  height: auto;
+  justify-content: flex-start;
+  padding: 3px 9px;
+  transform: none;
 }
 
 body.force-pc-mode .tab-overview-grid {
