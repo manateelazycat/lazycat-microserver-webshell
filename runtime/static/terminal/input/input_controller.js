@@ -58,6 +58,7 @@ export function createTerminalInputController({
 
   const isReady = (session) => Boolean(
     !disposed
+    && !session.closed
     && !session.exitExpected
     && isReplayCommitted(session)
     && isSocketOpen(session)
@@ -176,6 +177,7 @@ export function createTerminalInputController({
     }
     lifecycle.clearFlushTimer(session);
     if (!session.inputBuffer || !isReady(session) || !checkConnectionHealth(session, { connect: true })) {
+      scheduleQueuedInputPump(session, backpressureDelayMs);
       return;
     }
     const data = session.inputBuffer;
@@ -185,6 +187,7 @@ export function createTerminalInputController({
       session.inputBuffer = data + session.inputBuffer;
       session.inputBufferSize += textEncoder.encode(data).length;
       checkConnectionHealth(session, { connect: true, force: true });
+      scheduleQueuedInputPump(session, backpressureDelayMs);
     }
   };
 
@@ -195,11 +198,17 @@ export function createTerminalInputController({
   );
 
   let pumpQueuedInput;
-  const scheduleQueuedInputPump = (session, delay = 0) => lifecycle.schedulePump(
-    session,
-    () => pumpQueuedInput(session),
-    delay,
-  );
+  const scheduleQueuedInputPump = (session, delay = 0) => {
+    if (!session) return false;
+    if (disposed || session.closed || session.exitExpected
+      || (!session.inputBuffer && !session.inputQueue.length && !session.pendingInput.length)) {
+      lifecycle.clearPumpTimer(session);
+      return false;
+    }
+    // The active pump schedules its next turn once, after all queues are checked.
+    if (session.inputPumpActive) return false;
+    return lifecycle.schedulePump(session, () => pumpQueuedInput(session), delay);
+  };
 
   const enqueueSessionInput = (session, data, { generated = false, front = false } = {}) => {
     if (!session || !data || disposed) {
@@ -227,22 +236,27 @@ export function createTerminalInputController({
   };
 
   pumpQueuedInput = (session) => {
-    if (!session || session.inputPumpActive || disposed) {
+    if (!session || session.closed || session.exitExpected || session.inputPumpActive || disposed) {
       return;
     }
+    lifecycle.clearPumpTimer(session);
     session.inputPumpActive = true;
+    let nextDelay = backpressureDelayMs;
     try {
+      // Pending input joins the existing buffer/queue in order. It must resume
+      // when the gate opens even if no further key or socket message arrives.
+      if (session.pendingInput.length > 0) {
+        flushPending(session);
+      }
       if (session.inputBuffer) {
         flushInputBuffer(session);
         if (session.inputBuffer) {
-          scheduleQueuedInputPump(session, backpressureDelayMs);
           return;
         }
       }
       let sent = 0;
       while (session.inputQueue.length > 0 && isReady(session) && checkConnectionHealth(session, { connect: true })) {
         if (getBufferedAmount(session) > backpressureBytes) {
-          scheduleQueuedInputPump(session, backpressureDelayMs);
           return;
         }
         const item = session.inputQueue.shift();
@@ -250,20 +264,17 @@ export function createTerminalInputController({
         if (!sendInputChunk(session, item.data, { generated: item.generated })) {
           session.inputQueue.unshift(item);
           session.inputQueueSize += item.byteLength;
-          scheduleQueuedInputPump(session, backpressureDelayMs);
           return;
         }
         sent += 1;
         if (sent >= pumpChunkBudget) {
-          scheduleQueuedInputPump(session, 0);
+          nextDelay = 0;
           return;
         }
       }
     } finally {
       session.inputPumpActive = false;
-    }
-    if (session.inputQueue.length > 0 && isReady(session) && checkConnectionHealth(session, { connect: true })) {
-      scheduleQueuedInputPump(session, backpressureDelayMs);
+      scheduleQueuedInputPump(session, nextDelay);
     }
   };
 
@@ -386,6 +397,7 @@ export function createTerminalInputController({
     session.pendingInput.push(data);
     session.pendingInputSize += byteLength;
     schedulePendingInputExpiry(session);
+    scheduleQueuedInputPump(session, backpressureDelayMs);
     return true;
   };
 
@@ -394,11 +406,13 @@ export function createTerminalInputController({
       return false;
     }
     if (!isReady(session) || !checkConnectionHealth(session, { connect: true })) {
+      scheduleQueuedInputPump(session, backpressureDelayMs);
       return false;
     }
     while (session.pendingInput.length > 0) {
       const data = session.pendingInput[0];
       if (!send(session, data)) {
+        scheduleQueuedInputPump(session, backpressureDelayMs);
         return false;
       }
       session.pendingInput.shift();
