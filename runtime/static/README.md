@@ -2,7 +2,7 @@
 
 `runtime/static/` 是 WebShell 页面源码根目录。页面脚本只从 `main.js` 开始加载；`main.js` 仅导入并调用 `global-runtime.js` 的 `startGlobalRuntime()`。发布时 Vite 将该模块树构建到 `build/runtime/static/`，LPK 只打包构建产物，不直接发布源码模块。
 
-服务端推荐协议 `lcmd-webshell-agent-v22`：修复原生重排的页面资源扩容与字符串复制失败，更新前后端共用 WASM 指纹；保留 v21 的有界窗口消费与按帧发布。v18 已修复会话关闭与残余输出之间的生命周期错误，防止已释放的快照引擎导致整个 Agent 崩溃；保留 v17 的固定 Ghostty 构建状态基线与后续增量恢复。Agent 编译时嵌入的 `ghostty-vt.wasm` 必须与 Vite 发布资产一致；构建顺序先同步 WASM、再构建前端及 Go，禁止只替换一端。旧协议显式兼容范围见 `agent_runtime.go`，状态协议及限制见 `terminal/history/README.md`。
+服务端推荐协议 `lcmd-webshell-agent-v23`：清理终端行时按所属页面的实际列宽访问和释放资源，修复重排后不同宽度页面导致的 checkpoint parser 越界；更新前后端共用 WASM 指纹。保留 v22 的原生重排资源扩容修复、v21 的有界窗口消费与按帧发布、v18 的会话关闭生命周期修复和 v17 的完整状态基线与后续增量恢复。Agent 编译时嵌入的 `ghostty-vt.wasm` 必须与 Vite 发布资产一致；构建顺序先同步 WASM、再构建前端及 Go，禁止只替换一端。v22 至 v9 继续显式兼容传输，旧 Agent 仅在用户确认后更新；已有失败的 parser 不会因更新前端而恢复。旧协议显式兼容范围见 `agent_runtime.go`，状态协议及限制见 `terminal/history/README.md`。
 
 ## 根目录职责
 

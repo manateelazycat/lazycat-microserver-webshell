@@ -27,8 +27,8 @@ import (
 )
 
 const (
-	// v22 fixes native reflow capacity growth and managed page cloning.
-	agentProtocolVersion = "lcmd-webshell-agent-v22"
+	// v23 clears mixed-width history rows using each page's stored width.
+	agentProtocolVersion = "lcmd-webshell-agent-v23"
 
 	agentFrameBinary         = byte('B')
 	agentFrameText           = byte('T')

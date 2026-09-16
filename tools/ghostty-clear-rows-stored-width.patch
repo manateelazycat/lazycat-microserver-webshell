@@ -1,0 +1,68 @@
+Backport of Ghostty e727a36589dffa5b42f76e83d260a5617cdde54e
+terminal: clear rows using stored page width
+https://github.com/ghostty-org/ghostty/commit/e727a36589dffa5b42f76e83d260a5617cdde54e
+
+Use the pinned revision's node.data accessor in place of node.page().
+
+--- a/src/terminal/Screen.zig
++++ b/src/terminal/Screen.zig
+@@ -1301,19 +1301,19 @@ pub fn clearRows(
+
+     var it = self.pages.pageIterator(.right_down, tl, bl);
+     while (it.next()) |chunk| {
++        const page = &chunk.node.data;
+         for (chunk.rows()) |*row| {
+             const cells_offset = row.cells;
+-            const cells_multi: [*]Cell = row.cells.ptr(chunk.node.data.memory);
+-            const cells = cells_multi[0..self.pages.cols];
++            const cells = page.getCells(row);
+
+             // Clear all cells
+             if (protected) {
+-                self.clearUnprotectedCells(&chunk.node.data, row, cells);
++                self.clearUnprotectedCells(page, row, cells);
+                 // We need to preserve other row attributes since we only
+                 // cleared unprotected cells.
+                 row.cells = cells_offset;
+             } else {
+-                self.clearCells(&chunk.node.data, row, cells);
++                self.clearCells(page, row, cells);
+                 row.* = .{ .cells = cells_offset };
+             }
+
+@@ -1362,7 +1362,7 @@ pub fn clearCells(
+         // If we have no left/right scroll region we can be sure
+         // that we've cleared all the graphemes, so we clear the
+         // flag, otherwise we ask the page to update the flag.
+-        if (cells.len == self.pages.cols) {
++        if (cells.len == page.size.cols) {
+             row.grapheme = false;
+         } else {
+             page.updateRowGraphemeFlag(row);
+@@ -1378,7 +1378,7 @@ pub fn clearCells(
+         // If we have no left/right scroll region we can be sure
+         // that we've cleared all the hyperlinks, so we clear the
+         // flag, otherwise we ask the page to update the flag.
+-        if (cells.len == self.pages.cols) {
++        if (cells.len == page.size.cols) {
+             row.hyperlink = false;
+         } else {
+             page.updateRowHyperlinkFlag(row);
+@@ -1394,7 +1394,7 @@ pub fn clearCells(
+         // If we have no left/right scroll region we can be sure
+         // that we've cleared all the styles, so we clear the
+         // flag, otherwise we ask the page to update the flag.
+-        if (cells.len == self.pages.cols) {
++        if (cells.len == page.size.cols) {
+             row.styled = false;
+         } else {
+             page.updateRowStyledFlag(row);
+@@ -1403,7 +1403,7 @@ pub fn clearCells(
+
+     if (comptime build_options.kitty_graphics) {
+         if (row.kitty_virtual_placeholder and
+-            cells.len == self.pages.cols)
++            cells.len == page.size.cols)
+         {
+             for (cells) |c| {
+                 if (c.codepoint() == kitty.graphics.unicode.placeholder) {
