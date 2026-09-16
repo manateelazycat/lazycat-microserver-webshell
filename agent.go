@@ -27,8 +27,9 @@ import (
 )
 
 const (
-	// v24 rebuilds a workspace from a server-owned restart recovery document.
-	agentProtocolVersion = "lcmd-webshell-agent-v24"
+	// v25 adds provider asset compression; the v24 agent wire format and
+	// checkpoint ABI remain unchanged.
+	agentProtocolVersion = "lcmd-webshell-agent-v25"
 
 	agentFrameBinary         = byte('B')
 	agentFrameText           = byte('T')

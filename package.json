@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "vite build && node tools/verify-vite-build.mjs"
+    "build": "vite build && node tools/compress-static-assets.mjs && node tools/verify-vite-build.mjs"
   },
   "devDependencies": {
     "vite": "8.2.2"
