@@ -47,6 +47,7 @@ export function createTerminalPresentationController({
 } = {}) {
   let disposed = false;
   const holdObservations = new WeakMap();
+  const localFrames = new WeakMap();
   const trace = (session, phase, details = {}) => {
     const sink = windowObject?.__testsAutoPresentationTrace;
     if (!Array.isArray(sink)) {
@@ -76,7 +77,30 @@ export function createTerminalPresentationController({
   const isUsable = (session) => Boolean(session && !session.closed && !disposed);
   const isActiveTarget = (session) => String(session?.name || "") === String(getActiveName() || "");
 
+  // A transport replay lease is required for new output, not for browsing the
+  // already committed local buffer. Retire this permission before any atomic
+  // buffer/geometry replacement, and restore it only after a real commit.
+  const localBufferIsCurrent = (session) => {
+    if (!isUsable(session) || isReplayCommitted(session)) return false;
+    const local = localFrames.get(session);
+    if (!local || !session.hasPresentedFrame) return false;
+    const backend = session?.term?.wasmTerm;
+    const identity = frameIdentity(session);
+    return Boolean(backend === local.backend
+      && backend?.generation === local.generation
+      && (!backend?.isRemote || (backend.isReady && backend.cols === session.term.cols
+        && backend.rows === session.term.rows))
+      && !session.term?.backendResizePending && !backend?.checkpointRestorePending
+      && !backend?.isSynchronizedOutputHeld
+      && !session.terminalRenderSuppressionActive && !session.term?.renderSuppressionDepth
+      && !session.resizePresentationHold
+      && Object.entries(local.identity).every(([key, value]) => identity[key] === value));
+  };
+
+  const canBrowseLocally = (session) => localBufferIsCurrent(session) && !session.terminalFrameHeld;
+
   const renderAllowed = (session) => {
+    if (canBrowseLocally(session)) return true;
     const liveGeometry = isLiveGeometryActive(session);
     const backend = session?.term?.wasmTerm;
     const backendReady = !backend?.isRemote || (backend.isReady && !session.term.backendResizePending
@@ -298,6 +322,7 @@ export function createTerminalPresentationController({
     if (!view.holdFrame(session)) {
       return false;
     }
+    localFrames.delete(session);
     session.terminalFrameHeld = true;
     session.terminalFrameHoldIdentity = frameIdentity(session);
     const previousHold = holdObservations.get(session);
@@ -398,7 +423,8 @@ export function createTerminalPresentationController({
     const nextReady = ready === true;
     if (!nextReady) {
       lifecycle.cancelFrameRelease(session);
-      if (preserveFrame && session.hasPresentedFrame && !hasVisibleHeldFrame(session)) {
+      if (preserveFrame && session.hasPresentedFrame && !hasVisibleHeldFrame(session)
+        && !canBrowseLocally(session)) {
         holdFrame(session);
       }
     }
@@ -428,6 +454,7 @@ export function createTerminalPresentationController({
     if (!isUsable(session)) {
       return false;
     }
+    localFrames.delete(session);
     // Several schedulers can observe one resize/replay transaction in the
     // same frame. Reuse its active hold instead of toggling canvases again.
     if (session.resizePresentationHold && !session.renderReady) {
@@ -627,7 +654,18 @@ export function createTerminalPresentationController({
     return true;
   };
 
+  const retainLocalFrame = (session) => {
+    if (!localBufferIsCurrent(session)) return false;
+    // A disconnect can race the RAF that releases a successfully committed
+    // hold. That old overlay must not stay on top of the readable terminal.
+    if (session.terminalFrameHeld) releaseHold(session);
+    markSyncPending(session);
+    session.term?.requestRender?.({ full: true });
+    return true;
+  };
+
   const invalidate = (session) => {
+    localFrames.delete(session);
     if (!markSyncPending(session)) {
       return false;
     }
@@ -656,6 +694,7 @@ export function createTerminalPresentationController({
     trace(session, "commit_if_ready_enter");
     if (
       !isUsable(session)
+      || !isReplayCommitted(session)
       || Number(session.measuredFitGeneration || 0) <= 0
       || !isPaneMeasurable(session)
       || !canvasMatchesExpectedSize(session)
@@ -695,6 +734,7 @@ export function createTerminalPresentationController({
     session.hasPresentedFrame = true;
     session.renderGeneration = Number(session.renderGeneration || 0) + 1;
     const backend = session.term?.wasmTerm;
+    localFrames.set(session, { backend, generation: backend?.generation, identity: frameIdentity(session) });
     const painted = backend?.isFrameCurrent ? null : backend?.renderedPresentation?.();
     session.presentedContentGeneration = session.pendingRenderContentGeneration;
     session.presentedHistoryCursor = painted ? BigInt(painted.appliedCursor) : session.appliedHistoryCursor;
@@ -1195,6 +1235,11 @@ export function createTerminalPresentationController({
       }
     },
     onRender: () => {
+      if (canBrowseLocally(session)) {
+        // Scrolling/selection must not commit a new connection or replay epoch.
+        onRenderObserved(session);
+        return;
+      }
       // Commit this exact frame, even if newer bytes have already been parsed.
       // A normal output frame must not require a second full presentation draw.
       setPendingRender(session);
@@ -1231,6 +1276,7 @@ export function createTerminalPresentationController({
     },
     advanceContentGeneration,
     beginHold,
+    canBrowseLocally,
     cancelFrameRelease: lifecycle.cancelFrameRelease,
     scheduleFrameRelease,
     cancelHold,
@@ -1251,6 +1297,7 @@ export function createTerminalPresentationController({
     markSyncPending,
     recoverSessions,
     recoverStalled,
+    retainLocalFrame,
     releaseHold,
     renderFullNow,
     renderLiveGeometryNow,

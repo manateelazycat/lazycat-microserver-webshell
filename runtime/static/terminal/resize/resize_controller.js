@@ -1378,6 +1378,13 @@ export function createTerminalResizeController({
     if (visibleOnly && !isVisible(session)) {
       return failedTerminalFit(isMeasurable(session));
     }
+    if (presentation()?.canBrowseLocally(session)) {
+      // Keep the readable buffer/grid while waiting for reconnect. Fitting it
+      // here would enter a hold that cannot commit until replay completes.
+      session.term?.requestRender?.({ full: true });
+      return { ok: true, pending: true, measurable: isMeasurable(session), ...size(session),
+        sizeChanged: false, canvasChanged: false };
+    }
     if (isMobileKeyboardResizeSuppressed()) {
       resetHostViewport(session, { clean: true });
       positionInput(session);

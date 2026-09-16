@@ -4,7 +4,7 @@
 
 本目录负责 Ghostty renderer adapter、runtime reset/suppression controller、Canvas presentation controller、Kitty graphics 适配、RenderSnapshot 和 frame release scheduler。它负责字体/行高度量、主题颜色映射、底部 viewport 归一化、cell seam/Powerline/块光标 patch、Ghostty 运行时安全 reset/清屏与 render suppression、render generation、full-render validation、last-known-good frame hold/release、Canvas context 恢复和 Kitty graphics 响应/像素适配，不负责历史、连接、工作区或 resize 权威。
 
-完整画面只能在当前 identity、generation、viewport 和 presentation 条件都有效时提交；失败、重连、snapshot 等待或 replay/原子 resize 事务期间必须保留旧帧，禁止显示历史回放中间过程。桌面分屏、普通窗口 resize，以及已提交终端的字号/行高变化属于显式 live geometry：只要 replay 已提交且 pane 可见，当前 Ghostty Canvas 可以在服务端 ACK 前连续提交，不进入 hold。
+完整画面只能在当前 identity、generation、viewport 和 presentation 条件都有效时提交。断网及等待重连时，已提交且未被修改事务退休的本地终端继续提供滚动、选择和复制；这些重绘不提交新的连接或回放代次。真正开始 replay、重置 Worker 或原子 resize 时才保护旧帧，禁止显示历史回放中间过程。桌面分屏、普通窗口 resize，以及已提交终端的字号/行高变化属于显式 live geometry：只要 replay 已提交且 pane 可见，当前 Ghostty Canvas 可以在服务端 ACK 前连续提交，不进入 hold。
 
 `cancelHold({ restoreReady, releaseFrame })` 只取消 hold 编排，不能自行宣布首次呈现完成。只有显式 `restoreReady:true`、已有提交帧、replay/resize 门禁允许、可见且可测、Canvas 几何与 fit/replay/content generation 均匹配、没有待 full render 时才恢复 ready；`releaseFrame` 同样受此门禁限制。`restoreReady:false` 不触发 `onReady`，首次恢复必须由真实 full render commit 完成。该契约由场景 17 和 presentation 行为测试锁定。
 
@@ -49,7 +49,7 @@ Kitty 图形适配对不完整命令、传输总量、并发解码、图片缓�
 
 ## 旧帧停滞调查
 
-永久旧帧尚未稳定复现。保留原有 presentation/hold 释放逻辑；本轮未验证的候选变更已撤回。调查用例与条件位于 spec-tests/investigations/network-presentation-recovery，后续由真实失败截图、cursor、resize/connection epoch 和 trace 再决定修复，不认定断网为根因。
+历史调查用例与条件位于 spec-tests/investigations/network-presentation-recovery。离线浏览由 presentation owner 记录最近一次完整提交的 backend、generation 和会话身份：连接退休后允许该本地缓冲区重绘，不能据此恢复输入许可或推进 replay commit。开始 hold、替换缓冲区或身份变化会退休这项许可；失败或部分回放不获得本地浏览许可。切换标签和等待网络期间的 fit 不把可浏览终端转成静态占位；收到回放开始消息后才保护画面并恢复权威内容。
 
 闲置 hold Canvas 的 backing store 保持 0×0，捕获时才按当前 host/DPR 分配；释放时销毁位图缓冲。不得将此操作用于仍在展示的 hold 或 live Canvas。
 
