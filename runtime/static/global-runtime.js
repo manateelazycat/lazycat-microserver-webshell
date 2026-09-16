@@ -526,6 +526,9 @@ export function startGlobalRuntime() {
       else appendDebugError("终端后台启动失败", error.message);
     },
     onReady: (session) => {
+      if (session && !session.closed && session.name === getActiveName() && session.tabId === getActiveTabId()) {
+        terminalViewport?.ensureGeometryClaim("backend_ready");
+      }
       if (session && !session.closed && (session.pendingConnect || session.connectionRetrying)) terminalTransportRuntime?.connectPendingSession(session);
     },
   });
@@ -887,6 +890,8 @@ export function startGlobalRuntime() {
     isLiveGeometryActive: (session) => terminalResize?.isLiveGeometryActive(session) === true,
     isCurrentDeviceClaimRequired: (session) => terminalResize?.isCurrentDeviceClaimRequired(session) === true,
     isViewportGeometryClaimPending: () => terminalViewport?.isGeometryClaimPending() === true,
+    ensureViewportGeometryClaim: (_session, reason) => terminalViewport?.ensureGeometryClaim(reason),
+    getViewportGeometryState: () => terminalViewport?.snapshot() || null,
     canvasMatchesExpectedSize: (session) => terminalResize?.canvasMatchesExpectedSize(session) === true,
     normalizeResizeEpoch: (value) => terminalResize?.normalizeEpoch(value) || "",
     scheduleResize: (session, options, scheduleOptions) => terminalResize?.schedulePresentationResize(session, options, scheduleOptions) === true,

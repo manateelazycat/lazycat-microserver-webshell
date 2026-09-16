@@ -102,6 +102,7 @@ export function createTerminalViewportLifecycle({
     timeout,
     clearTimeout: clearTimeoutKey,
     hasTimeout: (key) => timers.has(key),
+    hasFrame: (key) => frames.has(key),
     frame,
     clearFrame: clearFrameKey,
     dispose() {
