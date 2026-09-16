@@ -4,7 +4,16 @@ set -euo pipefail
 repo_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 source_dir="${GHOSTTY_WEB_DIR:-${repo_dir}/ghostty-web}"
 native_dir="${source_dir}/ghostty"
-patches=("${source_dir}/patches/ghostty-wasm-api.patch" "${source_dir}/patches/ghostty-scrollback-generation.patch" "${repo_dir}/tools/ghostty-reflow.patch" "${repo_dir}/tools/ghostty-reflow-capacity.patch" "${repo_dir}/tools/ghostty-checkpoint.patch" "${repo_dir}/tools/ghostty-render-diagnostics.patch" "${repo_dir}/tools/ghostty-resize-diagnostics.patch")
+patches=(
+  "${source_dir}/patches/ghostty-wasm-api.patch"
+  "${source_dir}/patches/ghostty-scrollback-generation.patch"
+  "${repo_dir}/tools/ghostty-reflow.patch"
+  "${repo_dir}/tools/ghostty-reflow-capacity.patch"
+  "${repo_dir}/tools/ghostty-clear-rows-stored-width.patch"
+  "${repo_dir}/tools/ghostty-checkpoint.patch"
+  "${repo_dir}/tools/ghostty-render-diagnostics.patch"
+  "${repo_dir}/tools/ghostty-resize-diagnostics.patch"
+)
 applied=()
 
 command -v zig >/dev/null

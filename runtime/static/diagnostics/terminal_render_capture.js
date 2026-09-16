@@ -1,7 +1,9 @@
 import { createReplayControlEvidence } from "./replay_control_evidence.js";
 import { beginTerminalWriteComparison } from "./terminal_write_comparison.js";
+import { createCheckpointFailureEvidence } from "./checkpoint_failure_evidence.js";
 
 const observedEvents = new Set([
+  "connect_session_start", "socket_connect", "socket_open", "agent_preparing", "logical_attach_start", "agent_attach_ready",
   "history_replay_start", "history_replay_complete", "replay_output_drained", "render_blocked",
   "full_render_complete", "presentation_commit_complete", "resize_native_start", "resize_native_complete",
   "backend_failed", "backend_restart", "socket_close", "screen_auto_refresh", "screen_auto_refresh_exhausted",
@@ -23,6 +25,7 @@ export function createTerminalRenderCapture({ windowObject = globalThis.window,
   let replayEvidence = new WeakMap(), firstFrames = new WeakMap();
   let liveEvidence = new WeakMap(), lifecycle = 0, captureID = 0, manualPending = null;
   let checkpointEvidence = new WeakMap();
+  const checkpointFailures = createCheckpointFailureEvidence({ now });
   const replayIdentity = (session) => `${session.connectionEpoch}:${session.terminalReplayGeneration}`;
   const evidenceFor = (session) => {
     const evidence = replayEvidence.get(session);
@@ -62,6 +65,7 @@ export function createTerminalRenderCapture({ windowObject = globalThis.window,
         const live = liveEvidence.get(session);
         return { ...captureSession(session, { includePixels }), replayEvidence: evidenceFor(session)?.snapshot(),
           checkpointDiagnostics: checkpointEvidence.get(session) || null,
+          checkpointFailureEvidence: checkpointFailures.reference(session),
           liveOutputEvidence: live?.identity === replayIdentity(session) ? {
             ...live.scanner.snapshot(), baseCursor: live.baseCursor, endCursor: live.endCursor, startedAtMs: live.startedAtMs,
           } : null };
@@ -118,6 +122,7 @@ export function createTerminalRenderCapture({ windowObject = globalThis.window,
       liveEvidence = new WeakMap();
       checkpointEvidence = new WeakMap();
       firstFrames = new WeakMap();
+      if (enabled) checkpointFailures.beginWindow();
       stopTimers();
       documentObject[enabled ? "addEventListener" : "removeEventListener"]("visibilitychange", visibility);
       if (started && enabled) capture("enabled", false);
@@ -133,6 +138,7 @@ export function createTerminalRenderCapture({ windowObject = globalThis.window,
       if (!enabled || disposed || !observedEvents.has(event) || !session) return;
       const context = getContext();
       if (session.tabId !== context.tab) return;
+      checkpointFailures.record(session, event, details);
       if (event === "checkpoint_resize_diagnostic") checkpointEvidence.set(session, details.checkpoint);
       if (event === "history_replay_start") {
         beginEvidence(session, Number.isFinite(details.serverHistoryBytes) ? details.serverHistoryBytes : null, true);
@@ -141,6 +147,7 @@ export function createTerminalRenderCapture({ windowObject = globalThis.window,
       if (event === "history_replay_complete") evidenceFor(session)?.finish();
       const metadata = {};
       for (const key of ["reason", "rendered", "attempt", "current", "committed", "durationMs", "code",
+        "controlType", "channel", "channelGeneration", "connectionEpoch", "serverUnixMs",
         "syncMode", "historyGeneration", "serverBaseCursor", "serverEndCursor", "deltaFromCursor", "deltaToCursor",
         "serverHistoryBytes", "serverHistoryChunks", "replayBurstBytes", "bytes", "targetCursor", "aggregate",
         "resizeEpoch", "cols", "rows", "replayDurationMs", "serverReplayDurationMs",
@@ -207,7 +214,7 @@ export function createTerminalRenderCapture({ windowObject = globalThis.window,
     async clipboardText() {
       await capture("copy", true);
       if (!enabled || disposed) return "";
-      return ["WebShell terminal render capture v5", `Copied at: ${new Date().toISOString()}`,
+      return ["WebShell terminal render capture v6", `Copied at: ${new Date().toISOString()}`,
         `Retained records: ${records.length}; older records discarded: ${dropped}`,
         "Snapshots include every non-closed pane in the active tab at capture time. Earlier tab records remain labelled.",
         "Periodic capture uses UI caches. Manual/copy/download adds a read-only Worker RPC; no update/markClean/resize/replay/repair. Auto refresh remains independent.",
@@ -225,10 +232,15 @@ export function createTerminalRenderCapture({ windowObject = globalThis.window,
         "liveOutputEvidence observes live bytes before Kitty processing; offsets are relative to baseCursor when known. It includes scrolling/edit controls and C0 counts, with the last 96 controls retained.",
         "write_byte_comparison compares each output batch before term.write/writeReplay with concatenated writeInternal payloads before Worker encoding. No payload is changed or exported.",
         "Each side is capped at 256 KiB. CR/LF counts, exact equality and masked first-difference context are included. Interception/decoder buffering can legitimately differ across batch boundaries; difference alone is not a fault verdict.",
-        "v5 includes server checkpoint resize diagnostics, Canvas copy/hold timing and release blockers. The hold is a Canvas copy, not PNG encoding. Settle deadline covers quiet waiting, not the whole resize transaction.",
+        "v6 pins the first observed server checkpoint failure independently of rolling records; checkpoint_failure_evidence also retains latest reports and bounded connection/resize context.",
+        "First observed means first received during enabled capture in the active tab, not the time of the original server fault. Reloading clears this browser-only evidence; captureWindow labels enable cycles. Inactive-tab intervals are not observed.",
+        "Server observed_unix_ms and history_cursor describe diagnostic sampling, not the original crash. scrollback_lines is the configured limit, not measured occupancy. Repeated error text does not prove repeated crashes.",
+        "Existing Agent diagnostics do not expose triggering bytes, fault address/instruction or parser memory. Missing evidence is explicit in checkpoint_evidence_scope; error classification is based only on server error text.",
+        "Pinned evidence survives disabling/re-enabling capture on this page. Capture/exports add no server requests, reconnects, resizes or repairs. Existing manual Worker diagnostics are unchanged.",
+        "Canvas copy/hold timing and release blockers remain included. Settle deadline covers quiet waiting, not the whole resize transaction.",
         "Control offsets are relative to observed replay start; fromStart/sizeMatches disclose partial capture. No complete-state checkpoint can be inferred from control counts alone.",
         "scanMs is diagnostic main-thread overhead. Missing reset/clear/mode controls are clues, not proof that the original program used those controls.",
-        ...records.map((entry) => entry.line)].join("\n");
+        ...checkpointFailures.exportRecords(), ...records.map((entry) => entry.line)].join("\n");
     },
     dispose() {
       disposed = true;
@@ -237,6 +249,7 @@ export function createTerminalRenderCapture({ windowObject = globalThis.window,
       stopTimers();
       documentObject.removeEventListener("visibilitychange", visibility);
       records.length = 0;
+      checkpointFailures.dispose();
       replayEvidence = new WeakMap();
       liveEvidence = new WeakMap();
       checkpointEvidence = new WeakMap();

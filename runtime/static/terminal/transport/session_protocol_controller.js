@@ -592,14 +592,16 @@ export function createTerminalSessionProtocolController({
                 textMessages: socketDebug.textMessages,
               });
             }
-            if ((message.type === "resize-applied" || message.type === "terminal-checkpoint-error") && message.checkpoint_diagnostics) {
+            if ((message.type === "resize-applied" && message.checkpoint_diagnostics) || message.type === "terminal-checkpoint-error") {
               try {
                 recordTerminalSessionEvent(session, "checkpoint_resize_diagnostic", {
                   checkpoint: message.checkpoint_diagnostics, resizeTiming: message.resize_diagnostics || null,
+                  controlType: message.type, error: message.type === "terminal-checkpoint-error"
+                    ? String(message.message || "Terminal recovery checkpoint unavailable") : "",
                   resizeEpoch: message.resize_epoch || "",
                 });
-                if (message.checkpoint_diagnostics.error) {
-                  appendDebugError("服务端快照 resize 失败", JSON.stringify({ pane: session.id,
+                if (message.checkpoint_diagnostics?.error || message.type === "terminal-checkpoint-error") {
+                  appendDebugError("服务端终端快照异常", JSON.stringify({ pane: session.id, controlType: message.type, message: message.message,
                     checkpoint: message.checkpoint_diagnostics, resizeTiming: message.resize_diagnostics || null }));
                 }
               } catch {}
