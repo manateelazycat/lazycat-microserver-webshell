@@ -82,7 +82,7 @@ func isCurrentAgentProtocolVersion(version string) bool {
 
 func isAttachCompatibleAgentProtocolVersion(version string) bool {
 	switch strings.TrimSpace(version) {
-	case agentProtocolVersion, "lcmd-webshell-agent-v22", "lcmd-webshell-agent-v21", "lcmd-webshell-agent-v20", "lcmd-webshell-agent-v19", "lcmd-webshell-agent-v18", "lcmd-webshell-agent-v17", "lcmd-webshell-agent-v16", "lcmd-webshell-agent-v15", "lcmd-webshell-agent-v14", "lcmd-webshell-agent-v13", "lcmd-webshell-agent-v12", "lcmd-webshell-agent-v11", "lcmd-webshell-agent-v10", "lcmd-webshell-agent-v9":
+	case agentProtocolVersion, "lcmd-webshell-agent-v23", "lcmd-webshell-agent-v22", "lcmd-webshell-agent-v21", "lcmd-webshell-agent-v20", "lcmd-webshell-agent-v19", "lcmd-webshell-agent-v18", "lcmd-webshell-agent-v17", "lcmd-webshell-agent-v16", "lcmd-webshell-agent-v15", "lcmd-webshell-agent-v14", "lcmd-webshell-agent-v13", "lcmd-webshell-agent-v12", "lcmd-webshell-agent-v11", "lcmd-webshell-agent-v10", "lcmd-webshell-agent-v9":
 		return true
 	default:
 		return false
@@ -308,11 +308,11 @@ func applyAgentWorkspaceCapabilities(state *workspaceState, version string) {
 	}
 	state.AgentCapabilities = nil
 	if isCurrentAgentProtocolVersion(version) {
-		state.AgentCapabilities = []string{"tab_reorder_anchor"}
+		state.AgentCapabilities = []string{"tab_reorder_anchor", "workspace_restart_restore"}
 	}
 }
 
-func requestAgentWorkspaceState(ctx context.Context, scope agentScope, cols, rows, terminalScrollback int) (workspaceState, error) {
+func requestAgentWorkspaceStateWithVersion(ctx context.Context, scope agentScope, cols, rows, terminalScrollback int) (workspaceState, string, error) {
 	response, err := requestPersistentAgent(ctx, scope, agentRequest{
 		Type:               "state",
 		Cols:               cols,
@@ -320,16 +320,45 @@ func requestAgentWorkspaceState(ctx context.Context, scope agentScope, cols, row
 		TerminalScrollback: terminalScrollback,
 	})
 	if err != nil {
-		return workspaceState{}, err
+		return workspaceState{}, "", err
 	}
 	if response.State == nil {
-		return workspaceState{}, errors.New("agent returned empty workspace state")
+		return workspaceState{}, response.Version, errors.New("agent returned empty workspace state")
+	}
+	applyAgentWorkspaceCapabilities(response.State, response.Version)
+	return *response.State, response.Version, nil
+}
+
+func requestAgentWorkspaceState(ctx context.Context, scope agentScope, cols, rows, terminalScrollback int) (workspaceState, error) {
+	state, _, err := requestAgentWorkspaceStateWithVersion(ctx, scope, cols, rows, terminalScrollback)
+	return state, err
+}
+
+func requestAgentWorkspaceRestore(ctx context.Context, scope agentScope, cols, rows, terminalScrollback int, document workspaceRecoveryDocument) (workspaceState, error) {
+	response, err := requestPersistentAgent(ctx, scope, agentRequest{
+		Type:               "action",
+		Cols:               cols,
+		Rows:               rows,
+		TerminalScrollback: terminalScrollback,
+		Action: &workspaceActionRequest{
+			Action:   "restore_workspace",
+			Recovery: &document,
+		},
+	})
+	if err != nil {
+		return workspaceState{}, err
+	}
+	if !isCurrentAgentProtocolVersion(response.Version) {
+		return workspaceState{}, &unsupportedAgentProtocolError{version: response.Version}
+	}
+	if response.State == nil {
+		return workspaceState{}, errors.New("agent returned empty restored workspace state")
 	}
 	applyAgentWorkspaceCapabilities(response.State, response.Version)
 	return *response.State, nil
 }
 
-func requestAgentWorkspaceAction(ctx context.Context, scope agentScope, cols, rows, terminalScrollback int, action workspaceActionRequest) (workspaceState, error) {
+func requestAgentWorkspaceActionWithVersion(ctx context.Context, scope agentScope, cols, rows, terminalScrollback int, action workspaceActionRequest) (workspaceState, string, error) {
 	response, err := requestPersistentAgent(ctx, scope, agentRequest{
 		Type:               "action",
 		Cols:               cols,
@@ -338,13 +367,19 @@ func requestAgentWorkspaceAction(ctx context.Context, scope agentScope, cols, ro
 		Action:             &action,
 	})
 	if err != nil {
-		return workspaceState{}, err
+		return workspaceState{}, "", err
 	}
 	if response.State == nil {
-		return workspaceState{}, errors.New("agent returned empty workspace state")
+		return workspaceState{}, response.Version, errors.New("agent returned empty workspace state")
 	}
 	applyAgentWorkspaceCapabilities(response.State, response.Version)
-	return *response.State, nil
+	return *response.State, response.Version, nil
+
+}
+
+func requestAgentWorkspaceAction(ctx context.Context, scope agentScope, cols, rows, terminalScrollback int, action workspaceActionRequest) (workspaceState, error) {
+	state, _, err := requestAgentWorkspaceActionWithVersion(ctx, scope, cols, rows, terminalScrollback, action)
+	return state, err
 }
 
 func requestAgentWorkspaceActivity(ctx context.Context, scope agentScope, cols, rows, terminalScrollback int) (workspaceActivityState, error) {

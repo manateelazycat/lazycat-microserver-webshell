@@ -51,6 +51,7 @@ LightOS WebShell 的目标是为懒猫微服提供一个开箱即用的网页终
 - 支持内置字体、自定义字体上传、字体删除和系统默认字体恢复。
 - 支持滚动历史行数设置，范围为 100 到 100000 行。
 - 支持桌面端鼠标选区自动复制开关。
+- 可选保存普通 LightOS 实例的标签、分屏和工作目录；终端工作区丢失后创建不带旧历史的新会话。该能力默认关闭，不作用于 `client:` PC target。
 - 支持移动端像素级滚动开关。
 - 支持手机快捷键和 PC 快捷键自定义、排序和恢复默认。
 - 终端长截图底部显示固定彩虹渐变的 `Powered by LazyCat MicroServer LightOS`；品牌文案和截图专用图标不改变真实快捷键栏。
@@ -145,6 +146,7 @@ lzc-cli project deploy
 - 后端使用 Go 实现，Web UI 通过 `/=exec://8080` 由 LPK 启动。
 - 终端会话通过实例内 persistent agent 管理，并通过 WebSocket 转发到浏览器。普通容器的单条 Unified transport 复用只发生在 Provider 中转层；persistent agent 不需要修改，仍持续维护所有 PTY、任务、历史和 cursor。所有 logical pane 都允许普通输入，Provider 按 pane identity、stream generation 和 channel generation 校验，并根据活动优先级公平调度。`client:` PC target 仍由最多三条独立直连兼容。
 - 实例端终端历史由 persistent agent 作为可信数据源维护。普通容器只走服务端权威 snapshot/live，Ghostty 不绘制回放中间帧；`client:` PC target 继续使用隔离的 IndexedDB 与原完整历史协议，直到该后端完成 Unified 协议升级。
+- 可选的重启恢复由 Provider 按账号和实例保存版本化工作区描述；只有 agent 的 workspace generation 已变化时才让当前协议 agent 原子重建标签、分屏和新 PTY。关闭时不访问恢复存储，存活 agent 仍按原链路继续使用。
 - HTML 入口使用 `/assets/<lpk-version>-<content-revision>/` 静态资源路径。源码模块由 Vite 合并为有界数量的生产 bundle 后再写入 LPK；即使误用相同 LPK 版本重新发布，只要二进制或 runtime 内容变化，JS/CSS/bundle/WASM URL 也会变化。内容寻址资源可通过 HTTP immutable 缓存长期复用，旧 `/static/` 仅保留兼容。
 - 页面不注册 Service Worker、不提供 Web App Manifest，也不维护 PWA app-shell。历史版本遗留的本 WebShell Worker 和已知缓存会在启动后精确清理，不参与终端启动、离线 fallback 或资源调度。
 - 终端渲染使用项目内随包分发的 Ghostty Web 运行时资源。

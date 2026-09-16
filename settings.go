@@ -19,6 +19,7 @@ type settingsPatch struct {
 	TerminalLineHeightPercent      optionalInt              `json:"terminal_line_height_percent"`
 	DesktopMouseClipboardEnabled   optionalBool             `json:"desktop_mouse_clipboard_enabled"`
 	DesktopShortcutsBarEnabled     optionalBool             `json:"desktop_shortcuts_bar_enabled"`
+	RestartWorkspaceRestoreEnabled optionalBool             `json:"restart_workspace_restore_enabled"`
 	MobilePixelScrollEnabled       optionalBool             `json:"mobile_pixel_scroll_enabled"`
 	MobileDoubleTapReminderEnabled optionalBool             `json:"mobile_double_tap_reminder_enabled"`
 	MobileShortcuts                optionalMobileShortcuts  `json:"mobile_shortcuts"`
@@ -117,13 +118,22 @@ func (s *pluginServer) fontStore() fonts.Store {
 }
 
 func (s *pluginServer) currentTerminalScrollback() int {
+	scrollback, _ := s.currentTerminalRuntimeSettings()
+	return scrollback
+}
+
+func (s *pluginServer) currentTerminalRuntimeSettings() (int, string) {
 	s.settingsMu.Lock()
 	settings, err := s.fontStore().ReadSettings()
 	s.settingsMu.Unlock()
 	if err != nil {
-		return fonts.DefaultTerminalScrollback
+		return fonts.DefaultTerminalScrollback, ""
 	}
-	return settings.TerminalScrollback
+	epoch := ""
+	if settings.RestartWorkspaceRestoreEnabled != nil && *settings.RestartWorkspaceRestoreEnabled {
+		epoch = strings.TrimSpace(settings.RestartWorkspaceRestoreEpoch)
+	}
+	return settings.TerminalScrollback, epoch
 }
 
 func (s *pluginServer) handleSettings(w http.ResponseWriter, r *http.Request) {
@@ -182,6 +192,16 @@ func (s *pluginServer) handleSettings(w http.ResponseWriter, r *http.Request) {
 			if payload.DesktopShortcutsBarEnabled.Set && !payload.DesktopShortcutsBarEnabled.Null {
 				settings.DesktopShortcutsBarEnabled = &payload.DesktopShortcutsBarEnabled.Value
 			}
+			if payload.RestartWorkspaceRestoreEnabled.Set && !payload.RestartWorkspaceRestoreEnabled.Null {
+				wasEnabled := settings.RestartWorkspaceRestoreEnabled != nil && *settings.RestartWorkspaceRestoreEnabled
+				nextEnabled := payload.RestartWorkspaceRestoreEnabled.Value
+				settings.RestartWorkspaceRestoreEnabled = &nextEnabled
+				if !nextEnabled {
+					settings.RestartWorkspaceRestoreEpoch = ""
+				} else if !wasEnabled || strings.TrimSpace(settings.RestartWorkspaceRestoreEpoch) == "" {
+					settings.RestartWorkspaceRestoreEpoch, err = newHistoryGeneration()
+				}
+			}
 			if payload.MobilePixelScrollEnabled.Set && !payload.MobilePixelScrollEnabled.Null {
 				settings.MobilePixelScrollEnabled = &payload.MobilePixelScrollEnabled.Value
 			}
@@ -202,7 +222,9 @@ func (s *pluginServer) handleSettings(w http.ResponseWriter, r *http.Request) {
 					settings.DesktopShortcuts = &payload.DesktopShortcuts.Value
 				}
 			}
-			_, err = store.MergeSettings(settings, !updateFont)
+			if err == nil {
+				_, err = store.MergeSettings(settings, !updateFont)
+			}
 		}
 		var state fonts.State
 		if err == nil {

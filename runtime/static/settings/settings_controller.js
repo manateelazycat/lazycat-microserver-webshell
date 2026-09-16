@@ -77,6 +77,7 @@ export function createSettingsController({
   onTerminalScrollbackChange = noop,
   onTerminalLineHeightChange = noop,
   onDesktopShortcutsBarChange = noop,
+  onRestartWorkspaceRestoreSaved = noop,
   onMobilePixelScrollChange = noop,
   onMobileDoubleTapReminderChange = noop,
   onMobileShortcutsChange = noop,
@@ -97,6 +98,7 @@ export function createSettingsController({
     fonts: [],
     desktopMouseClipboardEnabled: true,
     desktopShortcutsBarEnabled: false,
+    restartWorkspaceRestoreEnabled: false,
     mobilePixelScrollEnabled: true,
     mobileDoubleTapReminderEnabled: true,
     mobileRemoteDesktopEnabled: readStoredBoolean(storage, mobileRemoteDesktopStorageKey, false),
@@ -719,6 +721,16 @@ export function createSettingsController({
     onDesktopShortcutsBarChange: () => saveToggle(
       "desktopShortcutsBarEnabled", "desktop_shortcuts_bar_enabled", "desktopShortcutsBar", "PC底部快捷键栏设置保存失败。",
     ),
+    onRestartWorkspaceRestoreChange: () => {
+      const value = view.toggleValue?.("restartWorkspaceRestore") === true;
+      enqueueMutation({
+        field: "restartWorkspaceRestoreEnabled",
+        value,
+        patch: { restart_workspace_restore_enabled: value },
+        savingKind: "restartWorkspaceRestore",
+      }).then(() => onRestartWorkspaceRestoreSaved(value))
+        .catch((error) => view.setFeedback?.(error.message || "重启恢复设置保存失败。", "error"));
+    },
     onMobilePixelScrollChange: () => saveToggle(
       "mobilePixelScrollEnabled", "mobile_pixel_scroll_enabled", "mobilePixelScroll", "像素级滚动设置保存失败。",
     ),
@@ -848,6 +860,7 @@ export function createSettingsController({
     },
     getDesktopMouseClipboardEnabled: () => snapshot.desktopMouseClipboardEnabled,
     getDesktopShortcutsBarEnabled: () => snapshot.desktopShortcutsBarEnabled,
+    getRestartWorkspaceRestoreEnabled: () => snapshot.restartWorkspaceRestoreEnabled,
     getForcePCModeEnabled: () => snapshot.forcePCModeEnabled,
     getMobileDoubleTapReminderEnabled: () => snapshot.mobileDoubleTapReminderEnabled,
     getMobilePixelScrollEnabled: () => snapshot.mobilePixelScrollEnabled,

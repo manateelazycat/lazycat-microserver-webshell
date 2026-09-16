@@ -367,6 +367,19 @@
                   <span class="settings-switch" aria-hidden="true"></span>
                 </label>
               </section>
+              <section class="settings-section" aria-labelledby="settingsRestartWorkspaceRestoreTitle">
+                <div class="settings-section-head">
+                  <h3 id="settingsRestartWorkspaceRestoreTitle">{{ $t('重启恢复') }}</h3>
+                </div>
+                <label class="settings-switch-row" for="settingsRestartWorkspaceRestoreToggle">
+                  <span class="settings-switch-label">
+                    <span>{{ $t('重启后恢复标签和会话') }}</span>
+                    <span>{{ $t('默认关闭；开启后按原标签、分屏和工作目录创建新会话，不恢复终端历史') }}</span>
+                  </span>
+                  <input class="settings-switch-input" id="settingsRestartWorkspaceRestoreToggle" type="checkbox" />
+                  <span class="settings-switch" aria-hidden="true"></span>
+                </label>
+              </section>
               <section class="settings-section" aria-labelledby="settingsPhysicalMachineTitle">
                 <div class="settings-section-head">
                   <h3 id="settingsPhysicalMachineTitle">{{ $t('物理机接入说明') }}</h3>

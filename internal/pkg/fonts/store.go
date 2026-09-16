@@ -51,6 +51,7 @@ type State struct {
 	TerminalLineHeightPercent      int                  `json:"terminal_line_height_percent"`
 	DesktopMouseClipboardEnabled   bool                 `json:"desktop_mouse_clipboard_enabled"`
 	DesktopShortcutsBarEnabled     bool                 `json:"desktop_shortcuts_bar_enabled"`
+	RestartWorkspaceRestoreEnabled bool                 `json:"restart_workspace_restore_enabled"`
 	MobilePixelScrollEnabled       bool                 `json:"mobile_pixel_scroll_enabled"`
 	MobileDoubleTapReminderEnabled bool                 `json:"mobile_double_tap_reminder_enabled"`
 	MobileShortcuts                MobileShortcutRows   `json:"mobile_shortcuts"`
@@ -65,6 +66,8 @@ type Settings struct {
 	TerminalLineHeightPercent      int                  `json:"terminal_line_height_percent"`
 	DesktopMouseClipboardEnabled   *bool                `json:"desktop_mouse_clipboard_enabled,omitempty"`
 	DesktopShortcutsBarEnabled     *bool                `json:"desktop_shortcuts_bar_enabled,omitempty"`
+	RestartWorkspaceRestoreEnabled *bool                `json:"restart_workspace_restore_enabled,omitempty"`
+	RestartWorkspaceRestoreEpoch   string               `json:"restart_workspace_restore_epoch,omitempty"`
 	MobilePixelScrollEnabled       *bool                `json:"mobile_pixel_scroll_enabled,omitempty"`
 	MobileDoubleTapReminderEnabled *bool                `json:"mobile_double_tap_reminder_enabled,omitempty"`
 	MobileShortcuts                *MobileShortcutRows  `json:"mobile_shortcuts,omitempty"`
@@ -367,6 +370,7 @@ func (s Store) State() (State, error) {
 		TerminalLineHeightPercent:      settings.TerminalLineHeightPercent,
 		DesktopMouseClipboardEnabled:   desktopMouseClipboardEnabled(settings),
 		DesktopShortcutsBarEnabled:     desktopShortcutsBarEnabled(settings),
+		RestartWorkspaceRestoreEnabled: restartWorkspaceRestoreEnabled(settings),
 		MobilePixelScrollEnabled:       mobilePixelScrollEnabled(settings),
 		MobileDoubleTapReminderEnabled: mobileDoubleTapReminderEnabled(settings),
 		MobileShortcuts:                effectiveMobileShortcuts(settings),
@@ -400,6 +404,11 @@ func (s Store) ReadSettings() (Settings, error) {
 	settings.TerminalLineHeightPercent = normalizeTerminalLineHeightPercent(settings.TerminalLineHeightPercent)
 	settings.DesktopMouseClipboardEnabled = normalizeDesktopMouseClipboardEnabled(settings.DesktopMouseClipboardEnabled)
 	settings.DesktopShortcutsBarEnabled = normalizeDesktopShortcutsBarEnabled(settings.DesktopShortcutsBarEnabled)
+	settings.RestartWorkspaceRestoreEnabled = normalizeRestartWorkspaceRestoreEnabled(settings.RestartWorkspaceRestoreEnabled)
+	settings.RestartWorkspaceRestoreEpoch = strings.TrimSpace(settings.RestartWorkspaceRestoreEpoch)
+	if !restartWorkspaceRestoreEnabled(settings) {
+		settings.RestartWorkspaceRestoreEpoch = ""
+	}
 	settings.MobilePixelScrollEnabled = normalizeMobilePixelScrollEnabled(settings.MobilePixelScrollEnabled)
 	settings.MobileDoubleTapReminderEnabled = normalizeMobileDoubleTapReminderEnabled(settings.MobileDoubleTapReminderEnabled)
 	if settings.MobileShortcuts != nil {
@@ -634,6 +643,11 @@ func (s Store) WriteSettings(settings Settings) error {
 	settings.TerminalLineHeightPercent = normalizeTerminalLineHeightPercent(settings.TerminalLineHeightPercent)
 	settings.DesktopMouseClipboardEnabled = normalizeDesktopMouseClipboardEnabled(settings.DesktopMouseClipboardEnabled)
 	settings.DesktopShortcutsBarEnabled = normalizeDesktopShortcutsBarEnabled(settings.DesktopShortcutsBarEnabled)
+	settings.RestartWorkspaceRestoreEnabled = normalizeRestartWorkspaceRestoreEnabled(settings.RestartWorkspaceRestoreEnabled)
+	settings.RestartWorkspaceRestoreEpoch = strings.TrimSpace(settings.RestartWorkspaceRestoreEpoch)
+	if !restartWorkspaceRestoreEnabled(settings) {
+		settings.RestartWorkspaceRestoreEpoch = ""
+	}
 	settings.MobilePixelScrollEnabled = normalizeMobilePixelScrollEnabled(settings.MobilePixelScrollEnabled)
 	settings.MobileDoubleTapReminderEnabled = normalizeMobileDoubleTapReminderEnabled(settings.MobileDoubleTapReminderEnabled)
 	if settings.MobileShortcuts != nil {
@@ -690,6 +704,11 @@ func (s Store) SaveSettings(settings Settings) error {
 	}
 	settings.DesktopMouseClipboardEnabled = normalizeDesktopMouseClipboardEnabled(settings.DesktopMouseClipboardEnabled)
 	settings.DesktopShortcutsBarEnabled = normalizeDesktopShortcutsBarEnabled(settings.DesktopShortcutsBarEnabled)
+	settings.RestartWorkspaceRestoreEnabled = normalizeRestartWorkspaceRestoreEnabled(settings.RestartWorkspaceRestoreEnabled)
+	settings.RestartWorkspaceRestoreEpoch = strings.TrimSpace(settings.RestartWorkspaceRestoreEpoch)
+	if !restartWorkspaceRestoreEnabled(settings) {
+		settings.RestartWorkspaceRestoreEpoch = ""
+	}
 	settings.MobilePixelScrollEnabled = normalizeMobilePixelScrollEnabled(settings.MobilePixelScrollEnabled)
 	settings.MobileDoubleTapReminderEnabled = normalizeMobileDoubleTapReminderEnabled(settings.MobileDoubleTapReminderEnabled)
 	if settings.MobileShortcuts != nil {
@@ -725,6 +744,11 @@ func (s Store) MergeSettings(settings Settings, pruneMissingSelection bool) (Set
 	}
 	settings.DesktopMouseClipboardEnabled = normalizeDesktopMouseClipboardEnabled(settings.DesktopMouseClipboardEnabled)
 	settings.DesktopShortcutsBarEnabled = normalizeDesktopShortcutsBarEnabled(settings.DesktopShortcutsBarEnabled)
+	settings.RestartWorkspaceRestoreEnabled = normalizeRestartWorkspaceRestoreEnabled(settings.RestartWorkspaceRestoreEnabled)
+	settings.RestartWorkspaceRestoreEpoch = strings.TrimSpace(settings.RestartWorkspaceRestoreEpoch)
+	if !restartWorkspaceRestoreEnabled(settings) {
+		settings.RestartWorkspaceRestoreEpoch = ""
+	}
 	settings.MobilePixelScrollEnabled = normalizeMobilePixelScrollEnabled(settings.MobilePixelScrollEnabled)
 	settings.MobileDoubleTapReminderEnabled = normalizeMobileDoubleTapReminderEnabled(settings.MobileDoubleTapReminderEnabled)
 	if settings.MobileShortcuts != nil {
@@ -944,6 +968,14 @@ func normalizeDesktopMouseClipboardEnabled(value *bool) *bool {
 }
 
 func normalizeDesktopShortcutsBarEnabled(value *bool) *bool {
+	if value == nil {
+		return boolPtr(false)
+	}
+	enabled := *value
+	return &enabled
+}
+
+func normalizeRestartWorkspaceRestoreEnabled(value *bool) *bool {
 	if value == nil {
 		return boolPtr(false)
 	}
@@ -1265,6 +1297,13 @@ func desktopShortcutsBarEnabled(settings Settings) bool {
 		return false
 	}
 	return *settings.DesktopShortcutsBarEnabled
+}
+
+func restartWorkspaceRestoreEnabled(settings Settings) bool {
+	if settings.RestartWorkspaceRestoreEnabled == nil {
+		return false
+	}
+	return *settings.RestartWorkspaceRestoreEnabled
 }
 
 func mobilePixelScrollEnabled(settings Settings) bool {
