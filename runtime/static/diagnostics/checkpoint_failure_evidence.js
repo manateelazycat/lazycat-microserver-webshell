@@ -11,6 +11,8 @@ const checkpointFields = [
   "memory_measurement", "memory_bytes", "memory_limit_bytes", "scrollback_capacity_bytes", "scrollback_lines",
   "checkpoint_cols", "checkpoint_rows", "pane_cols", "pane_rows", "history_cursor", "pending_bytes",
   "skipped_resizes", "observed_unix_ms",
+  "agent_protocol", "wasm_sha256", "pane_created_unix_ms", "history_base_cursor", "history_bytes", "history_limit_bytes",
+  "fallback_mode", "failure_cursor_precision", "raw_input_retained_in_diagnostics",
 ];
 const resizeFields = [
   "at_unix_ms", "from_cols", "from_rows", "to_cols", "to_rows", "memory_before", "memory_after",
@@ -26,6 +28,15 @@ const checkpointSnapshot = (checkpoint) => checkpoint ? {
   last_resize: checkpoint.last_resize ? pick(checkpoint.last_resize, resizeFields) : null,
   recent_resizes: Array.isArray(checkpoint.recent_resizes)
     ? checkpoint.recent_resizes.slice(-8).map((entry) => pick(entry, resizeFields)) : [],
+  first_failure: failureSnapshot(checkpoint.first_failure || checkpoint.recovery?.first_failure),
+} : null;
+
+const failureSnapshot = (failure) => failure ? {
+  ...pick(failure, ["at_unix_ms", "operation", "error", "batch_from_cursor", "batch_to_cursor", "history_base_cursor",
+    "history_bytes", "history_limit_bytes", "cols", "rows", "pending_bytes_before", "pending_bytes_after"]),
+  call: pick(failure.call, ["operation", "input_bytes", "parser_bytes", "input_sha256", "memory_before", "memory_after",
+    "requested_cols", "requested_rows", "requested_scrollback_lines"]),
+  recent_resizes: Array.isArray(failure.recent_resizes) ? failure.recent_resizes.slice(-8).map((entry) => pick(entry, resizeFields)) : [],
 } : null;
 
 const classify = (error) => ({
@@ -61,7 +72,7 @@ export function createCheckpointFailureEvidence({ now, wallNow = () => Date.now(
       const context = { ...observed, event, connection: session.connectionEpoch,
         channelGeneration: session.connectionChannelGeneration, replayGeneration: session.terminalReplayGeneration,
         ...pick(details, ["controlType", "code", "reason", "resizeEpoch", "cols", "rows",
-          "serverBaseCursor", "serverEndCursor", "deltaFromCursor", "deltaToCursor", "syncMode", "recoveryBaseline"]) };
+          "serverBaseCursor", "serverEndCursor", "deltaFromCursor", "deltaToCursor", "syncMode", "recoveryBaseline", "checkpointFallback"]) };
       // Repeated server failures retain their full error in first/latest below.
       if (typeof context.reason === "string") context.reason = context.reason.slice(0, 256);
       for (const key of ["targetSize", "terminalSize", "requestedSize", "serverSize"]) {
@@ -75,7 +86,8 @@ export function createCheckpointFailureEvidence({ now, wallNow = () => Date.now(
         state.failure.contextEventsDiscarded = state.dropped;
       }
       if (event !== "checkpoint_resize_diagnostic") return;
-      const error = String(details.checkpoint?.error || details.error || "");
+      const error = String(details.checkpoint?.error || details.error || details.checkpoint?.first_failure?.error
+        || details.checkpoint?.recovery?.first_failure?.error || "");
       const report = { ...observed, connection: session.connectionEpoch,
         channelGeneration: session.connectionChannelGeneration, replayGeneration: session.terminalReplayGeneration,
         controlType: details.controlType || "unknown", serverSample: checkpointSnapshot(details.checkpoint),
@@ -132,6 +144,7 @@ export function createCheckpointFailureEvidence({ now, wallNow = () => Date.now(
         unavailableFromExistingAgent: ["first_failure_time", "first_failure_cursor", "triggering_input_bytes",
           "faulting_memory_address", "faulting_instruction_offset", "parser_memory_at_failure",
           "actual_scrollback_occupancy_at_failure", "retained_raw_history_bytes_at_failure"],
+        newerAgentEvidence: "serverSample.first_failure and fallback_mode retain the original failure and selected replay path when provided; raw input and memory are not exported",
       }, ...failures].map((record) => JSON.stringify(record));
     },
     dispose() { failures.length = 0; states = new WeakMap(); },

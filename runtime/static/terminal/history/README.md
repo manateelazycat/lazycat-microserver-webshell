@@ -55,3 +55,13 @@
 history 不建立 WebSocket、不操作 Canvas、不拥有 resize 或输入状态。相关测试为 `terminal_session_protocol_controller_test.mjs`、`terminal_session_replay_controller_test.mjs`、`terminal_replay_controller_test.mjs`、`client_terminal_history_controller_test.mjs`、`terminal_checkpoint_test.mjs` 和 `TestRuntimeTerminalHistoryModuleBoundary`。
 
 最小回归：普通容器首次进入/刷新/断线重连只走服务端 snapshot；Unified open 无本地 range；snapshot 中间帧不可见；`client:` cache/memory range 仍连续；任一迟到 generation、cursor 不连续或 identity 不匹配都拒绝提交且不影响兄弟 stream。
+
+## Agent v27 的原始历史 fallback 与故障日志
+
+正常 pane 仍用服务端状态快照加快加载。某个 pane 的 checkpoint 解析器写入或尺寸处理失败后，停止使用该解析器；后续 attach 跳过它的快照请求，直接从现有原始历史生成回放并订阅实时输出。故障隔离在该 pane 内，其他 pane 继续使用健康快照；已有连接继续收到实时输出，不因影子解析器故障强制断开。PTY、用户程序和 Agent 不重启。
+
+原始历史严格保持 `行数 × 350` 字节上限，不推迟裁剪、不额外保存健康快照、不维护输出重放日志，也不创建新解析器尝试恢复。失败后的每次连接使用保留历史的完整范围及明确游标边界。该 fallback 优先恢复可用性，不能补回已裁剪的画面和终端模式，也不能保证前端能避开相同解析缺陷。
+
+服务端每个 pane 只保存一份首次故障报告，包含真实原生错误、调用范围、输入 SHA-256、解析输入长度、内存、几何、历史范围和近期尺寸记录。`terminal-checkpoint-diagnostic` 实时通知已有连接，并在后续 attach 再次提供证据；`history-replay-start` 的 `recovery_baseline=raw-history`、`checkpoint_fallback=parser_failed` 标记实际回放路径。重复连接不是新的解析崩溃。
+
+fallback 不新增 Toast、弹窗、横幅或状态警告；原因和路径只进入错误日志及诊断记录。错误日志窗口未打开时也按既有有界容量保留，复制和下载包含完整 JSON；渲染异常捕获保留对应摘要。日志不导出原始终端正文或完整解析器内存，调用范围不能当作精确报错字节。WASM 沿用 v26，v26/v27 内存快照兼容；更早版本只协商字节回放。

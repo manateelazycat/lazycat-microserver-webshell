@@ -4,7 +4,7 @@
 
 本模块消费 Unified Queue 握手提供的当前/推荐 agent 协议版本，展示一次更新提示，在用户明确确认后调用 scoped agent 更新 API，并在成功后安排页面重载。
 
-当前 Provider 推荐协议为 `lcmd-webshell-agent-v23`，修复清理终端行时误用全局列宽的问题，按所属页面的实际宽度清理 cells 及资源标志；前后端使用同一份新 WASM。保留 v22 的原生重排资源扩容修复，以及 v21 的窗口流控与按帧发布。v22 至 v9 仍显式兼容传输，兼容不代表旧 Agent 获得原生修复；新 WASM 指纹的状态基线恢复需要更新正在运行的 Agent。协议更新仍仅在用户确认后通过 scoped `replace-active` 执行，不能自动销毁现有 PTY。已有失败的 parser 不会因更新前端而恢复，本轮不包含 parser 自动重建。v18 的关闭生命周期修复与 v17 的完整状态基线保留；Kitty 图形会话沿用原路径。
+当前 Provider 推荐协议为 `lcmd-webshell-agent-v27`，服务端解析失败时仅对应 pane 自动改用原始历史回放，保留首次故障诊断；移除健康快照重建，不重启 PTY 或用户任务。v26 的原生错误诊断及 WASM 保持不变，v26 与 v27 内存快照兼容；v25 至 v9 继续显式兼容传输，使用字节回放。协议更新仍仅在用户确认后通过 scoped `replace-active` 执行，不自动替换旧 Agent。Kitty 图形会话沿用原路径。
 
 本模块不拥有终端 session、连接、PTY 或输入状态，不创建本地或远程输入锁。确认更新后允许清理当前页面尚未发送的 pending 输入，避免即将销毁的旧会话残留队列，但不得在 Provider、persistent agent 或 pane 上保存 blocker。
 

@@ -163,7 +163,7 @@ export function createDiagnosticsController({
   const appendLog = (level, message, details = "", options = {}) => (
     debugLog.append(level, message, details, options)
   );
-  const appendError = (message, details = "") => appendLog("error", message, details);
+  const appendError = (message, details = "", options = {}) => appendLog("error", message, details, options);
   const appendWarning = (message, details = "") => appendLog("warn", message, details);
   const appendStartupTrace = (event, details = "", { dedupeKey = event, diagnosticDetails = {} } = {}) => {
     const moduleStartedAt = startupDiagnostics?.getMetric?.("moduleStartedAt") || 0;

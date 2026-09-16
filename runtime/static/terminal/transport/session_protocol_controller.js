@@ -592,7 +592,8 @@ export function createTerminalSessionProtocolController({
                 textMessages: socketDebug.textMessages,
               });
             }
-            if ((message.type === "resize-applied" && message.checkpoint_diagnostics) || message.type === "terminal-checkpoint-error") {
+            if ((message.type === "resize-applied" && message.checkpoint_diagnostics)
+              || message.type === "terminal-checkpoint-error" || message.type === "terminal-checkpoint-diagnostic") {
               try {
                 recordTerminalSessionEvent(session, "checkpoint_resize_diagnostic", {
                   checkpoint: message.checkpoint_diagnostics, resizeTiming: message.resize_diagnostics || null,
@@ -600,13 +601,21 @@ export function createTerminalSessionProtocolController({
                     ? String(message.message || "Terminal recovery checkpoint unavailable") : "",
                   resizeEpoch: message.resize_epoch || "",
                 });
-                if (message.checkpoint_diagnostics?.error || message.type === "terminal-checkpoint-error") {
-                  appendDebugError("服务端终端快照异常", JSON.stringify({ pane: session.id, controlType: message.type, message: message.message,
-                    checkpoint: message.checkpoint_diagnostics, resizeTiming: message.resize_diagnostics || null }));
+                const checkpoint = message.checkpoint_diagnostics;
+                const firstFailure = checkpoint?.first_failure || checkpoint?.recovery?.first_failure;
+                if (checkpoint?.error || firstFailure || message.type === "terminal-checkpoint-error") {
+                  const title = checkpoint?.fallback_mode === "raw-history"
+                    ? "服务端终端解析失败，使用原始历史回放" : "服务端终端快照异常";
+                  appendDebugError(title, JSON.stringify({ target: session.name, tab: session.tabId,
+                    pane: session.id, workspaceGeneration: session.workspaceGeneration, controlType: message.type, message: message.message,
+                    checkpoint: message.checkpoint_diagnostics, resizeTiming: message.resize_diagnostics || null }),
+                  { retainWhenDisabled: true, dedupeKey: `checkpoint:${session.name}:${session.id}:${firstFailure?.at_unix_ms || 0}:${checkpoint?.fallback_mode || "checkpoint"}` });
                 }
               } catch {}
             }
             switch (message.type) {
+              case "terminal-checkpoint-diagnostic":
+                return;
               case "terminal-checkpoint-error":
                 checkpointReceiver.clear();
                 rejectHistorySync(message.message || "Terminal recovery checkpoint unavailable");
@@ -698,6 +707,7 @@ export function createTerminalSessionProtocolController({
                   cols: Number(message.cols || 0),
                   rows: Number(message.rows || 0),
                   recoveryBaseline: String(message.recovery_baseline || "raw-history"),
+                  checkpointFallback: String(message.checkpoint_fallback || ""),
                   checkpointMemoryBytes: Number(message.memory_checkpoint?.memory_bytes || 0),
                 });
                 // Keep one suppression scope across all replay drain tasks.

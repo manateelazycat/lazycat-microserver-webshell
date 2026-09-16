@@ -61,6 +61,7 @@ type terminalCheckpointEngine struct {
 	legacyGraphics         bool
 	resizeObservations     []checkpointResizeObservation
 	skippedResizes         uint64
+	failedCall             *checkpointCallFailure
 }
 
 func checkpointHash(data []byte) string {
@@ -142,6 +143,14 @@ func (e *terminalCheckpointEngine) write(data []byte) {
 	if len(e.pending) > 0 {
 		input = append(e.pending, data...)
 	}
+	memoryBefore := e.memoryBytes()
+	parserBytes := 0
+	defer func() {
+		if e.err != nil {
+			e.failedCall = &checkpointCallFailure{Operation: "write", InputBytes: len(input), ParserBytes: parserBytes,
+				InputSHA256: checkpointHash(input), MemoryBefore: memoryBefore, MemoryAfter: e.memoryBytes()}
+		}
+	}()
 	if bytes.Contains(input, []byte("\x1b_G")) {
 		e.legacyGraphics = true
 		e.pending = nil
@@ -166,10 +175,19 @@ func (e *terminalCheckpointEngine) write(data []byte) {
 		e.err = errors.New("checkpoint input is out of bounds")
 		return
 	}
+	parserBytes = boundary
 	ok, err := e.call("ghostty_terminal_write", uint64(e.handle), ptr, uint64(boundary))
+	nativeError := ""
+	if err == nil && ok != 1 {
+		nativeError = e.nativeError("write")
+	}
 	_, _ = e.call("ghostty_wasm_free_u8_array", ptr, uint64(boundary))
 	if err != nil || ok != 1 {
-		e.err = fmt.Errorf("checkpoint parser failed: %v", err)
+		if err != nil {
+			e.err = fmt.Errorf("checkpoint parser failed: %w", err)
+		} else {
+			e.err = fmt.Errorf("checkpoint parser failed: native=%s result=%d input_bytes=%d", nativeError, ok, boundary)
+		}
 		return
 	}
 	// A shadow parser must never inject responses or retain an unbounded query queue.
@@ -213,6 +231,8 @@ func (e *terminalCheckpointEngine) resize(cols, rows, lines int) {
 		observation.MemoryAfter = e.memoryBytes()
 		if e.err != nil {
 			observation.Error = e.err.Error()
+			e.failedCall = &checkpointCallFailure{Operation: "resize", MemoryBefore: observation.MemoryBefore,
+				MemoryAfter: observation.MemoryAfter, Cols: cols, Rows: rows, ScrollbackLines: lines}
 		}
 		e.resizeObservations = append(e.resizeObservations, observation)
 		if len(e.resizeObservations) > 8 {

@@ -28,11 +28,15 @@ func (e *terminalCheckpointEngine) memoryBytes() uint32 {
 
 // Read static error text without allocating in a potentially exhausted WASM heap.
 func (e *terminalCheckpointEngine) nativeResizeError() string {
-	ptr, err := e.call("ghostty_terminal_resize_error_ptr")
+	return e.nativeError("resize")
+}
+
+func (e *terminalCheckpointEngine) nativeError(operation string) string {
+	ptr, err := e.call("ghostty_terminal_" + operation + "_error_ptr")
 	if err != nil {
 		return "unavailable"
 	}
-	length, err := e.call("ghostty_terminal_resize_error_len")
+	length, err := e.call("ghostty_terminal_" + operation + "_error_len")
 	if err != nil || length > 256 {
 		return "unavailable"
 	}
@@ -49,11 +53,19 @@ func (e *terminalCheckpointEngine) nativeResizeError() string {
 func (p *terminalPane) checkpointDiagnostics() map[string]any {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	return p.checkpointDiagnosticsLocked()
+}
+
+func (p *terminalPane) checkpointDiagnosticsLocked() map[string]any {
 	e := p.checkpoint
 	if e == nil {
 		return nil
 	}
 	result := map[string]any{
+		"agent_protocol": agentProtocolVersion, "wasm_sha256": checkpointWASMHash(),
+		"pane_created_unix_ms": p.checkpointCreatedAt,
+		"history_base_cursor":  strconv.FormatUint(p.history.base, 10),
+		"history_bytes":        p.history.bytes, "history_limit_bytes": p.historyLimitBytes,
 		"memory_measurement": "wasm_linear_memory_size",
 		"memory_bytes":       e.memoryBytes(), "memory_limit_bytes": terminalCheckpointMaxMemory,
 		"scrollback_capacity_bytes": e.capacity, "scrollback_lines": e.scrollback,
@@ -65,7 +77,11 @@ func (p *terminalPane) checkpointDiagnostics() map[string]any {
 		result["last_resize"] = e.resizeObservations[n-1]
 	}
 	if e.err != nil {
-		result["error"] = e.err.Error()
+		result["error"] = boundedCheckpointError(e.err)
+		result["fallback_mode"] = "raw-history"
+		result["first_failure"] = p.checkpointFailure
+		result["failure_cursor_precision"] = "call_range_not_exact_failing_byte"
+		result["raw_input_retained_in_diagnostics"] = false
 		result["recent_resizes"] = append([]checkpointResizeObservation(nil), e.resizeObservations...)
 	}
 	return result

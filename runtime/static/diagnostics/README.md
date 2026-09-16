@@ -105,3 +105,5 @@ v6 仅增强前端观察。`checkpoint_failure_evidence.js` 在现有捕获开�
 `checkpoint_evidence_scope` 明确证据边界：首次观察不等于首次故障，服务端 `observed_unix_ms`／`history_cursor` 属于诊断采样时刻，`scrollback_lines` 是配置上限。相同错误文本的重复报告不能认定为多次新崩溃；没有错误的样本也不证明服务端引擎完全健康。现有 Agent 不提供触发输入、故障地址／指令偏移、故障内存、首次故障时间／游标及实际历史占用，这些字段明确列为不可获得。`classification` 只按原始错误文本分类，通用错误日志改称“服务端终端快照异常”，同时保留控制消息类型。
 
 每秒快照补充现有连接状态、逻辑连接代次、回放阶段、暂停与失败次数，使用 evidenceID 关联独立首次错误；不重复塞入整份固定证据。缺少 `checkpoint_diagnostics` 的旧错误响应仍记录其错误文本。复制与下载共用 v6 导出；正常关闭开关停止采集，服务端请求、重连、回放、尺寸、Canvas hold 释放及 Agent 版本均不因本次诊断改变。
+
+Agent v27 的解析故障在错误日志窗口关闭时仍写入有界错误日志。日志包含 target/tab/pane、Agent/WASM 版本、会话创建时间、首次原生故障、调用范围、输入指纹、历史范围及原始历史 fallback 路径。后续 attach 重新提供首次故障，重复报告不当作新的崩溃。fallback 不触发普通界面的 Toast、弹窗或警告；原始文本和解析器内存不进入日志，采集边界见 `terminal/history/README.md`。

@@ -82,7 +82,7 @@ func isCurrentAgentProtocolVersion(version string) bool {
 
 func isAttachCompatibleAgentProtocolVersion(version string) bool {
 	switch strings.TrimSpace(version) {
-	case agentProtocolVersion, "lcmd-webshell-agent-v24", "lcmd-webshell-agent-v23", "lcmd-webshell-agent-v22", "lcmd-webshell-agent-v21", "lcmd-webshell-agent-v20", "lcmd-webshell-agent-v19", "lcmd-webshell-agent-v18", "lcmd-webshell-agent-v17", "lcmd-webshell-agent-v16", "lcmd-webshell-agent-v15", "lcmd-webshell-agent-v14", "lcmd-webshell-agent-v13", "lcmd-webshell-agent-v12", "lcmd-webshell-agent-v11", "lcmd-webshell-agent-v10", "lcmd-webshell-agent-v9":
+	case agentProtocolVersion, "lcmd-webshell-agent-v26", "lcmd-webshell-agent-v25", "lcmd-webshell-agent-v24", "lcmd-webshell-agent-v23", "lcmd-webshell-agent-v22", "lcmd-webshell-agent-v21", "lcmd-webshell-agent-v20", "lcmd-webshell-agent-v19", "lcmd-webshell-agent-v18", "lcmd-webshell-agent-v17", "lcmd-webshell-agent-v16", "lcmd-webshell-agent-v15", "lcmd-webshell-agent-v14", "lcmd-webshell-agent-v13", "lcmd-webshell-agent-v12", "lcmd-webshell-agent-v11", "lcmd-webshell-agent-v10", "lcmd-webshell-agent-v9":
 		return true
 	default:
 		return false
@@ -1281,15 +1281,15 @@ func persistentAgentAttachCommandArgs(scope agentScope, paneID string, cols, row
 		commandArgs = append(commandArgs, "--integrity-protocol", syncRequest.integrityProtocol)
 	}
 	if syncRequest.checkpointProtocol == terminalMemoryCheckpointProtocol {
-		// v25 only changes HTTP resource delivery, so the v24 binary can
-		// continue requesting the same checkpoint ABI without an update.
+		// v27 shares the v26 WASM. Earlier agents remain wire-compatible,
+		// but use byte replay rather than importing a different WASM heap.
 		quoted := make([]string, 0, len(commandArgs)-3)
 		for _, arg := range commandArgs[3:] {
 			quoted = append(quoted, shellScriptQuote(arg))
 		}
 		script := "set -- " + strings.Join(quoted, " ") + "\n" +
 			"case \"$(" + shellScriptQuote(agentInstallPath) + " agent version)\" in\n" +
-			shellScriptQuote(agentProtocolVersion) + "|lcmd-webshell-agent-v24)\n" +
+			shellScriptQuote(agentProtocolVersion) + "|lcmd-webshell-agent-v26)\n" +
 			"set -- \"$@\" --checkpoint-protocol " + shellScriptQuote(terminalMemoryCheckpointProtocol) + "\n;;\nesac\nexec \"$@\""
 		return []string{"exec", "-i", scope.Selector, "/bin/sh", "-c", script}
 	}

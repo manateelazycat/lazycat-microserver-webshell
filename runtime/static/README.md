@@ -2,7 +2,7 @@
 
 `runtime/static/` 是 WebShell 页面源码根目录。页面脚本只从 `main.js` 开始加载；`main.js` 仅导入并调用 `global-runtime.js` 的 `startGlobalRuntime()`。发布时 Vite 将该模块树构建到 `build/runtime/static/`，LPK 只打包构建产物，不直接发布源码模块。
 
-服务端推荐协议 `lcmd-webshell-agent-v25`：Provider 增加静态资源与入口 HTML 的 HTTP gzip 传输，Agent 传输格式和 checkpoint ABI 沿用 v24，仍在运行的 v24 Agent 保留 checkpoint 能力。保留 v24 的工作区重启恢复、v23 的终端行清理修复、v22 的原生重排资源扩容修复、v21 的有界窗口消费与按帧发布、v18 的会话关闭生命周期修复和 v17 的完整状态基线与后续增量恢复。Agent 编译时嵌入的 `ghostty-vt.wasm` 必须与 Vite 发布资产一致；构建顺序先同步 WASM、再构建前端及 Go，禁止只替换一端。v24 至 v9 继续显式兼容传输，旧 Agent 仅在用户确认后更新；已有失败的 parser 不会因更新前端而恢复。旧协议显式兼容范围见 `agent_runtime.go`，状态协议及限制见 `terminal/history/README.md`。
+服务端推荐协议 `lcmd-webshell-agent-v27`：服务端解析器失败后，仅对应 pane 改用现有原始历史回放，原 PTY 和任务继续运行；不重建解析器，不维护额外健康快照或输出重放日志。原始历史仍严格限制为行数 × 350。首次原生错误、时间、调用范围和 fallback 记录进入有界错误日志，正常界面不增加提示。保留 v26 的原生错误透传及共用 WASM，v26 与 v27 可协商同一内存快照；v25 至 v9 仅兼容传输，使用原始历史回放。Agent 内嵌 WASM 必须与 Vite 发布资产一致。旧 Agent 仍只在用户明确确认后更新，兼容范围见 `agent_runtime.go`，故障行为见 `terminal/history/README.md`。
 
 ## 根目录职责
 
