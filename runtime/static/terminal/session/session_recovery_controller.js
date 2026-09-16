@@ -15,6 +15,7 @@ export function createTerminalSessionRecoveryController({
   recordSessionEvent = () => {},
   discardOutput = () => {},
   markPresentationSyncPending = () => {},
+  retainLocalFrame = () => {},
   resetRuntimeState = () => false,
   cancelPendingRender = () => {},
   clearSelection = () => {},
@@ -53,6 +54,7 @@ export function createTerminalSessionRecoveryController({
     clearConnectionTimers(session);
     endRenderSuppression(session, { render: false, reason: "resize" });
     endRenderSuppression(session, { render: false, reason: "replay" });
+    retainLocalFrame(session);
     if (connection) {
       session.connectionRetrying = connection === "reconnecting";
       if (session.shellEl?.dataset) {

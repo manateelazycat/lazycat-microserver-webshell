@@ -700,6 +700,7 @@ export function createTerminalSessionProtocolController({
                 });
                 // Keep one suppression scope across all replay drain tasks.
                 // writeReplay() alone only protects one synchronous chunk.
+                terminalPresentation.beginHold(session);
                 beginTerminalRenderSuppression(session, "replay");
                 session.agentPreparing = false;
                 terminalResize.handleReplayStart(session, message);

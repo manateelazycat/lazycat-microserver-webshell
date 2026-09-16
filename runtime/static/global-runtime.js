@@ -1159,6 +1159,7 @@ export function startGlobalRuntime() {
 
   terminalMouse = createTerminalMouseController({
     documentObject: document,
+    canBrowseLocally: (session) => terminalPresentation.canBrowseLocally(session),
     cellFromPoint: (session, clientX, clientY) => terminalSelection?.cellFromPoint(session, clientX, clientY),
     activateSession: (session) => {
       const tab = tabs.get(session?.tabId);
@@ -1993,6 +1994,7 @@ export function startGlobalRuntime() {
     recordSessionEvent: (session, event, details) => recordTerminalSessionEvent(session, event, details),
     discardOutput: (session) => terminalOutput?.discard(session),
     markPresentationSyncPending: (session) => terminalPresentation?.markSyncPending(session),
+    retainLocalFrame: (session) => terminalPresentation?.retainLocalFrame(session),
     resetRuntimeState: (session) => resetTerminalRuntimeState(session),
     cancelPendingRender: (term) => terminalPresentation?.cancelPendingRender(term),
     clearSelection: (session, options) => terminalSelection?.clear(session, options),
@@ -2139,6 +2141,7 @@ export function startGlobalRuntime() {
     isApplyingWorkspaceState,
     measureTask: (name, task) => measurePerformanceTask(name, task),
     presentationStateIsCurrent: (pane) => terminalPresentation.stateIsCurrent(pane),
+    canBrowseLocally: (pane) => terminalPresentation.canBrowseLocally(pane),
     holdPresentationFrame: (pane) => terminalPresentation.holdFrame(pane),
     schedulePresentationFrameRelease: (pane) => terminalPresentation.scheduleFrameRelease(pane),
     beginPresentationHold: (pane, options) => terminalPresentation.beginHold(pane, options),

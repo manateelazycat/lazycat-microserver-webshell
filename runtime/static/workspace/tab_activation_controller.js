@@ -9,6 +9,7 @@ export function createWorkspaceTabActivationController({
   finishLayoutInteraction = () => {},
   measureTask = (_name, task) => task(),
   presentationStateIsCurrent = () => false,
+  canBrowseLocally = () => false,
   holdPresentationFrame = () => {},
   schedulePresentationFrameRelease = () => {},
   beginPresentationHold = () => {},
@@ -38,6 +39,7 @@ export function createWorkspaceTabActivationController({
     for (const pane of tab?.panes?.values?.() || []) {
       if (
         pane.hasPresentedFrame
+        && !canBrowseLocally(pane)
         && !pane.terminalFrameHeld
         && (!onlyIfStale || !presentationStateIsCurrent(pane))
       ) {
@@ -85,6 +87,9 @@ export function createWorkspaceTabActivationController({
       }
       tabView.setActiveTabVisuals([previousTab, tab], tab.id);
       for (const pane of tab.panes.values()) {
+        // A disconnected tab still owns its readable local terminal. Let the
+        // reconnect path fit it when authoritative output becomes available.
+        if (canBrowseLocally(pane)) continue;
         const presentationCurrent = presentationStateIsCurrent(pane);
         pane.activationFitPending = !presentationCurrent;
         if (!wasActive && Number(pane.measuredFitGeneration || 0) <= 0) {

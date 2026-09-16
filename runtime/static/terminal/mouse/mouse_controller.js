@@ -20,6 +20,7 @@ export function createTerminalMouseController({
   sendInput = () => {},
   reassertSize = () => {},
   isTouchLayout = () => false,
+  canBrowseLocally = () => false,
   requiresTouchKeyboardDoubleTap = () => false,
   isDeferredTouchClickSession = () => false,
   isKeyboardClaimed = () => false,
@@ -55,7 +56,7 @@ export function createTerminalMouseController({
     registerSessionCleanup(session, () => disposeSession(session));
   };
 
-  const trackingState = (session) => disposed ? null : terminalMouseTrackingState(session);
+  const trackingState = (session) => disposed || canBrowseLocally(session) ? null : terminalMouseTrackingState(session);
 
   const encode = (session, event, action, button = -1) => {
     if (disposed) {
