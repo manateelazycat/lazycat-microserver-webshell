@@ -37,6 +37,7 @@ type pluginServer struct {
 	assetVersion           string
 	serverRevision         string
 	workspaces             *workspaceManager
+	workspaceRecovery      workspaceRecoveryStore
 	adminInfoResolver      func(context.Context) (adminInfo, error)
 	instancesResolver      func(context.Context) ([]instanceSummary, error)
 	instanceRetryDelays    []time.Duration
@@ -194,12 +195,14 @@ func main() {
 	defer stop()
 
 	rootDir := resolvePluginRoot()
+	fontDir := fonts.ResolveDir(rootDir)
 	server := &pluginServer{
-		rootDir:        rootDir,
-		fontDir:        fonts.ResolveDir(rootDir),
-		assetVersion:   computeAssetVersion(rootDir),
-		serverRevision: computeServerRevision(rootDir),
-		workspaces:     newWorkspaceManager(rootDir),
+		rootDir:           rootDir,
+		fontDir:           fontDir,
+		assetVersion:      computeAssetVersion(rootDir),
+		serverRevision:    computeServerRevision(rootDir),
+		workspaces:        newWorkspaceManager(rootDir),
+		workspaceRecovery: newFileWorkspaceRecoveryStore(resolveWorkspaceRecoveryDir(fontDir, rootDir)),
 	}
 	if err := server.run(ctx); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Fatal(err)

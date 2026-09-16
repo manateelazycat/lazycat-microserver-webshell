@@ -2,7 +2,7 @@
 
 ## 职责
 
-`settings/` 是前端设置域的唯一状态 owner，负责服务端设置快照、字段级 PATCH 持久化、终端字体注册、设置面板导航、手机/PC 快捷键编辑器以及本模块的 listener、timer、拖拽和异步请求生命周期。
+`settings/` 是前端设置域的唯一状态 owner，负责服务端设置快照、字段级 PATCH 持久化、终端字体注册、设置面板导航、重启恢复开关、手机/PC 快捷键编辑器以及本模块的 listener、timer、拖拽和异步请求生命周期。
 
 本模块不持有 tab、pane、session、WebSocket、history、replay、resize 或 Canvas 呈现状态。字体、字号、行高、scrollback 和移动布局变化只通过构造参数中的显式回调交给终端运行时适配层。设置变化不得触发、管理或展示历史回放过程。
 
@@ -37,6 +37,7 @@ controller 对外提供只读快照/getter、`start()`、`load()`、`open()`、`
 - 手机快捷键 `text` 原样保留空格、换行和制表符，不得 `trim()`。
 - 并发修改通过 pending overlay 防止较早 PATCH 响应覆盖尚未完成的较新字段。
 - 行高 PATCH 响应不重复注册或刷新未变化的字体族，避免在行高 live geometry 结束后额外开启 presentation hold；字体选择、上传、删除和初始 load 仍执行字体注册。
+- 重启恢复开关保存成功后只通过显式回调请求当前普通实例刷新一次 workspace，由服务端建立首份恢复描述；客户端物理机不触发该刷新。
 
 ## 生命周期
 

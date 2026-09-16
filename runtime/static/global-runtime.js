@@ -715,6 +715,11 @@ export function startGlobalRuntime() {
     ),
     onTerminalLineHeightChange: (value, previousValue) => terminalMetrics?.applyLineHeight(value, previousValue),
     onDesktopShortcutsBarChange: () => terminalResize?.resizeActiveTabForCurrentDevice(),
+    onRestartWorkspaceRestoreSaved: (enabled) => {
+      if (enabled && !isClientInstanceName(getActiveName())) {
+        refreshWorkspace({ focus: false }).catch((error) => showToast(error.message));
+      }
+    },
     onMobilePixelScrollChange: (enabled) => terminalMetrics?.applyMobilePixelScroll(enabled),
     onMobileDoubleTapReminderChange: () => updateMobileActiveTabTitle(),
     onMobileShortcutsChange: () => mobileShortcutsController?.render(),

@@ -240,18 +240,19 @@ func (e paneExitSnapshot) controlPayload(selector, paneID string) map[string]any
 }
 
 type workspaceActionRequest struct {
-	Action       string      `json:"action"`
-	TabID        string      `json:"tab_id"`
-	BeforeTabID  string      `json:"before_tab_id,omitempty"`
-	PaneID       string      `json:"pane_id"`
-	RecentTabIDs []string    `json:"recent_tab_ids,omitempty"`
-	Direction    string      `json:"direction"`
-	Label        string      `json:"label"`
-	Layout       *layoutNode `json:"layout"`
-	ActivePaneID string      `json:"active_pane_id"`
-	Cols         int         `json:"cols"`
-	Rows         int         `json:"rows"`
-	Position     string      `json:"position"`
+	Action       string                     `json:"action"`
+	TabID        string                     `json:"tab_id"`
+	BeforeTabID  string                     `json:"before_tab_id,omitempty"`
+	PaneID       string                     `json:"pane_id"`
+	RecentTabIDs []string                   `json:"recent_tab_ids,omitempty"`
+	Direction    string                     `json:"direction"`
+	Label        string                     `json:"label"`
+	Layout       *layoutNode                `json:"layout"`
+	ActivePaneID string                     `json:"active_pane_id"`
+	Cols         int                        `json:"cols"`
+	Rows         int                        `json:"rows"`
+	Position     string                     `json:"position"`
+	Recovery     *workspaceRecoveryDocument `json:"recovery,omitempty"`
 }
 
 type workspaceActivityState struct {
@@ -388,10 +389,17 @@ func (s *pluginServer) handleWorkspace(w http.ResponseWriter, r *http.Request) {
 	}
 	scope := normalizeAgentScope(selector, accountID)
 	cols, rows := parseTerminalSize(r.URL.Query().Get("cols"), r.URL.Query().Get("rows"))
+	terminalScrollback, restoreEpoch := s.currentTerminalRuntimeSettings()
 
 	switch r.Method {
 	case http.MethodGet:
-		state, err := requestAgentWorkspaceState(r.Context(), scope, cols, rows, s.currentTerminalScrollback())
+		var state workspaceState
+		var err error
+		if restoreEpoch == "" {
+			state, err = requestAgentWorkspaceState(r.Context(), scope, cols, rows, terminalScrollback)
+		} else {
+			state, err = s.requestWorkspaceStateWithRecovery(r.Context(), scope, cols, rows, terminalScrollback, restoreEpoch)
+		}
 		if err != nil {
 			if writeAgentProtocolMismatch(w, err) {
 				return
@@ -408,7 +416,17 @@ func (s *pluginServer) handleWorkspace(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		state, err := requestAgentWorkspaceAction(r.Context(), scope, cols, rows, s.currentTerminalScrollback(), request)
+		if request.Action == "restore_workspace" || request.Recovery != nil {
+			http.Error(w, "workspace recovery is not a public action", http.StatusBadRequest)
+			return
+		}
+		var state workspaceState
+		var err error
+		if restoreEpoch == "" {
+			state, err = requestAgentWorkspaceAction(r.Context(), scope, cols, rows, terminalScrollback, request)
+		} else {
+			state, err = s.requestWorkspaceActionWithRecovery(r.Context(), scope, cols, rows, terminalScrollback, restoreEpoch, request)
+		}
 		if err != nil {
 			if writeAgentProtocolMismatch(w, err) {
 				return
@@ -450,7 +468,14 @@ func (s *pluginServer) handleWorkspaceActivity(w http.ResponseWriter, r *http.Re
 	}
 	scope := normalizeAgentScope(selector, accountID)
 	cols, rows := parseTerminalSize(r.URL.Query().Get("cols"), r.URL.Query().Get("rows"))
-	state, err := requestAgentWorkspaceActivity(r.Context(), scope, cols, rows, s.currentTerminalScrollback())
+	terminalScrollback, restoreEpoch := s.currentTerminalRuntimeSettings()
+	var state workspaceActivityState
+	var err error
+	if restoreEpoch == "" {
+		state, err = requestAgentWorkspaceActivity(r.Context(), scope, cols, rows, terminalScrollback)
+	} else {
+		state, err = s.requestWorkspaceActivityWithRecovery(r.Context(), scope, cols, rows, terminalScrollback, restoreEpoch)
+	}
 	if err != nil {
 		if writeAgentProtocolMismatch(w, err) {
 			return

@@ -27,8 +27,8 @@ import (
 )
 
 const (
-	// v23 clears mixed-width history rows using each page's stored width.
-	agentProtocolVersion = "lcmd-webshell-agent-v23"
+	// v24 rebuilds a workspace from a server-owned restart recovery document.
+	agentProtocolVersion = "lcmd-webshell-agent-v24"
 
 	agentFrameBinary         = byte('B')
 	agentFrameText           = byte('T')
@@ -482,6 +482,9 @@ func (d *agentDaemon) applyWorkspaceAction(ctx context.Context, request agentReq
 	if request.Action == nil {
 		return workspaceState{}, errors.New("action is required")
 	}
+	if request.Action.Action == "restore_workspace" {
+		return d.restoreWorkspace(request)
+	}
 	d.mu.Lock()
 	workspace, err := d.ensureWorkspaceLocked(request)
 	d.mu.Unlock()
@@ -495,6 +498,41 @@ func (d *agentDaemon) applyWorkspaceAction(ctx context.Context, request agentReq
 		return workspaceState{}, err
 	}
 	return workspace.snapshot(), nil
+}
+
+func (d *agentDaemon) restoreWorkspace(request agentRequest) (workspaceState, error) {
+	if request.Action == nil || request.Action.Recovery == nil {
+		return workspaceState{}, errors.New("workspace recovery document is required")
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if err := d.validateRequestSelectorLocked(request.Selector); err != nil {
+		return workspaceState{}, err
+	}
+	if err := d.validateRequestAccountLocked(request.AccountID); err != nil {
+		return workspaceState{}, err
+	}
+	if username := strings.TrimSpace(request.Username); username != "" || d.username == "" {
+		d.username = username
+	}
+	historyLimitBytes := historyLimitBytesForTerminalScrollback(request.TerminalScrollback)
+	restored, err := newRecoveredTerminalWorkspace(
+		*request.Action.Recovery,
+		d.selector,
+		d.username,
+		historyLimitBytes,
+		normalizeCols(request.Cols),
+		normalizeRows(request.Rows),
+	)
+	if err != nil {
+		return workspaceState{}, err
+	}
+	previous := d.workspace
+	d.workspace = restored
+	if previous != nil {
+		previous.closeAllPanes()
+	}
+	return restored.snapshot(), nil
 }
 
 func (d *agentDaemon) workspaceActivity(ctx context.Context, request agentRequest) (*workspaceActivityState, error) {

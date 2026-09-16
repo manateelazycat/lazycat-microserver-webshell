@@ -53,6 +53,7 @@ export function createSettingsView({
     forcePCModeToggle: byID("settingsForcePCModeToggle"),
     desktopMouseClipboardToggle: byID("settingsDesktopMouseClipboardToggle"),
     desktopShortcutsBarToggle: byID("settingsDesktopShortcutsBarToggle"),
+    restartWorkspaceRestoreToggle: byID("settingsRestartWorkspaceRestoreToggle"),
     mobilePixelScrollToggle: byID("settingsMobilePixelScrollToggle"),
     mobileDoubleTapReminderToggle: byID("settingsMobileDoubleTapReminderToggle"),
     mobileShortcutAddButton: byID("settingsMobileShortcutAddButton"),
@@ -524,6 +525,7 @@ export function createSettingsView({
         scrollback: [elements.scrollbackResetButton],
         desktopMouseClipboard: [elements.desktopMouseClipboardToggle],
         desktopShortcutsBar: [elements.desktopShortcutsBarToggle],
+        restartWorkspaceRestore: [elements.restartWorkspaceRestoreToggle],
         mobilePixelScroll: [elements.mobilePixelScrollToggle],
         mobileDoubleTapReminder: [elements.mobileDoubleTapReminderToggle],
         mobileShortcuts: [elements.mobileShortcutAddButton, elements.mobileShortcutResetButton, ...Array.from(elements.mobileShortcutList?.querySelectorAll?.("button") || [])],
@@ -609,6 +611,7 @@ export function createSettingsView({
       }
       if (elements.desktopMouseClipboardToggle) elements.desktopMouseClipboardToggle.checked = snapshot.desktopMouseClipboardEnabled;
       if (elements.desktopShortcutsBarToggle) elements.desktopShortcutsBarToggle.checked = snapshot.desktopShortcutsBarEnabled;
+      if (elements.restartWorkspaceRestoreToggle) elements.restartWorkspaceRestoreToggle.checked = snapshot.restartWorkspaceRestoreEnabled;
       if (elements.mobilePixelScrollToggle) elements.mobilePixelScrollToggle.checked = snapshot.mobilePixelScrollEnabled;
       if (elements.mobileDoubleTapReminderToggle) elements.mobileDoubleTapReminderToggle.checked = snapshot.mobileDoubleTapReminderEnabled;
       documentObject?.body?.classList.toggle("desktop-shortcuts-bar-enabled", snapshot.desktopShortcutsBarEnabled);
@@ -619,6 +622,7 @@ export function createSettingsView({
         forcePCMode: elements.forcePCModeToggle,
         desktopMouseClipboard: elements.desktopMouseClipboardToggle,
         desktopShortcutsBar: elements.desktopShortcutsBarToggle,
+        restartWorkspaceRestore: elements.restartWorkspaceRestoreToggle,
         mobilePixelScroll: elements.mobilePixelScrollToggle,
         mobileDoubleTapReminder: elements.mobileDoubleTapReminderToggle,
       };
