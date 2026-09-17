@@ -320,6 +320,7 @@ export function createTerminalUnifiedTransportController({
     }
     let current;
     let observedPhysicalReadyState = socketClosed;
+    let observedServerReady = false;
     current = createConnection({
       url,
       onStateChange: (state) => {
@@ -330,6 +331,8 @@ export function createTerminalUnifiedTransportController({
         observedPhysicalReadyState = state.physicalReadyState;
         const becameOpen = state.physicalReadyState === socketOpen
           && previousPhysicalReadyState !== socketOpen;
+        const becameReady = state.serverReady === true && !observedServerReady;
+        observedServerReady = state.serverReady === true;
         syncNetworkMonitor();
         if (state.physicalReadyState === socketConnecting || state.physicalReadyState === socketOpen) {
           healthWatchdog?.start();
@@ -337,6 +340,10 @@ export function createTerminalUnifiedTransportController({
         if (becameOpen) {
           healthWatchdog?.probe("transport_open");
           scheduleLogicalSync({ reason: "unified_open" });
+        }
+        if (becameReady) {
+          healthWatchdog?.probe("agent_ready");
+          scheduleLogicalSync({ reason: "unified_agent_ready" });
         }
         if (
           state.physicalReadyState === socketClosed
@@ -347,18 +354,18 @@ export function createTerminalUnifiedTransportController({
         }
       },
       onPhysicalError: ({ message, connection: failedConnection }) => {
+        if (connection !== failedConnection) return;
         appendDebugWarning("统一终端物理通道 WebSocket 错误，立即关闭重建", message);
         handlePhysicalDisconnect(failedConnection, "unified_websocket_error", { closeConnection: true });
       },
       onPhysicalClose: ({ connection: closedConnection, reason }) => {
-        if (!expectedCloseReason) {
+        if (connection === closedConnection && !expectedCloseReason) {
           handlePhysicalDisconnect(closedConnection, reason || "unified_websocket_closed");
         }
       },
-      onPhysicalEvent: (event) => onPhysicalEvent({
-        ...event,
-        targetName: normalizedTarget,
-      }),
+      onPhysicalEvent: (event) => {
+        if (connection === current) onPhysicalEvent({ ...event, targetName: normalizedTarget });
+      },
       onProtocolError: (error, identity) => {
         appendDebugError(
           "统一终端协议错误",
@@ -380,6 +387,29 @@ export function createTerminalUnifiedTransportController({
     return current;
   };
 
+  // Prepare only the selected container's physical channel. This never creates
+  // a logical stream; the existing pane readiness gate retains that ownership.
+  const prepare = (requestedTargetName) => {
+    const name = String(requestedTargetName || "").trim();
+    if (disposed || getDisposed() || !isOnline() || !name
+      || name !== getActiveName() || isClientTarget(name) || connection || closingPromise) {
+      return null;
+    }
+    let prepared;
+    try {
+      prepared = ensure(name);
+    } catch (error) {
+      close("transport_preparation_failed");
+      appendDebugWarning("物理通道预连接未完成，等待终端正常接入", error?.message || String(error));
+      return null;
+    }
+    return (reason = "transport_preparation_cancelled") => {
+      // A late bootstrap failure must not close a replacement connection or
+      // one which has already been adopted by a logical terminal stream.
+      if (prepared && connection === prepared && prepared.snapshot().logicalCount === 0) close(reason);
+    };
+  };
+
   const clearExpectedCloseReason = () => {
     expectedCloseReason = "";
   };
@@ -397,6 +427,7 @@ export function createTerminalUnifiedTransportController({
       connection,
       targetName,
       physicalReadyState: currentSnapshot.physicalReadyState ?? socketClosed,
+      serverReady: currentSnapshot.serverReady === true,
       physicalConnectionID: String(currentSnapshot.physicalConnectionID || ""),
       logicalCount: Number(currentSnapshot.logicalCount || 0),
       logicalPaneIDs: Array.isArray(currentSnapshot.paneIDs) ? [...currentSnapshot.paneIDs] : [],
@@ -434,6 +465,7 @@ export function createTerminalUnifiedTransportController({
     matchesTarget,
     needsRecovery,
     probe,
+    prepare,
     retryUnavailable,
     scheduleRecovery,
     setPriority,

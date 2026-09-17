@@ -27,8 +27,9 @@ import (
 )
 
 const (
-	// v24 rebuilds a workspace from a server-owned restart recovery document.
-	agentProtocolVersion = "lcmd-webshell-agent-v24"
+	// v27 falls back to bounded raw history when a pane's checkpoint parser
+	// fails, retaining diagnostics without rebuilding it. WASM is unchanged from v26.
+	agentProtocolVersion = "lcmd-webshell-agent-v27"
 
 	agentFrameBinary         = byte('B')
 	agentFrameText           = byte('T')
@@ -608,6 +609,11 @@ func (d *agentDaemon) handleAttach(ctx context.Context, conn net.Conn, reader *b
 		return
 	}
 	historyReadyAt := time.Now()
+	// Retained failure evidence also reaches browsers attaching via raw history.
+	if diagnostics := pane.checkpointDiagnostics(); diagnostics != nil {
+		_ = writeAgentControlFrame(conn, map[string]any{"type": "terminal-checkpoint-diagnostic", "selector": workspace.selector,
+			"pane_id": request.PaneID, "checkpoint_diagnostics": diagnostics})
+	}
 	defer func() {
 		pane.detachClient(client)
 		client.close()
@@ -846,6 +852,9 @@ func writeAgentHistoryReplay(w io.Writer, identity terminalReplayIdentity, histo
 		start["recovery_baseline"] = terminalMemoryCheckpointProtocol
 	} else {
 		start["recovery_baseline"] = "raw-history"
+		if history.checkpointFallback {
+			start["checkpoint_fallback"] = "parser_failed"
+		}
 	}
 	if err := writeAgentControlFrame(w, start); err != nil {
 		return false

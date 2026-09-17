@@ -16,7 +16,8 @@
 - `start()` / `dispose()`：幂等安装和清理全局 listener、timer 与 RAF。
 - `usesInsets()`：当前平台和强制 PC 模式是否启用视觉视口 inset。
 - `isKeyboardActive()` / `isResizeSuppressed()`：供 IME 和 resize 读取的只读门禁。
-- `isGeometryClaimPending()`：供 presentation 读取的只读门禁；包含已排队 generation，也能在 viewport listener 尚未消费事件时通过最新浏览器 geometry 识别结构变化。
+- `isGeometryClaimPending()`：只读检查已保存的待处理或延后请求；不会把尚未安排处理的几何差异报告为正在执行的任务。
+- `ensureGeometryClaim(reason)`：Worker 就绪或 presentation 首次适配时显式请求 owner 检查最新 geometry、补启动或恢复必要任务；相同目标的已有 RAF/最终计时器直接复用，没有本机 geometry 变化或保留请求时不 claim。
 - `sync()` / `syncPan(session)`：同步 visual viewport 或单个 pane 的光标平移。
 - `captureInputLock(session)` / `releaseInputLock(session)`：IME focus 生命周期使用的视口锁。
 - `scheduleKeyboardDismissRecovery({ hadInputFocus })`：真实输入失焦或现有键盘 inset 需要清理时的有界恢复；同一时刻只保留一组定时任务。
@@ -28,13 +29,15 @@
 
 `viewport_controller.js` 是 geometry signature/generation、viewport 高度、参考高度、inset、安全偏移、键盘 active、resize suppression、方向和当前 input lock session 的唯一修改者。`session.inputViewportLock` 只能由本 controller 通过公开 capture/release 命令修改；IME 只能请求命令，不能自行构造或推进锁状态。
 
-resize 只能调用 `isResizeSuppressed()`，不能写 viewport 状态。presentation 只能读取 `isGeometryClaimPending()` 并延迟自己的被动 geometry 修复，不能推进 generation 或发起 claim。IME 只能读取 `isKeyboardActive()` 并调用锁、dismiss recovery 及其取消命令。selection、overview、移动菜单和标题只接收同步通知，不得反向推进 viewport generation。
+resize 只能调用 `isResizeSuppressed()`，不能写 viewport 状态。presentation 在需要适配时通过 `ensureGeometryClaim()` 请求 viewport owner 确保任务在推进，再读取 `isGeometryClaimPending()` 决定是否等待；不能直接修改 viewport 状态、推进 generation 或发送 claim。IME 只能读取 `isKeyboardActive()` 并调用锁、dismiss recovery 及其取消命令。selection、overview、移动菜单和标题只接收同步通知，不得反向推进 viewport generation。
 
 ## 生命周期
 
 `viewport_lifecycle.js` 独占 window/document touch 与 gesture listener、window/visualViewport resize/scroll、orientation listener、键盘 suppression timer、dock timer、dismiss/orientation recovery timer 和 viewport RAF。`dispose()` 会移除全部 listener、取消 timer/RAF、释放 input lock，并拒绝迟到回调。
 
 geometry、recovery probe 和键盘恢复使用 generation 检查；旧 sequence 的 timer/RAF 即使已经进入任务队列，也不能 claim 或修改当前 viewport 状态。结构性 width/screen/orientation/DPR 变化优先于 textarea focus 与旧键盘 inset，并释放错误 input lock/suppression；只有真实 keyboard active 才应用 iOS inset。软键盘期间非结构性 geometry claim 必须延迟，收起后只使用最终尺寸。全局事件安装必须幂等，不能因重复 `start()` 产生重复 resize 或键盘恢复。
+
+初始化时没有活动 pane 或页面暂不可见，仍保存必要的 geometry 请求及延后原因。活动 pane 的 Worker 就绪和首次 presentation 适配会显式接续；相同目标的重复检查不重置稳定帧计数和 180ms 最终计时器。键盘抑制仍按原流程等待解除，不通过周期性改变 PTY 尺寸修复首帧。`snapshot()` 区分 geometryPending、geometryScheduled、geometryDeferred 及延后原因，并提供最后观察、当前和待处理 geometry，供初始化性能日志与渲染捕获定位等待。
 
 ## 文件清单
 

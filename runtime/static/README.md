@@ -2,7 +2,7 @@
 
 `runtime/static/` 是 WebShell 页面源码根目录。页面脚本只从 `main.js` 开始加载；`main.js` 仅导入并调用 `global-runtime.js` 的 `startGlobalRuntime()`。发布时 Vite 将该模块树构建到 `build/runtime/static/`，LPK 只打包构建产物，不直接发布源码模块。
 
-服务端推荐协议 `lcmd-webshell-agent-v23`：清理终端行时按所属页面的实际列宽访问和释放资源，修复重排后不同宽度页面导致的 checkpoint parser 越界；更新前后端共用 WASM 指纹。保留 v22 的原生重排资源扩容修复、v21 的有界窗口消费与按帧发布、v18 的会话关闭生命周期修复和 v17 的完整状态基线与后续增量恢复。Agent 编译时嵌入的 `ghostty-vt.wasm` 必须与 Vite 发布资产一致；构建顺序先同步 WASM、再构建前端及 Go，禁止只替换一端。v22 至 v9 继续显式兼容传输，旧 Agent 仅在用户确认后更新；已有失败的 parser 不会因更新前端而恢复。旧协议显式兼容范围见 `agent_runtime.go`，状态协议及限制见 `terminal/history/README.md`。
+服务端推荐协议 `lcmd-webshell-agent-v27`：服务端解析器失败后，仅对应 pane 改用现有原始历史回放，原 PTY 和任务继续运行；不重建解析器，不维护额外健康快照或输出重放日志。原始历史仍严格限制为行数 × 350。首次原生错误、时间、调用范围和 fallback 记录进入有界错误日志，正常界面不增加提示。保留 v26 的原生错误透传及共用 WASM，v26 与 v27 可协商同一内存快照；v25 至 v9 仅兼容传输，使用原始历史回放。Agent 内嵌 WASM 必须与 Vite 发布资产一致。旧 Agent 仍只在用户明确确认后更新，兼容范围见 `agent_runtime.go`，故障行为见 `terminal/history/README.md`。
 
 ## 根目录职责
 
@@ -22,6 +22,8 @@
 - 后台入口由 Vite module worker 构建，随版本化资源发布，不直接发布未打包的 Worker 源码。
 - 构建后的 `index.html` 保留 `__LCMD_ASSET_BASE__`，由 Provider 在响应入口页面时替换为当前内容版本路径。
 - `.vite/manifest.json` 是 Vite 产物标记。独立 WebShell LPK 和 `lightos-admin` 内嵌 WebShell 都必须包含该文件。
+- `npm run build` 在 Vite 完成后为 JS（包括 Worker）、CSS、WASM、JSON 和 SVG 等可压缩产物生成同路径 `.gz` 文件，原文与压缩文件一起打包。Provider 按 `Accept-Encoding` 选择表示并返回 `Vary: Accept-Encoding`；版本化资源保持 immutable 缓存，保留 Last-Modified 校验。更新资源必须重新构建并同时发布原文和 `.gz`。源码运行缺少压缩文件时仍可返回原文。
+- 入口 HTML 在替换版本化资源路径后动态 gzip，继续使用 `no-store`；API、WebSocket 和终端数据不经过静态资源压缩处理。
 - `tools/verify-vite-build.mjs` 固定发布 JS 文件不超过 8 个，拒绝把 `global-runtime.js` 或 `workspace/` 等源码模块复制到构建目录。
 - `runtime/fonts/` 不经过 Vite 转换，由 LPK 构建脚本与 Vite 静态产物一起组装为最终 `runtime/`。
 

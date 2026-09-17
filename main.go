@@ -410,8 +410,15 @@ func staticFileServer(root string) http.Handler {
 func staticFileServerWithCachePolicy(root string, immutable bool) http.Handler {
 	files := http.FileServer(http.Dir(root))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w = staticAssetResponseWriter{ResponseWriter: w, gzipSize: -1}
+		w.Header().Set("Cache-Control", "no-store")
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			w.Header().Set("Allow", "GET, HEAD")
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
 		ext := filepath.Ext(r.URL.Path)
-		if immutable && ext != ".html" {
+		if immutable && ext != "" && ext != ".html" {
 			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 		} else {
 			switch ext {
@@ -428,6 +435,9 @@ func staticFileServerWithCachePolicy(root string, immutable bool) http.Handler {
 			w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
 		case ".webmanifest":
 			w.Header().Set("Content-Type", "application/manifest+json; charset=utf-8")
+		}
+		if servePrecompressedAsset(w, r, http.Dir(root)) {
+			return
 		}
 		files.ServeHTTP(w, r)
 	})
@@ -508,10 +518,7 @@ func (s *pluginServer) handleIndex(w http.ResponseWriter, r *http.Request) {
 		data = bytes.ReplaceAll(data, []byte(assetBasePlaceholder), []byte("."+versionedAssetBase(s.currentAssetVersion())))
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		if r.Method == http.MethodHead {
-			return
-		}
-		_, _ = w.Write(data)
+		writeCompressedPage(w, r, data)
 	default:
 		http.NotFound(w, r)
 	}

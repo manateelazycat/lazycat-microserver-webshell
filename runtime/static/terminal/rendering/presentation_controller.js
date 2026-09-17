@@ -17,6 +17,8 @@ export function createTerminalPresentationController({
   isLiveGeometryActive = () => false,
   isCurrentDeviceClaimRequired = () => false,
   isViewportGeometryClaimPending = () => false,
+  ensureViewportGeometryClaim = noop,
+  getViewportGeometryState = () => null,
   canvasMatchesExpectedSize = () => false,
   normalizeResizeEpoch = (value) => String(value || ""),
   scheduleResize = () => false,
@@ -48,6 +50,7 @@ export function createTerminalPresentationController({
   let disposed = false;
   const holdObservations = new WeakMap();
   const localFrames = new WeakMap();
+  const viewportWaitObservations = new WeakMap();
   const trace = (session, phase, details = {}) => {
     const sink = windowObject?.__testsAutoPresentationTrace;
     if (!Array.isArray(sink)) {
@@ -159,6 +162,7 @@ export function createTerminalPresentationController({
       activationFitPending: session?.activationFitPending === true,
       sizeClaimRequired: isCurrentDeviceClaimRequired(session),
       viewportGeometryClaimPending: isViewportGeometryClaimPending(session),
+      viewportGeometry: getViewportGeometryState(),
       sizeClaimed: session?.sizeClaimed === true,
       requestedResizeClaim: session?.requestedResizeClaim === true,
       pendingSizeClaim: session?.pendingSizeClaim === true,
@@ -971,18 +975,29 @@ export function createTerminalPresentationController({
       return false;
     }
     if (session.activationFitPending || !canvasMatchesExpectedSize(session)) {
+      // The viewport owner must enqueue/resume the claim before we wait for
+      // it. In embedded browsers the final geometry may arrive without an
+      // event after panes become available. This command coalesces equal targets.
+      ensureViewportGeometryClaim(session, "presentation_geometry");
       // A follower can present the server grid without owning PTY geometry.
       if (isViewportGeometryClaimPending(session)) {
-        recordEvent(session, "presentation_wait_current_device_claim", {
-          reason,
-          ...presentationGateDetails(session),
-        });
+        const details = presentationGateDetails(session);
+        const key = [session.connectionEpoch, session.term?.wasmTerm?.generation, session.terminalReplayGeneration,
+          details.activationFitPending, details.canvasMatches, details.viewportGeometry?.geometryGeneration,
+          details.viewportGeometry?.geometryScheduled, details.viewportGeometry?.geometryDeferredReason].join(":");
+        const previous = viewportWaitObservations.get(session);
+        const at = now();
+        if (!previous || previous.key !== key || at - previous.at >= 1000) {
+          viewportWaitObservations.set(session, { key, at });
+          recordEvent(session, "presentation_wait_current_device_claim", { reason, ...details });
+        }
         if (shouldScheduleValidation) {
           scheduleValidation(session, { forceHistory });
         }
         scheduleRetry(session, { reason: `${reason}:viewport_geometry`, forceHistory });
         return false;
       }
+      viewportWaitObservations.delete(session);
       scheduleResize(session, {
         forceFullRender: true,
         hideUntilRender: true,
@@ -1104,6 +1119,7 @@ export function createTerminalPresentationController({
     if (session.presentationRetryPending) {
       return true;
     }
+    if (session.presentationRetryExhausted) return false;
     const retryAttempt = Number(session.presentationRetryAttempts || 0) + 1;
     if (retryAttempt > Math.max(1, Number(presentationRetryLimit) || 1)) {
       session.presentationRetryAttempts = retryAttempt;

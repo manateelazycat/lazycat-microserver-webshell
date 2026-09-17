@@ -1,0 +1,31 @@
+--- a/src/terminal/c/terminal.zig
++++ b/src/terminal/c/terminal.zig
+@@ -510,4 +510,14 @@
++var last_write_error: []const u8 = "";
++pub fn writeErrorPtr() callconv(.c) usize { return @intFromPtr(last_write_error.ptr); }
++pub fn writeErrorLen() callconv(.c) usize { return last_write_error.len; }
++
+ pub fn write(ptr: ?*anyopaque, data: [*]const u8, len: usize) callconv(.c) c_int {
+-    const wrapper: *TerminalWrapper = @ptrCast(@alignCast(ptr orelse return 0));
+-    wrapper.stream.nextSlice(data[0..len]) catch return 0; return 1;
++    last_write_error = "InvalidTerminal";
++    const wrapper: *TerminalWrapper = @ptrCast(@alignCast(ptr orelse return 0));
++    last_write_error = "";
++    wrapper.stream.nextSlice(data[0..len]) catch |err| {
++        last_write_error = @errorName(err);
++        return 0;
++    };
++    return 1;
+ }
+--- a/src/terminal/c/main.zig
++++ b/src/terminal/c/main.zig
+@@ -62,1 +62,3 @@
++pub const terminal_write_error_ptr = terminal.writeErrorPtr;
++pub const terminal_write_error_len = terminal.writeErrorLen;
+ pub const terminal_write = terminal.write;
+--- a/src/lib_vt.zig
++++ b/src/lib_vt.zig
+@@ -149,1 +149,3 @@
++        @export(&c.terminal_write_error_ptr, .{ .name = "ghostty_terminal_write_error_ptr" });
++        @export(&c.terminal_write_error_len, .{ .name = "ghostty_terminal_write_error_len" });
+         @export(&c.terminal_write, .{ .name = "ghostty_terminal_write" });

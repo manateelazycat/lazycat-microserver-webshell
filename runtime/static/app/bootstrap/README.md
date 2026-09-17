@@ -4,6 +4,8 @@
 
 本目录负责应用启动事务：启动 feature controller，并行等待 Ghostty、主题、设置和实例列表，执行首次 workspace 请求/apply/retry 分流，以及启动失败时的错误终端呈现。
 
+在首次 workspace 请求发起前，通过注入的 `prepareTransport(context)` 为已确定的普通容器目标启动空订阅物理连接准备；不 await 连接，不延迟并行的前端加载。实际 socket 仍由 transport owner 管理，bootstrap 只持有取消回调。启动失败、workspace 失败或为空、销毁时取消未使用的预连接；目标变化由 target owner 通知 transport 关闭旧连接。初始化失败或销毁后，迟到的实例列表结果不得重新启动 workspace 请求或预连接。成功应用非空工作区后，由既有 pane membership 接管连接生命周期。
+
 本模块不负责终端连接、历史回放、Canvas、resize、输入或 workspace 数据模型，也不申请浏览器持久存储、不从页面注册 Service Worker。目录内的退役 Worker 仅由 Provider 在历史 `/service-worker.js` URL 提供，用于移除旧 registration；`index.html` 的前置触发器只调用现有 registration 的 `update()`，不属于应用运行时入口。任何终端历史、snapshot、resize 或重连中间过程都不得显示。
 
 ## 公开入口与状态所有权

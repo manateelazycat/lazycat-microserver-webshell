@@ -13,6 +13,7 @@ patches=(
   "${repo_dir}/tools/ghostty-checkpoint.patch"
   "${repo_dir}/tools/ghostty-render-diagnostics.patch"
   "${repo_dir}/tools/ghostty-resize-diagnostics.patch"
+  "${repo_dir}/tools/ghostty-write-diagnostics.patch"
 )
 applied=()
 

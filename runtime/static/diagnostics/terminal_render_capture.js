@@ -14,6 +14,7 @@ const observedEvents = new Set([
   "checkpoint_resize_diagnostic", "resize_applied", "resize_native_error", "resize_fence_wait", "resize_fence_queued", "resize_fence_cleared",
   "resize_output_settle_start", "resize_output_settle_complete", "resize_output_settle_cancel", "presentation_wait_resize", "presentation_wait_geometry",
   "presentation_hold_capture", "presentation_hold_release", "presentation_hold_release_blocked",
+  "presentation_wait_current_device_claim", "presentation_retry_exhausted",
 ]);
 
 export function createTerminalRenderCapture({ windowObject = globalThis.window,
@@ -159,6 +160,7 @@ export function createTerminalRenderCapture({ windowObject = globalThis.window,
       }
       if (details.checkpoint) metadata.checkpoint = details.checkpoint;
       if (details.resizeTiming) metadata.resizeTiming = details.resizeTiming;
+      if (details.viewportGeometry) metadata.viewportGeometry = details.viewportGeometry;
       if (Array.isArray(details.blockedBy)) metadata.blockedBy = details.blockedBy.slice(0, 16);
       for (const key of ["targetSize", "terminalSize", "requestedSize", "serverSize"]) {
         if (details[key]) metadata[key] = { cols: details[key].cols, rows: details[key].rows };

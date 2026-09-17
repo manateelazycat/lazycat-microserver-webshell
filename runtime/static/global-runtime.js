@@ -526,6 +526,9 @@ export function startGlobalRuntime() {
       else appendDebugError("终端后台启动失败", error.message);
     },
     onReady: (session) => {
+      if (session && !session.closed && session.name === getActiveName() && session.tabId === getActiveTabId()) {
+        terminalViewport?.ensureGeometryClaim("backend_ready");
+      }
       if (session && !session.closed && (session.pendingConnect || session.connectionRetrying)) terminalTransportRuntime?.connectPendingSession(session);
     },
   });
@@ -887,6 +890,8 @@ export function startGlobalRuntime() {
     isLiveGeometryActive: (session) => terminalResize?.isLiveGeometryActive(session) === true,
     isCurrentDeviceClaimRequired: (session) => terminalResize?.isCurrentDeviceClaimRequired(session) === true,
     isViewportGeometryClaimPending: () => terminalViewport?.isGeometryClaimPending() === true,
+    ensureViewportGeometryClaim: (_session, reason) => terminalViewport?.ensureGeometryClaim(reason),
+    getViewportGeometryState: () => terminalViewport?.snapshot() || null,
     canvasMatchesExpectedSize: (session) => terminalResize?.canvasMatchesExpectedSize(session) === true,
     normalizeResizeEpoch: (value) => terminalResize?.normalizeEpoch(value) || "",
     scheduleResize: (session, options, scheduleOptions) => terminalResize?.schedulePresentationResize(session, options, scheduleOptions) === true,
@@ -2233,6 +2238,10 @@ export function startGlobalRuntime() {
     },
     syncNetworkSockets: (options) => syncTerminalNetworkMonitorSockets(options),
     onTargetChange: ({ name }) => {
+      if (terminalUnifiedTransport?.getTargetName()
+        && !terminalUnifiedTransport.matchesTarget(name)) {
+        terminalUnifiedTransport.close("workspace_target_changed");
+      }
       agentProtocolUpdate?.beginTarget(name);
       instances.handleActiveTargetChange();
       serviceForwarding.handleTargetChange();
@@ -2348,6 +2357,11 @@ export function startGlobalRuntime() {
     getActiveName,
     getActiveGeneration,
     isCurrentRequest: (name, generation) => isCurrentInstanceRequest(name, generation),
+    prepareTransport: ({ instanceName, generation }) => (
+      isCurrentInstanceRequest(instanceName, generation)
+        ? terminalUnifiedTransport.prepare(instanceName)
+        : null
+    ),
     requestWorkspace: (context) => requestWorkspaceRefresh(context),
     refreshWorkspaceWithRetry: (options) => refreshWorkspaceWithRetry(options),
     scheduleWorkspaceRetry: (options) => scheduleWorkspaceRefreshRetry(options),

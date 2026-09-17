@@ -9,6 +9,7 @@ export function createAppBootstrapController({
   getActiveName = () => "",
   getActiveGeneration = () => 0,
   isCurrentRequest = () => false,
+  prepareTransport = () => null,
   requestWorkspace = () => Promise.resolve(null),
   refreshWorkspaceWithRetry = () => Promise.resolve(false),
   scheduleWorkspaceRetry = () => {},
@@ -29,6 +30,14 @@ export function createAppBootstrapController({
   lifecycleFactory = createAppBootstrapLifecycle,
 } = {}) {
   const lifecycle = lifecycleFactory();
+  let failed = false;
+  let cancelTransportPreparation = null;
+
+  const cancelPreparation = (reason) => {
+    const cancel = cancelTransportPreparation;
+    cancelTransportPreparation = null;
+    cancel?.(reason);
+  };
 
   const start = async () => {
     const generation = lifecycle.begin();
@@ -54,10 +63,19 @@ export function createAppBootstrapController({
     });
     let workspaceContext = null;
     const requestBootstrapWorkspace = () => {
+      if (failed || !lifecycle.isCurrent(generation) || isAppDisposed()) return null;
       workspaceContext = {
         instanceName: getActiveName(),
         generation: getActiveGeneration(),
       };
+      // Start transport work without waiting for it. Pane creation still waits
+      // for the existing frontend prerequisites and the workspace response.
+      cancelTransportPreparation = prepareTransport(workspaceContext);
+      if (cancelTransportPreparation) {
+        appendStartupTrace("物理通道预连接已发起", "与前端初始化并行，pane 就绪后再订阅", {
+          dedupeKey: "bootstrap-transport-preparation",
+        });
+      }
       return requestWorkspace(workspaceContext);
     };
     const workspacePromise = (
@@ -74,14 +92,14 @@ export function createAppBootstrapController({
       settingsPromise,
       instancesPromise,
     ]);
-    if (!lifecycle.isCurrent(generation) || isAppDisposed()) {
+    if (failed || !lifecycle.isCurrent(generation) || isAppDisposed()) {
       return false;
     }
     appendStartupTrace("Ghostty、主题、设置和实例初始化完成", "", {
       dedupeKey: "runtime-prerequisites-ready",
     });
     const workspaceOutcome = await workspacePromise;
-    if (!lifecycle.isCurrent(generation) || isAppDisposed()) {
+    if (failed || !lifecycle.isCurrent(generation) || isAppDisposed()) {
       return false;
     }
     const requestIsCurrent = isCurrentRequest(
@@ -90,10 +108,12 @@ export function createAppBootstrapController({
     );
     const protocolUpdateRequired = workspaceOutcome.error?.agentProtocolUpdateRequired === true;
     if (!requestIsCurrent) {
+      cancelPreparation("bootstrap_target_changed");
       await Promise.resolve(refreshWorkspaceWithRetry({ focus: true })).catch((error) => {
         showToast(error.message || "Workspace is temporarily unavailable. Retrying.");
       });
     } else if (workspaceOutcome.error) {
+      cancelPreparation("bootstrap_workspace_failed");
       if (!protocolUpdateRequired) {
         scheduleWorkspaceRetry({
           focus: true,
@@ -104,6 +124,9 @@ export function createAppBootstrapController({
       showToast(workspaceOutcome.error.message || "Workspace is temporarily unavailable. Retrying.");
     } else {
       applyWorkspace(workspaceOutcome.result, { focus: true });
+      if (getTabCount() === 0) cancelPreparation("bootstrap_empty_workspace");
+      // The workspace now owns the connection through its pane membership.
+      cancelTransportPreparation = null;
     }
     appendStartupTrace(
       "应用 bootstrap 完成",
@@ -121,6 +144,8 @@ export function createAppBootstrapController({
     if (lifecycle.isDisposed() || isAppDisposed()) {
       return false;
     }
+    failed = true;
+    cancelPreparation("bootstrap_failed");
     const message = error?.message || "WebShell startup failed.";
     appendDebugError("WebShell 启动失败", message);
     showToast(message);
@@ -145,7 +170,10 @@ export function createAppBootstrapController({
   };
 
   return Object.freeze({
-    dispose: lifecycle.dispose,
+    dispose() {
+      cancelPreparation("bootstrap_disposed");
+      return lifecycle.dispose();
+    },
     handleFailure,
     start,
   });

@@ -51,6 +51,7 @@ export function createTerminalMobileViewportController({
   let pendingViewportClaimReason = "";
   let pendingViewportStructuralChange = false;
   let viewportClaimDeferred = false;
+  let viewportClaimDeferredReason = "";
   let viewportGeometryRecoveryGeneration = 0;
   let lastMobileViewportOrientation = "";
   let mobileViewportHeight = normalizeViewportPixels(
@@ -244,10 +245,12 @@ export function createTerminalMobileViewportController({
     }
     if (isMobileKeyboardResizeSuppressed() && !pendingViewportStructuralChange) {
       viewportClaimDeferred = true;
+      viewportClaimDeferredReason = "keyboard_resize_suppressed";
       return false;
     }
     if (documentObject?.hidden === true || !hasActivePanes()) {
       viewportClaimDeferred = true;
+      viewportClaimDeferredReason = documentObject?.hidden === true ? "document_hidden" : "panes_not_ready";
       return false;
     }
     lifecycle.clearFrame("viewport-geometry-claim");
@@ -258,6 +261,7 @@ export function createTerminalMobileViewportController({
     pendingViewportStructuralChange = false;
     viewportGeometryStableFrames = 0;
     viewportClaimDeferred = false;
+    viewportClaimDeferredReason = "";
     claimActiveTabForCurrentDevice({
       forceFullRender: true,
       hideUntilRender: true,
@@ -292,7 +296,7 @@ export function createTerminalMobileViewportController({
   };
 
   const scheduleViewportGeometryClaim = (reason, { force = false } = {}) => {
-    if (disposed || !hasActivePanes()) {
+    if (disposed) {
       return false;
     }
     const previous = lastViewportGeometry;
@@ -303,8 +307,22 @@ export function createTerminalMobileViewportController({
       keyboardActive: mobileKeyboardViewportActive,
       resizeSuppressed: isMobileKeyboardResizeSuppressed(),
     });
-    if (!requiresClaim && !viewportClaimDeferred) {
+    if (!requiresClaim && !pendingViewportGeometry && !viewportClaimDeferred) {
       return false;
+    }
+    const structuralPending = pendingViewportStructuralChange || structuralChange;
+    const deferredReason = !hasActivePanes() ? "panes_not_ready"
+      : documentObject?.hidden === true ? "document_hidden"
+        : isMobileKeyboardResizeSuppressed() && !structuralPending ? "keyboard_resize_suppressed" : "";
+    if (viewportClaimDeferred && deferredReason === viewportClaimDeferredReason
+      && deferredReason && terminalViewportGeometryEqual(current, pendingViewportGeometry)) {
+      return true;
+    }
+    // Output/presentation and delayed viewport probes can observe the same
+    // target repeatedly. Do not postpone its stable-frame/final-timeout work.
+    if (!viewportClaimDeferred && terminalViewportGeometryEqual(current, pendingViewportGeometry)
+      && (lifecycle.hasFrame("viewport-geometry-claim") || lifecycle.hasTimeout("viewport-geometry-final"))) {
+      return true;
     }
     if (structuralChange && terminalInputViewportLockSession) {
       terminalInputViewportLockSession.terminalInputAnchor = null;
@@ -312,15 +330,19 @@ export function createTerminalMobileViewportController({
     }
     viewportGeometryGeneration += 1;
     const generation = viewportGeometryGeneration;
+    lifecycle.clearFrame("viewport-geometry-claim");
+    lifecycle.clearTimeout("viewport-geometry-final");
     pendingViewportGeometry = current;
     pendingViewportClaimReason = String(reason || "viewport_geometry");
-    pendingViewportStructuralChange = pendingViewportStructuralChange || structuralChange;
+    pendingViewportStructuralChange = structuralPending;
     viewportGeometryStableFrames = 0;
-    if (isMobileKeyboardResizeSuppressed() && !pendingViewportStructuralChange) {
+    if (deferredReason) {
       viewportClaimDeferred = true;
+      viewportClaimDeferredReason = deferredReason;
       return true;
     }
     viewportClaimDeferred = false;
+    viewportClaimDeferredReason = "";
     scheduleViewportGeometryValidation(generation);
     lifecycle.timeout("viewport-geometry-final", () => {
       if (generation !== viewportGeometryGeneration) {
@@ -358,17 +380,9 @@ export function createTerminalMobileViewportController({
   };
 
   const isGeometryClaimPending = () => {
-    if (disposed) {
-      return false;
-    }
-    if (pendingViewportGeometry || viewportClaimDeferred) {
-      return true;
-    }
-    const current = measureTerminalViewportGeometry({ windowObject, documentObject });
-    return terminalViewportGeometryRequiresClaim(lastViewportGeometry, current, {
-      keyboardActive: mobileKeyboardViewportActive,
-      resizeSuppressed: isMobileKeyboardResizeSuppressed(),
-    });
+    // A read must not turn an unhandled geometry difference into an imaginary
+    // in-flight claim. Call ensureGeometryClaim to start/resume actual work.
+    return !disposed && Boolean(pendingViewportGeometry || viewportClaimDeferred);
   };
 
   const handleMobileViewportResize = () => {
@@ -733,6 +747,7 @@ export function createTerminalMobileViewportController({
     isKeyboardActive: () => mobileKeyboardViewportActive,
     isResizeSuppressed: isMobileKeyboardResizeSuppressed,
     isGeometryClaimPending,
+    ensureGeometryClaim: (reason = "pane_ready") => scheduleViewportGeometryClaim(reason),
     sync: syncMobileVisualViewport,
     syncPan: syncTerminalViewportPan,
     captureInputLock: captureTerminalInputViewportLock,
@@ -758,6 +773,12 @@ export function createTerminalMobileViewportController({
       resizeSuppressedUntil: mobileKeyboardResizeSuppressedUntil,
       geometryGeneration: viewportGeometryGeneration,
       geometryPending: Boolean(pendingViewportGeometry),
+      geometryScheduled: lifecycle.hasFrame("viewport-geometry-claim") || lifecycle.hasTimeout("viewport-geometry-final"),
+      geometryDeferred: viewportClaimDeferred,
+      geometryDeferredReason: viewportClaimDeferredReason,
+      geometryReason: pendingViewportClaimReason,
+      pendingGeometry: pendingViewportGeometry,
+      currentGeometry: measureTerminalViewportGeometry({ windowObject, documentObject }),
       geometry: lastViewportGeometry,
       inputLocked: Boolean(activeTerminalInputViewportLock()),
     }),
@@ -773,6 +794,7 @@ export function createTerminalMobileViewportController({
       pendingViewportClaimReason = "";
       pendingViewportStructuralChange = false;
       viewportClaimDeferred = false;
+      viewportClaimDeferredReason = "";
       if (terminalInputViewportLockSession) {
         terminalInputViewportLockSession.inputViewportLock = null;
         terminalInputViewportLockSession = null;

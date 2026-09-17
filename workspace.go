@@ -96,6 +96,8 @@ type terminalPane struct {
 	clients                    map[*paneClient]struct{}
 	history                    paneHistory
 	checkpoint                 *terminalCheckpointEngine
+	checkpointFailure          *checkpointFailure
+	checkpointCreatedAt        int64
 	historyGeneration          string
 	historyLimitBytes          int
 	cols                       int
@@ -153,19 +155,20 @@ type paneHistory struct {
 }
 
 type paneHistorySnapshot struct {
-	checkpoint  *terminalMemoryCheckpoint
-	chunks      [][]byte
-	generation  string
-	syncMode    string
-	serverBase  uint64
-	serverEnd   uint64
-	deltaFrom   uint64
-	deltaTo     uint64
-	resizeEpoch uint64
-	cols        int
-	rows        int
-	pixelWidth  int
-	pixelHeight int
+	checkpoint         *terminalMemoryCheckpoint
+	checkpointFallback bool
+	chunks             [][]byte
+	generation         string
+	syncMode           string
+	serverBase         uint64
+	serverEnd          uint64
+	deltaFrom          uint64
+	deltaTo            uint64
+	resizeEpoch        uint64
+	cols               int
+	rows               int
+	pixelWidth         int
+	pixelHeight        int
 }
 
 type historySyncRequest struct {
@@ -1342,8 +1345,8 @@ func (w *terminalWorkspace) setHistoryLimitBytesLocked(limit int) {
 			continue
 		}
 		pane.historyLimitBytes = limit
-		pane.checkpoint.resize(pane.cols, pane.rows, limit/averageHistoryBytesPerLine)
 		pane.trimHistoryLocked()
+		pane.resizeCheckpointLocked(pane.cols, pane.rows, limit/averageHistoryBytesPerLine)
 		pane.mu.Unlock()
 	}
 }
@@ -1432,6 +1435,7 @@ func newTerminalPane(workspace *terminalWorkspace, paneID string, cols, rows int
 			_ = killCommand(command)
 			return nil, fmt.Errorf("initialize terminal recovery state: %w", err)
 		}
+		pane.checkpointCreatedAt = time.Now().UnixMilli()
 	}
 	go pane.readLoop()
 	return pane, nil
@@ -1570,11 +1574,17 @@ func (p *terminalPane) appendOutput(data []byte) {
 	// Read may already have returned bytes when close starts. Check lifecycle
 	// under the same mutex that protects checkpoint disposal before parsing.
 	if !p.closing && !p.exited {
+		outputFrom := p.history.end
+		pendingBefore := 0
+		if p.checkpoint != nil {
+			pendingBefore = len(p.checkpoint.pending)
+		}
 		p.checkpoint.write(filtered)
 		for _, chunk := range chunks {
 			p.history.append(chunk)
 		}
 		p.trimHistoryLocked()
+		p.recordCheckpointFailureLocked("write", outputFrom, p.history.end, pendingBefore)
 		clients = make([]*paneClient, 0, len(p.clients))
 		for client := range p.clients {
 			clients = append(clients, client)
@@ -2383,7 +2393,10 @@ func (p *terminalPane) attachClient(syncRequest historySyncRequest) (paneHistory
 	history.pixelWidth = p.pixelWidth
 	history.pixelHeight = p.pixelHeight
 	history.syncMode = "snapshot"
-	if syncRequest.checkpointProtocol == terminalMemoryCheckpointProtocol && p.checkpoint != nil {
+	history.checkpointFallback = p.checkpoint != nil && p.checkpoint.err != nil
+	// A stopped parser must never block this pane's history/live subscription.
+	// Keep the same raw-history limit and snapshot boundary; no parser rebuild.
+	if !history.checkpointFallback && syncRequest.checkpointProtocol == terminalMemoryCheckpointProtocol && p.checkpoint != nil {
 		checkpoint, err := p.checkpoint.snapshot(p.history.end)
 		if err != nil {
 			return paneHistorySnapshot{}, nil, false, paneExitSnapshot{}, fmt.Errorf("terminal recovery checkpoint unavailable: %w", err)
@@ -2398,7 +2411,7 @@ func (p *terminalPane) attachClient(syncRequest historySyncRequest) (paneHistory
 			}
 		}
 	}
-	if history.checkpoint == nil && !syncRequest.forceSnapshot && syncRequest.hasRange && syncRequest.generation == p.historyGeneration && syncRequest.localEnd >= p.history.base && syncRequest.localEnd <= p.history.end {
+	if !history.checkpointFallback && history.checkpoint == nil && !syncRequest.forceSnapshot && syncRequest.hasRange && syncRequest.generation == p.historyGeneration && syncRequest.localEnd >= p.history.base && syncRequest.localEnd <= p.history.end {
 		history = p.history.snapshotFrom(syncRequest.localEnd)
 		history.generation = p.historyGeneration
 		history.resizeEpoch = p.resizeEpoch
@@ -2611,7 +2624,7 @@ func (p *terminalPane) resizeWithPixelsUnlocked(cols, rows, pixelWidth, pixelHei
 	p.rows = rows
 	p.pixelWidth = pixelWidth
 	p.pixelHeight = pixelHeight
-	p.checkpoint.resize(cols, rows, p.historyLimitBytes/averageHistoryBytesPerLine)
+	p.resizeCheckpointLocked(cols, rows, p.historyLimitBytes/averageHistoryBytesPerLine)
 	p.mu.Unlock()
 	if exited || ptyFile == nil {
 		return nil

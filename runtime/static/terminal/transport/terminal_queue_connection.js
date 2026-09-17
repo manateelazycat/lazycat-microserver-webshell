@@ -160,6 +160,7 @@ export const createTerminalQueueConnection = ({
   let physicalCreatedAt = 0;
   let physicalOpenLatencyMs = 0;
   let physicalReadyState = socketClosed;
+  let serverReady = false;
   let disposed = false;
   let subscriptionUpdatePending = false;
   let subscriptionRevision = 0;
@@ -184,6 +185,7 @@ export const createTerminalQueueConnection = ({
 
   const snapshot = () => ({
     physicalReadyState,
+    serverReady,
     physicalConnectionID,
     physicalCreatedAt,
     physicalOpenLatencyMs,
@@ -420,6 +422,7 @@ export const createTerminalQueueConnection = ({
       return;
     }
     physicalReadyState = socketConnecting;
+    serverReady = false;
     physicalConnectionID = `physical-${++nextPhysicalConnectionID}`;
     physicalCreatedAt = Number(now()) || Date.now();
     physicalOpenLatencyMs = 0;
@@ -449,7 +452,8 @@ export const createTerminalQueueConnection = ({
         physicalOpenLatencyMs,
         logicalCount: logicalStreams.size,
       });
-      sendSubscriptions();
+      if (logicalStreams.size > 0) sendSubscriptions();
+      else subscriptionUpdatePending = false;
       for (const entry of logicalStreams.values()) {
         if (entry.readyState === socketConnecting) {
           entry.readyState = socketOpen;
@@ -504,6 +508,7 @@ export const createTerminalQueueConnection = ({
           preferredAgentProtocolVersion = String(message.preferred_agent_protocol_version || "").trim();
           agentProtocolUpdateAvailable = message.agent_protocol_update_available === true;
           agentProtocolUpdateRequired = message.agent_protocol_update_required === true;
+          serverReady = true;
           emitState();
           onPhysicalEvent({
             type: "physical_server_ready",
@@ -541,6 +546,7 @@ export const createTerminalQueueConnection = ({
       }
       physicalSocket = null;
       physicalReadyState = socketClosed;
+      serverReady = false;
       disposed = true;
       const closeEvent = {
         code: Number(event.code || 1006),
@@ -700,6 +706,7 @@ export const createTerminalQueueConnection = ({
       return;
     }
     disposed = true;
+    serverReady = false;
     const socket = physicalSocket;
     physicalReadyState = socket && socket.readyState !== socketClosed ? socketClosing : socketClosed;
     closeAllLogical({ code, reason, wasClean: true });
