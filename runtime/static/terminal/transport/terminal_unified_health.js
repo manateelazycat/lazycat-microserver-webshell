@@ -7,6 +7,7 @@ export const createTerminalUnifiedHealthWatchdog = ({
   intervalMs = 4000,
   pongTimeoutMs = 12000,
   transitionTimeoutMs = 12000,
+  serverPrepareTimeoutMs = 45000,
   now = () => Date.now(),
   setIntervalImpl = (callback, delay) => setInterval(callback, delay),
   clearIntervalImpl = (timer) => clearInterval(timer),
@@ -62,6 +63,16 @@ export const createTerminalUnifiedHealthWatchdog = ({
     observeState(state, checkedAt);
 
     if (state === socketOpen) {
+      // The server starts reading pings only after Agent preparation. Waiting
+      // for queue-ready must not be mistaken for a missing heartbeat reply.
+      if (snapshot.serverReady === false) {
+        outstandingPingAt = 0;
+        if (checkedAt - observedStateAt >= serverPrepareTimeoutMs) {
+          closeUnhealthy("unified_agent_prepare_timeout");
+          return { action: "close", reason: "agent_prepare_timeout" };
+        }
+        return { action: "waiting", reason: "agent_preparing" };
+      }
       const lastPongAt = Math.max(0, Number(snapshot.physicalLastPongAt || 0));
       if (outstandingPingAt > 0 && lastPongAt >= outstandingPingAt) {
         outstandingPingAt = 0;

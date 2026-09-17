@@ -8,6 +8,12 @@
 
 普通容器恢复时先接入当前可见标签，待其历史提交后再每批接入两个后台回放。已有 logical stream 保持订阅，用户激活标签时立即提升接入优先级；前台等待和后台占位均有期限，避免故障 pane 饿死其他标签。回放是否提交通过 history 的注入 getter 读取，传输层不修改其状态。延后接入 timer 由 transport lifecycle 持有并在销毁时清理。CRC 校验使用共享查找表，协议多项式与校验失败处理不变。
 
+初次打开普通容器时，bootstrap 可调用物理连接 owner 的 `prepare(target)`，与 workspace、设置和 WASM 加载并行完成握手与 Agent 准备。该入口不创建 logical stream，也不发送空的首次订阅；仅在目标明确、在线且没有已有连接或关闭屏障时准备，`client:` 不使用此路径。返回的取消回调只关闭本次创建且尚无 logical stream 的连接，不能关闭已接管或替换后的连接。目标改变及页面销毁沿用单连接关闭屏障。
+
+membership 首次从空目标登记为当前实例时，`targetChanged` 不代表物理连接指向了其他实例。接管前通过物理 owner 的 `matchesTarget()` 比对，保留同目标的预连接；仅在已有连接属于不同目标时关闭，避免初始化重复握手与 Agent 校验。
+
+`terminal_queue_connection.js` 保存 `serverReady`，仅收到既有协议的 `queue-ready` 后设为 true，连接关闭后清除。logical membership 同时等待 Worker/网格就绪、服务端准备完成及协议允许接入；物理 owner 在 `queue-ready` 到达时重新调度接入，不依赖 pane 恰好收到早期事件。预连接失败后仍由既有正式接入/恢复路径重试，不增加预连接重试循环。Agent 准备期间服务端尚未处理 ping，watchdog 使用 45 秒准备期限，收到 `queue-ready` 后再执行正常心跳。终端恢复、尺寸提交、Canvas 显示与输入就绪条件保持原样。
+
 ## 公开入口与状态
 
 attach 进展检测由 `session_connection_lifecycle.js` 私有 `WeakMap` 独占。`checkAttachReady()` 与 timer 共用同一判定：有效的 received/applied cursor 前进以及 replay 进入 replaying/awaiting_commit 可更新进展；无进展默认 8 秒超时，单次 attach 总时限默认 60 秒。agent preparing 可使用既有 45 秒等待窗口，但同 socket/epoch 重装 timer 不能重置总期限。ping、focus、resize 不算回放进展；旧 timer 必须同时匹配当前 watch、socket、connection epoch 且 session 未关闭。replay 提交清理 attach watch；Canvas 最终呈现仍由 rendering 的有界验证/retry 负责，不把传输 ready 当作可见画面完成。`session_connection_controller.js` 的用户健康检查只能调用该公开查询，不再另外维护固定 8 秒判定。

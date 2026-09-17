@@ -315,6 +315,13 @@ export function createTerminalTransportRuntimeController({
       }
       return false;
     }
+    const physicalState = connection.snapshot();
+    if (!physicalState.serverReady || physicalState.agentProtocolUpdateRequired) {
+      // The transport owner schedules another membership pass on queue-ready.
+      // Until then, keep the pane pending without starting an attach timer.
+      session.pendingConnect = true;
+      return false;
+    }
     unifiedChannelGeneration += 1;
     const generation = unifiedChannelGeneration;
     session.unifiedConnectPending = true;
@@ -442,7 +449,9 @@ export function createTerminalTransportRuntimeController({
     });
     if (result.targetChanged) foregroundWaitStartedAt = 0;
     const transport = getUnifiedTransport();
-    if (result.targetChanged && transport?.getConnection?.()) {
+    // The first membership moves from an empty target to the selected one.
+    // Adopt its preconnected channel; only a different target needs closing.
+    if (result.targetChanged && transport?.getConnection?.() && !transport.matchesTarget(activeName)) {
       transport.close("context_changed");
     }
     for (const pane of result.removed) {

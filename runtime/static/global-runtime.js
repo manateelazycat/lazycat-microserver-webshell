@@ -2238,6 +2238,10 @@ export function startGlobalRuntime() {
     },
     syncNetworkSockets: (options) => syncTerminalNetworkMonitorSockets(options),
     onTargetChange: ({ name }) => {
+      if (terminalUnifiedTransport?.getTargetName()
+        && !terminalUnifiedTransport.matchesTarget(name)) {
+        terminalUnifiedTransport.close("workspace_target_changed");
+      }
       agentProtocolUpdate?.beginTarget(name);
       instances.handleActiveTargetChange();
       serviceForwarding.handleTargetChange();
@@ -2353,6 +2357,11 @@ export function startGlobalRuntime() {
     getActiveName,
     getActiveGeneration,
     isCurrentRequest: (name, generation) => isCurrentInstanceRequest(name, generation),
+    prepareTransport: ({ instanceName, generation }) => (
+      isCurrentInstanceRequest(instanceName, generation)
+        ? terminalUnifiedTransport.prepare(instanceName)
+        : null
+    ),
     requestWorkspace: (context) => requestWorkspaceRefresh(context),
     refreshWorkspaceWithRetry: (options) => refreshWorkspaceWithRetry(options),
     scheduleWorkspaceRetry: (options) => scheduleWorkspaceRefreshRetry(options),
