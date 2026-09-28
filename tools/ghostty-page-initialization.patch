@@ -1,0 +1,16 @@
+--- a/src/terminal/page.zig
++++ b/src/terminal/page.zig
+@@ -197,6 +197,13 @@
+         // they point to a valid offset into the cells, since the rows
+         // zero-initialized aren't valid.
+         const cells_ptr = cells.ptr(buf)[0 .. cap.cols * cap.rows];
++        // The WASM page allocator reuses freed blocks without zeroing them.
++        // Rows and managed tables are initialized below, so stale cell flags
++        // would otherwise refer to entries absent from those new tables.
++        // Initialize only cells, not the entire page or terminal heap.
++        if (comptime builtin.target.cpu.arch.isWasm()) {
++            @memset(cells_ptr, .{});
++        }
+         for (rows.ptr(buf)[0..cap.rows], 0..) |*row, y| {
+             const start = y * cap.cols;
+             row.* = .{

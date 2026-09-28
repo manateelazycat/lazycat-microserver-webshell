@@ -147,8 +147,12 @@ func (e *terminalCheckpointEngine) write(data []byte) {
 	parserBytes := 0
 	defer func() {
 		if e.err != nil {
+			var allocation *allocationDiagnosticReport
+			if parserBytes > 0 {
+				allocation = e.nativeAllocationDiagnostics()
+			}
 			e.failedCall = &checkpointCallFailure{Operation: "write", InputBytes: len(input), ParserBytes: parserBytes,
-				InputSHA256: checkpointHash(input), MemoryBefore: memoryBefore, MemoryAfter: e.memoryBytes()}
+				InputSHA256: checkpointHash(input), MemoryBefore: memoryBefore, MemoryAfter: e.memoryBytes(), Allocation: allocation}
 		}
 	}()
 	if bytes.Contains(input, []byte("\x1b_G")) {
@@ -224,6 +228,7 @@ func (e *terminalCheckpointEngine) resize(cols, rows, lines int) {
 		return
 	}
 	startedAt := time.Now()
+	nativeCalled := false
 	observation := checkpointResizeObservation{AtUnixMS: startedAt.UnixMilli(), FromCols: e.cols, FromRows: e.rows,
 		ToCols: cols, ToRows: rows, MemoryBefore: e.memoryBytes()}
 	defer func() {
@@ -231,8 +236,12 @@ func (e *terminalCheckpointEngine) resize(cols, rows, lines int) {
 		observation.MemoryAfter = e.memoryBytes()
 		if e.err != nil {
 			observation.Error = e.err.Error()
+			var allocation *allocationDiagnosticReport
+			if nativeCalled {
+				allocation = e.nativeAllocationDiagnostics()
+			}
 			e.failedCall = &checkpointCallFailure{Operation: "resize", MemoryBefore: observation.MemoryBefore,
-				MemoryAfter: observation.MemoryAfter, Cols: cols, Rows: rows, ScrollbackLines: lines}
+				MemoryAfter: observation.MemoryAfter, Cols: cols, Rows: rows, ScrollbackLines: lines, Allocation: allocation}
 		}
 		e.resizeObservations = append(e.resizeObservations, observation)
 		if len(e.resizeObservations) > 8 {
@@ -249,6 +258,7 @@ func (e *terminalCheckpointEngine) resize(cols, rows, lines int) {
 		return
 	}
 	if cols != e.cols || rows != e.rows {
+		nativeCalled = true
 		ok, err := e.call("ghostty_terminal_resize", uint64(e.handle), uint64(cols), uint64(rows))
 		if err != nil || ok != 1 {
 			if err != nil {

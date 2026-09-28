@@ -510,6 +510,7 @@ export function startGlobalRuntime() {
   const terminalBackend = createTerminalBackendManager({
     wasmURL: ghosttyWASMURL,
     diagnosticsEnabled: () => diagnostics.isInitializationCollecting() || diagnostics.isByteIOLogEnabled(),
+    resizeDiagnosticsEnabled: () => diagnostics.isTerminalRenderCaptureEnabled(),
     recordEvent: recordTerminalSessionEvent,
     isVisible: (session) => !document.hidden && session?.tabId === getActiveTabId(),
     onError: (session, error) => {

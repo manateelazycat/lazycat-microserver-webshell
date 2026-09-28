@@ -4,8 +4,8 @@ import { describeCells, compareCellDescriptions } from "./cell_diagnostics.js";
 const cancelled = () => Object.assign(new Error("Terminal backend generation changed"), { code: "BACKEND_CANCELLED" });
 
 export class RemoteTerminal {
-  constructor({ workerFactory, wasmURL, cols, rows, config, onChange, onError, viewport, visible, onDispose, diagnosticsEnabled, onDiagnostic }) {
-    Object.assign(this, { workerFactory, wasmURL, cols, rows, config, onChange, onError, viewport, visible, onDispose, diagnosticsEnabled, onDiagnostic });
+  constructor({ workerFactory, wasmURL, cols, rows, config, onChange, onError, viewport, visible, onDispose, diagnosticsEnabled, resizeDiagnosticsEnabled, onDiagnostic }) {
+    Object.assign(this, { workerFactory, wasmURL, cols, rows, config, onChange, onError, viewport, visible, onDispose, diagnosticsEnabled, resizeDiagnosticsEnabled, onDiagnostic });
     this.isRemote = true;
     this.generation = 0;
     this.nextID = 1;
@@ -17,8 +17,8 @@ export class RemoteTerminal {
     this.disposed = false;
     this.restart(config);
   }
-  diagnostic(event, details = {}) {
-    if (!this.diagnosticsEnabled?.()) return;
+  diagnostic(event, details = {}, resizeTrace = false) {
+    if (!this.diagnosticsEnabled?.() && !(resizeTrace && this.resizeDiagnosticsEnabled?.())) return;
     // Diagnostics must never change RPC completion or failure handling.
     try {
       this.onDiagnostic?.(event, {
@@ -27,6 +27,19 @@ export class RemoteTerminal {
         cols: this.cols, rows: this.rows, ...details,
       });
     } catch {}
+  }
+  traceOperation(requestID, pending, phase, details = {}) {
+    if (!pending.traceResize) return;
+    const at = performance.now();
+    pending.phase = phase;
+    const event = { requestID, operation: pending.type, phase, requestElapsedMs: at - pending.queuedAt,
+      uiObservedAtMs: at, ...details };
+    if (pending.type === "resize" && (!this.resizeTrace || requestID >= this.resizeTrace.requestID)) {
+      const previous = this.resizeTrace?.requestID === requestID ? this.resizeTrace : null;
+      this.resizeTrace = { ...previous, ...event, queuedAt: pending.queuedAt,
+        generation: this.generation, drawn: false, ...(details.revision !== undefined ? { targetRevision: details.revision } : {}) };
+    }
+    this.diagnostic("backend_operation_phase", event, true);
   }
   restart(config = this.config) {
     if (this.disposed) throw cancelled();
@@ -54,6 +67,7 @@ export class RemoteTerminal {
     this.viewportRevision = -1;
     this.snapshotPending = null;
     this.diagnosticPending = null;
+    this.resizeTrace = null;
     this.history.clear();
     this.reads.clear();
     this.responses = [];
@@ -65,6 +79,17 @@ export class RemoteTerminal {
       if (generation !== this.generation || this.disposed) return;
       const pending = this.pending.get(data.id);
       if (!pending) return;
+      if (data.type === "operation-phase") {
+        this.traceOperation(data.id, pending, data.phase, {
+          previousPhase: data.previousPhase, workerAtMs: data.workerAtMs, workerUnixMs: data.workerUnixMs,
+          workerElapsedMs: data.workerElapsedMs, workerQueueMs: data.workerQueueMs, revision: data.revision,
+          phaseDeliveryMs: Math.max(0, performance.timeOrigin + performance.now() - data.workerUnixMs),
+          viewportBytes: data.viewportBytes, syncOutputRemainingMs: data.syncOutputRemainingMs,
+          error: data.error, allocation: data.allocation,
+        });
+        return;
+      }
+      this.traceOperation(data.id, pending, "ui_reply_received", { revision: data.result?.revision });
       this.pending.delete(data.id);
       this.pendingBytes -= pending.bytes;
       clearTimeout(pending.timer);
@@ -75,10 +100,11 @@ export class RemoteTerminal {
             requestID: data.id, operation: pending.type, roundTripMs: replyAt - pending.startedAt,
             bytes: pending.bytes, requestCopyMs: pending.requestCopyMs, postMessageMs: pending.postMessageMs,
             ...data.timing, ...extra, error: data.error || extra.error || "",
-          });
+          }, pending.traceResize);
         }
       };
       if (data.error) {
+        this.traceOperation(data.id, pending, "ui_failed", { error: data.error, allocation: data.allocation });
         completeDiagnostic();
         const error = new Error(data.error);
         error.code = data.fatal ? "BACKEND_FAILURE" : data.code;
@@ -89,11 +115,13 @@ export class RemoteTerminal {
       try {
         const frameTiming = pending.startedAt !== null ? {} : null;
         const acceptAt = frameTiming ? performance.now() : 0;
+        this.traceOperation(data.id, pending, "ui_frame_accept_start");
         if (data.result?.terminalState) this.acceptFrame(data.result, frameTiming);
         else if (data.result?.terminalProgress) this.acceptProgress(data.result);
         if (frameTiming) completeDiagnostic({ ...frameTiming,
           frameAcceptMs: performance.now() - acceptAt, rpcTotalMs: performance.now() - pending.startedAt });
         pending.resolve(data.result);
+        this.traceOperation(data.id, pending, "ui_complete", { revision: data.result?.revision });
       } catch (error) { completeDiagnostic({ error: error.message }); pending.reject(error); this.fail(error); }
     };
     this.worker.onerror = (event) => {
@@ -134,7 +162,8 @@ export class RemoteTerminal {
       }
       const id = this.nextID++;
       const timeout = type === "diagnose" ? 3000 : type === "init" ? 20000 : 15000;
-      let deadline = performance.now() + timeout;
+      const queuedAt = performance.now();
+      let deadline = queuedAt + timeout;
       const checkTimeout = () => {
         const pending = this.pending.get(id);
         if (!pending) return;
@@ -151,14 +180,18 @@ export class RemoteTerminal {
           pending.timer = setTimeout(checkTimeout, timeout);
           return;
         }
+        this.traceOperation(id, pending, "ui_timeout", { lastPhase: pending.phase || "ui_queued" });
         this.fail(new Error(`Terminal backend ${type} timed out`));
       };
       const timer = setTimeout(checkTimeout, timeout);
-      const measured = this.diagnosticsEnabled?.() === true && ["init", "resize", "snapshot", "write", "restore"].includes(type);
+      const traceResize = (this.diagnosticsEnabled?.() === true || this.resizeDiagnosticsEnabled?.() === true)
+        && (["resize", "restore"].includes(type) || (type === "snapshot" && this.resizeTrace && !this.resizeTrace.drawn));
+      const measured = traceResize || (this.diagnosticsEnabled?.() === true && ["init", "resize", "snapshot", "write", "restore"].includes(type));
       const startedAt = measured ? performance.now() : null;
-      const pending = { resolve, reject, timer, bytes, type, startedAt };
+      const pending = { resolve, reject, timer, bytes, type, startedAt, queuedAt, traceResize };
       this.pending.set(id, pending);
       this.pendingBytes += bytes;
+      this.traceOperation(id, pending, "ui_queued", { cols: payload.cols, rows: payload.rows });
       if (measured) this.diagnostic("backend_rpc_start", { requestID: id, operation: type, bytes });
       try {
         // The UI output/history owners retain their own bytes until confirmed.
@@ -170,7 +203,7 @@ export class RemoteTerminal {
         }
         const postAt = measured ? performance.now() : 0;
         if (measured) pending.requestCopyMs = postAt - copyAt;
-        this.worker.postMessage({ id, type, payload, ...(measured ? { diagnostics: true } : {}) }, transfers);
+        this.worker.postMessage({ id, type, payload, ...(measured ? { diagnostics: true } : {}), ...(traceResize ? { traceResize: true } : {}) }, transfers);
         if (measured) pending.postMessageMs = performance.now() - postAt;
       } catch (error) {
         if (type === "diagnose") {
@@ -249,6 +282,14 @@ export class RemoteTerminal {
     try {
       const rendered = callback();
       if (rendered) this.hasRenderedFrame = true;
+      if (rendered && this.resizeTrace && !this.resizeTrace.drawn && this.resizeTrace.generation === this.generation
+        && this.frame?.revision >= this.resizeTrace.targetRevision) {
+        this.resizeTrace.drawn = true;
+        this.resizeTrace.phase = "ui_canvas_drawn";
+        this.diagnostic("backend_operation_phase", { requestID: this.resizeTrace.requestID, operation: "resize",
+          phase: "ui_canvas_drawn", revision: this.frame.revision,
+          requestElapsedMs: performance.now() - this.resizeTrace.queuedAt }, true);
+      }
       return rendered;
     } finally { this.renderingFrame = null; }
   }
@@ -310,6 +351,9 @@ export class RemoteTerminal {
       modes: this.progress?.modes, frameModes: frame?.modes, wrapped: frame?.wrapped,
       pendingRequests: this.pending.size, pendingBytes: this.pendingBytes,
       pendingOperations: [...this.pending.values()].map((entry) => entry.type),
+      pendingRequestDetails: [...this.pending.entries()].map(([requestID, entry]) => ({ requestID, operation: entry.type,
+        phase: entry.phase || "waiting_reply", elapsedMs: performance.now() - entry.queuedAt })),
+      lastResizeTrace: this.resizeTrace ? { ...this.resizeTrace } : null,
       snapshotPending: Boolean(this.snapshotPending), cachedHistoryRows: this.history.size,
       rowStep, colStep, rowContent: rows,
     };

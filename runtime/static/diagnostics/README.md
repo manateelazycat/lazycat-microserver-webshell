@@ -107,3 +107,5 @@ v6 仅增强前端观察。`checkpoint_failure_evidence.js` 在现有捕获开�
 每秒快照补充现有连接状态、逻辑连接代次、回放阶段、暂停与失败次数，使用 evidenceID 关联独立首次错误；不重复塞入整份固定证据。缺少 `checkpoint_diagnostics` 的旧错误响应仍记录其错误文本。复制与下载共用 v6 导出；正常关闭开关停止采集，服务端请求、重连、回放、尺寸、Canvas hold 释放及 Agent 版本均不因本次诊断改变。
 
 Agent v27 的解析故障在错误日志窗口关闭时仍写入有界错误日志。日志包含 target/tab/pane、Agent/WASM 版本、会话创建时间、首次原生故障、调用范围、输入指纹、历史范围及原始历史 fallback 路径。后续 attach 重新提供首次故障，重复报告不当作新的崩溃。fallback 不触发普通界面的 Toast、弹窗或警告；原始文本和解析器内存不进入日志，采集边界见 `terminal/history/README.md`。
+
+渲染捕获 v7 增加 resize/restore 的 UI→Worker→原生重排→视口准备→呈现阶段，事件为 `backend_operation_phase`，以 Worker 代际和 requestID 关联；原生分配数据保存在 `first_failure.call.allocation`，首次故障摘要单独有界保留。启用渲染捕获即可得到阶段信息，字节 IO 仍可单独提供完整请求耗时。关闭诊断不增加阶段消息；服务端原生错误及应用汇总转记独立于浏览器开关。

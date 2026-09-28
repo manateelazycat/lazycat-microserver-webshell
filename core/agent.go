@@ -27,7 +27,9 @@ const (
 	// v35 updates Chinese instance terminology; wire and checkpoint formats are unchanged.
 	// v36 adds SSH exec, file transfer, forwarding, terminal modes and resume.
 	// v37 separates SSH admission from the lifetime of owned terminal tasks.
-	AgentProtocolVersion = "lcmd-webshell-agent-v37"
+	// v38 adds native allocation safety/diagnostics and changes the checkpoint WASM hash.
+	// v39 initializes reused WASM page cells before publishing their new managed tables.
+	AgentProtocolVersion = "lcmd-webshell-agent-v39"
 
 	agentFrameBinary         = byte('B')
 	AgentFrameText           = byte('T')

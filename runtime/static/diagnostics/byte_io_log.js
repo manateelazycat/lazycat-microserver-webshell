@@ -3,6 +3,7 @@ const events = new Set([
   "replay_batch_begin", "replay_batch_received", "replay_batch_applied", "replay_batch_interrupted",
   "replay_output_drained", "queue_turn_ack_pending", "queue_turn_ack_sent",
   "backend_rpc_start", "backend_rpc_complete", "backend_failed", "backend_restart",
+  "backend_operation_phase",
   "full_render_start", "full_render_complete", "presentation_commit_complete", "render_blocked",
   "resize_native_start", "resize_native_complete", "screen_auto_refresh", "screen_auto_refresh_exhausted",
   "byte_io_receive", "byte_io_enqueue", "byte_io_batch_start", "byte_io_batch_complete",
@@ -12,8 +13,10 @@ const fields = new Set([
   "bytes", "inputBytes", "wireBytes", "batchID", "entries", "queuedBytes", "queueEntries",
   "enqueueMs", "oldestQueueWaitMs", "newestQueueWaitMs", "coalesceMs", "writeAwaitMs", "renderCallMs",
   "operation", "requestID", "pendingRequests", "pendingBytes", "workerGeneration", "backendCount",
+  "phase", "previousPhase", "lastPhase", "requestElapsedMs", "workerAtMs", "workerUnixMs", "workerElapsedMs",
+  "phaseDeliveryMs", "uiObservedAtMs", "revision", "viewportBytes", "syncOutputRemainingMs",
   "roundTripMs", "requestCopyMs", "postMessageMs", "workerQueueMs", "workerExecutionMs",
-  "parseMs", "snapshotMs", "frameUnpackMs", "frameAcceptMs", "rpcTotalMs",
+  "parseMs", "progressMs", "snapshotMs", "frameUnpackMs", "frameAcceptMs", "rpcTotalMs",
   "wasmLoadMs", "engineCreateMs", "durationMs", "replayDurationMs", "serverReplayDurationMs",
   "serverHistoryBytes", "serverHistoryChunks", "serverReplayFrames", "binaryMessages", "binaryBytes",
   "outputQueueBytes", "outputQueueEntries", "targetCursor", "startCursor", "endCursor",
@@ -78,6 +81,7 @@ export function createByteIOLog({ windowObject = globalThis.window, now = () => 
         else if (typeof value === "boolean" || value === null) record[key] = value;
         else if (typeof value === "string" || typeof value === "bigint") record[key] = String(value).slice(0, 300);
       }
+      if (details.allocation) record.allocation = details.allocation;
       if (type === "byte_io_receive") {
         const previous = arrivals.get(session);
         const same = previous?.connection === session.connectionEpoch;

@@ -380,6 +380,9 @@ export function createDiagnosticsController({
     isByteIOLogEnabled() {
       return byteIOLog.isEnabled();
     },
+    isTerminalRenderCaptureEnabled() {
+      return renderCapture.isEnabled();
+    },
     stopTerminalRenderCapture() {
       renderCapture.setEnabled(false);
     },

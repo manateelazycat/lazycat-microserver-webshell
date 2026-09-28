@@ -14,6 +14,8 @@ patches=(
   "${repo_dir}/tools/ghostty-render-diagnostics.patch"
   "${repo_dir}/tools/ghostty-resize-diagnostics.patch"
   "${repo_dir}/tools/ghostty-write-diagnostics.patch"
+  "${repo_dir}/tools/ghostty-allocation-safety.patch"
+  "${repo_dir}/tools/ghostty-page-initialization.patch"
 )
 applied=()
 

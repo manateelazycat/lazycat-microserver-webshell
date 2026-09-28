@@ -30,3 +30,7 @@ v35 显式兼容 v34/v33/v32/v31/v30/v29/v28/v27 及原容器兼容版本，版�
 根目录执行 `go build .`、`go vet ./...`、`npm run build`。既有 `lzc-build.yml` 和 lightos-admin 的 `lightos-build.sh` 继续使用同一构建入口及内嵌校验。
 
 实际功能回归按 `spec-tests/ENVIRONMENT.md` 绑定设备/账号，检查容器列表、授权、工作区、文件、统一连接和重连；未在真实环境执行的内容不能标记通过。
+
+当前推荐 Agent 协议为 v39，显式保留 v38 及既有版本的 attach 兼容和工作区恢复能力。v39 使用初始化复用页面单元格的 WASM；容器启动 attach 时只有 v39 协商内存快照，旧 Agent 使用原始字节回放，不自动替换或停止旧进程。v38 及之前的旧快照不能导入 v39。
+
+容器 Unified 转发复用 Core 的 `LogCheckpointDiagnostic`；原 attach 转发也在收到结构化故障时调用同一去重入口，因此首次解析故障进入应用汇总日志，不要求浏览器开启调试。不转发整个 Agent 日志文件，也不更改消息、ACK、尺寸边界或 PTY 生命周期。

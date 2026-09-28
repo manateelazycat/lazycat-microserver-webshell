@@ -209,6 +209,9 @@ func (s *terminalQueuePaneStream) enqueueText(payload []byte) {
 	entry := terminalQueueOutbound{messageType: websocket.TextMessage}
 	if err := json.Unmarshal(payload, &message); err == nil {
 		typeName := strings.TrimSpace(fmt.Sprint(message["type"]))
+		if typeName == "terminal-checkpoint-diagnostic" || typeName == "terminal-checkpoint-error" || typeName == "resize-applied" {
+			LogCheckpointDiagnostic(s.broker.scope, s.subscription.PaneID, payload)
+		}
 		s.mu.Lock()
 		switch typeName {
 		case "history-replay-start":

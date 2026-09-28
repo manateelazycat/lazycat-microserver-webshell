@@ -1,0 +1,424 @@
+--- a/src/lib_vt.zig
++++ b/src/lib_vt.zig
+@@ -146,6 +146,8 @@
+         @export(&c.terminal_free, .{ .name = "ghostty_terminal_free" });
+         @export(&c.terminal_resize, .{ .name = "ghostty_terminal_resize" });
+         @export(&c.terminal_set_scrollback_limit, .{ .name = "ghostty_terminal_set_scrollback_limit" });
++        @export(&c.terminal_allocation_diagnostics_ptr, .{ .name = "ghostty_terminal_allocation_diagnostics_ptr" });
++        @export(&c.terminal_allocation_diagnostics_len, .{ .name = "ghostty_terminal_allocation_diagnostics_len" });
+         @export(&c.terminal_resize_error_ptr, .{ .name = "ghostty_terminal_resize_error_ptr" });
+         @export(&c.terminal_resize_error_len, .{ .name = "ghostty_terminal_resize_error_len" });
+         @export(&c.terminal_diagnostic_cells, .{ .name = "ghostty_terminal_diagnostic_cells" });
+--- a/src/terminal/PageList.zig
++++ b/src/terminal/PageList.zig
+@@ -4,6 +4,7 @@
+ const PageList = @This();
+
+ const std = @import("std");
++const allocation_diagnostics = @import("allocation_diagnostics.zig");
+ const build_options = @import("terminal_options");
+ const Allocator = std.mem.Allocator;
+ const assert = @import("../quirks.zig").inlineAssert;
+@@ -1305,6 +1306,17 @@
+             if (cell.hyperlink) {
+                 const src_id = src_page.lookupHyperlink(cell).?;
+                 const src_link = src_page.hyperlink_set.get(src_page.memory, src_id);
++                if (!src_link.validFor(src_page)) {
++                    const previous = allocation_diagnostics.context;
++                    allocation_diagnostics.context = src_link.diagnosticContext(src_page, self.page);
++                    allocation_diagnostics.context.caller = 1;
++                    allocation_diagnostics.invalidLink();
++                    allocation_diagnostics.context = previous;
++                    return error.OutOfMemory;
++                }
++                const previous_diagnostic = allocation_diagnostics.context;
++                allocation_diagnostics.context.caller = 1;
++                defer allocation_diagnostics.context = previous_diagnostic;
+                 if (self.page.hyperlinkCount() >= self.page.hyperlinkCapacity()) {
+                     try self.adjustCapacity(list, .{
+                         .hyperlink_bytes = try growPageCapacity(self.page.capacity.hyperlink_bytes),
+@@ -1326,7 +1338,7 @@
+                         // URI and explicit ID are separate rounded allocations.
+                         // A probe of their combined raw length is insufficient.
+                         const link = src_link.dupe(src_page, self.page) catch |err| {
+-                            if (attempts >= page_capacity_retry_limit) return err;
++                            if (attempts >= page_capacity_retry_limit or allocation_diagnostics.invalidMetadata()) return err;
+                             attempts += 1;
+                             try self.adjustCapacity(list, .{
+                                 .string_bytes = try growPageCapacity(self.page.capacity.string_bytes),
+@@ -1342,7 +1354,7 @@
+                             // Failed insertion did not acquire the strings.
+                             // Release them before cloning the destination page.
+                             link.free(self.page);
+-                            if (attempts >= page_capacity_retry_limit) return err;
++                            if (attempts >= page_capacity_retry_limit or allocation_diagnostics.invalidMetadata()) return err;
+                             attempts += 1;
+                             try self.adjustCapacity(list, .{
+                                 .hyperlink_bytes = try growPageCapacity(self.page.capacity.hyperlink_bytes),
+@@ -1370,7 +1382,7 @@
+                             style,
+                             cell.style_id,
+                         ) catch |err| {
+-                            if (attempts >= page_capacity_retry_limit) return err;
++                            if (attempts >= page_capacity_retry_limit or allocation_diagnostics.invalidMetadata()) return err;
+                             attempts += 1;
+                             try self.adjustCapacity(list, .{
+                                 .styles = try growPageCapacity(self.page.capacity.styles),
+@@ -2639,6 +2651,8 @@
+     // A clone changes allocation order and may need more page-local string,
+     // grapheme or set capacity even when the original page still fits. Retry
+     // only the unpublished destination; pins and source cells stay untouched.
++    const previous_diagnostic = allocation_diagnostics.context;
++    defer allocation_diagnostics.context = previous_diagnostic;
+     const new_node = new_node: {
+         var attempts: u8 = 0;
+         while (true) {
+@@ -2650,8 +2664,19 @@
+             candidate_page.size.cols = page.size.cols;
+             candidate_page.cloneFrom(page, 0, page.size.rows) catch |err| {
+                 self.destroyNode(candidate);
+-                if (attempts >= page_capacity_retry_limit) return err;
++                if (attempts >= page_capacity_retry_limit or allocation_diagnostics.invalidMetadata()) return err;
+                 attempts += 1;
++                allocation_diagnostics.context.retry = attempts;
++                var retry_record = allocation_diagnostics.context;
++                retry_record.stage = 3;
++                retry_record.reason = 3;
++                retry_record.source_bytes = allocation_diagnostics.word(page.memory.len);
++                retry_record.source_string_bytes = allocation_diagnostics.word(page.capacity.string_bytes);
++                retry_record.target_string_bytes = allocation_diagnostics.word(cap.string_bytes);
++                retry_record.styles = allocation_diagnostics.word(cap.styles);
++                retry_record.grapheme_bytes = allocation_diagnostics.word(cap.grapheme_bytes);
++                retry_record.hyperlink_bytes = allocation_diagnostics.word(cap.hyperlink_bytes);
++                allocation_diagnostics.append(retry_record);
+                 switch (err) {
+                     error.StringAllocOutOfMemory => cap.string_bytes = try growPageCapacity(cap.string_bytes),
+                     error.GraphemeMapOutOfMemory, error.GraphemeAllocOutOfMemory => cap.grapheme_bytes = try growPageCapacity(cap.grapheme_bytes),
+--- /dev/null
++++ b/src/terminal/allocation_diagnostics.zig
+@@ -0,0 +1,124 @@
++const std = @import("std");
++
++// Numeric, fixed-size diagnostics. No allocation or terminal text on failure.
++// ABI: four header words, then eight records of 32 little-endian u32 words.
++pub const Record = extern struct {
++    stage: u32 = 0,
++    caller: u32 = 0,
++    retry: u32 = 0,
++    reason: u32 = 0,
++    source_bytes: u32 = 0,
++    target_bytes: u32 = 0,
++    source_string_bytes: u32 = 0,
++    target_string_bytes: u32 = 0,
++    source_cols: u32 = 0,
++    source_rows: u32 = 0,
++    target_cols: u32 = 0,
++    target_rows: u32 = 0,
++    uri_bytes: u32 = 0,
++    id_bytes: u32 = 0,
++    uri_offset: u32 = 0,
++    id_offset: u32 = 0,
++    metadata_valid: u32 = 0,
++    styles: u32 = 0,
++    grapheme_bytes: u32 = 0,
++    hyperlink_bytes: u32 = 0,
++    request_bytes: u32 = 0,
++    chunk_bytes: u32 = 0,
++    request_chunks: u32 = 0,
++    bitmap_words: u32 = 0,
++    free_chunks: u32 = 0,
++    largest_free_run: u32 = 0,
++    bitmap_offset: u32 = 0,
++    chunks_offset: u32 = 0,
++    reserved0: u32 = 0,
++    reserved1: u32 = 0,
++    reserved2: u32 = 0,
++    reserved3: u32 = 0,
++};
++const Report = extern struct {
++    version: u32 = 1,
++    operation: u32 = 0,
++    count: u32 = 0,
++    total: u32 = 0,
++    entries: [8]Record = @splat(.{}),
++};
++var report: Report = .{};
++pub var context: Record = .{};
++var active = false;
++var invalid_metadata = false;
++
++pub fn word(value: usize) u32 {
++    return @intCast(@min(value, std.math.maxInt(u32)));
++}
++pub fn begin(operation: u32) void {
++    report.operation = operation;
++    report.count = 0;
++    report.total = 0;
++    context = .{};
++    active = true;
++    invalid_metadata = false;
++}
++pub fn finish() void {
++    active = false;
++}
++pub fn ptr() callconv(.c) usize {
++    return @intFromPtr(&report);
++}
++pub fn len() callconv(.c) usize {
++    return @sizeOf(Report);
++}
++pub fn invalidMetadata() bool {
++    return invalid_metadata;
++}
++pub fn append(entry: Record) void {
++    if (!active) return;
++    report.total +|= 1;
++    if (report.count < report.entries.len) {
++        report.entries[report.count] = entry;
++        report.count += 1;
++    } else {
++        // Preserve the first failure and the seven newest observations.
++        for (1..7) |i| report.entries[i] = report.entries[i + 1];
++        report.entries[7] = entry;
++    }
++}
++pub fn invalidLink() void {
++    if (!active) return;
++    invalid_metadata = true;
++    var entry = context;
++    entry.reason = 2;
++    entry.metadata_valid = 0;
++    append(entry);
++}
++pub fn allocationFailed(chunk_bytes: usize, request_bytes: usize, chunks: usize, bitmaps: []const u64, bitmap_offset: usize, chunks_offset: usize) void {
++    if (!active) return;
++    var entry = context;
++    entry.reason = 1;
++    entry.request_bytes = word(request_bytes);
++    entry.chunk_bytes = word(chunk_bytes);
++    entry.request_chunks = word(chunks);
++    entry.bitmap_words = word(bitmaps.len);
++    entry.bitmap_offset = word(bitmap_offset);
++    entry.chunks_offset = word(chunks_offset);
++    var free: usize = 0;
++    var run: usize = 0;
++    var largest: usize = 0;
++    for (bitmaps) |bitmap| {
++        free += @popCount(bitmap);
++        if (bitmap == std.math.maxInt(u64)) {
++            run += 64;
++        } else {
++            largest = @max(largest, run + @ctz(~bitmap));
++            run = @clz(~bitmap);
++            var bits = bitmap;
++            var local: usize = 0;
++            while (bits != 0) : (local += 1) bits &= bits << 1;
++            largest = @max(largest, local);
++        }
++        largest = @max(largest, run);
++    }
++    entry.free_chunks = word(free);
++    entry.largest_free_run = word(largest);
++    append(entry);
++}
+--- a/src/terminal/bitmap_allocator.zig
++++ b/src/terminal/bitmap_allocator.zig
+@@ -1,4 +1,5 @@
+ const std = @import("std");
++const allocation_diagnostics = @import("allocation_diagnostics.zig");
+ const assert = @import("../quirks.zig").inlineAssert;
+ const Allocator = std.mem.Allocator;
+ const size = @import("size.zig");
+@@ -88,8 +89,10 @@
+
+             // Find the index of the free chunk. This also marks it as used.
+             const bitmaps = self.bitmap.ptr(base);
+-            const idx = findFreeChunks(bitmaps[0..self.bitmap_count], chunk_count) orelse
++            const idx = findFreeChunks(bitmaps[0..self.bitmap_count], chunk_count) orelse {
++                allocation_diagnostics.allocationFailed(chunk_size, byte_count, chunk_count, bitmaps[0..self.bitmap_count], self.bitmap.offset, self.chunks.offset);
+                 return error.OutOfMemory;
++            };
+
+             const chunks = self.chunks.ptr(base);
+             const ptr: [*]T = @ptrCast(@alignCast(&chunks[idx * chunk_size]));
+@@ -219,6 +222,10 @@
+     // I'm not a bit twiddling expert. Perhaps even SIMD could be used here
+     // but unsure. Contributor friendly: let's benchmark and improve this!
+
++    // Reject impossible requests before traversing or marking any bitmap.
++    const words_needed = n / 64 + @intFromBool(n % 64 != 0);
++    if (n == 0 or words_needed > bitmaps.len) return null;
++
+     // Large chunks require special handling.
+     if (n > @bitSizeOf(u64)) {
+         var i: usize = 0;
+@@ -256,6 +263,7 @@
+
+             // If the number of available chunks at the start of this bitmap
+             // is less than the remaining required, we have to try again.
++            if (i >= bitmaps.len) return null;
+             if (@ctz(~bitmaps[i]) < rem) continue;
+
+             const suffix = (n - prefix) % 64;
+--- a/src/terminal/c/main.zig
++++ b/src/terminal/c/main.zig
+@@ -113,3 +113,6 @@
+     // We want to make sure we run the tests for the C allocator interface.
+     _ = @import("../../lib/allocator.zig");
+ }
++
++pub const terminal_allocation_diagnostics_ptr = terminal.allocationDiagnosticsPtr;
++pub const terminal_allocation_diagnostics_len = terminal.allocationDiagnosticsLen;
+--- a/src/terminal/c/terminal.zig
++++ b/src/terminal/c/terminal.zig
+@@ -14,6 +14,7 @@
+ //! - No per-row or per-cell WASM boundary crossings!
+
+ const std = @import("std");
++const allocation_diagnostics = @import("../allocation_diagnostics.zig");
+ const Allocator = std.mem.Allocator;
+ const builtin = @import("builtin");
+
+@@ -480,6 +481,8 @@
+
+ pub fn resize(ptr: ?*anyopaque, cols: c_int, rows: c_int) callconv(.c) c_int {
+     const wrapper: *TerminalWrapper = @ptrCast(@alignCast(ptr orelse return 0));
++    allocation_diagnostics.begin(2);
++    defer allocation_diagnostics.finish();
+     last_resize_error = "";
+     wrapper.terminal.resize(wrapper.alloc, @intCast(cols), @intCast(rows)) catch |err| {
+         last_resize_error = @errorName(err);
+@@ -581,6 +584,8 @@
+ pub fn write(ptr: ?*anyopaque, data: [*]const u8, len: usize) callconv(.c) c_int {
+     last_write_error = "InvalidTerminal";
+     const wrapper: *TerminalWrapper = @ptrCast(@alignCast(ptr orelse return 0));
++    allocation_diagnostics.begin(1);
++    defer allocation_diagnostics.finish();
+     last_write_error = "";
+     wrapper.stream.nextSlice(data[0..len]) catch |err| {
+         last_write_error = @errorName(err);
+@@ -1205,3 +1210,6 @@
+     try std.testing.expectEqual(@as(c_int, cells.len), count);
+     try std.testing.expectEqual(row_cells[0].codepoint(), cells[0].codepoint);
+ }
++
++pub const allocationDiagnosticsPtr = allocation_diagnostics.ptr;
++pub const allocationDiagnosticsLen = allocation_diagnostics.len;
+--- a/src/terminal/hyperlink.zig
++++ b/src/terminal/hyperlink.zig
+@@ -1,4 +1,5 @@
+ const std = @import("std");
++const allocation_diagnostics = @import("allocation_diagnostics.zig");
+ const Allocator = std.mem.Allocator;
+ const hash_map = @import("hash_map.zig");
+ const AutoOffsetHashMap = hash_map.AutoOffsetHashMap;
+@@ -89,12 +90,60 @@
+         implicit: size.OffsetInt,
+     };
+
++    // Check page-local ranges before lookup/hash/dupe dereference the bytes.
++    fn validString(page: *const Page, value: Offset(u8).Slice) bool {
++        const start: usize = page.string_alloc.chunks.offset;
++        const capacity = std.math.mul(usize, page.string_alloc.bitmap_count, 64 * 32) catch return false;
++        const offset: usize = value.offset.offset;
++        if (value.len == 0 or start > page.memory.len or capacity > page.memory.len - start or offset < start) return false;
++        const relative = offset - start;
++        return relative <= capacity and value.len <= capacity - relative and relative % 32 == 0;
++    }
++    pub fn validFor(self: *const PageEntry, page: *const Page) bool {
++        if (!validString(page, self.uri)) return false;
++        return switch (self.id) {
++            .implicit => true,
++            .explicit => |value| validString(page, value),
++        };
++    }
++    pub fn diagnosticContext(self: *const PageEntry, source: *const Page, target: *const Page) allocation_diagnostics.Record {
++        var entry = allocation_diagnostics.context;
++        entry.source_bytes = allocation_diagnostics.word(source.memory.len);
++        entry.target_bytes = allocation_diagnostics.word(target.memory.len);
++        entry.source_string_bytes = allocation_diagnostics.word(source.capacity.string_bytes);
++        entry.target_string_bytes = allocation_diagnostics.word(target.capacity.string_bytes);
++        entry.source_cols = source.size.cols;
++        entry.source_rows = source.size.rows;
++        entry.target_cols = target.size.cols;
++        entry.target_rows = target.size.rows;
++        entry.uri_bytes = allocation_diagnostics.word(self.uri.len);
++        entry.uri_offset = self.uri.offset.offset;
++        entry.id_bytes = 0;
++        entry.id_offset = 0;
++        if (self.id == .explicit) {
++            entry.id_bytes = allocation_diagnostics.word(self.id.explicit.len);
++            entry.id_offset = self.id.explicit.offset.offset;
++        }
++        entry.metadata_valid = @intFromBool(self.validFor(source));
++        entry.styles = allocation_diagnostics.word(target.capacity.styles);
++        entry.grapheme_bytes = allocation_diagnostics.word(target.capacity.grapheme_bytes);
++        entry.hyperlink_bytes = allocation_diagnostics.word(target.capacity.hyperlink_bytes);
++        return entry;
++    }
++
+     /// Duplicate this hyperlink from one page to another.
+     pub fn dupe(
+         self: *const PageEntry,
+         self_page: *const Page,
+         dst_page: *Page,
+     ) error{OutOfMemory}!PageEntry {
++        const previous_diagnostic = allocation_diagnostics.context;
++        allocation_diagnostics.context = self.diagnosticContext(self_page, dst_page);
++        defer allocation_diagnostics.context = previous_diagnostic;
++        if (!self.validFor(self_page)) {
++            allocation_diagnostics.invalidLink();
++            return error.OutOfMemory;
++        }
+         var copy = self.*;
+
+         // If the pages are the same then we can return a shallow copy.
+@@ -103,6 +152,7 @@
+         // Copy the URI
+         {
+             const uri = self.uri.slice(self_page.memory);
++            allocation_diagnostics.context.stage = 1;
+             const buf = try dst_page.string_alloc.alloc(u8, dst_page.memory, uri.len);
+             @memcpy(buf, uri);
+             copy.uri = .{
+@@ -120,6 +170,7 @@
+             .implicit => {}, // Shallow is fine
+             .explicit => |slice| {
+                 const id = slice.slice(self_page.memory);
++                allocation_diagnostics.context.stage = 2;
+                 const buf = try dst_page.string_alloc.alloc(u8, dst_page.memory, id.len);
+                 @memcpy(buf, id);
+                 copy.id = .{ .explicit = .{
+--- a/src/terminal/page.zig
++++ b/src/terminal/page.zig
+@@ -1,4 +1,5 @@
+ const std = @import("std");
++const allocation_diagnostics = @import("allocation_diagnostics.zig");
+ const builtin = @import("builtin");
+ const build_options = @import("terminal_options");
+ const Allocator = std.mem.Allocator;
+@@ -787,6 +788,14 @@
+                     }
+
+                     const other_link = other.hyperlink_set.get(other.memory, id);
++                    if (!other_link.validFor(other)) {
++                        const previous = allocation_diagnostics.context;
++                        allocation_diagnostics.context = other_link.diagnosticContext(other, self);
++                        allocation_diagnostics.context.caller = 2;
++                        allocation_diagnostics.invalidLink();
++                        allocation_diagnostics.context = previous;
++                        return error.StringAllocOutOfMemory;
++                    }
+                     const dst_id = dst_id: {
+                         // First check if the link already exists in our page,
+                         // and increment its refcount if so, since we're about
+@@ -804,6 +813,9 @@
+                         // we need to clone it over and add it to our set.
+
+                         // Clone the link.
++                        const previous_diagnostic = allocation_diagnostics.context;
++                        allocation_diagnostics.context.caller = 2;
++                        defer allocation_diagnostics.context = previous_diagnostic;
+                         const dst_link = other_link.dupe(other, self) catch |e| {
+                             comptime assert(@TypeOf(e) == error{OutOfMemory});
+                             // The string alloc capacity needs to be increased.

@@ -13,15 +13,16 @@ var terminalCheckpointWASMDigest = checkpointHash(terminalCheckpointWASM)
 func checkpointWASMHash() string { return terminalCheckpointWASMDigest }
 
 type checkpointCallFailure struct {
-	Operation       string `json:"operation"`
-	InputBytes      int    `json:"input_bytes,omitempty"`
-	ParserBytes     int    `json:"parser_bytes,omitempty"`
-	InputSHA256     string `json:"input_sha256,omitempty"`
-	MemoryBefore    uint32 `json:"memory_before"`
-	MemoryAfter     uint32 `json:"memory_after"`
-	Cols            int    `json:"requested_cols,omitempty"`
-	Rows            int    `json:"requested_rows,omitempty"`
-	ScrollbackLines int    `json:"requested_scrollback_lines,omitempty"`
+	Operation       string                      `json:"operation"`
+	InputBytes      int                         `json:"input_bytes,omitempty"`
+	ParserBytes     int                         `json:"parser_bytes,omitempty"`
+	InputSHA256     string                      `json:"input_sha256,omitempty"`
+	MemoryBefore    uint32                      `json:"memory_before"`
+	MemoryAfter     uint32                      `json:"memory_after"`
+	Cols            int                         `json:"requested_cols,omitempty"`
+	Rows            int                         `json:"requested_rows,omitempty"`
+	ScrollbackLines int                         `json:"requested_scrollback_lines,omitempty"`
+	Allocation      *allocationDiagnosticReport `json:"allocation,omitempty"`
 }
 
 // One immutable report per pane. Subsequent attach/resize observations must not

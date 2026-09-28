@@ -1,20 +1,33 @@
+import { readAllocationDiagnostics } from "./allocation_diagnostics.js";
+
 export function createBackendWorkerRuntime({ scope, engine, queryText }) {
   let pending = Promise.resolve();
   let closed = false;
   let failed = false;
-  const handle = async (message, receivedAt) => {
+  const traceFor = (message, receivedAt) => {
+    if (!message?.traceResize) return null;
+    let previousPhase = "";
+    return (phase, details = {}) => {
+      const at = performance.now();
+      try { scope.postMessage({ id: message.id, type: "operation-phase", operation: message.type, phase, previousPhase,
+        workerAtMs: at, workerUnixMs: performance.timeOrigin + at, workerElapsedMs: at - receivedAt, ...details }); } catch {}
+      previousPhase = phase;
+    };
+  };
+  const handle = async (message, receivedAt, trace) => {
     if (closed || !Number.isSafeInteger(message?.id)) return;
     const { id, type, payload } = message;
     const startedAt = message.diagnostics ? performance.now() : 0;
     const timing = message.diagnostics ? {} : null;
     try {
+      trace?.("worker_started", { workerQueueMs: performance.now() - receivedAt });
       if (failed) throw new Error("Terminal backend requires restart");
       let result;
       if (type === "init") result = await engine.init(payload, timing);
       else if (type === "write") result = engine.write(payload, timing);
-      else if (type === "resize") result = engine.resize(payload);
-      else if (type === "snapshot") result = engine.snapshot(payload.viewportY);
-      else if (type === "restore") result = await engine.restore(payload);
+      else if (type === "resize") result = engine.resize(payload, trace);
+      else if (type === "snapshot") result = engine.snapshot(payload.viewportY, trace);
+      else if (type === "restore") result = await engine.restore(payload, trace);
       else if (type === "diagnose") result = engine.diagnose();
       else if (type === "read") result = engine.read(payload);
       else if (type === "text" || type === "search" || type === "link") {
@@ -41,20 +54,25 @@ export function createBackendWorkerRuntime({ scope, engine, queryText }) {
         timing.workerQueueMs = startedAt - receivedAt;
         timing.workerExecutionMs = performance.now() - startedAt;
       }
+      trace?.("worker_reply", { revision: result?.revision });
       scope.postMessage({ id, result, ...(timing ? { timing } : {}) }, transfers);
     } catch (error) {
+      const allocation = ["write", "resize"].includes(type) ? readAllocationDiagnostics(engine.native(), type) : null;
+      trace?.("worker_failed", { error: error?.message || String(error), allocation });
       if (["init", "write", "resize", "snapshot", "restore"].includes(type)) failed = true;
       if (timing) {
         timing.workerQueueMs = startedAt - receivedAt;
         timing.workerExecutionMs = performance.now() - startedAt;
       }
-      scope.postMessage({ id, error: error?.message || String(error), code: error?.code, fatal: failed, ...(timing ? { timing } : {}) });
+      scope.postMessage({ id, error: error?.message || String(error), code: error?.code, fatal: failed, allocation, ...(timing ? { timing } : {}) });
     }
   };
   const onMessage = (event) => {
-    const receivedAt = event.data?.diagnostics ? performance.now() : 0;
+    const receivedAt = event.data?.diagnostics || event.data?.traceResize ? performance.now() : 0;
+    const trace = traceFor(event.data, receivedAt);
+    trace?.("worker_received");
     // Native terminal mutations and observations share one ordered command lane.
-    pending = pending.then(() => handle(event.data, receivedAt)).catch((error) => {
+    pending = pending.then(() => handle(event.data, receivedAt, trace)).catch((error) => {
       failed = true;
       scope.postMessage({ error: error?.message || String(error), fatal: true });
     });
