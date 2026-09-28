@@ -11,6 +11,9 @@ export function createTerminalTUIAdapterInstaller({
   isClaudeTouchSession = () => false,
   isClaudeContextMenuEvent = () => false,
   isClaudeDesktopSelectionEvent = () => false,
+  isCodexTouchSession = () => false,
+  isCodexContextMenuEvent = () => false,
+  isCodexDesktopSelectionEvent = () => false,
   isGrokContextMenuEvent = () => false,
   isGrokDesktopSelectionEvent = () => false,
   getTerminalMouse = () => null,
@@ -23,6 +26,9 @@ export function createTerminalTUIAdapterInstaller({
   markContextMenuCandidate = () => {},
   registerCleanup = () => {},
   installClaudeFullscreenTouchAdapter = () => {},
+  installCodexFullscreenTouchAdapter = () => {},
+  installCodexFullscreenContextMenuAdapter = () => {},
+  installCodexFullscreenDesktopSelectionAdapter = () => {},
   installFullscreenTuiTouchAdapter = () => {},
   installOpencodeFullscreenTouchAdapter = () => {},
   installHerdrFullscreenTouchAdapter = () => {},
@@ -150,6 +156,19 @@ export function createTerminalTUIAdapterInstaller({
     installOpencodeFullscreenTouchAdapter,
   );
 
+  const installCodexTouch = (session) => {
+    const shell = session?.shellEl;
+    const host = session?.terminalHost;
+    if (!shell || !host || !session?.term) return false;
+    const options = touchOptions(session, host);
+    const cancel = installCodexFullscreenTouchAdapter({
+      ...options,
+      shouldStart: (event) => options.shouldStart(event) && isCodexTouchSession(session),
+    });
+    registerTouchCancellation(session, cancel);
+    return true;
+  };
+
   const installHerdrTouch = (session) => installFullscreenTouch(
     session,
     isHerdrFullscreenTouchCandidate,
@@ -230,6 +249,24 @@ export function createTerminalTUIAdapterInstaller({
     return true;
   };
 
+  const installCodexContextMenu = (session) => {
+    const shell = session?.shellEl;
+    const host = session?.terminalHost;
+    if (!shell || !host) return false;
+    installCodexFullscreenContextMenuAdapter({
+      shell,
+      shouldStart: (event) => {
+        const target = event?.target;
+        return isElement(target)
+          && target.closest(".terminal-host") === host
+          && isCodexContextMenuEvent(session, event);
+      },
+      claimEvent: (event) => getTerminalMouse()?.claimEvent(event),
+      registerCleanup: (callback) => registerCleanup(session, callback),
+    });
+    return true;
+  };
+
   const installGrokDesktopSelection = (session) => {
     const shell = session?.shellEl;
     const host = session?.terminalHost;
@@ -252,6 +289,27 @@ export function createTerminalTUIAdapterInstaller({
     return true;
   };
 
+  const installCodexDesktopSelection = (session) => {
+    const shell = session?.shellEl;
+    const host = session?.terminalHost;
+    if (!shell || !host) return false;
+    installCodexFullscreenDesktopSelectionAdapter({
+      shell,
+      shouldStart: (event) => {
+        const target = event?.target;
+        return isElement(target)
+          && target.closest(".terminal-host") === host
+          && isCodexDesktopSelectionEvent(session, event);
+      },
+      claimEvent: (event) => getTerminalMouse()?.claimEvent(event),
+      // Shift-click extends WebShell's local selection; do not let Codex also select.
+      sendClick: (event) => event?.shiftKey !== true && getTerminalMouse()?.sendClick(session, event) === true,
+      registerCleanup: (callback) => registerCleanup(session, callback),
+      moveThresholdPx: desktopSelectionMoveThresholdPx,
+    });
+    return true;
+  };
+
   return Object.freeze({
     cancelTouchInteraction(session) {
       touchCancellations.get(session)?.forEach(cancel => cancel());
@@ -259,6 +317,9 @@ export function createTerminalTUIAdapterInstaller({
     installClaudeContextMenu,
     installClaudeDesktopSelection,
     installClaudeTouch,
+    installCodexContextMenu,
+    installCodexDesktopSelection,
+    installCodexTouch,
     installGrokContextMenu,
     installGrokDesktopSelection,
     installGrokTouch,

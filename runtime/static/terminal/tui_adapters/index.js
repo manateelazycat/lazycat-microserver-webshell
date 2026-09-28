@@ -43,4 +43,13 @@ export {
   isOfficialGrokEntrypoint,
 } from "./grok/index.js";
 export { createTerminalTUIAdapterInstaller } from "./installation_controller.js";
-export { createCodexThemeAdapter, isCodexTerminalIdentity } from "./codex/index.js";
+export {
+  createCodexThemeAdapter,
+  isCodexTerminalIdentity,
+  installCodexFullscreenTouchAdapter,
+  installCodexFullscreenContextMenuAdapter,
+  installCodexFullscreenDesktopSelectionAdapter,
+  isCodexFullscreenTouchCandidate,
+  isCodexFullscreenContextMenuCandidate,
+  isCodexFullscreenDesktopSelectionCandidate,
+} from "./codex/index.js";

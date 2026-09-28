@@ -3,6 +3,9 @@ import {
   isClaudeFullscreenContextMenuCandidate,
   isClaudeFullscreenDesktopSelectionCandidate,
   isClaudeFullscreenTouchCandidate,
+  isCodexFullscreenContextMenuCandidate,
+  isCodexFullscreenDesktopSelectionCandidate,
+  isCodexFullscreenTouchCandidate,
   isGrokExecutableToken,
   isGrokFullscreenContextMenuCandidate,
   isGrokFullscreenDesktopSelectionCandidate,
@@ -59,6 +62,9 @@ export function createTerminalPolicyController({
   claudeTouchCandidate = isClaudeFullscreenTouchCandidate,
   claudeContextMenuCandidate = isClaudeFullscreenContextMenuCandidate,
   claudeDesktopSelectionCandidate = isClaudeFullscreenDesktopSelectionCandidate,
+  codexTouchCandidate = isCodexFullscreenTouchCandidate,
+  codexContextMenuCandidate = isCodexFullscreenContextMenuCandidate,
+  codexDesktopSelectionCandidate = isCodexFullscreenDesktopSelectionCandidate,
   grokTouchCandidate = isGrokFullscreenTouchCandidate,
   grokContextMenuCandidate = isGrokFullscreenContextMenuCandidate,
   grokDesktopSelectionCandidate = isGrokFullscreenDesktopSelectionCandidate,
@@ -67,6 +73,22 @@ export function createTerminalPolicyController({
 
   const isClaudeFullscreenTouchSession = (session) => claudeTouchCandidate(session, {
     mouseTracking: hasMouseTracking(session) === true,
+  });
+
+  const isCodexFullscreenTouchSession = (session) => codexTouchCandidate(session, {
+    mouseTracking: hasMouseTracking(session) === true,
+  });
+
+  const isCodexFullscreenContextMenuEvent = (session, event) => codexContextMenuCandidate(session, {
+    mouseTracking: hasMouseTracking(session) === true,
+    button: event?.button,
+    contextMenuSuppressed: shouldSuppressContextMenu(event),
+  });
+
+  const isCodexFullscreenDesktopSelectionEvent = (session, event) => codexDesktopSelectionCandidate(session, {
+    mouseTracking: hasMouseTracking(session) === true,
+    button: event?.button,
+    touchSelectionLayout: isTouchSelectionLayout(),
   });
 
   const isClaudeFullscreenContextMenuEvent = (session, event) => claudeContextMenuCandidate(session, {
@@ -141,6 +163,9 @@ export function createTerminalPolicyController({
     isClaudeFullscreenContextMenuEvent,
     isClaudeFullscreenDesktopSelectionEvent,
     isClaudeFullscreenTouchSession,
+    isCodexFullscreenContextMenuEvent,
+    isCodexFullscreenDesktopSelectionEvent,
+    isCodexFullscreenTouchSession,
     isDisposed: () => disposed,
     isGrokFullscreenContextMenuEvent,
     isGrokFullscreenDesktopSelectionEvent,

@@ -62,12 +62,15 @@ export function createTerminalSessionInstallationController({
     renderer?.installSession?.(session);
     selection?.installSession?.(session);
     tuiAdapterInstaller?.installClaudeTouch?.(session);
+    tuiAdapterInstaller?.installCodexTouch?.(session);
     tuiAdapterInstaller?.installOpencodeTouch?.(session);
     tuiAdapterInstaller?.installHerdrTouch?.(session);
     tuiAdapterInstaller?.installPiTouch?.(session);
     tuiAdapterInstaller?.installGrokTouch?.(session);
     tuiAdapterInstaller?.installClaudeContextMenu?.(session);
     tuiAdapterInstaller?.installClaudeDesktopSelection?.(session);
+    tuiAdapterInstaller?.installCodexContextMenu?.(session);
+    tuiAdapterInstaller?.installCodexDesktopSelection?.(session);
     tuiAdapterInstaller?.installGrokContextMenu?.(session);
     tuiAdapterInstaller?.installGrokDesktopSelection?.(session);
     mouse?.installSession?.(session);

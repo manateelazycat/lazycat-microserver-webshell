@@ -1,8 +1,8 @@
-# Codex 主题适配
+# Codex 主题与全屏交互适配
 
 ## 职责与入口
 
-通过 `index.js` 暴露 `createCodexThemeAdapter()` 与 `isCodexTerminalIdentity()`。本模块只根据注入的前台进程信息、主题目录和当前背景，提供背景 RGB 的精确映射；不读写终端字节流、输入、历史、Canvas 或连接。实际绘制和刷新由 rendering owner 完成。
+通过 `index.js` 暴露 Codex 精确进程识别、主题适配与 fullscreen 交互 adapter。主题适配根据注入的前台进程信息、主题目录和当前背景，提供背景 RGB 的精确映射；实际绘制和刷新由 rendering owner 完成。fullscreen 适配只在 Codex 身份且终端启用鼠标追踪时接管触控、右键和桌面拖选；手势机械逻辑复用 `../common/`，协议发送和 WebShell 选区经调用方注入。
 
 ## 规则与边界
 
@@ -17,3 +17,5 @@ npm 安装后的入口可能是 `node /usr/sbin/codex`、`node /home/用户/.loc
 ## 验证
 
 构建前端后按 `spec/terminal/theme-following/` 手工验收：运行真实 Codex 并保留未提交文字，连续切换深色、浅色及不同色调主题，检查输入框和同色背景；先换主题再启动，刷新页面/重连后再换主题；滚动和选中文本；退出 Codex 后以及另一个非 Codex 会话显示同 RGB，确认没有新增改色。确认进程信息已由既有 activity 更新。无需新增自动化场景。
+
+按 `spec/terminal/codex-fullscreen-interaction/` 在真实 Codex 全屏会话验收：手机上下滑动浏览内容，长按后调整 WebShell 选区并打开操作栏；桌面点击仍有效、拖选归 WebShell、右键只出现 WebShell 菜单。再检查 Codex 非全屏界面和普通终端不受影响。

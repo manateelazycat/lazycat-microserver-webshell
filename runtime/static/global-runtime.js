@@ -7,6 +7,12 @@
 import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
 import {
   createCodexThemeAdapter,
+  installCodexFullscreenTouchAdapter,
+  installCodexFullscreenContextMenuAdapter,
+  installCodexFullscreenDesktopSelectionAdapter,
+  isCodexFullscreenTouchCandidate,
+  isCodexFullscreenContextMenuCandidate,
+  isCodexFullscreenDesktopSelectionCandidate,
   installClaudeFullscreenContextMenuAdapter,
   isClaudeFullscreenContextMenuCandidate,
   installClaudeFullscreenDesktopSelectionAdapter,
@@ -1553,6 +1559,9 @@ export function startGlobalRuntime() {
     claudeTouchCandidate: isClaudeFullscreenTouchCandidate,
     claudeContextMenuCandidate: isClaudeFullscreenContextMenuCandidate,
     claudeDesktopSelectionCandidate: isClaudeFullscreenDesktopSelectionCandidate,
+    codexTouchCandidate: isCodexFullscreenTouchCandidate,
+    codexContextMenuCandidate: isCodexFullscreenContextMenuCandidate,
+    codexDesktopSelectionCandidate: isCodexFullscreenDesktopSelectionCandidate,
     grokTouchCandidate: isGrokFullscreenTouchCandidate,
     grokContextMenuCandidate: isGrokFullscreenContextMenuCandidate,
     grokDesktopSelectionCandidate: isGrokFullscreenDesktopSelectionCandidate,
@@ -1563,6 +1572,9 @@ export function startGlobalRuntime() {
   );
   const isGrokTerminalSession = (session) => terminalPolicy?.isGrokTerminalSession(session) === true;
   const isClaudeFullscreenTouchSession = (session) => terminalPolicy?.isClaudeFullscreenTouchSession(session) === true;
+  const isCodexFullscreenTouchSession = (session) => terminalPolicy?.isCodexFullscreenTouchSession(session) === true;
+  const isCodexFullscreenContextMenuEvent = (session, event) => terminalPolicy?.isCodexFullscreenContextMenuEvent(session, event) === true;
+  const isCodexFullscreenDesktopSelectionEvent = (session, event) => terminalPolicy?.isCodexFullscreenDesktopSelectionEvent(session, event) === true;
   const isClaudeFullscreenContextMenuEvent = (session, event) => terminalPolicy?.isClaudeFullscreenContextMenuEvent(session, event) === true;
   const isClaudeFullscreenDesktopSelectionEvent = (session, event) => terminalPolicy?.isClaudeFullscreenDesktopSelectionEvent(session, event) === true;
   const isGrokFullscreenContextMenuEvent = (session, event) => terminalPolicy?.isGrokFullscreenContextMenuEvent(session, event) === true;
@@ -1608,6 +1620,9 @@ export function startGlobalRuntime() {
     isTouchShortcutLayout: () => isTouchShortcutLayout(),
     isMobileMenuOpen: () => terminalInteraction?.isMobileOpen() === true,
     isClaudeTouchSession: (session) => isClaudeFullscreenTouchSession(session),
+    isCodexTouchSession: (session) => isCodexFullscreenTouchSession(session),
+    isCodexContextMenuEvent: (session, event) => isCodexFullscreenContextMenuEvent(session, event),
+    isCodexDesktopSelectionEvent: (session, event) => isCodexFullscreenDesktopSelectionEvent(session, event),
     isClaudeContextMenuEvent: (session, event) => isClaudeFullscreenContextMenuEvent(session, event),
     isClaudeDesktopSelectionEvent: (session, event) => isClaudeFullscreenDesktopSelectionEvent(session, event),
     isGrokContextMenuEvent: (session, event) => isGrokFullscreenContextMenuEvent(session, event),
@@ -1621,6 +1636,9 @@ export function startGlobalRuntime() {
     markContextMenuCandidate: (touch) => markTerminalTouchContextMenuCandidate(touch),
     registerCleanup: (session, callback) => terminalSessionController?.addCleanup(session, callback),
     installClaudeFullscreenTouchAdapter,
+    installCodexFullscreenTouchAdapter,
+    installCodexFullscreenContextMenuAdapter,
+    installCodexFullscreenDesktopSelectionAdapter,
     installOpencodeFullscreenTouchAdapter,
     installHerdrFullscreenTouchAdapter,
     installPiFullscreenTouchAdapter,
