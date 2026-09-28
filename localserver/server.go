@@ -142,6 +142,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
+	if r.URL.Path == "/publish/connect" {
+		s.publishConnect(w, r)
+		return
+	}
 	if !s.authorize(r) {
 		http.Error(w, "terminal access denied", http.StatusUnauthorized)
 		return

@@ -60,7 +60,7 @@ export function createServiceForwardingView({
     isEditorOpen() {
       return Boolean(elements.editor && !elements.editor.hidden);
     },
-    openEditor({ editing = false, upstream = {}, title = "", subdomain = "", skipAuth = false } = {}) {
+    openEditor({ editing = false, upstream = {}, title = "", subdomain = "", skipAuth = false, physicalTarget = false } = {}) {
       if (elements.editor) {
         elements.editor.hidden = false;
       }
@@ -72,6 +72,10 @@ export function createServiceForwardingView({
       }
       setValue(elements.protocolInput, upstream.protocol === "https" ? "https" : "http");
       setValue(elements.hostInput, upstream.host || "127.0.0.1");
+      if (elements.hostInput) {
+        elements.hostInput.title = physicalTarget ? "目标地址由物理机访问，可填写主机名、局域网或公网 IP" : "";
+        elements.hostInput.placeholder = physicalTarget ? "127.0.0.1 / 192.168.1.10 / example.com" : "127.0.0.1";
+      }
       setValue(elements.portInput, upstream.port > 0 ? upstream.port : "");
       setValue(elements.pathInput, upstream.path || "");
       setValue(elements.titleInput, title);
@@ -104,7 +108,7 @@ export function createServiceForwardingView({
       if (!targetAvailable) {
         const empty = documentObject.createElement("div");
         empty.className = "settings-service-forward-empty";
-        empty.textContent = "当前没有可用容器。";
+        empty.textContent = "当前没有可用实例。";
         elements.list.appendChild(empty);
         return;
       }

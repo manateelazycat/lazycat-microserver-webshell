@@ -640,6 +640,7 @@ export function startGlobalRuntime() {
     },
     setFeedback: (message, tone) => settings?.setFeedback(message, tone),
     confirmDelete: (message, options) => confirmDialog(message, options),
+    confirmPublicAccess: (message, options) => confirmDialog(message, options),
     openURL: (url) => terminalLinks.open(url),
     closeSelect: () => closeMobileCustomSelect(),
   });

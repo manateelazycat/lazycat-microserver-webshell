@@ -24,6 +24,8 @@ export const normalizeServiceForwardingTarget = (target) => {
   };
 };
 
+export const isClientServiceForwardingTarget = (selector) => String(selector || "").trim().startsWith("client:");
+
 export const serviceForwardEntryMatchesTarget = (entry, targetSelector) => {
   const entryName = String(entry?.instance_name || "").trim();
   const selector = String(targetSelector || "").trim();

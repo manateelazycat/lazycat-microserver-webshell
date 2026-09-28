@@ -29,7 +29,8 @@ const (
 	// v37 separates SSH admission from the lifetime of owned terminal tasks.
 	// v38 adds native allocation safety/diagnostics and changes the checkpoint WASM hash.
 	// v39 initializes reused WASM page cells before publishing their new managed tables.
-	AgentProtocolVersion = "lcmd-webshell-agent-v39"
+	// v40 adds a purpose-scoped local service publication tunnel; terminal replay is unchanged.
+	AgentProtocolVersion = "lcmd-webshell-agent-v40"
 
 	agentFrameBinary         = byte('B')
 	AgentFrameText           = byte('T')

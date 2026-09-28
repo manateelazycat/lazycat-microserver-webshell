@@ -132,5 +132,8 @@ func (s *pluginServer) authorizePublishProxyRequest(r *http.Request) error {
 	if err := json.Unmarshal(data, &payload); err != nil {
 		return fmt.Errorf("%w: %v", errInvalidPublishCreatePayload, err)
 	}
+	if isClientTarget(payload.InstanceName) {
+		return s.authorizeClientTarget(r.Context(), r.Header, accountID, payload.InstanceName)
+	}
 	return s.authorizeOwnedInstanceSelector(r.Context(), payload.InstanceName)
 }
