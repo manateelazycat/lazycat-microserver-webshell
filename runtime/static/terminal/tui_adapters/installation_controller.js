@@ -16,6 +16,8 @@ export function createTerminalTUIAdapterInstaller({
   isCodexDesktopSelectionEvent = () => false,
   isGrokContextMenuEvent = () => false,
   isGrokDesktopSelectionEvent = () => false,
+  isOpencodeContextMenuEvent = () => false,
+  isOpencodeDesktopSelectionEvent = () => false,
   getTerminalMouse = () => null,
   getTerminalIME = () => null,
   getTerminalSelection = () => null,
@@ -31,6 +33,8 @@ export function createTerminalTUIAdapterInstaller({
   installCodexFullscreenDesktopSelectionAdapter = () => {},
   installFullscreenTuiTouchAdapter = () => {},
   installOpencodeFullscreenTouchAdapter = () => {},
+  installOpencodeFullscreenContextMenuAdapter = () => {},
+  installOpencodeFullscreenDesktopSelectionAdapter = () => {},
   installHerdrFullscreenTouchAdapter = () => {},
   installPiFullscreenTouchAdapter = () => {},
   installClaudeFullscreenContextMenuAdapter = () => {},
@@ -267,6 +271,24 @@ export function createTerminalTUIAdapterInstaller({
     return true;
   };
 
+  const installOpencodeContextMenu = (session) => {
+    const shell = session?.shellEl;
+    const host = session?.terminalHost;
+    if (!shell || !host) return false;
+    installOpencodeFullscreenContextMenuAdapter({
+      shell,
+      shouldStart: (event) => {
+        const target = event?.target;
+        return isElement(target)
+          && target.closest(".terminal-host") === host
+          && isOpencodeContextMenuEvent(session, event);
+      },
+      claimEvent: (event) => getTerminalMouse()?.claimEvent(event),
+      registerCleanup: (callback) => registerCleanup(session, callback),
+    });
+    return true;
+  };
+
   const installGrokDesktopSelection = (session) => {
     const shell = session?.shellEl;
     const host = session?.terminalHost;
@@ -310,6 +332,27 @@ export function createTerminalTUIAdapterInstaller({
     return true;
   };
 
+  const installOpencodeDesktopSelection = (session) => {
+    const shell = session?.shellEl;
+    const host = session?.terminalHost;
+    if (!shell || !host) return false;
+    installOpencodeFullscreenDesktopSelectionAdapter({
+      shell,
+      shouldStart: (event) => {
+        const target = event?.target;
+        return isElement(target)
+          && target.closest(".terminal-host") === host
+          && isOpencodeDesktopSelectionEvent(session, event);
+      },
+      claimEvent: (event) => getTerminalMouse()?.claimEvent(event),
+      // Preserve WebShell's Shift-click selection without forwarding it to opencode.
+      sendClick: (event) => event?.shiftKey !== true && getTerminalMouse()?.sendClick(session, event) === true,
+      registerCleanup: (callback) => registerCleanup(session, callback),
+      moveThresholdPx: desktopSelectionMoveThresholdPx,
+    });
+    return true;
+  };
+
   return Object.freeze({
     cancelTouchInteraction(session) {
       touchCancellations.get(session)?.forEach(cancel => cancel());
@@ -325,6 +368,8 @@ export function createTerminalTUIAdapterInstaller({
     installGrokTouch,
     installHerdrTouch,
     installOpencodeTouch,
+    installOpencodeContextMenu,
+    installOpencodeDesktopSelection,
     installPiTouch,
   });
 }

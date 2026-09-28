@@ -73,6 +73,8 @@ export function createTerminalSessionInstallationController({
     tuiAdapterInstaller?.installCodexDesktopSelection?.(session);
     tuiAdapterInstaller?.installGrokContextMenu?.(session);
     tuiAdapterInstaller?.installGrokDesktopSelection?.(session);
+    tuiAdapterInstaller?.installOpencodeContextMenu?.(session);
+    tuiAdapterInstaller?.installOpencodeDesktopSelection?.(session);
     mouse?.installSession?.(session);
 
     addCleanup(session, clipboard?.installSession?.(session));

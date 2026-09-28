@@ -16,7 +16,11 @@ export {
 } from "./claude/index.js";
 export {
   installOpencodeFullscreenTouchAdapter,
+  installOpencodeFullscreenContextMenuAdapter,
+  installOpencodeFullscreenDesktopSelectionAdapter,
   isOpencodeFullscreenTouchCandidate,
+  isOpencodeFullscreenContextMenuCandidate,
+  isOpencodeFullscreenDesktopSelectionCandidate,
   isOpencodeTerminalIdentity,
 } from "./opencode/index.js";
 export {

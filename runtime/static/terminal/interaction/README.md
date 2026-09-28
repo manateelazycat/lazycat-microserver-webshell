@@ -35,7 +35,7 @@
 
 `search_controller.js` 是 query、match 列表、当前 match index、搜索 session ID 和面板打开状态的唯一 owner。`search_model.js` 与 `terminal_text_model.js` 只执行无状态读取和匹配，不持有 session、DOM 或异步资源。
 
-`clipboard_controller.js` 是复制、主动读取文本粘贴、桌面剪贴板交互和 OSC 52 写入落地的唯一 owner。选择文本和完整缓冲区状态通过 selection controller 的显式读取/清理命令注入；本模块不再直接修改 terminal session 的选择字段。异步读取完成后必须重新校验 dispose 和 session closed 状态。主动 `clipboard-read` 被拒绝时先显示可操作反馈，再通过注入命令聚焦原生 paste 目标；原生事件的文件/文本分流归 `app/paste`。TUI 通过 OSC 52 写出的选区只写入浏览器剪贴板，不弹出第二份复制 toast，也不把右键或拖选从 TUI 手中抢走。
+`clipboard_controller.js` 是复制、主动读取文本粘贴、桌面剪贴板交互和 OSC 52 写入落地的唯一 owner。选择文本和完整缓冲区状态通过 selection controller 的显式读取/清理命令注入；本模块不再直接修改 terminal session 的选择字段。异步读取完成后必须重新校验 dispose 和 session closed 状态。主动 `clipboard-read` 被拒绝时先显示可操作反馈，再通过注入命令聚焦原生 paste 目标；原生事件的文件/文本分流归 `app/paste`。TUI 通过 OSC 52 写出的选区只写入浏览器剪贴板，不弹出第二份复制 toast；特定 TUI 的右键和拖选事件归属由 `terminal/tui_adapters/` 决定，clipboard controller 不认领这些事件。
 
 `link_controller.js` 是链接打开、复制反馈和迟到复制结果 guard 的唯一 owner。`link_model.js` 只读取终端逻辑行和字符到 cell 映射，不持有 session、DOM、selection、socket 或异步资源。
 

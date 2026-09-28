@@ -24,6 +24,8 @@ import {
   installGrokFullscreenTouchAdapter,
   installHerdrFullscreenTouchAdapter,
   installOpencodeFullscreenTouchAdapter,
+  installOpencodeFullscreenContextMenuAdapter,
+  installOpencodeFullscreenDesktopSelectionAdapter,
   installPiFullscreenTouchAdapter,
   isClaudeFullscreenTouchCandidate,
   isGrokFullscreenContextMenuCandidate,
@@ -31,6 +33,8 @@ import {
   isGrokFullscreenTouchCandidate,
   isHerdrFullscreenTouchCandidate,
   isOpencodeFullscreenTouchCandidate,
+  isOpencodeFullscreenContextMenuCandidate,
+  isOpencodeFullscreenDesktopSelectionCandidate,
   isPiFullscreenTouchCandidate,
 } from "./terminal/tui_adapters/index.js";
 import {
@@ -1565,6 +1569,8 @@ export function startGlobalRuntime() {
     grokTouchCandidate: isGrokFullscreenTouchCandidate,
     grokContextMenuCandidate: isGrokFullscreenContextMenuCandidate,
     grokDesktopSelectionCandidate: isGrokFullscreenDesktopSelectionCandidate,
+    opencodeContextMenuCandidate: isOpencodeFullscreenContextMenuCandidate,
+    opencodeDesktopSelectionCandidate: isOpencodeFullscreenDesktopSelectionCandidate,
   });
 
   const terminalLocationDescription = (session) => (
@@ -1579,6 +1585,8 @@ export function startGlobalRuntime() {
   const isClaudeFullscreenDesktopSelectionEvent = (session, event) => terminalPolicy?.isClaudeFullscreenDesktopSelectionEvent(session, event) === true;
   const isGrokFullscreenContextMenuEvent = (session, event) => terminalPolicy?.isGrokFullscreenContextMenuEvent(session, event) === true;
   const isGrokFullscreenDesktopSelectionEvent = (session, event) => terminalPolicy?.isGrokFullscreenDesktopSelectionEvent(session, event) === true;
+  const isOpencodeFullscreenContextMenuEvent = (session, event) => terminalPolicy?.isOpencodeFullscreenContextMenuEvent(session, event) === true;
+  const isOpencodeFullscreenDesktopSelectionEvent = (session, event) => terminalPolicy?.isOpencodeFullscreenDesktopSelectionEvent(session, event) === true;
   const scrollTerminalToBottomForUserInput = (session) => terminalPolicy?.scrollTerminalToBottomForUserInput(session) === true;
 
   workspaceActivity = createWorkspaceActivityController({
@@ -1627,6 +1635,8 @@ export function startGlobalRuntime() {
     isClaudeDesktopSelectionEvent: (session, event) => isClaudeFullscreenDesktopSelectionEvent(session, event),
     isGrokContextMenuEvent: (session, event) => isGrokFullscreenContextMenuEvent(session, event),
     isGrokDesktopSelectionEvent: (session, event) => isGrokFullscreenDesktopSelectionEvent(session, event),
+    isOpencodeContextMenuEvent: (session, event) => isOpencodeFullscreenContextMenuEvent(session, event),
+    isOpencodeDesktopSelectionEvent: (session, event) => isOpencodeFullscreenDesktopSelectionEvent(session, event),
     getTerminalMouse: () => terminalMouse,
     getTerminalIME: () => terminalIME,
     getTerminalSelection: () => terminalSelection,
@@ -1640,6 +1650,8 @@ export function startGlobalRuntime() {
     installCodexFullscreenContextMenuAdapter,
     installCodexFullscreenDesktopSelectionAdapter,
     installOpencodeFullscreenTouchAdapter,
+    installOpencodeFullscreenContextMenuAdapter,
+    installOpencodeFullscreenDesktopSelectionAdapter,
     installHerdrFullscreenTouchAdapter,
     installPiFullscreenTouchAdapter,
     installClaudeFullscreenContextMenuAdapter,

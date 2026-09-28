@@ -12,6 +12,8 @@ import {
   isGrokFullscreenTouchCandidate,
   isGrokTerminalSession,
   isOfficialGrokEntrypoint,
+  isOpencodeFullscreenContextMenuCandidate,
+  isOpencodeFullscreenDesktopSelectionCandidate,
 } from "../tui_adapters/index.js";
 
 const noop = () => {};
@@ -68,6 +70,8 @@ export function createTerminalPolicyController({
   grokTouchCandidate = isGrokFullscreenTouchCandidate,
   grokContextMenuCandidate = isGrokFullscreenContextMenuCandidate,
   grokDesktopSelectionCandidate = isGrokFullscreenDesktopSelectionCandidate,
+  opencodeContextMenuCandidate = isOpencodeFullscreenContextMenuCandidate,
+  opencodeDesktopSelectionCandidate = isOpencodeFullscreenDesktopSelectionCandidate,
 } = {}) {
   let disposed = false;
 
@@ -121,6 +125,18 @@ export function createTerminalPolicyController({
     applicationModifier: Boolean(event?.ctrlKey || event?.altKey || event?.metaKey),
   });
 
+  const isOpencodeFullscreenContextMenuEvent = (session, event) => opencodeContextMenuCandidate(session, {
+    mouseTracking: hasMouseTracking(session) === true,
+    button: event?.button,
+    contextMenuSuppressed: shouldSuppressContextMenu(event),
+  });
+
+  const isOpencodeFullscreenDesktopSelectionEvent = (session, event) => opencodeDesktopSelectionCandidate(session, {
+    mouseTracking: hasMouseTracking(session) === true,
+    button: event?.button,
+    touchSelectionLayout: isTouchSelectionLayout(),
+  });
+
   const scrollTerminalToBottomForUserInput = (session) => {
     if (disposed || !session || session.closed || session.exitExpected || isDialogOpen()) {
       return false;
@@ -171,6 +187,8 @@ export function createTerminalPolicyController({
     isGrokFullscreenDesktopSelectionEvent,
     isGrokFullscreenTouchSession,
     isGrokTerminalSession,
+    isOpencodeFullscreenContextMenuEvent,
+    isOpencodeFullscreenDesktopSelectionEvent,
     scrollTerminalToBottomForUserInput,
     terminalLocationDescription,
   });

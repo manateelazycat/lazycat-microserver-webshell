@@ -18,7 +18,7 @@ Codex 的主题适配同样独立位于 `codex/`：提供进程识别与背景�
 - `installation_controller.js`：把 session 与各工具公开 adapter、选择/鼠标/IME/resize 动作连接起来；不拥有身份判断、手势状态或终端生命周期。
 - `common/`：无工具身份判断的通用触摸状态机，以及触摸、右键和桌面拖选 DOM adapter。
 - `claude/`：Claude fullscreen 触摸、右键和桌面本地选择。
-- `opencode/`：opencode fullscreen 触摸适配。
+- `opencode/`：opencode fullscreen 触摸、右键和桌面本地选择。
 - `herdr/`：herdr fullscreen 触摸适配。
 - `pi/`：pi fullscreen 触摸适配。
 - `grok/`：Grok fullscreen 触摸、右键和桌面本地选择。
