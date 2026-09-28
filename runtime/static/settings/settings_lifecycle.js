@@ -67,6 +67,12 @@ export function createSettingsLifecycle({
       listen(elements.mobileShortcutResetButton, "click", handlers.onMobileShortcutReset);
       listen(elements.mobileShortcutList, "click", handlers.onMobileShortcutListClick);
       listen(elements.mobileShortcutList, "pointerdown", handlers.onMobileShortcutPointerDown);
+      listen(elements.mobileShortcutsPanel, "pointerdown", handlers.onMobileShortcutPanelPointerDown);
+      listen(documentObject, "pointermove", handlers.onMobileShortcutPointerMove);
+      listen(documentObject, "pointerup", handlers.onMobileShortcutPointerUp);
+      listen(documentObject, "pointercancel", handlers.onMobileShortcutPointerCancel);
+      listen(documentObject, "click", handlers.onMobileShortcutClickCapture, true);
+      listen(windowObject, "blur", handlers.onMobileShortcutBlur);
       listen(elements.desktopShortcutAddButton, "click", handlers.onDesktopShortcutAdd);
       listen(elements.desktopShortcutResetButton, "click", handlers.onDesktopShortcutReset);
       listen(elements.desktopShortcutList, "click", handlers.onDesktopShortcutListClick);

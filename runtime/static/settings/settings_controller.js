@@ -119,7 +119,12 @@ export function createSettingsController({
   let mobileShortcutEditorState = null;
   let desktopShortcutEditorState = null;
   let mobileShortcutDragState = null;
-  let dragListenerRemovers = [];
+  let mobileShortcutPress = null;
+  const mobileShortcutScrollPointers = new Map();
+  const mobileShortcutNativeScrollPointers = new Set();
+  let mobileShortcutAutoScrollFrame = 0;
+  let mobileShortcutInertiaFrame = 0;
+  let mobileShortcutClickSuppression = null;
   let mobileShortcutsScrollbarTimer = 0;
   let desktopShortcutsScrollbarTimer = 0;
   let lineHeightSaveTimer = 0;
@@ -403,6 +408,7 @@ export function createSettingsController({
 
   const setActiveTab = (tabID) => {
     const next = view.setActiveTab?.(tabID) || "terminal";
+    if (next !== "mobile-shortcuts") cancelMobileShortcutInteraction();
     if (next === "theme") renderThemeSettings();
     else hideThemeScrollbar();
     if (next === "mobile-shortcuts") view.renderMobileShortcuts?.(snapshot.mobileShortcuts);
@@ -532,46 +538,199 @@ export function createSettingsController({
     closeDesktopEditor();
   };
 
-  const cleanupDragListeners = () => {
-    for (const remove of dragListenerRemovers.splice(0)) remove();
+  const requestGestureFrame = (callback) => (
+    windowObject?.requestAnimationFrame?.(callback)
+    || windowObject?.setTimeout?.(() => callback(Date.now()), 16)
+    || 0
+  );
+
+  const cancelGestureFrame = (frame) => {
+    if (!frame) return;
+    if (windowObject?.cancelAnimationFrame) windowObject.cancelAnimationFrame(frame);
+    else windowObject?.clearTimeout?.(frame);
+  };
+
+  const stopMobileShortcutAutoScroll = () => {
+    cancelGestureFrame(mobileShortcutAutoScrollFrame);
+    mobileShortcutAutoScrollFrame = 0;
+  };
+
+  const stopMobileShortcutInertia = () => {
+    cancelGestureFrame(mobileShortcutInertiaFrame);
+    mobileShortcutInertiaFrame = 0;
+  };
+
+  const clearMobileShortcutPress = () => {
+    if (mobileShortcutPress?.timer) clearTimer(mobileShortcutPress.timer);
+    mobileShortcutPress = null;
+  };
+
+  const releaseMobileShortcutCapture = (pointerId) => {
+    const list = view.elements?.mobileShortcutList;
+    try {
+      if (list?.hasPointerCapture?.(pointerId)) list.releasePointerCapture(pointerId);
+    } catch (error) {
+      // A pointer can end before capture is established.
+    }
+  };
+
+  const suppressMobileShortcutClick = (event) => {
+    mobileShortcutClickSuppression = {
+      pointerId: event.pointerId,
+      pointerType: event.pointerType,
+      x: event.clientX,
+      y: event.clientY,
+      until: Date.now() + 500,
+    };
+  };
+
+  const syncMobileShortcutDragPosition = () => {
+    if (!mobileShortcutDragState) return;
+    view.updateMobileShortcutDrag?.(mobileShortcutDragState, {
+      clientX: mobileShortcutDragState.lastX,
+      clientY: mobileShortcutDragState.lastY,
+    });
+  };
+
+  const scheduleMobileShortcutAutoScroll = () => {
+    stopMobileShortcutAutoScroll();
+    const state = mobileShortcutDragState;
+    if (!state || mobileShortcutScrollPointers.size > 0 || mobileShortcutNativeScrollPointers.size > 0) return;
+    const bounds = view.mobileShortcutScrollBounds?.();
+    if (!bounds) return;
+    const edge = Math.min(64, (bounds.bottom - bounds.top) / 3);
+    let direction = 0;
+    let proximity = 0;
+    if (state.lastY < bounds.top + edge && bounds.scrollTop > 0) {
+      direction = -1;
+      proximity = Math.min(1, (bounds.top + edge - state.lastY) / edge);
+    } else if (state.lastY > bounds.bottom - edge && bounds.scrollTop < bounds.maxScrollTop) {
+      direction = 1;
+      proximity = Math.min(1, (state.lastY - bounds.bottom + edge) / edge);
+    }
+    if (!direction) return;
+    mobileShortcutAutoScrollFrame = requestGestureFrame(() => {
+      mobileShortcutAutoScrollFrame = 0;
+      if (mobileShortcutDragState !== state || mobileShortcutScrollPointers.size > 0 || mobileShortcutNativeScrollPointers.size > 0) return;
+      const moved = view.scrollMobileShortcutsBy?.(direction * (3 + 17 * proximity * proximity)) || 0;
+      if (moved) {
+        syncMobileShortcutDragPosition();
+        scheduleMobileShortcutAutoScroll();
+      }
+    });
   };
 
   const cancelMobileShortcutDrag = () => {
     if (!mobileShortcutDragState) return;
     const state = mobileShortcutDragState;
     mobileShortcutDragState = null;
-    cleanupDragListeners();
+    stopMobileShortcutAutoScroll();
+    releaseMobileShortcutCapture(state.pointerId);
     view.cancelMobileShortcutDrag?.(state);
     view.renderMobileShortcuts?.(snapshot.mobileShortcuts);
   };
 
+  const cancelMobileShortcutInteraction = () => {
+    clearMobileShortcutPress();
+    mobileShortcutScrollPointers.clear();
+    mobileShortcutNativeScrollPointers.clear();
+    stopMobileShortcutInertia();
+    cancelMobileShortcutDrag();
+  };
+
   const startMobileShortcutDrag = (event, item) => {
-    if (event?.button !== 0 || mobileShortcutDragState) return;
-    event.preventDefault?.();
-    mobileShortcutDragState = view.beginMobileShortcutDrag?.(item, event) || null;
-    if (!mobileShortcutDragState) return;
-    dragListenerRemovers = [
-      lifecycle.listenTransient(documentObject, "pointermove", updateMobileShortcutDrag, { passive: false }),
-      lifecycle.listenTransient(documentObject, "pointerup", finishMobileShortcutDrag),
-      lifecycle.listenTransient(documentObject, "pointercancel", cancelMobileShortcutDrag),
-    ];
+    if (mobileShortcutDragState) return;
+    stopMobileShortcutInertia();
+    const state = view.beginMobileShortcutDrag?.(item, event) || null;
+    if (!state) return;
+    state.lastX = event.clientX;
+    state.lastY = event.clientY;
+    mobileShortcutDragState = state;
+    try {
+      view.elements?.mobileShortcutList?.setPointerCapture?.(event.pointerId);
+    } catch (error) {
+      // Document listeners still track the pointer if capture is unavailable.
+    }
+    syncMobileShortcutDragPosition();
+    scheduleMobileShortcutAutoScroll();
   };
 
   const updateMobileShortcutDrag = (event) => {
-    if (!mobileShortcutDragState) return;
+    if (!mobileShortcutDragState || event.pointerId !== mobileShortcutDragState.pointerId) return;
     event.preventDefault?.();
-    view.updateMobileShortcutDrag?.(mobileShortcutDragState, event);
+    mobileShortcutDragState.lastX = event.clientX;
+    mobileShortcutDragState.lastY = event.clientY;
+    syncMobileShortcutDragPosition();
+    scheduleMobileShortcutAutoScroll();
   };
 
   const finishMobileShortcutDrag = (event) => {
-    if (!mobileShortcutDragState || event?.pointerId !== mobileShortcutDragState.pointerId) return;
+    if (!mobileShortcutDragState || event.pointerId !== mobileShortcutDragState.pointerId) return;
     const state = mobileShortcutDragState;
     mobileShortcutDragState = null;
-    cleanupDragListeners();
+    stopMobileShortcutAutoScroll();
+    releaseMobileShortcutCapture(state.pointerId);
+    suppressMobileShortcutClick(event);
     view.finishMobileShortcutDrag?.(state);
     const byID = new Map(snapshot.mobileShortcuts.flat().map((shortcut) => [shortcut.id, shortcut]));
-    const rows = view.mobileShortcutOrder?.().map((ids) => ids.map((id) => byID.get(id)).filter(Boolean));
+    const order = view.mobileShortcutOrder?.();
+    if (!order) return;
+    const rows = order.map((ids) => ids.map((id) => byID.get(id)).filter(Boolean));
+    const previous = snapshot.mobileShortcuts.map((row) => row.map((shortcut) => shortcut.id));
+    if (JSON.stringify(order) === JSON.stringify(previous)) return;
     saveMobileShortcuts(rows).catch((error) => view.setFeedback?.(error.message || "手机快捷键保存失败。", "error"));
+  };
+
+  const startMobileShortcutScroll = (event) => {
+    mobileShortcutScrollPointers.set(event.pointerId, {
+      lastY: event.clientY,
+      lastTime: event.startedAt || Date.now(),
+      velocity: 0,
+      moved: false,
+      suppressClick: event.suppressClick === true || Boolean(mobileShortcutDragState) || mobileShortcutScrollPointers.size > 0,
+      startY: event.clientY,
+    });
+    stopMobileShortcutAutoScroll();
+  };
+
+  const moveMobileShortcutScroll = (event) => {
+    const pointer = mobileShortcutScrollPointers.get(event.pointerId);
+    if (!pointer) return;
+    event.preventDefault?.();
+    const now = Date.now();
+    const elapsed = Math.max(8, now - pointer.lastTime);
+    const delta = pointer.lastY - event.clientY;
+    const moved = view.scrollMobileShortcutsBy?.(delta) || 0;
+    pointer.velocity = Math.max(-2.5, Math.min(2.5, pointer.velocity * 0.55 + (moved / elapsed) * 0.45));
+    pointer.moved ||= Math.abs(event.clientY - pointer.startY) > 5;
+    pointer.lastY = event.clientY;
+    pointer.lastTime = now;
+    syncMobileShortcutDragPosition();
+  };
+
+  const startMobileShortcutInertia = (velocity) => {
+    if (mobileShortcutDragState || Math.abs(velocity) < 0.08) return;
+    let previousTime = 0;
+    const tick = (time) => {
+      const elapsed = previousTime ? Math.min(32, Math.max(1, time - previousTime)) : 16;
+      previousTime = time;
+      const moved = view.scrollMobileShortcutsBy?.(velocity * elapsed) || 0;
+      velocity *= Math.exp(-elapsed / 190);
+      if (moved && Math.abs(velocity) >= 0.03) mobileShortcutInertiaFrame = requestGestureFrame(tick);
+      else mobileShortcutInertiaFrame = 0;
+    };
+    mobileShortcutInertiaFrame = requestGestureFrame(tick);
+  };
+
+  const finishMobileShortcutScroll = (event, cancelled = false) => {
+    const pointer = mobileShortcutScrollPointers.get(event.pointerId);
+    if (!pointer) return;
+    mobileShortcutScrollPointers.delete(event.pointerId);
+    if ((pointer.moved || pointer.suppressClick) && !cancelled) suppressMobileShortcutClick(event);
+    if (!cancelled && mobileShortcutScrollPointers.size === 0 && Date.now() - pointer.lastTime < 100) {
+      startMobileShortcutInertia(pointer.velocity);
+    }
+    scheduleMobileShortcutAutoScroll();
   };
 
   const uploadFonts = async () => {
@@ -623,9 +782,14 @@ export function createSettingsController({
       closeCustomSelect();
       Promise.resolve(openClientSettings()).catch((error) => showToast(error.message || "无法打开客户端设置"));
     },
-    onMobileShortcutsScroll: showMobileShortcutsScrollbar,
+    onMobileShortcutsScroll: () => {
+      showMobileShortcutsScrollbar();
+      syncMobileShortcutDragPosition();
+      scheduleMobileShortcutAutoScroll();
+    },
     onDesktopShortcutsScroll: showDesktopShortcutsScrollbar,
     onBack: () => {
+      cancelMobileShortcutInteraction();
       if (isMobileLayout() && mobileView === "detail") openMobileIndex();
       else controller.close();
     },
@@ -758,13 +922,109 @@ export function createSettingsController({
         .catch((error) => view.setFeedback?.(error.message || "手机快捷键恢复默认失败。", "error"));
     },
     onMobileShortcutListClick: (event) => {
+      if (mobileShortcutDragState) return;
       const target = view.mobileShortcutEditTarget?.(event);
       if (target) openMobileEditor(target);
     },
-    onMobileShortcutPointerDown: (event) => {
-      const item = view.mobileShortcutDragItem?.(event);
-      if (item) startMobileShortcutDrag(event, item);
+    onMobileShortcutPanelPointerDown: (event) => {
+      if (!mobileShortcutDragState || event.pointerType === "mouse") return;
+      if (view.elements?.mobileShortcutList?.contains?.(event.target)) return;
+      mobileShortcutNativeScrollPointers.add(event.pointerId);
+      stopMobileShortcutAutoScroll();
     },
+    onMobileShortcutPointerDown: (event) => {
+      if (event.button !== 0) return;
+      mobileShortcutClickSuppression = null;
+      const item = view.mobileShortcutDragItem?.(event);
+      if (event.pointerType === "mouse") {
+        if (item && event.target?.closest?.(".settings-mobile-shortcut-drag")) {
+          event.preventDefault?.();
+          startMobileShortcutDrag(event, item);
+        }
+        return;
+      }
+      stopMobileShortcutInertia();
+      if (mobileShortcutDragState) {
+        startMobileShortcutScroll(event);
+        return;
+      }
+      if (mobileShortcutPress) {
+        const previous = mobileShortcutPress;
+        clearMobileShortcutPress();
+        startMobileShortcutScroll({ pointerId: previous.pointerId, clientY: previous.startY, startedAt: previous.startTime, suppressClick: true });
+      }
+      if (mobileShortcutScrollPointers.size > 0) {
+        startMobileShortcutScroll(event);
+        return;
+      }
+      if (!item) {
+        startMobileShortcutScroll(event);
+        return;
+      }
+      const press = {
+        pointerId: event.pointerId,
+        item,
+        startX: event.clientX,
+        startY: event.clientY,
+        startTime: Date.now(),
+        lastX: event.clientX,
+        lastY: event.clientY,
+        timer: 0,
+      };
+      mobileShortcutPress = press;
+      press.timer = windowObject?.setTimeout?.(() => {
+        if (mobileShortcutPress !== press || disposed) return;
+        mobileShortcutPress = null;
+        startMobileShortcutDrag({ pointerId: press.pointerId, clientX: press.lastX, clientY: press.lastY }, press.item);
+      }, 380) || 0;
+    },
+    onMobileShortcutPointerMove: (event) => {
+      if (mobileShortcutPress?.pointerId === event.pointerId) {
+        const press = mobileShortcutPress;
+        press.lastX = event.clientX;
+        press.lastY = event.clientY;
+        if (Math.hypot(event.clientX - press.startX, event.clientY - press.startY) > 8) {
+          clearMobileShortcutPress();
+          startMobileShortcutScroll({ pointerId: press.pointerId, clientY: press.startY, startedAt: press.startTime });
+          moveMobileShortcutScroll(event);
+        }
+        return;
+      }
+      if (mobileShortcutDragState?.pointerId === event.pointerId) updateMobileShortcutDrag(event);
+      else moveMobileShortcutScroll(event);
+    },
+    onMobileShortcutPointerUp: (event) => {
+      if (mobileShortcutNativeScrollPointers.delete(event.pointerId)) scheduleMobileShortcutAutoScroll();
+      if (mobileShortcutPress?.pointerId === event.pointerId) {
+        clearMobileShortcutPress();
+        return;
+      }
+      if (mobileShortcutDragState?.pointerId === event.pointerId) finishMobileShortcutDrag(event);
+      else finishMobileShortcutScroll(event);
+    },
+    onMobileShortcutPointerCancel: (event) => {
+      if (mobileShortcutNativeScrollPointers.delete(event.pointerId)) scheduleMobileShortcutAutoScroll();
+      if (mobileShortcutPress?.pointerId === event.pointerId) clearMobileShortcutPress();
+      if (mobileShortcutDragState?.pointerId === event.pointerId) cancelMobileShortcutDrag();
+      else finishMobileShortcutScroll(event, true);
+    },
+    onMobileShortcutClickCapture: (event) => {
+      const suppression = mobileShortcutClickSuppression;
+      if (!suppression) return;
+      if (Date.now() > suppression.until) {
+        mobileShortcutClickSuppression = null;
+        return;
+      }
+      if (!view.elements?.mobileShortcutList?.contains?.(event.target)) return;
+      const samePointer = suppression.pointerType !== "mouse"
+        && event.pointerId > 0 && event.pointerId === suppression.pointerId;
+      const samePosition = Math.hypot(event.clientX - suppression.x, event.clientY - suppression.y) < 24;
+      if (!samePointer && !samePosition) return;
+      mobileShortcutClickSuppression = null;
+      event.preventDefault?.();
+      event.stopImmediatePropagation?.();
+    },
+    onMobileShortcutBlur: cancelMobileShortcutInteraction,
     onDesktopShortcutAdd: () => openDesktopEditor({ index: -1 }),
     onDesktopShortcutReset: async () => {
       if (!await confirmAction("恢复默认PC快捷键？当前自定义配置会被替换。", {
@@ -820,6 +1080,7 @@ export function createSettingsController({
     },
     close() {
       const wasOpen = view.isOpen?.() === true;
+      cancelMobileShortcutInteraction();
       closeMobileEditor();
       closeDesktopEditor();
       closeCustomSelect();
@@ -841,7 +1102,7 @@ export function createSettingsController({
       clearTimer(lineHeightSaveTimer);
       clearTimer(scrollbackSaveTimer);
       clearTimer(focusTimer);
-      cleanupDragListeners();
+      cancelMobileShortcutInteraction();
       for (const requestController of requestControllers) requestController.abort();
       requestControllers.clear();
       lifecycle?.dispose?.();

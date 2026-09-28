@@ -251,7 +251,25 @@ export function createSettingsView({
       return item ? { rowIndex: Number(item.dataset?.rowIndex || 0), index: Number(item.dataset?.shortcutIndex || 0) } : null;
     },
     mobileShortcutDragItem(event) {
-      return closest(event, ".settings-mobile-shortcut-drag")?.closest?.(".settings-mobile-shortcut-item") || null;
+      return closest(event, ".settings-mobile-shortcut-item");
+    },
+    mobileShortcutScrollBounds() {
+      const panel = elements.mobileShortcutsPanel;
+      if (!panel) return null;
+      const rect = panel.getBoundingClientRect();
+      return {
+        top: rect.top,
+        bottom: rect.bottom,
+        scrollTop: panel.scrollTop,
+        maxScrollTop: Math.max(0, panel.scrollHeight - panel.clientHeight),
+      };
+    },
+    scrollMobileShortcutsBy(delta) {
+      const panel = elements.mobileShortcutsPanel;
+      if (!panel) return 0;
+      const previous = panel.scrollTop;
+      panel.scrollTop = Math.max(0, Math.min(panel.scrollHeight - panel.clientHeight, previous + delta));
+      return panel.scrollTop - previous;
     },
     mobileShortcutOrder() {
       const rows = [[], []];

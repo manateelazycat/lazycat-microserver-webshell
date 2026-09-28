@@ -26,6 +26,8 @@ controller 对外提供只读快照/getter、`start()`、`load()`、`open()`、`
 - 面板移动导航状态、focus/scroll/debounce timer 和 scrollback keepalive 值。
 - PC 快捷键到动作的派生索引。
 
+手机快捷键列表通过指针编号分别跟踪长按拖拽与滚动。触摸短按编辑按钮仍进入编辑器；移动超过阈值会取消长按并滚动设置面板。拖拽时另一根手指可独立滚动，拖到面板边缘也会持续滚动并更新插入位置。列表触摸滚动由设置模块维护，包含松手后的惯性；离开页面、关闭设置和销毁 controller 时必须停止计时器、动画帧并恢复被拖动的 DOM。
+
 `global-runtime.js` 只通过 getter 消费状态，并在显式适配回调中更新现有终端运行时。
 
 ## PATCH 契约
@@ -62,6 +64,6 @@ controller 对外提供只读快照/getter、`start()`、`load()`、`open()`、`
 
 依赖方向为 `global-runtime.js -> settings/index.js -> controller -> api/model/view/lifecycle/font_registry/shortcut_editor`。内部文件不得被模块外深度导入。
 
-相关 guard：`settings_controller_test.mjs`、`workspace_test.go` 的 PATCH 语义测试、`TestRuntimeSettingsModuleBoundary`、终端快捷键/字体/scrollback 静态契约和版本化资源/LPK 内容检查。
+相关 guard：`settings_controller_test.mjs`、`workspace_test.go` 的 PATCH 语义测试、`TestRuntimeSettingsModuleBoundary`、终端快捷键/字体/scrollback 静态契约和版本化资源/LPK 内容检查。触摸排序、边缘滚动与双指滚动需要在真实移动浏览器中手工核对。
 
 最小回归步骤：加载设置、切换布尔项、修改字号/行高/scrollback、上传和删除字体、保存/重置/清空两套快捷键、关闭并重新打开面板、触发 pagehide，再确认终端当前画面没有出现历史回放中间过程。
