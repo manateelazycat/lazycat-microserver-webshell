@@ -19,7 +19,7 @@ controller 独占打开状态、render/focus RAF、拖拽/长按/placeholder/自
 
 总览 preview 只能作为总览缩略图。来源优先级固定为：已完成提交的 live Canvas、identity 仍有效的 `terminal-frame-hold`、独立 IndexedDB 中同 selector/workspace/tab/pane identity 的图片 Blob。持久缩略图只能从 replay 已提交且 presentation 当前的 live Canvas 捕获；history generation 已知后必须严格匹配。三类来源都不存在时才显示空缩略图。
 
-IndexedDB 数据库 `lcmd-webshell-overview-previews-v1` 最多保留 64 项并清理 30 天未更新记录。它不保存 raw PTY、history chunk、cursor、terminal checkpoint、Ghostty buffer 或 Cache API 状态，也不能参与 snapshot、replay、resize、输入 ready 或连接恢复。它与 `client:` 的 IndexedDB 历史兼容数据库是两个独立责任域。
+IndexedDB 数据库 `lcmd-webshell-overview-previews-v1` 最多保留 64 项并清理 30 天未更新记录。它不保存 raw PTY、history chunk、cursor、terminal checkpoint、Ghostty buffer 或 Cache API 状态，也不能参与 snapshot、replay、resize、输入 ready 或连接恢复。旧客户端的终端历史数据库已退役；本目录的缩略图存储作为现有独立功能保留，两种实例共用它。
 
 ## 状态所有权
 

@@ -1,4 +1,4 @@
-# 由 spec-workflow 管理的 run-ac 源码版本锁。
+# 由 spec-workflow 管理的 run-ac 发布 tag 锁。
 module=gitee.com/linakesi/spec-workflow/run-ac
-version=1fcddb810e7f5281d06744dd4cba94e8414e9ec3
+version=v1.0.5
 protocol=spec-executor.v1

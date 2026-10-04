@@ -2,6 +2,9 @@ domains:
   terminal:
     paths:
       - runtime/static/terminal/**
+      - runtime/static/terminal-client/**
+      - sshserver/**
+      - hostmetrics/**
       - spec/terminal/**
       - spec-tests/terminal/**
   workspace:
@@ -21,12 +24,21 @@ domains:
 rules:
   - paths:
       - '*.go'
+      - core/**
+      - localserver/**
+      - localtools/**
+      - unix/**
+      - windows/**
+      - provider/**
+      - internal/**
+      - runtime/assets.go
       - spec-tests/**
       - spec-tests/environment/**
       - run-ac.sh
       - runtime/static/**
     exclude_paths:
       - runtime/static/terminal/**
+      - runtime/static/terminal-client/**
       - runtime/static/workspace/**
       - runtime/static/app/**
       - spec-tests/terminal/**

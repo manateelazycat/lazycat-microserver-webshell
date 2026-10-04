@@ -8,7 +8,6 @@ import {
   terminalReplayIsAuthorized,
   terminalReplayIsCommitted,
   terminalReplayRetryIsPaused,
-  terminalSessionHistoryRangeForConnect,
 } from "./session_replay_state.js";
 
 const noop = () => {};
@@ -16,10 +15,7 @@ const noop = () => {};
 export function createTerminalSessionReplayController({
   windowObject = globalThis.window,
   getActiveName = () => "",
-  isClientTarget = () => false,
   hasQueuedOutput = () => false,
-  flushCache = () => Promise.resolve(),
-  disableCache = noop,
   endRenderSuppression = noop,
   clearOutputOverload = noop,
   clearAttachReadyTimer = noop,
@@ -33,7 +29,7 @@ export function createTerminalSessionReplayController({
   setPresentationReady = noop,
   ensurePresentation = noop,
   flushPendingInput = noop,
-  syncConnectionDemands = noop,
+  onReplayReady = noop,
   beginPresentationHold = noop,
   isMeasurable = () => false,
   canvasMatchesExpectedSize = () => false,
@@ -68,30 +64,6 @@ export function createTerminalSessionReplayController({
     ) {
       return false;
     }
-    if (
-      isClientTarget(session.name)
-      && session.historyProtocolActive
-      && !session.historyCacheDisabled
-      && session.persistedHistoryCursor < session.historyReplayTargetCursor
-    ) {
-      if (!session.historyCacheReplayCommitPending) {
-        session.historyCacheReplayCommitPending = true;
-        const commitSeq = Number(session.historyCacheReplayCommitSeq || 0) + 1;
-        session.historyCacheReplayCommitSeq = commitSeq;
-        const historyGeneration = session.historyGeneration;
-        const replayTargetCursor = session.historyReplayTargetCursor;
-        Promise.resolve(flushCache(session)).catch((error) => disableCache(session, error)).finally(() => {
-          if (
-            session.historyCacheReplayCommitSeq === commitSeq
-            && !session.closed
-            && session.historyGeneration === historyGeneration
-            && session.historyReplayTargetCursor === replayTargetCursor
-          ) {
-            session.historyCacheReplayCommitPending = false;
-          }
-        });
-      }
-    }
     recordEvent(session, "replay_output_drained", {
       receivedCursor: session.receivedHistoryCursor?.toString?.() || "",
       appliedCursor: session.appliedHistoryCursor?.toString?.() || "",
@@ -118,7 +90,6 @@ export function createTerminalSessionReplayController({
     session.replayComplete = true;
     setTerminalReplayAuthorization(session, false);
     session.historyStateReady = true;
-    session.historyCacheSnapshot = null;
     session.agentPreparing = false;
     clearOutputOverload(session);
     session.allowGeneratedInputDuringReplay = false;
@@ -146,9 +117,7 @@ export function createTerminalSessionReplayController({
       forceHistory: true,
     });
     flushPendingInput(session);
-    if (isClientTarget(getActiveName())) {
-      syncConnectionDemands({ reason: "replay_ready" });
-    }
+    onReplayReady(session);
     return true;
   };
 
@@ -199,8 +168,6 @@ export function createTerminalSessionReplayController({
     }
     lifecycle.clearCheckpoint(session);
     session.replayCompletionPending = false;
-    session.historyCacheReplayCommitSeq = Number(session.historyCacheReplayCommitSeq || 0) + 1;
-    session.historyCacheReplayCommitPending = false;
     return true;
   };
 
@@ -231,9 +198,6 @@ export function createTerminalSessionReplayController({
     isRetryPaused: terminalReplayRetryIsPaused,
     noteFailure,
     parseCursor: parseTerminalHistoryCursor,
-    rangeForConnect: (session) => (
-      isClientTarget(session?.name) ? terminalSessionHistoryRangeForConnect(session) : null
-    ),
     resumeRetry,
     schedulePresentationCheckpoint: lifecycle.scheduleCheckpoint,
     setAuthorization: setTerminalReplayAuthorization,

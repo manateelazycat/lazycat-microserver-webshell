@@ -2,13 +2,13 @@
 
 ## 职责与边界
 
-本目录负责 session 连接生命周期、WebSocket 协议事件接线、重连策略、logical membership、pane retry、`client:` 直连调度、Fast 完整性帧、Queue/Unified 协议、Unified 物理连接 owner 和健康检查。普通容器只能有一条 Unified 物理 WebSocket；pane 只拥有 logical stream。`client:` target 继续最多三条独立直连，不能套用容器缓存或 Unified 假设。
+本目录负责 session 连接生命周期、WebSocket 协议事件接线、重连策略、logical membership、pane retry、Fast 完整性帧、Queue/Unified 协议、Unified 物理连接 owner 和健康检查。容器与受管理的 `client:` 工作区都只建立一条 Unified 物理 WebSocket，pane 只拥有 logical stream；不再维护客户端直连调度。
 
 传输层不拥有历史权威、Canvas 可见性、resize 提交、输入展示或输入锁；`session_protocol_controller.js` 只负责把连接事件路由到注入的 history/output/resize/presentation 命令，不持有这些模块的状态。每次建立新 logical connection 时，它在推进 `session.connectionEpoch` 后、安装新 socket 生命周期前调用 resize 的公开 `beginConnection()`，使旧 connection resize 事务失效；不得直接清理或迁移 resize 字段。单 pane 的协议、sequence、checksum 或 resync 错误不得关闭物理 Unified 连接或影响兄弟 stream。`websocket_url.js` 只提供无状态 URL 转换，不创建 socket。滚动升级期间旧页面发送的 `input_lock` 只允许在 Provider 协议边界被接受并无状态忽略，不得转发给 agent 或改变 pane。
 
 普通容器恢复时先接入当前可见标签，待其历史提交后再每批接入两个后台回放。已有 logical stream 保持订阅，用户激活标签时立即提升接入优先级；前台等待和后台占位均有期限，避免故障 pane 饿死其他标签。回放是否提交通过 history 的注入 getter 读取，传输层不修改其状态。延后接入 timer 由 transport lifecycle 持有并在销毁时清理。CRC 校验使用共享查找表，协议多项式与校验失败处理不变。
 
-初次打开普通容器时，bootstrap 可调用物理连接 owner 的 `prepare(target)`，与 workspace、设置和 WASM 加载并行完成握手与 Agent 准备。该入口不创建 logical stream，也不发送空的首次订阅；仅在目标明确、在线且没有已有连接或关闭屏障时准备，`client:` 不使用此路径。返回的取消回调只关闭本次创建且尚无 logical stream 的连接，不能关闭已接管或替换后的连接。目标改变及页面销毁沿用单连接关闭屏障。
+初次打开容器或受管理的客户端时，bootstrap 可调用物理连接 owner 的 `prepare(target)`，与 workspace、设置和 WASM 加载并行完成握手与 Agent 准备。该入口不创建 logical stream，也不发送空的首次订阅；仅在目标明确、在线且没有已有连接或关闭屏障时准备，两种实例使用同一路径。返回的取消回调只关闭本次创建且尚无 logical stream 的连接，不能关闭已接管或替换后的连接。目标改变及页面销毁沿用单连接关闭屏障。
 
 membership 首次从空目标登记为当前实例时，`targetChanged` 不代表物理连接指向了其他实例。接管前通过物理 owner 的 `matchesTarget()` 比对，保留同目标的预连接；仅在已有连接属于不同目标时关闭，避免初始化重复握手与 Agent 校验。
 

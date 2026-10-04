@@ -4,6 +4,23 @@
 
 它通过 LPK Resource Export 声明 `lightos.webshell` 能力，由 LightOS Admin 发现并打开。安装后，用户可以从 LightOS 的 WebShell 入口进入目标实例，直接在网页中进行命令行操作，并使用标签、分屏、文件传输、服务转发和快捷键等能力。
 
+## 模块导航
+
+服务端按职责分包，根目录 `main.go` 只组装依赖并选择 agent/Provider 入口。
+
+| 模块 | 职责 |
+| --- | --- |
+| [core](core/README.md) | 工作区、PTY 会话逻辑、终端应答、历史、checkpoint、agent 协议和 Unified 流控 |
+| [unix](unix/README.md) | Unix PTY/IPC 与现有 Linux Shell、进程扫描和回收实现 |
+| [windows](windows/README.md) | ConPTY、PowerShell、活动状态及 Job Object 回收 |
+| [provider](provider/README.md) | Linux HTTP 入口、鉴权、发现、容器/客户端转发、恢复和文件 |
+| [localserver](localserver/README.md) | PC 本地服务、绑定门禁及共享 Unified 队列入口 |
+| [localtools](localtools/README.md) | PC 编码和 nano 兼容适配 |
+| [sshserver](sshserver/README.md) | 独立 SSH 协议与受控隧道，复用 Core PTY；仅由 PC/CLI 终端产物装配，默认关闭 |
+| [internal](internal/README.md) | 服务端日志与字体等内部公共模块 |
+| [runtime](runtime/README.md) | 运行资产及 Go checkpoint 的唯一 WASM 来源 |
+| [runtime/static](runtime/static/README.md) | 浏览器前端模块 |
+
 ## 项目目标
 
 LightOS WebShell 的目标是为懒猫微服提供一个开箱即用的网页终端：
@@ -19,7 +36,7 @@ LightOS WebShell 的目标是为懒猫微服提供一个开箱即用的网页终
 
 - 自动发现 LightOS 实例，并在多个运行中的实例之间切换。
 - 在浏览器中打开实例内 Shell，支持原始终端输入输出、窗口尺寸同步和 WebSocket 连接。
-- 容器实例的单个 WebShell 页面只使用 1 条页面级 Unified 终端 WebSocket。工作区内所有 tab/pane 始终作为 logical stream 注册到该连接；创建或关闭 pane 才改变 membership，tab 切换、聚焦和输入只更新优先级，不关闭或替换 logical stream。每个 pane 独立维护 history generation、cursor、sequence、checksum、resize 和重同步状态；单 pane 故障只重建该 logical stream。`client:` PC target 暂时继续使用最多 3 条独立直连。
+- 容器实例的单个 WebShell 页面只使用 1 条页面级 Unified 终端 WebSocket。工作区内所有 tab/pane 始终作为 logical stream 注册到该连接；创建或关闭 pane 才改变 membership，tab 切换、聚焦和输入只更新优先级，不关闭或替换 logical stream。每个 pane 独立维护 history generation、cursor、sequence、checksum、resize 和重同步状态；单 pane 故障只重建该 logical stream。受管理的 `client:` PC target 使用同一套 Unified 模型。
 - 使用实例内的持久 agent 管理终端工作区，刷新页面、重新打开页面或短暂断网后可重新连接到已有 tab 和 pane。
 - 服务升级后优先复用兼容的旧 agent，尽量保留正在运行的终端会话；协议不兼容时会明确提示。
 - 支持终端输出历史回放，减少重连后的上下文丢失。
@@ -33,7 +50,7 @@ LightOS WebShell 的目标是为懒猫微服提供一个开箱即用的网页终
 
 - 支持多标签页、上下/左右分屏、窗格关闭、标签重命名和标签排序。
 - 支持标签总览，可快速查看、切换、新建、关闭和拖拽排序标签。
-- 标签总览只复制已经完成提交的 live Canvas，或 identity 仍有效的 last-known-good hold frame；从未呈现的 pane 使用空缩略图，不触发历史回放或浏览器缓存恢复。
+- 标签总览使用已经提交的 live Canvas、有效 hold frame 或独立的持久图片缩略图；不会将缩略图导入终端历史，也不触发终端回放。
 - 支持终端内容搜索、结果跳转、全选缓冲区、复制选区、粘贴和链接识别/复制。
 - 支持上下文菜单和键盘快捷键操作。
 
@@ -51,7 +68,7 @@ LightOS WebShell 的目标是为懒猫微服提供一个开箱即用的网页终
 - 支持内置字体、自定义字体上传、字体删除和系统默认字体恢复。
 - 支持滚动历史行数设置，范围为 100 到 100000 行。
 - 支持桌面端鼠标选区自动复制开关。
-- 可选保存普通 LightOS 实例的标签、分屏和工作目录；终端工作区丢失后创建不带旧历史的新会话。该能力默认关闭，不作用于 `client:` PC target。
+- 可选保存普通 LightOS 实例的标签、分屏和工作目录；终端工作区丢失后创建不带旧历史的新会话。该能力默认关闭，也支持受管理的 `client:` PC target；只恢复布局和目录，不恢复旧历史或任务。
 - 支持移动端像素级滚动开关。
 - 支持手机快捷键和 PC 快捷键自定义、排序和恢复默认。
 - 终端长截图底部显示固定彩虹渐变的 `Powered by LazyCat MicroServer LightOS`；品牌文案和截图专用图标不改变真实快捷键栏。
@@ -124,18 +141,20 @@ lzc-cli project deploy
 
 ## 测试
 
-规格按 `runtime/static` 一级模块放在 `spec/<模块>/<场景>/REQ.md` 和 `AC.md`。场景实现和原说明保留在 `spec-tests/<模块>/<场景>/`，由唯一执行器调用 `test-all.sh` 编排。
+规格按 `runtime/static` 一级模块放在 `spec/<模块>/<场景>/REQ.md` 和 `AC.md`。场景实现和原说明保留在 `spec-tests/<模块>/<场景>/`，由唯一执行器按目标选择测试批次。
 
 ```sh
-./run-ac.sh                         # 全部已接入场景
-./run-ac.sh --dry-run               # 核对选择和映射，不启动测试
+./run-ac.sh                         # 显示帮助
+./run-ac.sh --all                   # 选择全部非 draft 场景；未接入的场景会明确失败
+./run-ac.sh --dry-run --selector terminal/input  # 核对选择和映射，不启动测试
 ./run-ac.sh --selector terminal/input
+./run-ac.sh --selector terminal/input --target android-emulator
 ./run-ac.sh --help
 ```
 
 先读 [测试环境说明](spec-tests/ENVIRONMENT.md) 配置测试地址、认证、Google Chrome 和 X11 DISPLAY。账号及密码只从本地 `.env` 或运行环境注入，前端构建由入口自动准备。默认打开有界面的桌面及移动布局窗口。真机和模拟器操作使用独立安装的 `agent-device-mcp` skill 与 MCP，安装方式见测试环境说明。
 
-`run-ac.sh` 执行前自动构建当前工作树前端，整批使用独立快照并校验源码/资源摘要；本地资源缺失时失败，禁止回退远端旧代码。Service Worker 场景同样使用本地构建。agent-device 自动测试在接入可验证的本地前端通道前保持阻断。
+桌面 `run-ac.sh` 批次自动构建当前工作树前端并固定快照；Android MCP 批次构建完整 LightOS LPK，经所选设备的网络通道安装到 `debug123`，再核对运行文件及设备实际加载的资源摘要。构建、安装或内容核验失败时停止验收，不回退远端旧代码。
 
 单模块上下文通过 `spec-tests/task-context --module terminal/input` 读取；入口与目录说明见 [测试说明](spec-tests/README.md)。执行报告保留每个模块的状态、耗时和事件证据，发现或 dry run 成功不代表真实测试通过。
 
@@ -144,8 +163,8 @@ lzc-cli project deploy
 ## 技术说明
 
 - 后端使用 Go 实现，Web UI 通过 `/=exec://8080` 由 LPK 启动。
-- 终端会话通过实例内 persistent agent 管理，并通过 WebSocket 转发到浏览器。普通容器的单条 Unified transport 复用只发生在 Provider 中转层；persistent agent 不需要修改，仍持续维护所有 PTY、任务、历史和 cursor。所有 logical pane 都允许普通输入，Provider 按 pane identity、stream generation 和 channel generation 校验，并根据活动优先级公平调度。`client:` PC target 仍由最多三条独立直连兼容。
-- 实例端终端历史由 persistent agent 作为可信数据源维护。普通容器只走服务端权威 snapshot/live，Ghostty 不绘制回放中间帧；`client:` PC target 继续使用隔离的 IndexedDB 与原完整历史协议，直到该后端完成 Unified 协议升级。
+- 终端会话通过实例内 persistent agent 管理，并通过 WebSocket 转发到浏览器。普通容器的单条 Unified transport 复用只发生在 Provider 中转层；persistent agent 不需要修改，仍持续维护所有 PTY、任务、历史和 cursor。所有 logical pane 都允许普通输入，Provider 按 pane identity、stream generation 和 channel generation 校验，并根据活动优先级公平调度。`client:` PC target 在本地进程内复用同一 broker 与会话核心，不启动 attach 子进程。
+- 实例端终端历史由 persistent agent 作为可信数据源维护。普通容器只走服务端权威 snapshot/live，Ghostty 不绘制回放中间帧；`client:` PC target 同样使用服务端快照与原始历史回退，不再使用 IndexedDB；旧库只删除、不重新创建。
 - 可选的重启恢复由 Provider 按账号和实例保存版本化工作区描述；只有 agent 的 workspace generation 已变化时才让当前协议 agent 原子重建标签、分屏和新 PTY。关闭时不访问恢复存储，存活 agent 仍按原链路继续使用。
 - HTML 入口使用 `/assets/<lpk-version>-<content-revision>/` 静态资源路径。源码模块由 Vite 合并为有界数量的生产 bundle 后再写入 LPK；即使误用相同 LPK 版本重新发布，只要二进制或 runtime 内容变化，JS/CSS/bundle/WASM URL 也会变化。内容寻址资源可通过 HTTP immutable 缓存长期复用，旧 `/static/` 仅保留兼容。
 - 页面不注册 Service Worker、不提供 Web App Manifest，也不维护 PWA app-shell。历史版本遗留的本 WebShell Worker 和已知缓存会在启动后精确清理，不参与终端启动、离线 fallback 或资源调度。

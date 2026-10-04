@@ -24,3 +24,7 @@
 - 选择文件后出现上传进度，并只发起一次 `/api/attachments`。
 - 成功后远端路径只进入当前终端一次，且不自动发送 Enter。
 - 进度提示不再要求从剪贴板粘贴路径。
+
+## Android MCP 验收
+
+`android.mjs` 在 Pixel 9 Pro 模拟器中向 Downloads 放入专用文件，使用已安装 LightOS 应用和 Android 系统文件选择器完成上传；核对真实上传响应、成功提示、终端输入帧恰好一次且无回车，再从远端文件列表确认清理。该 AC 仍为 `draft`，使用精确选择 `./run-ac.sh --selector app/mobile-upload-path/SC-ATTACHMENT-MOBILE-UPLOAD-PATH --target android-emulator`。

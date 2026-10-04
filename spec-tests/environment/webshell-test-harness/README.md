@@ -10,9 +10,13 @@
 - `browser.mjs`、`run.mjs`：Playwright 窗口、场景运行和证据生命周期
 - `observe.mjs`：终端截图、OCR 和可见输出等待
 - `agent-device.mjs`、`android-load-actions.mjs`：WebShell Android/CDP 与负载场景适配
+- `device-hub.mjs`：通过指定 MCP 申请并连接 Pixel 9 Pro，核对设备身份和限域 ADB
+- `android-lpk.py`、`android-devtools-relay.go`：构建与安装当前 LightOS LPK，经 Android 网络接入测试机并核对运行文件
+- `android-webview.mjs`、`android-cdp.mjs`、`android-version.mjs`：连接已安装的 LightOS WebView，核对实际服务和 JS/WASM 摘要
+- `android-workspace.mjs`、`android-terminal.mjs`、`android-observe.mjs`、`android-native-ui.mjs`：专用测试标签、真实输入、屏幕 OCR 与系统文件选择器
 - `artifact-redaction.mjs`：报告、trace 和网络证据脱敏
 
-通用设备操作使用独立安装的 `agent-device-mcp` skill 和注册的 MCP tools；首次安装执行 `npx skills add git@gitee.com:linakesi/agent-device-mcp.git`，后续执行 `npx skills update agent-device-mcp`。自动测试中的 CLI 调用使用 `spec-tests` 已安装的 `agent-device` 包。本目录可以依赖 WebShell 路径、配置和产品 API；这些依赖不得移入通用 MCP/skill。
+通用设备操作遵循独立安装的 `agent-device-mcp` skill。当前 Android 自动批次使用用户指定的 device-hub MCP 申请设备，再通过它返回的限域 ADB 操作已安装的 LightOS 应用；MCP 不读取 WebShell 配置，也不判定 AC。本目录可以依赖 WebShell 路径、配置和产品 API；这些依赖不得移入通用 MCP/skill。
 
 正式验收从项目根目录的唯一入口运行：
 

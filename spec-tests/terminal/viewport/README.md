@@ -93,4 +93,8 @@ node spec-tests/run-playwright.mjs spec-tests/terminal/viewport/test.mjs
 ## 已知限制
 
 - Chrome 通过 iPhone User-Agent 和 synthetic visualViewport 进入 iOS 分支，能够自动验证浏览器布局、伪元素和完整真实终端链路，但不等价于 Safari/WebView 的原生键盘动画时序。
-- 本轮未运行原生 iOS/Android 设备人工观感验证；自动化断言固定的是用户可见状态点不出现这一跨浏览器不变量。
+- 旧桌面批次未运行原生 iOS/Android 设备人工观感验证；自动化断言固定的是用户可见状态点不出现这一跨浏览器不变量。
+
+## Android MCP 验收
+
+`android.mjs` 在 Pixel 9 Pro 模拟器的 LightOS 应用中实际打开和收起系统键盘、旋转横屏并恢复，核对 Canvas 画面、过渡期间可见帧与最终输入回显。入口为 `./run-ac.sh --selector terminal/viewport/SC-TERMINAL-VIEWPORT --target android-emulator`；结束后恢复原旋转设置并清理专用标签。

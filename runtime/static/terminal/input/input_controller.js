@@ -15,7 +15,7 @@ export function createTerminalInputController({
   isReplayCommitted = () => false,
   isSocketOpen = (session) => session?.socket?.readyState === globalThis.WebSocket?.OPEN,
   getCurrentLease = () => null,
-  isClientTarget = () => false,
+  isConnectionParked = (session) => Boolean(session.connectionLeaseClosing),
   getResizeSize = () => ({ cols: 0, rows: 0, pixelWidth: 0, pixelHeight: 0 }),
   normalizeResizeEpoch = (value) => String(value || ""),
   getThemePayload = () => ({}),
@@ -444,10 +444,7 @@ export function createTerminalInputController({
       }
       return true;
     }
-    const connectionWasParked = Boolean(
-      session.connectionLeaseClosing
-      || (isClientTarget(session.name) && !getCurrentLease(session))
-    );
+    const connectionWasParked = isConnectionParked(session);
     if (data && userInput) {
       markUserInput(session);
       if (!session.sizeClaimed || session.sizeClaimRequired) claimCurrentDeviceSize(session);

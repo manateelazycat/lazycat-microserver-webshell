@@ -2,6 +2,7 @@ const maxFailures = 32;
 const maxContextEvents = 48;
 const maxErrorChars = 8192;
 const contextEvents = new Set([
+  "backend_operation_phase",
   "connect_session_start", "socket_connect", "socket_open", "socket_close", "agent_preparing",
   "logical_attach_start", "agent_attach_ready", "history_replay_start", "history_replay_complete",
   "resize_request", "resize_ack", "resize_native_start", "resize_native_complete", "resize_native_error",
@@ -34,8 +35,13 @@ const checkpointSnapshot = (checkpoint) => checkpoint ? {
 const failureSnapshot = (failure) => failure ? {
   ...pick(failure, ["at_unix_ms", "operation", "error", "batch_from_cursor", "batch_to_cursor", "history_base_cursor",
     "history_bytes", "history_limit_bytes", "cols", "rows", "pending_bytes_before", "pending_bytes_after"]),
-  call: pick(failure.call, ["operation", "input_bytes", "parser_bytes", "input_sha256", "memory_before", "memory_after",
+  call: { ...pick(failure.call, ["operation", "input_bytes", "parser_bytes", "input_sha256", "memory_before", "memory_after",
     "requested_cols", "requested_rows", "requested_scrollback_lines"]),
+    allocation: failure.call?.allocation ? {
+      ...pick(failure.call.allocation, ["status", "operation", "total_observations", "truncated"]),
+      records: Array.isArray(failure.call.allocation.records) ? failure.call.allocation.records.slice(0, 8).map((entry) =>
+        Object.fromEntries(Object.entries(entry).filter(([, value]) => Number.isSafeInteger(value) && value >= 0).slice(0, 32))) : [],
+    } : null },
   recent_resizes: Array.isArray(failure.recent_resizes) ? failure.recent_resizes.slice(-8).map((entry) => pick(entry, resizeFields)) : [],
 } : null;
 
@@ -72,6 +78,7 @@ export function createCheckpointFailureEvidence({ now, wallNow = () => Date.now(
       const context = { ...observed, event, connection: session.connectionEpoch,
         channelGeneration: session.connectionChannelGeneration, replayGeneration: session.terminalReplayGeneration,
         ...pick(details, ["controlType", "code", "reason", "resizeEpoch", "cols", "rows",
+          "requestID", "operation", "phase", "previousPhase", "lastPhase", "requestElapsedMs", "workerElapsedMs", "workerQueueMs", "phaseDeliveryMs",
           "serverBaseCursor", "serverEndCursor", "deltaFromCursor", "deltaToCursor", "syncMode", "recoveryBaseline", "checkpointFallback"]) };
       // Repeated server failures retain their full error in first/latest below.
       if (typeof context.reason === "string") context.reason = context.reason.slice(0, 256);

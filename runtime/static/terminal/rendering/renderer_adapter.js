@@ -14,6 +14,7 @@ export function createTerminalRendererAdapter({
   getFontSize = () => 16,
   initialFontSize = 16,
   getFontFamily = () => "monospace",
+  getBackgroundColorMap = () => null,
   pixelScrollOffsetEpsilon = defaultPixelScrollOffsetEpsilon,
   viewportBottomEpsilon = defaultViewportBottomEpsilon,
 } = {}) {
@@ -232,7 +233,7 @@ export function createTerminalRendererAdapter({
     if (red === 0 && green === 0 && blue === 0) {
       return "";
     }
-    return renderer.rgbToCSS(red, green, blue);
+    return (renderer.webshellBackgroundRGBToCSS || renderer.rgbToCSS.bind(renderer))(red, green, blue);
   };
 
   const renderTerminalMergedLineBackgrounds = (renderer, line, row, columns, offsetY = 0) => {
@@ -383,6 +384,15 @@ export function createTerminalRendererAdapter({
     return false;
   };
 
+  const syncBackgroundColors = (session) => {
+    const renderer = session?.term?.renderer;
+    if (disposed || !renderer) return false;
+    const next = getBackgroundColorMap(session, renderer.theme);
+    if ((renderer.webshellBackgroundColorMap || null) === next) return false;
+    renderer.webshellBackgroundColorMap = next;
+    return true;
+  };
+
   const installThemeMapper = (session) => {
     const renderer = session?.term?.renderer;
     if (disposed || !renderer || renderer.webshellThemeMapperInstalled || typeof renderer.rgbToCSS !== "function") {
@@ -390,10 +400,26 @@ export function createTerminalRendererAdapter({
     }
     renderer.webshellThemeMapperInstalled = true;
     renderer.webshellOriginalRGBToCSS = renderer.rgbToCSS.bind(renderer);
-    renderer.rgbToCSS = (red, green, blue) => {
+    const mappedRGBToCSS = (red, green, blue) => {
       const mapped = renderer.webshellColorMap?.get(`${red},${green},${blue}`);
       return mapped || renderer.webshellOriginalRGBToCSS(red, green, blue);
     };
+    renderer.webshellBackgroundRGBToCSS = (red, green, blue) => (
+      renderer.webshellBackgroundColorMap?.get(`${red},${green},${blue}`)
+      || mappedRGBToCSS(red, green, blue)
+    );
+    renderer.rgbToCSS = (red, green, blue) => (
+      renderer.webshellRenderingBackground
+        ? renderer.webshellBackgroundRGBToCSS(red, green, blue)
+        : mappedRGBToCSS(red, green, blue)
+    );
+    if (typeof renderer.render === "function") {
+      const render = renderer.render.bind(renderer);
+      renderer.render = (buffer, forceAll = false, ...args) => {
+        const changed = syncBackgroundColors(session);
+        return render(buffer, forceAll || changed, ...args);
+      };
+    }
     return true;
   };
 
@@ -458,7 +484,16 @@ export function createTerminalRendererAdapter({
       return false;
     }
     renderer.webshellCellSeamPatchInstalled = true;
-    renderer.webshellOriginalRenderCellBackground = renderer.renderCellBackground.bind(renderer);
+    const renderCellBackground = renderer.renderCellBackground.bind(renderer);
+    renderer.webshellOriginalRenderCellBackground = (...args) => {
+      const previous = renderer.webshellRenderingBackground;
+      renderer.webshellRenderingBackground = true;
+      try {
+        return renderCellBackground(...args);
+      } finally {
+        renderer.webshellRenderingBackground = previous;
+      }
+    };
     renderer.renderCellBackground = (cell, column, row, offsetY = 0) => {
       renderer.webshellOriginalRenderCellBackground(cell, column, row, offsetY);
       if (terminalIsPixelScrollRender(offsetY)) {
@@ -486,7 +521,7 @@ export function createTerminalRendererAdapter({
       }
       const x = column * width - bleedLeft;
       const y = row * height + offsetY;
-      renderer.ctx.fillStyle = renderer.rgbToCSS(red, green, blue);
+      renderer.ctx.fillStyle = (renderer.webshellBackgroundRGBToCSS || renderer.rgbToCSS.bind(renderer))(red, green, blue);
       renderer.ctx.fillRect(x, y, width * cellWidth + bleedLeft + bleedRight, height);
     };
     if (typeof renderer.renderCursor === "function") {
@@ -590,5 +625,6 @@ export function createTerminalRendererAdapter({
     installThemeMapper,
     normalizeBottomViewport: normalizeTerminalBottomViewport,
     syncRuntime,
+    syncBackgroundColors,
   });
 }

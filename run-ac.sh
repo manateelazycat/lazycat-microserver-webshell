@@ -1,1 +1,1 @@
-spec-tests/run-ac-entry
+spec-tests/run-ac

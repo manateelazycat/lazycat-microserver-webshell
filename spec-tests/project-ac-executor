@@ -32,6 +32,7 @@ def arguments(argv):
     parser.add_argument('--url')
     parser.add_argument('--env-file')
     parser.add_argument('--timeout', type=float, default=300)
+    parser.add_argument('--target', choices=('desktop-browser', 'android-emulator'), default='desktop-browser')
     args = parser.parse_args(argv)
     if not math.isfinite(args.timeout) or not 1 <= args.timeout <= 3600:
         raise ValueError('--timeout must be between 1 and 3600 seconds')
@@ -43,11 +44,24 @@ def registry():
     if not isinstance(data, dict):
         raise ValueError('Invalid AC implementation registry')
     for scenario, implementation in data.items():
-        filename = implementation['test_id']
-        if len(scenario.split('/')) != 3 or Path(filename).is_absolute() or '..' in Path(filename).parts:
+        filename = implementation.get('test_id') or implementation.get('android_test_id')
+        if not filename or len(scenario.split('/')) != 3 or Path(filename).is_absolute() or '..' in Path(filename).parts:
             raise ValueError('Invalid scenario or test_id in registry')
+        desktop = implementation.get('test_id')
+        if desktop and (Path(desktop).is_absolute() or '..' in Path(desktop).parts):
+            raise ValueError('Invalid test_id in registry')
         if not implementation.get('steps') or not all(isinstance(step, str) for step in implementation['steps']):
             raise ValueError('Registry requires complete contract steps')
+        android = implementation.get('android_test_id')
+        android_name = Path(android).name if android else ''
+        if android and (Path(android).is_absolute() or '..' in Path(android).parts or
+                        not (android_name == 'android.mjs' or
+                             (android_name.startswith('android-') and android_name.endswith('.mjs')))):
+            raise ValueError('Invalid android_test_id in registry')
+        if implementation.get('coverage_status') not in (None, 'pending'):
+            raise ValueError('Invalid coverage_status in registry')
+        if implementation.get('android_status') not in (None, 'pending'):
+            raise ValueError('Invalid android_status in registry')
     return data
 
 
@@ -74,9 +88,18 @@ def run_selected(args, implementations):
         seen.add(scenario)
         if [step.get('message') for step in item.get('steps', [])] != implementations[scenario]['steps']:
             raise ValueError('AC steps changed; review the module mapping before running')
-        item['test_id'] = implementations[scenario]['test_id']
+        implementation = implementations[scenario]
+        if implementation.get('coverage_status') == 'pending':
+            raise ValueError(f'Scenario test coverage is pending: {scenario}')
+        if args.target == 'android-emulator' and not implementation.get('android_test_id'):
+            raise ValueError(f'Android scenario is not implemented: {scenario}')
+        if args.target == 'android-emulator' and implementation.get('android_status') == 'pending':
+            raise ValueError(f'Android scenario is pending: {scenario}: {implementation.get("android_reason", "missing condition")}')
+        if args.target == 'desktop-browser' and not implementation.get('test_id'):
+            raise ValueError(f'Desktop scenario is not implemented: {scenario}')
+        item['test_id'] = implementation['android_test_id'] if args.target == 'android-emulator' else implementation['test_id']
     tests = TESTS_ROOT
-    suite = tests / 'test-all.sh'
+    suite = tests / ('android-suite.mjs' if args.target == 'android-emulator' else 'test-all.sh')
     if not suite.is_file():
         raise ValueError('spec-tests/test-all.sh is unavailable')
     report_dir = ROOT / 'spec-tests/reports' / uuid4().hex
@@ -85,7 +108,8 @@ def run_selected(args, implementations):
     selection.write_text(json.dumps(payload, ensure_ascii=False, indent=2))
     # One project-level orchestration, including for an exact selector.
     # stderr is inherited so AC_PROGRESS reaches run-ac while the suite runs.
-    child = subprocess.Popen(['bash', str(suite), '--scenarios-file', str(selection),
+    runner = [str(suite)] if args.target == 'desktop-browser' else ['node', str(suite)]
+    child = subprocess.Popen([*(['bash'] if args.target == 'desktop-browser' else []), *runner, '--scenarios-file', str(selection),
         '--artifacts-dir', str(report_dir), '--timeout', str(args.timeout), '--json',
         *environment_options(args)], cwd=tests, stdout=subprocess.PIPE, text=True)
     try:
@@ -109,7 +133,8 @@ def run_selected(args, implementations):
     for item in results:
         if item.get('status') not in ('passed', 'failed', 'skipped'):
             raise ValueError('Invalid module status')
-        if item.get('test_id') != implementations[item['scenario']]['test_id']:
+        expected_test = implementations[item['scenario']]['android_test_id'] if args.target == 'android-emulator' else implementations[item['scenario']]['test_id']
+        if item.get('test_id') != expected_test:
             raise ValueError('Suite result does not match its module')
     passed = all(item['status'] == 'passed' for item in results)
     if (child.returncode == 0) != passed or (response['status'] == 'passed') != passed:
@@ -122,16 +147,19 @@ def main(argv):
     try:
         args = arguments(argv)
         if args.action == 'help':
-            emit({'description': 'Build the latest local frontend, then run selected modules through test-all.sh; default selects all modules.', 'options': [
+            emit({'description': 'Run selected WebShell ACs in the desktop browser or the allocated Android LightOS app.', 'options': [
                 {'name': '--url', 'value': '<url>', 'description': 'Authorized WebShell target; otherwise WEBSHELL_TEST_URL'},
                 {'name': '--env-file', 'value': '<path>', 'description': 'Local uncommitted environment file; shell variables take precedence'},
-                {'name': '--timeout', 'value': '<seconds>', 'description': 'Per-scenario deadline including setup', 'default': '300'}]})
+                {'name': '--timeout', 'value': '<seconds>', 'description': 'Per-scenario deadline including setup', 'default': '300'},
+                {'name': '--target', 'value': '<desktop-browser|android-emulator>', 'description': 'Execution target', 'default': 'desktop-browser'}]})
             return 0
         implementations = registry()
         if args.action == 'discover':
             # Do not probe credentials, targets or project options during discovery.
             discovery_root = TESTS_ROOT
-            missing = [item['test_id'] for item in implementations.values() if not (discovery_root / item['test_id']).is_file()]
+            paths = [name for item in implementations.values() for name in
+                     (item.get('test_id'), item.get('android_test_id')) if name]
+            missing = [name for name in paths if not (discovery_root / name).is_file()]
             if missing:
                 raise ValueError('Registered scenario files are missing from spec-tests')
             discovered = set()
@@ -144,10 +172,14 @@ def main(argv):
                     if script.name == 'helpers.mjs':
                         continue
                     discovered.add(str(script.relative_to(discovery_root)))
-            registered = [item['test_id'] for item in implementations.values()]
-            if len(set(registered)) != len(registered) or discovered != set(registered):
+            registered = [item['test_id'] for item in implementations.values() if item.get('test_id')]
+            android_registered = [item['android_test_id'] for item in implementations.values() if item.get('android_test_id')]
+            if len(set(registered)) != len(registered) or len(set(android_registered)) != len(android_registered) or discovered != set(registered + android_registered):
                 raise ValueError('spec-tests modules and AC registry differ; add the missing module REQ/AC and mapping instead of silently omitting tests')
-            emit({'status': 'passed', 'implementations': [{'scenario': scenario, 'test_id': item['test_id']} for scenario, item in sorted(implementations.items())]})
+            emit({'status': 'passed', 'implementations': [{'scenario': scenario, 'test_id': item['test_id']}
+                for scenario, item in sorted(implementations.items()) if item.get('coverage_status') != 'pending' and item.get('test_id')] +
+                [{'scenario': scenario, 'test_id': item['android_test_id']}
+                 for scenario, item in sorted(implementations.items()) if item.get('coverage_status') != 'pending' and not item.get('test_id')]})
             return 0
         return run_selected(args, implementations)
     except (ValueError, OSError, KeyError, TypeError) as error:

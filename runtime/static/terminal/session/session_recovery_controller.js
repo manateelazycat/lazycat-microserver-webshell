@@ -44,8 +44,6 @@ export function createTerminalSessionRecoveryController({
     session.replayComplete = false;
     setReplayAuthorization(session, false);
     session.replayCompletionPending = false;
-    session.historyCacheReplayCommitSeq = Number(session.historyCacheReplayCommitSeq || 0) + 1;
-    session.historyCacheReplayCommitPending = false;
     session.allowGeneratedInputDuringReplay = false;
     session.agentPreparing = false;
     session.attachStartedAt = 0;

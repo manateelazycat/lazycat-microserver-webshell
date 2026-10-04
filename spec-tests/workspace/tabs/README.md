@@ -60,3 +60,7 @@ node spec-tests/run-playwright.mjs spec-tests/workspace/tabs/test.mjs
 ## 验证结果
 
 最终 16 场景回归产物 `artifacts/2026-09-04T11-13-30-556Z/` 通过新终端 presentation/Canvas、subscription 顺序、单物理 socket、rename 持久化和临时 tab 清理。
+
+## Android MCP 验收
+
+`android.mjs` 在 Pixel 9 Pro 模拟器的 LightOS 应用里横屏创建标签、通过标签栏重命名并刷新页面，核对新终端、名称和活动标签仍可见；结束后恢复旋转并清理测试标签。入口为 `./run-ac.sh --selector workspace/tabs --target android-emulator`。

@@ -3,12 +3,17 @@ import {
   isClaudeFullscreenContextMenuCandidate,
   isClaudeFullscreenDesktopSelectionCandidate,
   isClaudeFullscreenTouchCandidate,
+  isCodexFullscreenContextMenuCandidate,
+  isCodexFullscreenDesktopSelectionCandidate,
+  isCodexFullscreenTouchCandidate,
   isGrokExecutableToken,
   isGrokFullscreenContextMenuCandidate,
   isGrokFullscreenDesktopSelectionCandidate,
   isGrokFullscreenTouchCandidate,
   isGrokTerminalSession,
   isOfficialGrokEntrypoint,
+  isOpencodeFullscreenContextMenuCandidate,
+  isOpencodeFullscreenDesktopSelectionCandidate,
 } from "../tui_adapters/index.js";
 
 const noop = () => {};
@@ -59,14 +64,35 @@ export function createTerminalPolicyController({
   claudeTouchCandidate = isClaudeFullscreenTouchCandidate,
   claudeContextMenuCandidate = isClaudeFullscreenContextMenuCandidate,
   claudeDesktopSelectionCandidate = isClaudeFullscreenDesktopSelectionCandidate,
+  codexTouchCandidate = isCodexFullscreenTouchCandidate,
+  codexContextMenuCandidate = isCodexFullscreenContextMenuCandidate,
+  codexDesktopSelectionCandidate = isCodexFullscreenDesktopSelectionCandidate,
   grokTouchCandidate = isGrokFullscreenTouchCandidate,
   grokContextMenuCandidate = isGrokFullscreenContextMenuCandidate,
   grokDesktopSelectionCandidate = isGrokFullscreenDesktopSelectionCandidate,
+  opencodeContextMenuCandidate = isOpencodeFullscreenContextMenuCandidate,
+  opencodeDesktopSelectionCandidate = isOpencodeFullscreenDesktopSelectionCandidate,
 } = {}) {
   let disposed = false;
 
   const isClaudeFullscreenTouchSession = (session) => claudeTouchCandidate(session, {
     mouseTracking: hasMouseTracking(session) === true,
+  });
+
+  const isCodexFullscreenTouchSession = (session) => codexTouchCandidate(session, {
+    mouseTracking: hasMouseTracking(session) === true,
+  });
+
+  const isCodexFullscreenContextMenuEvent = (session, event) => codexContextMenuCandidate(session, {
+    mouseTracking: hasMouseTracking(session) === true,
+    button: event?.button,
+    contextMenuSuppressed: shouldSuppressContextMenu(event),
+  });
+
+  const isCodexFullscreenDesktopSelectionEvent = (session, event) => codexDesktopSelectionCandidate(session, {
+    mouseTracking: hasMouseTracking(session) === true,
+    button: event?.button,
+    touchSelectionLayout: isTouchSelectionLayout(),
   });
 
   const isClaudeFullscreenContextMenuEvent = (session, event) => claudeContextMenuCandidate(session, {
@@ -97,6 +123,18 @@ export function createTerminalPolicyController({
     button: event?.button,
     touchSelectionLayout: isTouchSelectionLayout(),
     applicationModifier: Boolean(event?.ctrlKey || event?.altKey || event?.metaKey),
+  });
+
+  const isOpencodeFullscreenContextMenuEvent = (session, event) => opencodeContextMenuCandidate(session, {
+    mouseTracking: hasMouseTracking(session) === true,
+    button: event?.button,
+    contextMenuSuppressed: shouldSuppressContextMenu(event),
+  });
+
+  const isOpencodeFullscreenDesktopSelectionEvent = (session, event) => opencodeDesktopSelectionCandidate(session, {
+    mouseTracking: hasMouseTracking(session) === true,
+    button: event?.button,
+    touchSelectionLayout: isTouchSelectionLayout(),
   });
 
   const scrollTerminalToBottomForUserInput = (session) => {
@@ -141,11 +179,16 @@ export function createTerminalPolicyController({
     isClaudeFullscreenContextMenuEvent,
     isClaudeFullscreenDesktopSelectionEvent,
     isClaudeFullscreenTouchSession,
+    isCodexFullscreenContextMenuEvent,
+    isCodexFullscreenDesktopSelectionEvent,
+    isCodexFullscreenTouchSession,
     isDisposed: () => disposed,
     isGrokFullscreenContextMenuEvent,
     isGrokFullscreenDesktopSelectionEvent,
     isGrokFullscreenTouchSession,
     isGrokTerminalSession,
+    isOpencodeFullscreenContextMenuEvent,
+    isOpencodeFullscreenDesktopSelectionEvent,
     scrollTerminalToBottomForUserInput,
     terminalLocationDescription,
   });

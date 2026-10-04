@@ -50,6 +50,7 @@ export const captureTerminalGeometry = (session, renderer) => {
     fontFamily: String(renderer?.fontFamily || ""),
     devicePixelRatio: normalizedNumber(window.devicePixelRatio || 1),
     themeFingerprint: JSON.stringify(renderer?.theme || {}),
+    backgroundColorMap: renderer?.webshellBackgroundColorMap || null,
   });
 };
 
@@ -75,7 +76,8 @@ export const terminalGeometryMatches = (snapshot, session, renderer) => {
     && current.fontSize === snapshot.fontSize
     && current.fontFamily === snapshot.fontFamily
     && current.devicePixelRatio === snapshot.devicePixelRatio
-    && current.themeFingerprint === snapshot.themeFingerprint);
+    && current.themeFingerprint === snapshot.themeFingerprint
+    && current.backgroundColorMap === snapshot.backgroundColorMap);
 };
 
 export const planTerminalScreenshotParts = ({
@@ -146,10 +148,13 @@ export const snapshotTerminalRows = (geometry, start, end, suppliedRows = null) 
   return rows;
 };
 
-const mappedCellColor = (renderer, raw, fallback) => {
+const mappedCellColor = (renderer, raw, fallback, isBackground = false) => {
   const channels = String(raw || "").split(",").map(Number);
   if (channels.length === 3 && channels.every(Number.isFinite) && typeof renderer?.rgbToCSS === "function") {
     try {
+      if (isBackground && typeof renderer.webshellBackgroundRGBToCSS === "function") {
+        return renderer.webshellBackgroundRGBToCSS(channels[0], channels[1], channels[2]);
+      }
       return renderer.rgbToCSS(channels[0], channels[1], channels[2]);
     } catch (error) {
     }
@@ -170,7 +175,7 @@ export const drawTerminalRows = (context, rows, metrics, theme, renderer) => {
       const cell = row[col];
       if (!cell || cell.width === 0) continue;
       const inverse = Boolean(cell.flags & 16);
-      const bg = mappedCellColor(renderer, inverse ? cell.fg : cell.bg, background);
+      const bg = mappedCellColor(renderer, inverse ? cell.fg : cell.bg, background, true);
       if (bg !== background && bg !== "rgb(0, 0, 0)") {
         context.fillStyle = bg;
         context.fillRect(col * metrics.cellWidth, y, metrics.cellWidth * Math.max(1, cell.width), metrics.height);

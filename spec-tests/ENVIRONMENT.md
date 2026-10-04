@@ -44,9 +44,11 @@ DISPLAY=:0
 
 移动窗口是桌面 Chrome 的布局/触控模拟。真实 Android / iOS / 浏览器设备操作使用独立安装的 `agent-device-mcp` skill 和注册的 MCP。原生 IME 场景关闭测试 IME。
 
+Android 自动批次使用 device-hub MCP 的 `device_request` 和 `device_connect`，再用返回的限域 ADB 连接操作明确指定的设备。未提交的测试环境中填写 `WEBSHELL_DEVICE_MCP_URL`（完整 `/mcp` 地址）、`WEBSHELL_DEVICE_MCP_OWNER`、`WEBSHELL_DEVICE_NAME=Pixel 9 Pro`、`WEBSHELL_DEVICE_KIND=emulator`。当前目标是 Android 15 模拟器；它不代表物理手机。执行器检查设备名称、类型、LightOS 与懒猫客户端安装包，绝不自动换设备。MCP 目前不提供释放工具，设备占用需由管理员在管理页面释放。
+
 ## 构建与特殊模块
 
-所有正式自动测试必须使用最新本地前端。`run-ac.sh`、直接批次入口和直接场景运行器会在执行前通过共享构建模块运行 `npm run build`；一批测试只构建一次。Playwright 桌面 AC 走这条构建链路。真机 Environment MCP 不替换产品前端，也不判定 AC。
+所有正式自动测试必须使用当前工作树构建的前端。桌面 Playwright 批次通过共享构建模块运行 `npm run build` 并固定快照。Android MCP 批次通过 LightOS Admin 的 `lightos-build.sh` 构建完整 LightOS LPK，每批经所选设备的网络通道核对 `debug123` 运行文件；仅内容不一致时安装。批次固定包和源码摘要，再从运行中的容器文件、Android 应用实际访问的服务修订与资源响应独立核对后端、runtime、JS 和 WASM；部署通路不可用或任一内容不一致时失败。
 
 产物复制到独立快照，记录工作树源码摘要、产物摘要和逐文件哈希。每项运行前后检查源码与快照；运行中修改源码、删除或改写产物会失败。环境自动注入本批次的静态目录，旧 `.env` 中的静态目录不再决定测试版本，也不提供任意 `--static-dir` 覆盖。
 
@@ -62,13 +64,14 @@ DISPLAY=:0
 
 ```sh
 node spec-tests/environment/webshell-test-harness/inspect.mjs
-./run-ac.sh --dry-run
-./run-ac.sh
+./run-ac.sh --dry-run --selector terminal/input
+./run-ac.sh --all
 ./run-ac.sh --selector terminal/input
 ./run-ac.sh --env-file /absolute/path/to/test.env --json
+./run-ac.sh --selector terminal/input --target android-emulator
 ```
 
-无参数 `run-ac.sh` 默认选择全部已接入模块；`--help` 只展示帮助。执行链路为 `run-ac.sh → Project AC Executor → spec-tests/test-all.sh → 各模块 test.mjs`。单模块选择仍经过同一个批次入口，只执行选中的模块。
+无参数 `run-ac.sh` 只展示帮助。执行链路为 `run-ac.sh → Project AC Executor → 桌面 test-all.sh 或 Android android-suite.mjs → 对应场景模块`。Android 目标只运行登记了 `android_test_id` 的真实设备场景；未登记时明确报告未承接。
 
 也可以直接执行 `spec-tests/test-all.sh`。`TESTS_AUTO_DRY_RUN=1` 或 `--dry-run` 仅列出模块，不启动浏览器、不验证登录，也不表示测试通过。
 

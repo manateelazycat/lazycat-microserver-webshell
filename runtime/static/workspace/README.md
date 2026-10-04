@@ -36,6 +36,7 @@ target lifecycle 唯一持有 active selector、generation 和 disposed 状态�
 - `layout_view_controller.js`：布局 DOM 渲染、分割线拖拽和布局持久化命令适配；拖动比例按 RAF latest-only 合并，并通过注入命令 begin/update/end terminal live geometry。workspace 不修改 terminal 状态或发送 resize 帧，释放时只结束事务并持久化最终布局。
 - `tab_registry.js`：tab Map、ID 序列、活动 tab 和最近 tab 快照的唯一状态 owner。
 - `activity_controller.js`：既有 workspace activity 轮询、pane busy 状态同步、成员集合变化检测和关闭确认 guard。
+- activity 更新前台命令或命令行后通过 `onPaneProcessChange(pane)` 通知外部适配层；不识别具体 TUI、不直接绘制，沿用既有轮询周期。
 - `tab_label_controller.js`：tab 标题展示、desktop inline rename、optimistic 提交与失败回滚。
 - `tab_label_lifecycle.js`：inline rename 的 AbortController、focus RAF 和销毁资源。
 - `tab_navigation_controller.js`：tab DOM 顺序、前后/索引切换、最近 tab 交换与按实例持久化。

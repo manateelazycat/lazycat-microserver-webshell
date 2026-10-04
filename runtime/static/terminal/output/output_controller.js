@@ -34,7 +34,6 @@ export function createTerminalOutputController({
   noteResizeOutput = noop,
   requestHistoryReplay = noop,
   finishHistoryReplayIfReady = () => false,
-  queueHistoryCacheWrite = noop,
   scheduleReplayPresentationCheckpoint = noop,
   beginPresentationHold = noop,
   isRenderAllowed = () => true,
@@ -372,7 +371,7 @@ export function createTerminalOutputController({
             || batch.replayOutput !== entry.replayOutput
             || batch.suppressRender !== entry.suppressRender
             || batch.allowGeneratedInput !== entry.allowGeneratedInput
-            || batch.historyCacheable !== entry.historyCacheable
+            || batch.serverHistoryRange !== entry.serverHistoryRange
             || (batch.historyEndCursor !== null && entry.historyStartCursor !== batch.historyEndCursor)
             || batch.byteLength + entry.byteLength > sliceBytes
             || (entryLimit > 0 && consumed >= entryLimit)
@@ -411,15 +410,9 @@ export function createTerminalOutputController({
           wrote = true;
           parsedBytes.set(state, (parsedBytes.get(state) || 0) + batch.byteLength);
           appliedEntries.set(state, (appliedEntries.get(state) || 0) + batchEntries);
-          let cacheEnqueueMs = 0;
           if (batch.historyEndCursor !== null) {
             state.appliedHistoryCursor = batch.historyEndCursor;
             replayBatch.applied(state);
-            if (batch.historyCacheable && data instanceof Uint8Array) {
-              const cacheAt = measureIO ? now() : 0;
-              queueHistoryCacheWrite(state, data, batch.historyStartCursor, batch.historyEndCursor);
-              if (measureIO) cacheEnqueueMs = now() - cacheAt;
-            }
           }
           state.term.wasmTerm?.markOutputApplied?.({
             contentGeneration: state.terminalContentGeneration,
@@ -427,7 +420,7 @@ export function createTerminalOutputController({
           });
           trySendPendingQueueTurnAck(state);
           if (measureIO && isByteIOLogEnabled()) recordEvent(state, "byte_io_batch_complete", {
-            batchID, bytes: batch.byteLength, writeAwaitMs: writeDoneAt - writeAt, cacheEnqueueMs,
+            batchID, bytes: batch.byteLength, writeAwaitMs: writeDoneAt - writeAt,
             queuedBytes: state.outputQueueSize, queueEntries: state.outputQueue.length,
             endCursor: batch.historyEndCursor?.toString(),
           });
@@ -623,7 +616,7 @@ export function createTerminalOutputController({
         historyGeneration,
         selector: String(state.name || ""),
         paneID: String(state.id || ""),
-        historyCacheable: historySource === "server" && historyEndCursor !== null,
+        serverHistoryRange: historySource === "server" && historyEndCursor !== null,
         historyStartCursor,
         historyEndCursor,
         replayBatch: activeReplayBatch && historySource === "server" && historyStartCursor !== null

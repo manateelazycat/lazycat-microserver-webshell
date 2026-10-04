@@ -23,7 +23,6 @@ export function createTerminalUnifiedTransportController({
   buildConnectionURL = () => "",
   getDisposed = () => false,
   isOnline = () => true,
-  isClientTarget = () => false,
   getActiveName = () => "",
   getSessions = () => [],
   getMembershipPaneIDs = () => [],
@@ -133,7 +132,6 @@ export function createTerminalUnifiedTransportController({
       disposed
       || getDisposed()
       || !isOnline()
-      || isClientTarget(getActiveName())
     ) {
       return false;
     }
@@ -148,7 +146,6 @@ export function createTerminalUnifiedTransportController({
         disposed
         || getDisposed()
         || !isOnline()
-        || isClientTarget(getActiveName())
         || recoveryRunning
       ) {
         return;
@@ -170,7 +167,6 @@ export function createTerminalUnifiedTransportController({
           && !getDisposed()
           && isOnline()
           && getActiveName()
-          && !isClientTarget(getActiveName())
           && !recoveryRetryTimer
         ) {
           recoveryRetryTimer = windowObject?.setTimeout?.(() => {
@@ -283,7 +279,7 @@ export function createTerminalUnifiedTransportController({
   };
 
   const retryUnavailable = (reason = "lifecycle_resume") => {
-    if (disposed || getDisposed() || !isOnline() || isClientTarget(getActiveName())) {
+    if (disposed || getDisposed() || !isOnline()) {
       return false;
     }
     const state = connection?.snapshot?.().physicalReadyState ?? socketClosed;
@@ -392,7 +388,7 @@ export function createTerminalUnifiedTransportController({
   const prepare = (requestedTargetName) => {
     const name = String(requestedTargetName || "").trim();
     if (disposed || getDisposed() || !isOnline() || !name
-      || name !== getActiveName() || isClientTarget(name) || connection || closingPromise) {
+      || name !== getActiveName() || connection || closingPromise) {
       return null;
     }
     let prepared;

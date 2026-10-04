@@ -119,3 +119,9 @@ node spec-tests/run-playwright.mjs spec-tests/terminal/output/test.mjs
 - 当前测试允许并记录 stale resize ACK warning；后续应继续确认 warning 对应旧 ACK 且不会改变当前 geometry，而不是简单删除 warning 或放宽断言。
 - 当前 `spec-tests/terminal/geometry-jitter` 已包含桌面字号、真实行高修改/恢复、移动端 `Zoom+`/`Zoom-` 和逐帧 CSS/backing/DPR 日志；字号/行高断言 live Canvas 持续可见，tab/replay 等原子路径仍检查 hold 安全。
 - P0-5 当前已有 Node 协议回归断言和真实 output 安全回归，但仍需要采集并减少真实 full render 次数，才能完成端到端验收。
+
+## Android MCP 验收
+
+`android.mjs` 在 Pixel 9 Pro 模拟器的已安装 LightOS 应用中创建专用终端，输出 800 行编号内容，期间排队输入并通过总览切换标签；从实际 WebSocket 帧核对全部行与顺序，用设备截图 OCR 核对末行和后续输入，再清理标签。入口为 `./run-ac.sh --selector terminal/output/SC-TERMINAL-OUTPUT --target android-emulator`。
+
+当前设备回归在此负载和切换下复现 Android 系统的 “LightOS isn't responding” 提示，统一入口保留失败及截图证据（`spec-tests/reports/fe1c145a9024435aaac4eb5cb154008d/`）。测试创建的两个标签已清理；应用通过系统提示关闭并重新打开后恢复。该 AC 的 Android 状态不能报告为通过。

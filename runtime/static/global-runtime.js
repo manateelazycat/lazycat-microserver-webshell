@@ -6,6 +6,13 @@
 // them, passes explicit dependencies and coordinates their public APIs.
 import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
 import {
+  createCodexThemeAdapter,
+  installCodexFullscreenTouchAdapter,
+  installCodexFullscreenContextMenuAdapter,
+  installCodexFullscreenDesktopSelectionAdapter,
+  isCodexFullscreenTouchCandidate,
+  isCodexFullscreenContextMenuCandidate,
+  isCodexFullscreenDesktopSelectionCandidate,
   installClaudeFullscreenContextMenuAdapter,
   isClaudeFullscreenContextMenuCandidate,
   installClaudeFullscreenDesktopSelectionAdapter,
@@ -17,6 +24,8 @@ import {
   installGrokFullscreenTouchAdapter,
   installHerdrFullscreenTouchAdapter,
   installOpencodeFullscreenTouchAdapter,
+  installOpencodeFullscreenContextMenuAdapter,
+  installOpencodeFullscreenDesktopSelectionAdapter,
   installPiFullscreenTouchAdapter,
   isClaudeFullscreenTouchCandidate,
   isGrokFullscreenContextMenuCandidate,
@@ -24,6 +33,8 @@ import {
   isGrokFullscreenTouchCandidate,
   isHerdrFullscreenTouchCandidate,
   isOpencodeFullscreenTouchCandidate,
+  isOpencodeFullscreenContextMenuCandidate,
+  isOpencodeFullscreenDesktopSelectionCandidate,
   isPiFullscreenTouchCandidate,
 } from "./terminal/tui_adapters/index.js";
 import {
@@ -56,10 +67,7 @@ import {
   resolveMobileShortcutInputData,
 } from "./settings/index.js";
 import {
-  ClientTerminalReplayAdapter,
   TerminalReplayController,
-  createClientTerminalHistoryController,
-  createTerminalHistoryCache,
   createTerminalSessionReplayController,
   terminalCheckpointCapabilitiesForTerminal,
 } from "./terminal/history/index.js";
@@ -71,6 +79,7 @@ import {
   createTerminalSearchController,
   terminalFullBufferText,
 } from "./terminal/interaction/index.js";
+import { retireClientTerminalHistory, requireManagedClientWorkspace } from "./terminal-client/index.js";
 import { createTerminalOverviewController } from "./terminal/overview/index.js";
 import {
   createTerminalPresentationController,
@@ -264,8 +273,6 @@ export function startGlobalRuntime() {
     terminalUnifiedPongTimeoutMs,
     terminalUnifiedTransitionTimeoutMs,
     terminalWebSocketConnectTimeoutMs,
-    terminalClientDirectWebSocketCapacity,
-    terminalConnectionInteractionPriorityMs,
     terminalUnifiedPaneRetryBaseDelayMs,
     terminalUnifiedPaneRetryMaxDelayMs,
     terminalWebSocketHealthTimeoutMs,
@@ -274,19 +281,12 @@ export function startGlobalRuntime() {
     terminalUserRecoveryThrottleMs,
     terminalAttachReadyTimeoutMs,
     terminalAgentPrepareTimeoutMs,
-    terminalReconnectBaseDelayMs,
-    terminalReconnectMaxDelayMs,
-    terminalReconnectJitterRatio,
     terminalResizeThrottleMs,
     terminalResizeSettleMs,
     terminalResizeOutputQuietMs,
     terminalResizeOutputMaxHoldMs,
     terminalReplayFailureLimit,
     terminalReplayCheckpointDelayMs,
-    terminalHistoryCacheFlushBytes,
-    terminalHistoryCacheFlushDelayMs,
-    terminalHistoryCacheOrphanTTL,
-    averageTerminalHistoryBytesPerLine,
     activityPollIntervalMs,
   } = TERMINAL_RUNTIME_CONFIG;
   const initialTerminalFontSize = readStoredTerminalFontSize(window.localStorage, storagePrefix);
@@ -306,6 +306,7 @@ export function startGlobalRuntime() {
   let activeWorkspaceGeneration = "";
   const getWorkspaceGeneration = () => activeWorkspaceGeneration;
   const setWorkspaceGenerationFromState = (state) => {
+    requireManagedClientWorkspace(state);
     const next = String(state?.workspace_generation || "").trim();
     if (next === activeWorkspaceGeneration) {
       return false;
@@ -519,6 +520,7 @@ export function startGlobalRuntime() {
   const terminalBackend = createTerminalBackendManager({
     wasmURL: ghosttyWASMURL,
     diagnosticsEnabled: () => diagnostics.isInitializationCollecting() || diagnostics.isByteIOLogEnabled(),
+    resizeDiagnosticsEnabled: () => diagnostics.isTerminalRenderCaptureEnabled(),
     recordEvent: recordTerminalSessionEvent,
     isVisible: (session) => !document.hidden && session?.tabId === getActiveTabId(),
     onError: (session, error) => {
@@ -558,19 +560,6 @@ export function startGlobalRuntime() {
     showToast: (message) => showToast(message),
     appendDebugWarning: (...args) => appendDebugWarning(...args),
     appendDebugError: (...args) => appendDebugError(...args),
-  });
-  const clientHistory = createClientTerminalHistoryController({
-    windowObject: window,
-    consoleObject: console,
-    historyStore: createTerminalHistoryCache({ orphanTTL: terminalHistoryCacheOrphanTTL }),
-    isClientTarget: (name) => isClientInstanceName(name),
-    getSessions: () => getAllSessions(),
-    getActiveName,
-    getHistoryWindowLines: () => terminalOptionsBase.scrollback,
-    requestHistoryReplay: (session) => requestSessionHistoryReplay(session),
-    averageHistoryBytesPerLine: averageTerminalHistoryBytesPerLine,
-    flushBytes: terminalHistoryCacheFlushBytes,
-    flushDelayMs: terminalHistoryCacheFlushDelayMs,
   });
   const instances = createInstancesController({
     documentObject: document,
@@ -651,6 +640,7 @@ export function startGlobalRuntime() {
     },
     setFeedback: (message, tone) => settings?.setFeedback(message, tone),
     confirmDelete: (message, options) => confirmDialog(message, options),
+    confirmPublicAccess: (message, options) => confirmDialog(message, options),
     openURL: (url) => terminalLinks.open(url),
     closeSelect: () => closeMobileCustomSelect(),
   });
@@ -719,7 +709,7 @@ export function startGlobalRuntime() {
     onTerminalLineHeightChange: (value, previousValue) => terminalMetrics?.applyLineHeight(value, previousValue),
     onDesktopShortcutsBarChange: () => terminalResize?.resizeActiveTabForCurrentDevice(),
     onRestartWorkspaceRestoreSaved: (enabled) => {
-      if (enabled && !isClientInstanceName(getActiveName())) {
+      if (enabled) {
         refreshWorkspace({ focus: false }).catch((error) => showToast(error.message));
       }
     },
@@ -737,10 +727,7 @@ export function startGlobalRuntime() {
   terminalReplay = createTerminalSessionReplayController({
     windowObject: window,
     getActiveName,
-    isClientTarget: (name) => isClientInstanceName(name),
     hasQueuedOutput: (session) => terminalOutput?.hasQueued(session) === true,
-    flushCache: (session) => clientHistory.flushSession(session),
-    disableCache: (session, error) => clientHistory.disableSession(session, error),
     endRenderSuppression: (session, options) => endTerminalRenderSuppression(session, options),
     clearOutputOverload: (session) => terminalOutput?.clearOverload(session),
     clearAttachReadyTimer: (session) => terminalSessionConnection?.clearAttachReadyTimer(session),
@@ -757,7 +744,11 @@ export function startGlobalRuntime() {
     setPresentationReady: (session, ready) => terminalPresentation?.setReady(session, ready),
     ensurePresentation: (session, options) => terminalPresentation?.ensure(session, options),
     flushPendingInput: (session) => terminalInput?.flushPending(session),
-    syncConnectionDemands: (options) => terminalTransportRuntime?.syncConnectionDemands(options),
+    onReplayReady: () => {
+      if (isClientInstanceName(getActiveName())) {
+        terminalTransportRuntime?.syncConnectionDemands({ reason: "replay_ready" });
+      }
+    },
     beginPresentationHold: (session) => terminalPresentation?.beginHold(session),
     isMeasurable: (session) => terminalResize?.isMeasurable(session) === true,
     canvasMatchesExpectedSize: (session) => terminalResize?.canvasMatchesExpectedSize(session) === true,
@@ -819,7 +810,6 @@ export function startGlobalRuntime() {
     },
     getDisposed: () => disposed,
     isOnline: () => navigator.onLine !== false,
-    isClientTarget: (name) => isClientInstanceName(name),
     getActiveName,
     getSessions: () => getAllSessions(),
     getMembershipPaneIDs: () => terminalTransportRuntime?.snapshot().membership.paneIDs || [],
@@ -865,6 +855,7 @@ export function startGlobalRuntime() {
     transitionTimeoutMs: terminalUnifiedTransitionTimeoutMs,
   });
 
+  const codexThemeAdapter = createCodexThemeAdapter({ getThemes: () => appearance.snapshot().themes });
   terminalRenderer = createTerminalRendererAdapter({
     documentObject: document,
     windowObject: window,
@@ -874,6 +865,7 @@ export function startGlobalRuntime() {
     getFontSize: () => settings?.getTerminalFontSize(),
     initialFontSize: initialTerminalFontSize,
     getFontFamily: () => terminalOptionsBase.fontFamily,
+    getBackgroundColorMap: (session, theme) => codexThemeAdapter.getBackgroundColorMap(session, theme),
   });
 
   terminalPresentation = createTerminalPresentationController({
@@ -999,9 +991,6 @@ export function startGlobalRuntime() {
     setScrollback: (scrollback) => {
       terminalOptionsBase.scrollback = scrollback;
     },
-    onScrollbackChange: (previousScrollback, nextScrollback) => (
-      clientHistory.handleHistoryWindowChange(previousScrollback, nextScrollback)
-    ),
     isMobileLayout: () => isMobileLayout(),
     resizeActiveTabForCurrentDevice: () => terminalResize?.resizeActiveTabForCurrentDevice(),
     getRenderer: () => terminalRenderer,
@@ -1575,9 +1564,14 @@ export function startGlobalRuntime() {
     claudeTouchCandidate: isClaudeFullscreenTouchCandidate,
     claudeContextMenuCandidate: isClaudeFullscreenContextMenuCandidate,
     claudeDesktopSelectionCandidate: isClaudeFullscreenDesktopSelectionCandidate,
+    codexTouchCandidate: isCodexFullscreenTouchCandidate,
+    codexContextMenuCandidate: isCodexFullscreenContextMenuCandidate,
+    codexDesktopSelectionCandidate: isCodexFullscreenDesktopSelectionCandidate,
     grokTouchCandidate: isGrokFullscreenTouchCandidate,
     grokContextMenuCandidate: isGrokFullscreenContextMenuCandidate,
     grokDesktopSelectionCandidate: isGrokFullscreenDesktopSelectionCandidate,
+    opencodeContextMenuCandidate: isOpencodeFullscreenContextMenuCandidate,
+    opencodeDesktopSelectionCandidate: isOpencodeFullscreenDesktopSelectionCandidate,
   });
 
   const terminalLocationDescription = (session) => (
@@ -1585,10 +1579,15 @@ export function startGlobalRuntime() {
   );
   const isGrokTerminalSession = (session) => terminalPolicy?.isGrokTerminalSession(session) === true;
   const isClaudeFullscreenTouchSession = (session) => terminalPolicy?.isClaudeFullscreenTouchSession(session) === true;
+  const isCodexFullscreenTouchSession = (session) => terminalPolicy?.isCodexFullscreenTouchSession(session) === true;
+  const isCodexFullscreenContextMenuEvent = (session, event) => terminalPolicy?.isCodexFullscreenContextMenuEvent(session, event) === true;
+  const isCodexFullscreenDesktopSelectionEvent = (session, event) => terminalPolicy?.isCodexFullscreenDesktopSelectionEvent(session, event) === true;
   const isClaudeFullscreenContextMenuEvent = (session, event) => terminalPolicy?.isClaudeFullscreenContextMenuEvent(session, event) === true;
   const isClaudeFullscreenDesktopSelectionEvent = (session, event) => terminalPolicy?.isClaudeFullscreenDesktopSelectionEvent(session, event) === true;
   const isGrokFullscreenContextMenuEvent = (session, event) => terminalPolicy?.isGrokFullscreenContextMenuEvent(session, event) === true;
   const isGrokFullscreenDesktopSelectionEvent = (session, event) => terminalPolicy?.isGrokFullscreenDesktopSelectionEvent(session, event) === true;
+  const isOpencodeFullscreenContextMenuEvent = (session, event) => terminalPolicy?.isOpencodeFullscreenContextMenuEvent(session, event) === true;
+  const isOpencodeFullscreenDesktopSelectionEvent = (session, event) => terminalPolicy?.isOpencodeFullscreenDesktopSelectionEvent(session, event) === true;
   const scrollTerminalToBottomForUserInput = (session) => terminalPolicy?.scrollTerminalToBottomForUserInput(session) === true;
 
   workspaceActivity = createWorkspaceActivityController({
@@ -1606,6 +1605,11 @@ export function startGlobalRuntime() {
     isCurrentInstanceRequest: (name, generation) => isCurrentInstanceRequest(name, generation),
     ensureResponseSelector: (state, name, label) => ensureResponseSelector(state, name, label),
     observeServerGeometry: (pane, state) => terminalResize?.observeServerGeometry(pane, state),
+    onPaneProcessChange: (session) => {
+      if (terminalRenderer?.syncBackgroundColors(session) && terminalPresentation?.isRenderAllowed(session)) {
+        session.term?.requestRender?.({ full: true });
+      }
+    },
     recoverSessions: (sessions) => terminalPresentation?.recoverSessions(sessions),
     refreshTabAutoLabel: (tab) => refreshTabAutoLabel(tab),
     updateMobileActiveTabTitle: () => updateMobileActiveTabTitle(),
@@ -1625,10 +1629,15 @@ export function startGlobalRuntime() {
     isTouchShortcutLayout: () => isTouchShortcutLayout(),
     isMobileMenuOpen: () => terminalInteraction?.isMobileOpen() === true,
     isClaudeTouchSession: (session) => isClaudeFullscreenTouchSession(session),
+    isCodexTouchSession: (session) => isCodexFullscreenTouchSession(session),
+    isCodexContextMenuEvent: (session, event) => isCodexFullscreenContextMenuEvent(session, event),
+    isCodexDesktopSelectionEvent: (session, event) => isCodexFullscreenDesktopSelectionEvent(session, event),
     isClaudeContextMenuEvent: (session, event) => isClaudeFullscreenContextMenuEvent(session, event),
     isClaudeDesktopSelectionEvent: (session, event) => isClaudeFullscreenDesktopSelectionEvent(session, event),
     isGrokContextMenuEvent: (session, event) => isGrokFullscreenContextMenuEvent(session, event),
     isGrokDesktopSelectionEvent: (session, event) => isGrokFullscreenDesktopSelectionEvent(session, event),
+    isOpencodeContextMenuEvent: (session, event) => isOpencodeFullscreenContextMenuEvent(session, event),
+    isOpencodeDesktopSelectionEvent: (session, event) => isOpencodeFullscreenDesktopSelectionEvent(session, event),
     getTerminalMouse: () => terminalMouse,
     getTerminalIME: () => terminalIME,
     getTerminalSelection: () => terminalSelection,
@@ -1638,7 +1647,12 @@ export function startGlobalRuntime() {
     markContextMenuCandidate: (touch) => markTerminalTouchContextMenuCandidate(touch),
     registerCleanup: (session, callback) => terminalSessionController?.addCleanup(session, callback),
     installClaudeFullscreenTouchAdapter,
+    installCodexFullscreenTouchAdapter,
+    installCodexFullscreenContextMenuAdapter,
+    installCodexFullscreenDesktopSelectionAdapter,
     installOpencodeFullscreenTouchAdapter,
+    installOpencodeFullscreenContextMenuAdapter,
+    installOpencodeFullscreenDesktopSelectionAdapter,
     installHerdrFullscreenTouchAdapter,
     installPiFullscreenTouchAdapter,
     installClaudeFullscreenContextMenuAdapter,
@@ -1678,18 +1692,17 @@ export function startGlobalRuntime() {
     sessionRecovery?.requestSessionHistoryReplay(session) === true
   );
 
-  const connectSession = (...args) => (
-    terminalSessionProtocol
-      ? terminalSessionProtocol.connectSession(...args)
-      : Promise.resolve(false)
-  );
+  const connectSession = (session, options) => {
+    const protocol = terminalSessionProtocol;
+    return protocol ? protocol.connectSession(session, options) : Promise.resolve(false);
+  };
+
 
   terminalTransportRuntime = createTerminalTransportRuntimeController({
     windowObject: window,
     documentObject: document,
     getDisposed: () => disposed,
     isOnline: () => navigator.onLine !== false,
-    isClientTarget: (name) => isClientInstanceName(name),
     getActiveName,
     getActiveTabID: getActiveTabId,
     getTabs: () => tabs.values(),
@@ -1704,25 +1717,13 @@ export function startGlobalRuntime() {
     detachSessionSocket: (session, socket, options) => detachSessionSocket(session, socket, options),
     connectSession: (session, options) => connectSession(session, options),
     sessionConnectingState: (session) => sessionConnectingState(session),
-    resumePendingInputExpiry: (session) => terminalInput?.resumePendingExpiry(session),
-    pausePendingInputExpiry: (session) => terminalInput?.pausePendingExpiry(session),
-    clearSessionConnectionTimers: (session) => terminalSessionConnection.clearConnectionTimers(session),
-    retrySessionAfterFailure: (session, error, options) => terminalSessionConnection.retryAfterFailure(session, error, options),
-    appendDebugLog: (...args) => appendDebugLog(...args),
-    appendDebugWarning: (...args) => appendDebugWarning(...args),
     appendDebugError: (...args) => appendDebugError(...args),
     recordRuntimeEvent: (event, details) => diagnostics.recordRuntimeEvent(event, details),
     describeSession: (session) => terminalLocationDescription(session),
     socketConnecting: WebSocket.CONNECTING,
     socketOpen: WebSocket.OPEN,
-    socketClosed: WebSocket.CLOSED,
-    clientCapacity: terminalClientDirectWebSocketCapacity,
-    interactionPriorityMs: terminalConnectionInteractionPriorityMs,
     unifiedRetryBaseDelayMs: terminalUnifiedPaneRetryBaseDelayMs,
     unifiedRetryMaxDelayMs: terminalUnifiedPaneRetryMaxDelayMs,
-    reconnectBaseDelayMs: terminalReconnectBaseDelayMs,
-    reconnectMaxDelayMs: terminalReconnectMaxDelayMs,
-    reconnectJitterRatio: terminalReconnectJitterRatio,
   });
 
   terminalKeyOverrides = createTerminalKeyOverridesController({
@@ -1744,7 +1745,6 @@ export function startGlobalRuntime() {
     isReplayCommitted: (session) => terminalReplay.isCommitted(session),
     isSocketOpen: (session) => session?.socket?.readyState === WebSocket.OPEN,
     getCurrentLease: (session) => terminalTransportRuntime?.currentLease(session) || null,
-    isClientTarget: (name) => isClientInstanceName(name),
     getResizeSize: (session) => terminalResize.size(session),
     normalizeResizeEpoch: (value) => terminalResize.normalizeEpoch(value),
     getThemePayload: () => terminalThemePayload(),
@@ -1851,9 +1851,6 @@ export function startGlobalRuntime() {
       terminalSessionExit?.settle(session);
       return result;
     },
-    queueHistoryCacheWrite: (session, data, startCursor, endCursor) => (
-      clientHistory.queueWrite(session, data, startCursor, endCursor)
-    ),
     scheduleReplayPresentationCheckpoint: (session) => terminalReplay.schedulePresentationCheckpoint(session),
     beginPresentationHold: (session) => terminalPresentation.beginHold(session),
     isRenderAllowed: (session) => terminalPresentation.isRenderAllowed(session),
@@ -1893,7 +1890,7 @@ export function startGlobalRuntime() {
     recordEvent: recordTerminalSessionEvent,
   });
 
-  terminalSessionProtocol = createTerminalSessionProtocolController({
+  const sessionProtocolOptions = {
     isByteIOLogEnabled: () => diagnostics.isByteIOLogEnabled(),
     documentObject: document,
     navigatorObject: navigator,
@@ -1905,13 +1902,11 @@ export function startGlobalRuntime() {
     terminalSessionConnection,
     terminalUnifiedTransport,
     terminalReplay,
-    clientHistory,
     terminalOutput,
     terminalPresentation,
     terminalResize,
     terminalInput,
     TerminalReplayController,
-    ClientTerminalReplayAdapter,
     terminalCheckpointCapabilitiesForTerminal,
     terminalAgentPrepareTimeoutMs,
     serverRevisionClientID: serverRevision.getClientID(),
@@ -1919,7 +1914,6 @@ export function startGlobalRuntime() {
     terminalThemePayload,
     sendTerminalTheme,
     syncTerminalNetworkMonitorSockets,
-    isClientInstanceName,
     isCurrentInstanceSession,
     terminalLocationDescription,
     isRetryableTerminalTransportError,
@@ -1940,7 +1934,8 @@ export function startGlobalRuntime() {
     isDebugLogEnabled,
     serverLogSinceUnixMS,
     recordTerminalSessionEvent,
-  });
+  };
+  terminalSessionProtocol = createTerminalSessionProtocolController(sessionProtocolOptions);
 
   const terminalSessionResources = createTerminalSessionResourceFactory({
     attachBackend: (term) => terminalBackend.attach(term),
@@ -1972,7 +1967,6 @@ export function startGlobalRuntime() {
       clearCanvasPixels: (session) => terminalPresentation.clearCanvas(session),
       clearConnectionTimers: (session) => terminalSessionConnection.clearConnectionTimers(session),
       clearFullRenderValidation: (session) => terminalPresentation.clearValidation(session),
-      clearHistoryCacheWriteSchedule: (session) => clientHistory.clearSessionSchedule(session),
       clearInputFlushTimer: (session) => terminalInput?.clearInputFlushTimer(session),
       clearInputPumpTimer: (session) => terminalInput?.clearInputPumpTimer(session),
       clearPendingInputExpiry: (session) => terminalInput?.clearPendingInputExpiry(session),
@@ -1980,13 +1974,11 @@ export function startGlobalRuntime() {
       clearReconnectTimer: (session) => terminalSessionConnection.clearReconnectTimer(session),
       clearUnifiedRetry: (session, options) => terminalTransportRuntime?.clearUnifiedRetry(session, options),
       detachLogicalStream: (session, reason) => terminalTransportRuntime?.detachUnifiedSession(session, reason),
-      disposeHistoryCache: (session) => clientHistory.disposeSession(session),
       disposeOutput: (session) => {
         terminalOutput?.disposeSession(session);
         terminalHealth.disposeSession(session);
         terminalWorkScheduler.cancelOwner(session);
       },
-      flushHistoryCacheWrites: (session) => clientHistory.flushSession(session),
       releaseTerminalFrame: (session) => terminalPresentation.releaseHold(session),
       unregisterConnection: (session, reason) => terminalTransportRuntime?.unregisterSession(session, reason),
     },
@@ -2076,7 +2068,6 @@ export function startGlobalRuntime() {
     refreshTabAutoLabel: (tab) => refreshTabAutoLabel(tab),
     markSessionTitleNotification: (session) => markSessionTitleNotification(session),
     transportRuntime: terminalTransportRuntime,
-    isClientTarget: (name) => isClientInstanceName(name),
   });
   const createPaneSession = (tab, instanceName, options) => (
     terminalSessionInstallation.createPaneSession(tab, instanceName, options)
@@ -2125,7 +2116,6 @@ export function startGlobalRuntime() {
     refreshAndConfirmClose: (panes, message) => workspaceActivity.refreshAndConfirmClose(panes, message),
     targetPanesFromTab: (tab) => workspaceActivity.targetPanesFromTab(tab),
     postWorkspaceAction: (action, payload) => postWorkspaceAction(action, payload),
-    destroyCachedSession: (pane) => clientHistory.destroySession(pane),
     promptRename: (title, value) => promptDialog(title, value),
     commitTabRename: (tabId, label, options) => workspaceTabLabels?.commitTabRename(tabId, label, options),
     showToast: (message) => showToast(message),
@@ -2186,7 +2176,6 @@ export function startGlobalRuntime() {
     clearRestartTabForReload: () => clearRestartTabForReload(),
     readRequestedTab: () => new URLSearchParams(window.location.search).get("tab") || "",
     setWorkspaceGenerationFromState: (state) => setWorkspaceGenerationFromState(state),
-    destroyLocalHistory: (pane) => clientHistory.destroySession(pane),
     closeTab: (tabId, options) => closeTab(tabId, options),
     createTab: (options) => createTab(options),
     recreateTabButton: (tab) => recreateTabButton(tab),
@@ -2487,7 +2476,6 @@ export function startGlobalRuntime() {
     terminalResize?.dispose();
     terminalPresentation?.dispose();
     terminalRuntime?.dispose();
-    clientHistory.dispose();
     terminalUnifiedTransport.dispose("page_disposed");
     instances.dispose();
     appearance.dispose();
@@ -2598,15 +2586,11 @@ export function startGlobalRuntime() {
         rememberWorkspaceRestoreState();
         settings?.flushPending();
         terminalOverview?.captureAllPreviews(getAllSessions(), { immediate: true });
-        clientHistory.touchAll();
-        clientHistory.flushAll();
         devices.handlePageHide();
       },
       onBeforeUnload: (event) => {
         rememberWorkspaceRestoreState();
         settings?.flushPending();
-        clientHistory.touchAll();
-        clientHistory.flushAll();
         if (!suppressBeforeUnloadOnce && workspaceActivity.hasCachedBusyPane()) {
           event.preventDefault();
           event.returnValue = "";
@@ -2617,15 +2601,14 @@ export function startGlobalRuntime() {
       onHeartbeat: () => {
         terminalHealth.check(getAllSessions());
         rememberWorkspaceRestoreState();
-        clientHistory.touchAll();
       },
     },
   });
   appLifecycle.start();
 
   legacyStorageCleanup.cleanup();
+  retireClientTerminalHistory(window);
 
-  clientHistory.cleanupStorage();
 
   serverRevision.scheduleInitialCheck();
 

@@ -71,3 +71,7 @@ node spec-tests/run-playwright.mjs spec-tests/terminal/overview-preview/test.mjs
 2026-09-04 修正等待后，`artifacts/2026-09-04T10-25-34-296Z/` 完整通过：目标记录真实落盘后才 reload，后台 tab 的持久 ImageBitmap 被绘制，隔离 tab 清理和 fatal error 门禁通过；产品代码无需修改。
 
 最终 16 场景回归产物 `artifacts/2026-09-04T11-15-41-309Z/` 再次通过真实 IndexedDB transaction、reload 后 ImageBitmap 绘制和 cleanup。
+
+## Android MCP 验收
+
+`android.mjs` 在已安装 LightOS 应用里创建两个专用终端标签，等待第二个预览真实写入 IndexedDB，刷新后打开总览并观察持久图片源绘制与设备截图。入口为 `./run-ac.sh --selector terminal/overview-preview --target android-emulator`；结束后清理两个标签。

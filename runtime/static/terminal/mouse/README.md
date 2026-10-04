@@ -4,7 +4,7 @@
 
 本目录负责终端鼠标协议的工具无关责任域：读取 Ghostty mouse mode、Legacy/SGR 字节编码、桌面 press/move/release/wheel、触摸 mouse 序列、移动事件去重、本地 TUI 事件所有权，以及 listener 的 session 生命周期。
 
-本模块不负责 TUI 身份识别、选择范围、Clipboard、输入队列、WebSocket、history replay、resize owner 或 Canvas presentation。Claude、opencode、herdr、pi 和 Grok 的身份判断必须留在各自调用方或 `terminal/tui_adapters/`；mouse controller 只接受 `isDeferredTouchClickSession()` 等显式策略，不得包含工具名或宽泛命令匹配。
+本模块不负责 TUI 身份识别、选择范围、Clipboard、输入队列、WebSocket、history replay、resize owner 或 Canvas presentation。Claude、Codex、opencode、herdr、pi 和 Grok 的身份判断必须留在各自调用方或 `terminal/tui_adapters/`；mouse controller 只接受 `isDeferredTouchClickSession()` 等显式策略，不得包含工具名或宽泛命令匹配。
 
 ## 公开入口与契约
 

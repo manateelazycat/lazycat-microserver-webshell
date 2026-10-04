@@ -38,7 +38,6 @@ export function createTerminalSessionLifecycle({
       return false;
     }
 
-    invoke(adapters.flushHistoryCacheWrites, session);
 
     // Logical close dispatch is synchronous. Mark the pane closed first so
     // its close callback cannot schedule a retry while disposal is running.
@@ -73,8 +72,6 @@ export function createTerminalSessionLifecycle({
     invoke(adapters.disposeOutput, session);
     invoke(adapters.clearFullRenderValidation, session);
     invoke(adapters.clearPresentationRetry, session);
-    invoke(adapters.clearHistoryCacheWriteSchedule, session);
-    invoke(adapters.disposeHistoryCache, session);
     invoke(adapters.cancelFrameRelease, session);
     invoke(adapters.releaseTerminalFrame, session);
     runCleanups(session);

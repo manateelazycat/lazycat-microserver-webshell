@@ -12,11 +12,13 @@
 
 开始测试先读 [ENVIRONMENT.md](ENVIRONMENT.md)，明确测试机、登录、实例选择、Google Chrome、X11 DISPLAY、构建产物及权限配置。
 
-从产品根目录运行 `./run-ac.sh`，统一入口会调用本目录 `test-all.sh` 执行全部模块；指定 `--selector terminal/input` 这类 `domain/feature` 时仍使用同一批次入口，只执行所选模块。也可以直接运行 `./test-all.sh`。
+从产品根目录运行 `./run-ac.sh --selector terminal/input`，统一入口通过唯一的 Project AC Executor 选择和执行场景。Android 场景使用 `--target android-emulator`；未承接 Android 的场景会明确失败。也可以直接运行桌面批次入口 `./test-all.sh`。
 
-根目录 `run-ac.sh` 指向项目包装器 `spec-tests/run-ac-entry`，由它提供默认全量和总用时输出，再调用通用启动器 `spec-tests/run-ac`。通用运行时工具提示根入口与默认目标不同属于此项目约定，更新运行时时应保留该包装器。
+根目录 `run-ac.sh` 指向通用启动器 `spec-tests/run-ac`。无参数只显示帮助；显式使用 `--selector`、`--all` 或 `--auto` 选择范围。`spec-tests/proj-spec.yml` 指定本项目唯一执行器和选择文件。
 
-正式执行前自动构建当前前端，并给整批测试固定同一份产物快照；页面和资源校验构建摘要。本地资源缺失直接失败，不能回退到远端旧前端。`--dry-run` 和 `--help` 不执行构建或测试。
+桌面场景执行前自动构建当前前端，并给整批测试固定同一份产物快照；页面和资源校验构建摘要。Android 场景从当前工作树构建完整 LightOS LPK，每批通过所选设备的网络通道核对 `debug123` 正在运行的文件；内容不一致时安装本批次 LPK，再比较运行目录文件摘要、Android 应用访问到的服务修订与实际加载的 JS、WASM 摘要。安装或核验失败则停止测试。`--dry-run` 和 `--help` 不构建、不申请设备。
+
+Android 设备由 `WEBSHELL_DEVICE_MCP_URL` 指向的 device-hub MCP 申请，`WEBSHELL_DEVICE_MCP_OWNER`、`WEBSHELL_DEVICE_NAME` 和 `WEBSHELL_DEVICE_KIND` 明确绑定目标。MCP 返回限域 ADB 连接；WebShell 专属适配在 `environment/webshell-test-harness/`，场景仍放在对应的 `domain/feature/` 下。该设备当前是 Pixel 9 Pro Android 模拟器，不记为物理手机验收。
 
 ```sh
 (cd spec-tests && npm ci)

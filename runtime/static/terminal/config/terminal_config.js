@@ -20,8 +20,6 @@ export const TERMINAL_RUNTIME_CONFIG = Object.freeze({
   terminalUnifiedPongTimeoutMs: 12 * 1000,
   terminalUnifiedTransitionTimeoutMs: 12 * 1000,
   terminalWebSocketConnectTimeoutMs: 12 * 1000,
-  terminalClientDirectWebSocketCapacity: 3,
-  terminalConnectionInteractionPriorityMs: 1200,
   terminalUnifiedPaneRetryBaseDelayMs: 500,
   terminalUnifiedPaneRetryMaxDelayMs: 10 * 1000,
   terminalWebSocketHealthTimeoutMs: 25 * 1000,
@@ -39,9 +37,5 @@ export const TERMINAL_RUNTIME_CONFIG = Object.freeze({
   terminalResizeOutputMaxHoldMs: 800,
   terminalReplayFailureLimit: 3,
   terminalReplayCheckpointDelayMs: 48,
-  terminalHistoryCacheFlushBytes: 256 * 1024,
-  terminalHistoryCacheFlushDelayMs: 50,
-  terminalHistoryCacheOrphanTTL: 30 * 1000,
-  averageTerminalHistoryBytesPerLine: 350,
   activityPollIntervalMs: 4000,
 });

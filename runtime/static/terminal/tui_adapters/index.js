@@ -16,7 +16,11 @@ export {
 } from "./claude/index.js";
 export {
   installOpencodeFullscreenTouchAdapter,
+  installOpencodeFullscreenContextMenuAdapter,
+  installOpencodeFullscreenDesktopSelectionAdapter,
   isOpencodeFullscreenTouchCandidate,
+  isOpencodeFullscreenContextMenuCandidate,
+  isOpencodeFullscreenDesktopSelectionCandidate,
   isOpencodeTerminalIdentity,
 } from "./opencode/index.js";
 export {
@@ -43,3 +47,13 @@ export {
   isOfficialGrokEntrypoint,
 } from "./grok/index.js";
 export { createTerminalTUIAdapterInstaller } from "./installation_controller.js";
+export {
+  createCodexThemeAdapter,
+  isCodexTerminalIdentity,
+  installCodexFullscreenTouchAdapter,
+  installCodexFullscreenContextMenuAdapter,
+  installCodexFullscreenDesktopSelectionAdapter,
+  isCodexFullscreenTouchCandidate,
+  isCodexFullscreenContextMenuCandidate,
+  isCodexFullscreenDesktopSelectionCandidate,
+} from "./codex/index.js";

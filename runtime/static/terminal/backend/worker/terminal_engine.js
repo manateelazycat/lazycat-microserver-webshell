@@ -56,19 +56,26 @@ export function createTerminalEngine() {
       responses,
     };
   };
-  const snapshot = (viewportY = 0) => {
+  const snapshot = (viewportY = 0, trace = null) => {
     const state = progress();
-    if (state.syncOutputRemainingMs > 0) return state;
+    if (state.syncOutputRemainingMs > 0) {
+      trace?.("snapshot_held", { syncOutputRemainingMs: state.syncOutputRemainingMs });
+      return state;
+    }
+    trace?.("render_state_start");
     native.update();
+    trace?.("render_state_complete");
     const top = serial - Math.min(state.scrollback, Math.max(0, Math.ceil(viewportY)));
     const frame = { ...state, terminalState: true, cursor: native.getCursor(), colors: native.getColors() };
     {
+      trace?.("viewport_start");
       const cells = native.getViewport();
       if (!cells || cells.length < native.cols * native.rows) throw new Error("Terminal viewport is incomplete");
       const lines = Array.from({ length: native.rows }, (_, row) => cells.slice(row * native.cols, (row + 1) * native.cols));
       frame.wrapped = lines.map((_, row) => native.isRowWrapped(row));
       frame.viewport = packRows(lines, native.cols, (row, col) => native.getGraphemeString(row, col));
       frame.history = historyRange(top - 32, Math.min(serial, top + native.rows + 32));
+      trace?.("viewport_complete", { viewportBytes: frame.viewport.bytes.byteLength });
     }
     native.markClean();
     cachedRevision = revision;
@@ -112,11 +119,13 @@ export function createTerminalEngine() {
       }
       return result;
     },
-    async restore({ checkpoint }) {
+    async restore({ checkpoint }, trace = null) {
       validateMemoryCheckpoint(ghostty, checkpoint);
       const restoredGhostty = ghostty.newCheckpointInstance();
       const restored = restoredGhostty.createTerminal(checkpoint.cols, checkpoint.rows, { scrollbackLimit: checkpoint.scrollback_lines });
+      trace?.("checkpoint_restore_start");
       await restoreMemoryCheckpoint(restoredGhostty, restored, checkpoint, terminalConfig);
+      trace?.("checkpoint_restore_complete");
       native.free();
       ghostty = restoredGhostty;
       native = restored;
@@ -125,14 +134,16 @@ export function createTerminalEngine() {
       revision += 1;
       previousGeneration = native.getScrollbackGeneration();
       serial = native.getScrollbackLength();
-      return snapshot();
+      return snapshot(0, trace);
     },
-    resize({ cols, rows, viewportY }) {
+    resize({ cols, rows, viewportY }, trace = null) {
+      trace?.("native_resize_start", { cols, rows });
       native.resize(cols, rows);
+      trace?.("native_resize_complete", { cols, rows });
       trackHistory();
       historyEpoch += 1;
       revision += 1;
-      return snapshot(viewportY);
+      return snapshot(viewportY, trace);
     },
     read({ start, end, epoch }) {
       if (epoch !== historyEpoch) return { stale: true };

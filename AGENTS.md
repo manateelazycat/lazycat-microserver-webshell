@@ -6,7 +6,11 @@
 - `runtime/static/global-runtime.js` 是 UI 全局运行时 owner；同级 `global-backend-worker.js` 是 Worker 全局运行时 owner。两者只编排各自模块和生命周期，具体实现分模块维护。
 - 本项目禁止引入 `tmux`。
 - 本项目禁止引入 `xterm.js`。
-- 修改服务端代码时，必须同步更新 `agent.go` 的 `agentProtocolVersion`，并核对 `agent_runtime.go` 的显式兼容列表和协议版本说明。
+- 根目录 `main.go` 只组装依赖并分派启动；共用终端逻辑放在 `core/`，系统操作放在 `unix/` 或后续的 `windows/`，发现、鉴权、容器命令及 HTTP 接入放在 `provider/`。
+- `core/` 不得导入平台包或 Provider，不得直接执行 `lightosctl`、调用 Unix PTY/syscall 或扫描 `/proc`；通过 `core/runtime.go` 的接口注入这些能力。
+- `localserver/` 维护本地 HTTP 门禁和帧适配，复用 Core 的会话与 Unified 队列；`localtools/` 仅承载 PC 编码及 nano 兼容，不影响容器字节流。
+- 每个服务端模块目录维护 `README.md`，说明职责、入口、依赖、关键约束和验证方式。模块边界或接口变化时同步更新。
+- 修改服务端代码时，必须同步更新 `core/agent.go` 的 `AgentProtocolVersion`，并核对 `provider/agent_runtime.go` 的显式兼容列表和协议版本说明。
 
 ## 测试规则
 

@@ -28,7 +28,7 @@ Then 当前浏览器的默认配色和程序主动设置的颜色均保留
 ID: SC-STATE-CHECKPOINT-RAW-HISTORY-FALLBACK
 Profile: draft
 Gate: required
-Given 普通容器终端的服务端解析状态已失效，PTY 和程序仍运行且存在可回放历史
+Given 容器或受管理的 PC 客户端终端的服务端解析状态已失效，PTY 和程序仍运行且存在可回放历史
 When 用户打开或重新连接该会话
 Then 会话自动回放保留的原始历史并继续接收实时输出，不因服务端快照错误持续拒绝连接
 And 已连接会话的实时输出继续，原有程序不被重启，其他会话仍使用正常状态恢复

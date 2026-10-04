@@ -2849,6 +2849,10 @@ body.split-resize-active * {
   box-sizing: border-box;
 }
 
+.settings-mobile-shortcut-list {
+  touch-action: none;
+}
+
 .settings-mobile-shortcut-empty,
 .settings-desktop-shortcut-empty {
   min-height: 28px;
@@ -2881,6 +2885,12 @@ body.split-resize-active * {
   border-color: var(--accent);
   box-shadow: 0 12px 28px var(--panel-shadow);
   opacity: 0.96;
+}
+
+.settings-mobile-shortcut-item {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
 }
 
 .settings-mobile-shortcut-placeholder {

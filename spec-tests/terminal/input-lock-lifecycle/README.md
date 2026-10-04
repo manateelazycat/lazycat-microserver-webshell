@@ -8,7 +8,7 @@
 - 状态：active
 - 类型：multi-device / lifecycle
 - 真实依赖：真实 Provider、persistent agent、PTY、Unified WebSocket、两个浏览器 context
-- 相关模块和源码入口：`runtime/static/app/server_revision/`、`runtime/static/app/agent_protocol_update/`、`runtime/static/terminal/input/`、`runtime/static/terminal/transport/`、`terminal_queue.go`、`agent.go`、`workspace.go`
+- 相关模块和源码入口：`runtime/static/app/server_revision/`、`runtime/static/app/agent_protocol_update/`、`runtime/static/terminal/input/`、`runtime/static/terminal/transport/`、`core/terminal_queue.go`、`core/agent_attach.go`、`core/pane_control.go`
 
 ## 触发条件
 
@@ -48,7 +48,7 @@
 
 - 前端输入和连接：`runtime/static/terminal/input/input_controller.js`、`runtime/static/terminal/session/session_state.js`、`runtime/static/terminal/transport/session_protocol_controller.js`、`runtime/static/global-runtime.js`。
 - 更新事务：`runtime/static/app/server_revision/`、`runtime/static/app/bootstrap/bootstrap_controller.js`、`runtime/static/app/agent_protocol_update/agent_protocol_update_controller.js`。
-- Provider/agent/PTY：`main.go`、`agent_runtime.go`、`terminal_queue.go`、`agent.go`、`workspace.go`。
+- Provider/agent/PTY：`provider/server.go`、`provider/agent_runtime.go`、`core/terminal_queue.go`、`core/agent_attach.go`、`core/pane.go`、`unix/pty_unix.go`。
 - 测试与契约：`terminal_queue_test.go`、`workspace_test.go`、相关 `tests/*_test.mjs`、`runtime_shortcuts_test.go`、模块 README 和 `docs/ARCHITECTURE_AND_MODULE_MAP.md`。
 
 ## 验证预期

@@ -3,6 +3,7 @@ import { createServiceForwardingLifecycle } from "./service_forwarding_lifecycle
 import {
   buildPublishServiceWarningMessage,
   buildServiceForwardPayload,
+  isClientServiceForwardingTarget,
   normalizePublishedEntry,
   normalizePublishStatus,
   normalizeServiceForwardingTarget,
@@ -43,6 +44,7 @@ export function createServiceForwardingController({
   getTarget = () => ({ selector: "", displayName: "" }),
   setFeedback = () => {},
   confirmDelete = async () => false,
+  confirmPublicAccess = async () => false,
   openURL = () => {},
   closeSelect = () => {},
   consoleObject = globalThis.console,
@@ -195,6 +197,7 @@ export function createServiceForwardingController({
       title,
       subdomain: normalized?.subdomain || normalizeServiceForwardSubdomain(title),
       skipAuth: normalized?.skip_auth === true,
+      physicalTarget: isClientServiceForwardingTarget(target.selector),
     });
     view.setBusy(busy);
     schedulePortFocus();
@@ -217,12 +220,21 @@ export function createServiceForwardingController({
     let createdPublishID = "";
     try {
       if (!target.selector) {
-        throw new Error("当前没有可用容器。");
+        throw new Error("当前没有可用实例。");
       }
       const payload = buildServiceForwardPayload({
         editingID,
         form: view.readForm(),
       });
+      if (isClientServiceForwardingTarget(target.selector)) {
+        if (payload.skip_auth) {
+          const confirmed = await confirmPublicAccess("跳过鉴权会让能够访问发布域名的人直接访问这台物理机可达的目标服务。确定公开吗？", {
+            title: "公开物理机服务", okText: "确认公开", cancelText: "取消", danger: true,
+          });
+          assertCurrentOperation(generation, target.selector);
+          if (!confirmed) return false;
+        }
+      }
       const status = normalizePublishStatus(await api.status());
       assertCurrentOperation(generation, target.selector);
       const warning = buildPublishServiceWarningMessage(status);
@@ -231,7 +243,7 @@ export function createServiceForwardingController({
       }
       const existingEntry = payload.id ? findEntry(payload.id) : null;
       if (payload.id && (!existingEntry || !serviceForwardEntryMatchesTarget(existingEntry, target.selector))) {
-        throw new Error("无法编辑不属于当前容器的服务。");
+        throw new Error("无法编辑不属于当前实例的服务。");
       }
       const publishResult = payload.id
         ? await api.update({ id: payload.id, upstream: payload.upstream })
@@ -309,7 +321,7 @@ export function createServiceForwardingController({
       }
       const entry = findEntry(publishID);
       if (!entry || !serviceForwardEntryMatchesTarget(entry, target.selector)) {
-        throw new Error("无法删除不属于当前容器的服务。");
+        throw new Error("无法删除不属于当前实例的服务。");
       }
       const confirmed = await confirmDelete(`删除服务「${entry.title || entry.subdomain || entry.upstream}」？`, {
         title: "删除服务",

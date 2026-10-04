@@ -2,7 +2,7 @@
 
 `runtime/static/` 是 WebShell 页面源码根目录。页面脚本只从 `main.js` 开始加载；`main.js` 仅导入并调用 `global-runtime.js` 的 `startGlobalRuntime()`。发布时 Vite 将该模块树构建到 `build/runtime/static/`，LPK 只打包构建产物，不直接发布源码模块。
 
-服务端推荐协议 `lcmd-webshell-agent-v27`：服务端解析器失败后，仅对应 pane 改用现有原始历史回放，原 PTY 和任务继续运行；不重建解析器，不维护额外健康快照或输出重放日志。原始历史仍严格限制为行数 × 350。首次原生错误、时间、调用范围和 fallback 记录进入有界错误日志，正常界面不增加提示。保留 v26 的原生错误透传及共用 WASM，v26 与 v27 可协商同一内存快照；v25 至 v9 仅兼容传输，使用原始历史回放。Agent 内嵌 WASM 必须与 Vite 发布资产一致。旧 Agent 仍只在用户明确确认后更新，兼容范围见 `agent_runtime.go`，故障行为见 `terminal/history/README.md`。
+服务端推荐协议 `lcmd-webshell-agent-v39`：创建 WASM 终端页面时显式清空单元格，避免复用内存残留的链接、字形和样式标记指向新表中的空条目；保留原生分配保护与固定容量故障诊断，前后端同步使用新的 WASM。容器 Provider 继续显式兼容旧版本的传输与工作区能力，旧 Agent 使用原始字节回放，不导入与新指纹不匹配的内存快照。服务端解析器失败时原 PTY 和原始历史 fallback 保持原行为，不自动重建或重启。兼容范围见 `provider/agent_runtime.go`，诊断及日志约束见 `core/README.md`。
 
 ## 根目录职责
 
@@ -44,4 +44,4 @@ go test ./... -count=1
 git diff --check
 ```
 
-v21 增加 Provider 的窗口消费协议（1 MiB／256 个轮次），保留旧逐轮协议；前端解析与画面生成分离，增加同步绘制保护。继续显式兼容 v20 至 v9，WASM 与 checkpoint ABI 沿用 v20，本轮未修改原生 resize。新消费协议由 Provider 执行，不要求自动替换仍在运行的旧 Agent。
+v21 支持 Provider 的窗口消费协议（1 MiB／256 个轮次），保留旧逐轮协议；前端解析与画面生成分离，提供同步绘制保护。显式兼容 v20 至 v9，WASM 与 checkpoint ABI 沿用 v20。窗口消费协议由 Provider 执行，不要求自动替换仍在运行的旧 Agent。

@@ -3,6 +3,7 @@ const events = new Set([
   "replay_batch_begin", "replay_batch_received", "replay_batch_applied", "replay_batch_interrupted",
   "replay_output_drained", "queue_turn_ack_pending", "queue_turn_ack_sent",
   "backend_rpc_start", "backend_rpc_complete", "backend_failed", "backend_restart",
+  "backend_operation_phase",
   "full_render_start", "full_render_complete", "presentation_commit_complete", "render_blocked",
   "resize_native_start", "resize_native_complete", "screen_auto_refresh", "screen_auto_refresh_exhausted",
   "byte_io_receive", "byte_io_enqueue", "byte_io_batch_start", "byte_io_batch_complete",
@@ -10,10 +11,12 @@ const events = new Set([
 ]);
 const fields = new Set([
   "bytes", "inputBytes", "wireBytes", "batchID", "entries", "queuedBytes", "queueEntries",
-  "enqueueMs", "oldestQueueWaitMs", "newestQueueWaitMs", "coalesceMs", "writeAwaitMs", "cacheEnqueueMs", "renderCallMs",
+  "enqueueMs", "oldestQueueWaitMs", "newestQueueWaitMs", "coalesceMs", "writeAwaitMs", "renderCallMs",
   "operation", "requestID", "pendingRequests", "pendingBytes", "workerGeneration", "backendCount",
+  "phase", "previousPhase", "lastPhase", "requestElapsedMs", "workerAtMs", "workerUnixMs", "workerElapsedMs",
+  "phaseDeliveryMs", "uiObservedAtMs", "revision", "viewportBytes", "syncOutputRemainingMs",
   "roundTripMs", "requestCopyMs", "postMessageMs", "workerQueueMs", "workerExecutionMs",
-  "parseMs", "snapshotMs", "frameUnpackMs", "frameAcceptMs", "rpcTotalMs",
+  "parseMs", "progressMs", "snapshotMs", "frameUnpackMs", "frameAcceptMs", "rpcTotalMs",
   "wasmLoadMs", "engineCreateMs", "durationMs", "replayDurationMs", "serverReplayDurationMs",
   "serverHistoryBytes", "serverHistoryChunks", "serverReplayFrames", "binaryMessages", "binaryBytes",
   "outputQueueBytes", "outputQueueEntries", "targetCursor", "startCursor", "endCursor",
@@ -78,6 +81,7 @@ export function createByteIOLog({ windowObject = globalThis.window, now = () => 
         else if (typeof value === "boolean" || value === null) record[key] = value;
         else if (typeof value === "string" || typeof value === "bigint") record[key] = String(value).slice(0, 300);
       }
+      if (details.allocation) record.allocation = details.allocation;
       if (type === "byte_io_receive") {
         const previous = arrivals.get(session);
         const same = previous?.connection === session.connectionEpoch;
@@ -105,7 +109,7 @@ export function createByteIOLog({ windowObject = globalThis.window, now = () => 
         "Queue wait includes waiting for replay completion/resize/scheduling; parseMs includes WASM input copy and parsing.",
         "snapshotMs: worker snapshot preparation; workerExecutionMs includes parse+snapshot; workerQueueMs starts at the worker message handler (excludes an earlier blocked event loop).",
         "roundTripMs ends at UI reply arrival; frameUnpackMs/frameAcceptMs run afterwards; rpcTotalMs includes UI frame acceptance.",
-        "cacheEnqueueMs covers synchronous history-cache enqueue/copy, not storage completion; renderCallMs covers the synchronous full-render call, not GPU display completion.",
+        "renderCallMs covers the synchronous full-render call, not GPU display completion; no browser history-cache writes are performed.",
         "rpcTotalMs and writeAwaitMs are elapsed waits, NOT main-thread blocking time. Timing fields can overlap; do not sum them.",
         "Opening capture mid-stream cannot reconstruct earlier events. Terminal contents are not recorded.", ...lines].join("\n");
     },

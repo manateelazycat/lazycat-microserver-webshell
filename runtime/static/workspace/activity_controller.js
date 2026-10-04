@@ -17,6 +17,7 @@ export function createWorkspaceActivityController({
   isCurrentInstanceRequest = () => true,
   ensureResponseSelector = () => {},
   observeServerGeometry = () => {},
+  onPaneProcessChange = () => {},
   syncPaneMembership = () => Promise.resolve(false),
   getMutationState = () => ({ version: 0, pending: false }),
   recoverSessions = () => {},
@@ -52,12 +53,17 @@ export function createWorkspaceActivityController({
       }
       const wasBusy = Boolean(pane.busy);
       const isBusy = Boolean(paneState.busy);
+      const previousCommand = pane.command;
+      const previousCommandLine = pane.processCommandLine;
       pane.tty = paneState.tty || pane.tty || "";
       pane.busy = isBusy;
       pane.command = paneState.command || "";
       pane.processCommandLine = paneState.command_line || "";
       pane.cwd = paneState.cwd || pane.cwd || "";
       pane.activityCheckedAt = Number(paneState.activity_checked_at || 0);
+      if (previousCommand !== pane.command || previousCommandLine !== pane.processCommandLine) {
+        onPaneProcessChange(pane);
+      }
       observeServerGeometry(pane, paneState);
       if (pane.shellEl?.dataset) {
         pane.shellEl.dataset.busy = pane.busy ? "true" : "false";

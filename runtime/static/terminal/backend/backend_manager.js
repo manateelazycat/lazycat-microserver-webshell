@@ -1,7 +1,7 @@
 import { RemoteTerminal } from "./remote_terminal.js";
 import { installBackendTerminalAdapter } from "./terminal_adapter.js";
 
-export function createTerminalBackendManager({ wasmURL, isVisible = () => true, onError = () => {}, onReady = () => {}, diagnosticsEnabled = () => false, recordEvent = () => {} }) {
+export function createTerminalBackendManager({ wasmURL, isVisible = () => true, onError = () => {}, onReady = () => {}, diagnosticsEnabled = () => false, resizeDiagnosticsEnabled = () => false, recordEvent = () => {} }) {
   const backends = new Set();
   const sessions = new WeakMap();
   const pendingDiagnostics = new WeakMap();
@@ -21,6 +21,7 @@ export function createTerminalBackendManager({ wasmURL, isVisible = () => true, 
             workerFactory: () => new Worker(new URL("../../global-backend-worker.js", import.meta.url), { type: "module" }),
             wasmURL, cols, rows, config,
             diagnosticsEnabled,
+            resizeDiagnosticsEnabled: () => resizeDiagnosticsEnabled() && isVisible(sessions.get(term)),
             onDiagnostic: (event, details) => {
               const session = sessions.get(term);
               if (session) recordEvent(session, event, { ...details, backendCount: backends.size });

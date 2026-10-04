@@ -28,13 +28,12 @@ export function createTerminalSessionProtocolController({
   terminalSessionConnection = null,
   terminalUnifiedTransport = null,
   terminalReplay = null,
-  clientHistory = null,
+  resolveSessionProtocol = () => null,
   terminalOutput = null,
   terminalPresentation = null,
   terminalResize = null,
   terminalInput = null,
   TerminalReplayController = null,
-  ClientTerminalReplayAdapter = null,
   terminalCheckpointCapabilitiesForTerminal = () => [],
   terminalAgentPrepareTimeoutMs = 45 * 1000,
   serverRevisionClientID = "",
@@ -44,7 +43,6 @@ export function createTerminalSessionProtocolController({
   terminalThemePayload = () => ({}),
   sendTerminalTheme = noop,
   syncTerminalNetworkMonitorSockets = noop,
-  isClientInstanceName = () => false,
   isCurrentInstanceSession = () => true,
   terminalLocationDescription = () => "",
   isRetryableTerminalTransportError = () => false,
@@ -77,6 +75,7 @@ export function createTerminalSessionProtocolController({
     channelGeneration = 0,
   } = {}) => {
     const terminalTransportRuntime = getTerminalTransportRuntime();
+    const sessionProtocol = resolveSessionProtocol(session);
     let connectionEpoch = Number(session?.connectionEpoch || 0);
     const usesMultiplexedTransport = channel === "unified";
     const transportIsCurrent = () => Boolean(
@@ -142,10 +141,8 @@ export function createTerminalSessionProtocolController({
       cols: Number(session.term?.cols || 0),
       rows: Number(session.term?.rows || 0),
     });
-    if (isClientInstanceName(session.name)) {
-      await clientHistory.prepareSession(session);
-      await terminalOutput.flush(session, { force: true });
-      await clientHistory.flushSession(session);
+    if (sessionProtocol) {
+      await sessionProtocol.prepareSession(session);
     }
     if (
       !session ||
@@ -184,7 +181,7 @@ export function createTerminalSessionProtocolController({
       socketUrl.searchParams.set("pane", session.id);
       socketUrl.searchParams.set("cols", String(session.term.cols || 120));
       socketUrl.searchParams.set("rows", String(session.term.rows || 32));
-      if (!isClientInstanceName(session.name)) {
+      if (!sessionProtocol) {
         socketUrl.searchParams.set("integrity_protocol", "fast-v1");
       }
     }
@@ -194,12 +191,10 @@ export function createTerminalSessionProtocolController({
       socketUrl.searchParams.set("bg", themePayload.background);
       socketUrl.searchParams.set("cursor", themePayload.cursor);
     }
-    if (!isClientInstanceName(session.name) && session.workspaceGeneration && !usesMultiplexedTransport) {
+    if (!sessionProtocol && session.workspaceGeneration && !usesMultiplexedTransport) {
       socketUrl.searchParams.set("workspace_generation", session.workspaceGeneration);
     }
-    const historyConnectRange = isClientInstanceName(session.name)
-      ? terminalReplay.rangeForConnect(session)
-      : null;
+    const historyConnectRange = sessionProtocol?.rangeForConnect(session) || null;
     if (historyConnectRange) {
       if (!usesMultiplexedTransport) {
         socketUrl.searchParams.set("history_generation", historyConnectRange.generation);
@@ -224,10 +219,7 @@ export function createTerminalSessionProtocolController({
     };
     const replayController = session.replayController || (session.replayController = new TerminalReplayController());
     const checkpointReceiver = createCheckpointReceiver(session);
-    const isClientDirectTransport = channel === "fast" && isClientInstanceName(session.name);
-    const clientReplayAdapter = isClientDirectTransport
-      ? new ClientTerminalReplayAdapter(replayController)
-      : null;
+    const directReplayAdapter = sessionProtocol?.createReplayAdapter(replayController, channel) || null;
     session.fastIntegrityEnabled = false;
     replayController.reset();
     session.queueReplayControllerActive = false;
@@ -313,11 +305,11 @@ export function createTerminalSessionProtocolController({
         rows: size.rows || session.term.rows || 32,
         pixel_width: size.pixelWidth,
         pixel_height: size.pixelHeight,
-        workspace_generation: isClientInstanceName(session.name) ? "" : session.workspaceGeneration,
+        workspace_generation: sessionProtocol ? "" : session.workspaceGeneration,
         history_replay_mode: session.resetOnNextReplay ? "snapshot" : "",
         flow_control: "window-ack-v1",
         replay_burst_limit_bytes: terminalOutput.getReplayBatchLimit(session),
-        checkpoint_protocol: !isClientInstanceName(session.name) && typeof DecompressionStream === "function" ? memoryCheckpointProtocol : "",
+        checkpoint_protocol: !sessionProtocol && typeof DecompressionStream === "function" ? memoryCheckpointProtocol : "",
         foreground: themePayload.foreground,
         background: themePayload.background,
         cursor: themePayload.cursor,
@@ -377,7 +369,7 @@ export function createTerminalSessionProtocolController({
     };
 
     const validateWorkspaceReplayMessage = (message) => {
-      if (isClientInstanceName(session.name)) {
+      if (sessionProtocol) {
         return true;
       }
       const expectedGeneration = String(session.workspaceGeneration || "").trim();
@@ -467,15 +459,14 @@ export function createTerminalSessionProtocolController({
       session.resetOnNextReplay = true;
       session.historyStateReady = false;
       session.historyProtocolActive = false;
-      session.historyCacheSnapshot = null;
       session.historyGeneration = "";
       session.replayController?.reset();
       session.queueReplayControllerActive = false;
       session.queueReplayControllerLegacy = false;
       session.replayControllerLegacyActive = false;
       terminalPresentation.markSyncPending(session);
-      if (isClientDirectTransport) {
-        clientHistory.deleteSession(session);
+      if (directReplayAdapter) {
+        sessionProtocol.deleteHistory(session);
       }
       console.warn("[terminal-history] rejected history sync", {
         name: session.name,
@@ -736,15 +727,14 @@ export function createTerminalSessionProtocolController({
                   session.historyProtocolActive = false;
                   session.historyStateReady = false;
                   session.historyGeneration = "";
-                  session.historyCacheSnapshot = null;
                   session.localBaseCursor = 0n;
                   session.receivedHistoryCursor = 0n;
                   session.appliedHistoryCursor = 0n;
                   session.persistedHistoryCursor = 0n;
                   session.historyReplayTargetCursor = 0n;
                   session.serverBaseCursor = 0n;
-                  if (isClientDirectTransport) {
-                    clientHistory.disableSession(session);
+                  if (directReplayAdapter) {
+                    sessionProtocol.disableHistory(session);
                   }
                   if (!resetTerminalForHistoryReplay(session)) {
                     terminalSessionConnection.closeSocketForReconnect(session, currentSocket, "Terminal reset for legacy replay failed.");
@@ -788,8 +778,8 @@ export function createTerminalSessionProtocolController({
                 session.fastIntegritySequence = 1;
                 session.fastIntegrityCursor = deltaFromCursor ?? 0n;
                 session.historyReplayTargetCursor = deltaToCursor;
-                if (isClientDirectTransport) {
-                  clientReplayAdapter.begin({
+                if (directReplayAdapter) {
+                  directReplayAdapter.begin({
                     requestID: String(session.terminalReplayGeneration || ""),
                     connectionEpoch,
                     identity: {
@@ -801,7 +791,7 @@ export function createTerminalSessionProtocolController({
                     targetCursor: deltaToCursor,
                   });
                   session.replayControllerLegacyActive = false;
-                } else if (channel === "fast" && !isClientInstanceName(session.name) && !usesMultiplexedTransport && session.fastIntegrityEnabled !== true) {
+                } else if (channel === "fast" && !sessionProtocol && !usesMultiplexedTransport && session.fastIntegrityEnabled !== true) {
                   replayController.beginLegacy({
                     requestID: String(session.terminalReplayGeneration || ""),
                     connectionEpoch,
@@ -859,53 +849,18 @@ export function createTerminalSessionProtocolController({
                   session.appliedHistoryCursor = checkpoint ? 0n : deltaFromCursor;
                   session.persistedHistoryCursor = deltaFromCursor;
                   terminalReplay.setAuthorization(session, "identified");
-                  if (isClientDirectTransport) {
-                    clientHistory.resetSession(session, historyGeneration, deltaFromCursor);
+                  if (directReplayAdapter) {
+                    sessionProtocol.resetHistory(session, historyGeneration, deltaFromCursor);
                   }
                 } else {
-                  if (!historyConnectRange || historyConnectRange.generation !== historyGeneration || historyConnectRange.endCursor !== deltaFromCursor) {
+                  if (!sessionProtocol) {
                     rejectHistorySync("local and server history ranges do not match");
                     return;
                   }
-                  if (historyConnectRange.source === "memory") {
-                    if (!session.historyStateReady || session.appliedHistoryCursor !== deltaFromCursor) {
-                      rejectHistorySync("in-memory terminal cursor is not reusable");
-                      return;
-                    }
-                    terminalOutput.discard(session);
-                    session.receivedHistoryCursor = deltaFromCursor;
-                  } else if (historyConnectRange.source === "cache") {
-                    const snapshot = session.historyCacheSnapshot;
-                    if (!snapshot || snapshot.generation !== historyGeneration || snapshot.baseCursor !== historyConnectRange.baseCursor || snapshot.endCursor !== deltaFromCursor) {
-                      rejectHistorySync("cached terminal history is unavailable");
-                      return;
-                    }
-                    if (!resetTerminalForHistoryReplay(session)) {
-                      rejectHistorySync("terminal reset for cached history failed");
-                      return;
-                    }
-                    terminalResize.prepareReplayGeometry(session, message);
-                    session.historyGeneration = historyGeneration;
-                    session.historyProtocolActive = true;
-                    session.historySyncMode = syncMode;
-                    session.serverBaseCursor = serverBaseCursor;
-                    session.localBaseCursor = snapshot.baseCursor;
-                    session.receivedHistoryCursor = snapshot.baseCursor;
-                    session.appliedHistoryCursor = snapshot.baseCursor;
-                    session.persistedHistoryCursor = snapshot.endCursor;
-                    for (const chunk of snapshot.chunks) {
-                      terminalOutput.write(session, chunk.data, {
-                        historySource: "cache",
-                        startCursor: chunk.startCursor,
-                        endCursor: chunk.endCursor,
-                      });
-                    }
-                    if (session.receivedHistoryCursor !== deltaFromCursor) {
-                      rejectHistorySync("cached terminal history did not reach requested cursor");
-                      return;
-                    }
-                  } else {
-                    rejectHistorySync("unknown local history source");
+                  if (!sessionProtocol.restoreHistory(session, {
+                    historyConnectRange, historyGeneration, deltaFromCursor,
+                    syncMode, serverBaseCursor, message, rejectHistorySync,
+                  })) {
                     return;
                   }
                 }
@@ -952,16 +907,16 @@ export function createTerminalSessionProtocolController({
                   }
                 }
                 const replayControllerRequired = (
-                  channel === "fast" && !isClientInstanceName(session.name) && session.fastIntegrityEnabled === true
+                  channel === "fast" && !sessionProtocol && session.fastIntegrityEnabled === true
                 ) || (
-                  isClientDirectTransport && session.historyProtocolActive
+                  directReplayAdapter && session.historyProtocolActive
                 ) || (
                   usesMultiplexedTransport && session.queueReplayControllerActive
                 );
                 if (replayControllerRequired && session.historyProtocolActive) {
                   try {
-                    if (isClientDirectTransport) {
-                      clientReplayAdapter.complete({
+                    if (directReplayAdapter) {
+                      directReplayAdapter.complete({
                         cursor: message.history_cursor,
                         requestID: String(session.terminalReplayGeneration || ""),
                         connectionEpoch,
@@ -1136,7 +1091,7 @@ export function createTerminalSessionProtocolController({
           });
         }
         let outputPayload = new Uint8Array(event.data);
-        if (channel === "fast" && !isClientInstanceName(session.name) && session.fastIntegrityEnabled === true) {
+        if (channel === "fast" && !sessionProtocol && session.fastIntegrityEnabled === true) {
           try {
             outputPayload = decodeFastBinaryMessage(event.data);
             if (!outputPayload) {
@@ -1147,9 +1102,9 @@ export function createTerminalSessionProtocolController({
             return;
           }
         }
-        if (isClientDirectTransport && replayController.phase === "replaying" && session.historyProtocolActive) {
+        if (directReplayAdapter && replayController.phase === "replaying" && session.historyProtocolActive) {
           try {
-            clientReplayAdapter.acceptBinary({
+            directReplayAdapter.acceptBinary({
               data: outputPayload,
               requestID: String(session.terminalReplayGeneration || ""),
               connectionEpoch,
@@ -1294,7 +1249,7 @@ export function createTerminalSessionProtocolController({
       if (!intentionalTransportClose) {
         appendDebugWarning("终端 WebSocket 已断开", `${terminalLocationDescription(session)}, code=${event.code}, ${event.reason || "无原因"}`);
       }
-      const sharedPhysicalTransportLost = !isClientInstanceName(session.name)
+      const sharedPhysicalTransportLost = !sessionProtocol
         && currentMultiplexedConnection
         && terminalUnifiedTransport.isClosedConnection(currentMultiplexedConnection);
       const nextConnectionState = terminalReplay.isRetryPaused(session)

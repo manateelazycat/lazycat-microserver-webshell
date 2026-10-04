@@ -3,6 +3,7 @@ import { beginTerminalWriteComparison } from "./terminal_write_comparison.js";
 import { createCheckpointFailureEvidence } from "./checkpoint_failure_evidence.js";
 
 const observedEvents = new Set([
+  "backend_operation_phase",
   "connect_session_start", "socket_connect", "socket_open", "agent_preparing", "logical_attach_start", "agent_attach_ready",
   "history_replay_start", "history_replay_complete", "replay_output_drained", "render_blocked",
   "full_render_complete", "presentation_commit_complete", "resize_native_start", "resize_native_complete",
@@ -113,6 +114,7 @@ export function createTerminalRenderCapture({ windowObject = globalThis.window,
   };
   const visibility = () => { stopTimers(); arm(); };
   return Object.freeze({
+    isEnabled: () => enabled && started && !disposed,
     setEnabled(value) {
       const next = value === true && !disposed;
       if (enabled === next) return;
@@ -149,6 +151,8 @@ export function createTerminalRenderCapture({ windowObject = globalThis.window,
       const metadata = {};
       for (const key of ["reason", "rendered", "attempt", "current", "committed", "durationMs", "code",
         "controlType", "channel", "channelGeneration", "connectionEpoch", "serverUnixMs",
+        "requestID", "operation", "phase", "previousPhase", "lastPhase", "requestElapsedMs", "workerAtMs", "workerUnixMs",
+        "workerElapsedMs", "workerQueueMs", "phaseDeliveryMs", "uiObservedAtMs", "revision", "viewportBytes", "syncOutputRemainingMs",
         "syncMode", "historyGeneration", "serverBaseCursor", "serverEndCursor", "deltaFromCursor", "deltaToCursor",
         "serverHistoryBytes", "serverHistoryChunks", "replayBurstBytes", "bytes", "targetCursor", "aggregate",
         "resizeEpoch", "cols", "rows", "replayDurationMs", "serverReplayDurationMs",
@@ -159,6 +163,7 @@ export function createTerminalRenderCapture({ windowObject = globalThis.window,
         if (["string", "number", "boolean"].includes(typeof value)) metadata[key] = typeof value === "string" ? value.slice(0, 200) : value;
       }
       if (details.checkpoint) metadata.checkpoint = details.checkpoint;
+      if (details.allocation) metadata.allocation = details.allocation;
       if (details.resizeTiming) metadata.resizeTiming = details.resizeTiming;
       if (details.viewportGeometry) metadata.viewportGeometry = details.viewportGeometry;
       if (Array.isArray(details.blockedBy)) metadata.blockedBy = details.blockedBy.slice(0, 16);
@@ -216,7 +221,7 @@ export function createTerminalRenderCapture({ windowObject = globalThis.window,
     async clipboardText() {
       await capture("copy", true);
       if (!enabled || disposed) return "";
-      return ["WebShell terminal render capture v6", `Copied at: ${new Date().toISOString()}`,
+      return ["WebShell terminal render capture v7", `Copied at: ${new Date().toISOString()}`,
         `Retained records: ${records.length}; older records discarded: ${dropped}`,
         "Snapshots include every non-closed pane in the active tab at capture time. Earlier tab records remain labelled.",
         "Periodic capture uses UI caches. Manual/copy/download adds a read-only Worker RPC; no update/markClean/resize/replay/repair. Auto refresh remains independent.",
@@ -235,6 +240,9 @@ export function createTerminalRenderCapture({ windowObject = globalThis.window,
         "write_byte_comparison compares each output batch before term.write/writeReplay with concatenated writeInternal payloads before Worker encoding. No payload is changed or exported.",
         "Each side is capped at 256 KiB. CR/LF counts, exact equality and masked first-difference context are included. Interception/decoder buffering can legitimately differ across batch boundaries; difference alone is not a fault verdict.",
         "v6 pins the first observed server checkpoint failure independently of rolling records; checkpoint_failure_evidence also retains latest reports and bounded connection/resize context.",
+        "v7 adds bounded native allocation records and resize/restore phase markers. Native operation 1=write,2=resize; stage 1=URI,2=ID,3=clone retry; caller 1=reflow,2=row clone; reason 1=no contiguous space,2=invalid metadata,3=capacity retry.",
+        "Native records keep the first and seven latest observations; handled allocation failures may precede the final failure. Missing records do not prove no native failure. Numeric offsets/lengths contain no URI text.",
+        "backend_operation_phase separates UI queued, Worker received/started, native resize, RenderState, viewport, UI reply/accept and Canvas drawing; presentation_commit_complete separately records the presentation commit. Worker/ UI elapsed values use their own clocks; phaseDeliveryMs uses time-origin-adjusted timestamps. A missing end marker alone is not proof of a permanent hang.",
         "First observed means first received during enabled capture in the active tab, not the time of the original server fault. Reloading clears this browser-only evidence; captureWindow labels enable cycles. Inactive-tab intervals are not observed.",
         "Server observed_unix_ms and history_cursor describe diagnostic sampling, not the original crash. scrollback_lines is the configured limit, not measured occupancy. Repeated error text does not prove repeated crashes.",
         "Existing Agent diagnostics do not expose triggering bytes, fault address/instruction or parser memory. Missing evidence is explicit in checkpoint_evidence_scope; error classification is based only on server error text.",

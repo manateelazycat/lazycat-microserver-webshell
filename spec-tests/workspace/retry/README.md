@@ -59,3 +59,7 @@ node spec-tests/run-playwright.mjs spec-tests/workspace/retry/test.mjs
 ## 验证结果
 
 最终 16 场景回归产物 `artifacts/2026-09-04T11-13-50-979Z/` 通过：只记录一次预期 `HTTP 503 GET /api/workspace`，随后观察到真实 200 恢复、success 日志、稳定 Canvas 和唯一 active Unified socket；没有其他 fatal error。
+
+## Android MCP 验收
+
+`android.mjs` 在已安装 LightOS 应用里对一次真实工作区读取注入 HTTP 503，观察自动重试后的真实 200、原标签终端画面和新命令输出；测试只清理自己创建的标签。入口为 `./run-ac.sh --selector workspace/retry --target android-emulator`。

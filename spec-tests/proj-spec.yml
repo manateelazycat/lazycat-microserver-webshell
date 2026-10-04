@@ -3,3 +3,4 @@ spec_dir: spec
 executor:
   type: spec-executor.v1
   path: spec-tests/project-ac-executor
+  scenarios_file: spec-tests/.run-ac/scenarios.json

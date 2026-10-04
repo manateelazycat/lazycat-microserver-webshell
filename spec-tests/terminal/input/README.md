@@ -61,3 +61,7 @@ node spec-tests/run-playwright.mjs spec-tests/terminal/input/test.mjs
 
 - 2026-09-04 输入锁删除后真实场景通过，产物 `artifacts/2026-09-04T07-10-04-402Z/`；普通文本、Ctrl-C、20 KiB 输入、generated response、Canvas 和单 Unified socket 均符合断言。
 - 最终 16 场景回归产物 `artifacts/2026-09-04T11-12-03-916Z/` 再次通过上述全部输入门禁。
+
+## Android MCP 验收
+
+`android.mjs` 在 Pixel 9 Pro 模拟器的已安装 LightOS 应用中创建专用标签，使用系统键盘执行命令、应用内 Ctrl+C 和大段输入；以设备截图 OCR 判定终端回显，并清理专用标签。入口为 `./run-ac.sh --selector terminal/input --target android-emulator`。该设备是模拟器，不代表物理手机。

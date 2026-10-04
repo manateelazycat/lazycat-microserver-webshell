@@ -83,4 +83,8 @@ node spec-tests/run-playwright.mjs spec-tests/app/vite-cold-start/test.mjs
 
 ## 已知限制
 
-本机 Chrome 的资源上限高于部分移动 WebView，源码基线没有真实产生 `ERR_INSUFFICIENT_RESOURCES`；资源数量断言固定导致该错误的发布不变量。尚未把新 LPK 安装到目标 Android/iOS WebView，正式发布前仍需执行一次安装后的冷缓存验收。
+本机 Chrome 的资源上限高于部分移动 WebView，源码基线没有真实产生 `ERR_INSUFFICIENT_RESOURCES`；资源数量断言固定导致该错误的发布不变量。Android MCP 批次已覆盖安装后的 LightOS WebView；原生 iOS 尚未覆盖。
+
+## Android MCP 验收
+
+`android.mjs` 在当前 LightOS LPK 安装后禁用 WebView 缓存并绕过 Service Worker 重新导航，核对 JS/WASM 实际网络传输、终端画面与输入回显。入口为 `./run-ac.sh --selector app/vite-cold-start --target android-emulator`。

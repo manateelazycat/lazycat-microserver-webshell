@@ -1,6 +1,8 @@
 {
   "terminal/resize-sync/SC-MULTI-DEVICE-RESIZE-SYNC": {
     "test_id": "terminal/resize-sync/test.mjs",
+    "coverage_status": "pending",
+    "coverage_reason": "Current AC requires at least three browser windows or devices; the existing module uses two",
     "description": "terminal/resize-sync/README.md",
     "steps": [
       "Given 两个授权浏览器打开同一终端",
@@ -11,6 +13,7 @@
   },
   "terminal/input/SC-TERMINAL-INPUT": {
     "test_id": "terminal/input/test.mjs",
+    "android_test_id": "terminal/input/android.mjs",
     "description": "terminal/input/README.md",
     "steps": [
       "Given 用户已打开可交互终端",
@@ -31,16 +34,19 @@
   },
   "terminal/viewport/SC-TERMINAL-VIEWPORT": {
     "test_id": "terminal/viewport/test.mjs",
+    "android_test_id": "terminal/viewport/android.mjs",
     "description": "terminal/viewport/README.md",
     "steps": [
       "Given 用户在移动布局中打开已有内容的终端",
       "When 用户打开和收起软键盘并改变屏幕方向或窗口尺寸",
-      "Then 终端内容保持可见，布局恢复且可以继续输入"
+      "Then 终端内容保持可见，布局恢复且可以继续输入",
+      "And 软键盘改变显示区域时，过渡画面不把旧终端内容按容器比例缩放"
     ],
     "evidence_granularity": "scenario"
   },
   "terminal/output/SC-TERMINAL-OUTPUT": {
     "test_id": "terminal/output/test.mjs",
+    "android_test_id": "terminal/output/android.mjs",
     "description": "terminal/output/README.md",
     "steps": [
       "Given 用户已打开持续可交互的终端",
@@ -51,6 +57,7 @@
   },
   "workspace/tabs/SC-WORKSPACE-TABS": {
     "test_id": "workspace/tabs/test.mjs",
+    "android_test_id": "workspace/tabs/android.mjs",
     "description": "workspace/tabs/README.md",
     "steps": [
       "Given 用户已打开包含终端的工作区",
@@ -61,6 +68,7 @@
   },
   "workspace/retry/SC-WORKSPACE-RETRY": {
     "test_id": "workspace/retry/test.mjs",
+    "android_test_id": "workspace/retry/android.mjs",
     "description": "workspace/retry/README.md",
     "steps": [
       "Given 用户的工作区仍存在且可访问",
@@ -111,6 +119,7 @@
   },
   "terminal/overview-preview/SC-OVERVIEW-PREVIEW-PERSISTENCE": {
     "test_id": "terminal/overview-preview/test.mjs",
+    "android_test_id": "terminal/overview-preview/android.mjs",
     "description": "terminal/overview-preview/README.md",
     "steps": [
       "Given 工作区多个标签已有可见内容和已保存预览",
@@ -141,6 +150,7 @@
   },
   "app/vite-cold-start/SC-VITE-COLD-START": {
     "test_id": "app/vite-cold-start/test.mjs",
+    "android_test_id": "app/vite-cold-start/android.mjs",
     "description": "app/vite-cold-start/README.md",
     "steps": [
       "Given 浏览器尚未缓存当前版本的页面资源",
@@ -171,6 +181,9 @@
   },
   "workspace/cross-device-tab-sync/SC-CROSS-DEVICE-TAB-SYNC": {
     "test_id": "workspace/cross-device-tab-sync/test.mjs",
+    "android_test_id": "workspace/cross-device-tab-sync/android.mjs",
+    "android_status": "pending",
+    "android_reason": "Second authorized browser cannot log in with current uncommitted test credentials",
     "description": "workspace/cross-device-tab-sync/README.md",
     "steps": [
       "Given 两个授权浏览器窗口打开同一工作区，标签数量一致",
@@ -214,6 +227,7 @@
   },
   "app/mobile-upload-path/SC-ATTACHMENT-MOBILE-UPLOAD-PATH": {
     "test_id": "app/mobile-upload-path/test.mjs",
+    "android_test_id": "app/mobile-upload-path/android.mjs",
     "description": "app/mobile-upload-path/README.md",
     "steps": [
       "Given 用户在移动端打开支持附件且可交互的终端",
@@ -243,6 +257,57 @@
       "Then 普通移动布局继续通过终端总览展示标签且不提供顶部标签拖拽",
       "And 宽屏布局直接横滑可以浏览溢出标签且不改变标签顺序",
       "And 宽屏布局和强制 PC 模式允许长按重排，释放后新顺序在刷新页面后保持"
+    ],
+    "evidence_granularity": "scenario"
+  },
+  "app/resource-compression/SC-GZIP-COLD-RESOURCES": {
+    "android_test_id": "app/resource-compression/android.mjs",
+    "description": "app/resource-compression/README.md",
+    "steps": [
+      "Given 浏览器未缓存当前版本 WebShell 页面资源",
+      "When 浏览器声明优先接受 gzip 并请求入口 HTML、主脚本、终端 Worker、CSS 和 WASM",
+      "Then 各响应使用 gzip 编码，正文小于原文，解压后的内容与原文一致",
+      "And 响应通过 Vary 声明 Accept-Encoding 差异，WASM 保留正确的内容类型",
+      "When 浏览器不声明接受 gzip 或明确拒绝 gzip 并接受原文",
+      "Then 相同资源返回可正常使用的未压缩正文"
+    ],
+    "evidence_granularity": "scenario"
+  },
+  "app/resource-compression/SC-PRESERVE-RESOURCE-CACHING": {
+    "android_test_id": "app/resource-compression/android-cache.mjs",
+    "description": "app/resource-compression/README.md",
+    "steps": [
+      "Given 浏览器取得当前版本的 gzip 静态资源",
+      "When 浏览器正常重新打开同版本页面且缓存仍新鲜",
+      "Then 版本化静态资源允许长期复用，入口 HTML 仍禁止存储",
+      "When 浏览器携带该资源的 Last-Modified 时间发起校验",
+      "Then 未变化的资源返回 304 且没有正文",
+      "When 浏览器请求不存在的资源或已失效的资源版本",
+      "Then 返回错误响应且不允许作为长期成功资源缓存"
+    ],
+    "evidence_granularity": "scenario"
+  },
+  "app/network-monitor-presentation/SC-NETWORK-TRAFFIC-BY-WORKSPACE-AND-TAB": {
+    "android_test_id": "app/network-monitor-presentation/android.mjs",
+    "description": "app/network-monitor-presentation/README.md",
+    "steps": [
+      "Given 用户同时开启调试模式和网络监听器，并有多个标签和会话产生网络流量",
+      "When 用户查看桌面端或移动端的终端工作区",
+      "Then 顶部栏在不遮挡终端内容的位置显示所有会话合计的当前流量、已使用流量和网络状态",
+      "And 桌面端每个标签名称下方以简短摘要显示该标签内全部会话合计的当前流量和已使用流量"
+    ],
+    "evidence_granularity": "scenario"
+  },
+  "app/network-monitor-presentation/SC-NETWORK-MONITOR-DEBUG-GATE": {
+    "android_test_id": "app/network-monitor-presentation/android-debug-gate.mjs",
+    "coverage_status": "pending",
+    "coverage_reason": "Android UI and timer stop are observed, but session socket listener release still lacks a stable external observation",
+    "description": "app/network-monitor-presentation/README.md",
+    "steps": [
+      "Given 用户可以分别控制调试模式和网络监听器",
+      "When 调试模式或网络监听器中的任一开关处于关闭状态",
+      "Then 顶部栏和标签页不显示网络统计",
+      "And 网络流量采样、会话连接监听和刷新定时任务停止运行"
     ],
     "evidence_granularity": "scenario"
   },

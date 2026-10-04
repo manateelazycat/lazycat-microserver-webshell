@@ -14,7 +14,7 @@
 
 外部只能从 `terminal/rendering/index.js` 导入 API。`createTerminalRendererAdapter()` 是 renderer patch 的唯一安装入口；`createTerminalPresentationController()` 是 presentation 状态、提交门禁和生命周期的唯一 owner；`createTerminalPresentationState()` 只提供 session 初始化快照；`RenderSnapshot` 持有一次呈现身份；frame scheduler 持有 latest-only RAF；Kitty graphics 模块只维护图片协议 patch 所需状态。
 
-renderer adapter 只读取注入的字号、字体族和行高 getter。presentation controller 读取注入的 replay/resize/visibility、当前设备 claim required 和 viewport geometry claim pending 门禁，并通过显式命令请求 viewport owner 确保必要的尺寸任务已安排，或请求 resize/transport 恢复；本机已观察到远端 owner，或 viewport 最终尺寸尚在稳定检查时，presentation 只能保留 last-known-good frame 并延迟 geometry 修复，不得先发送被动 resize。它不能自行推进 history cursor、发送 WebSocket 帧、声明 resize owner 或修改输入队列。`onReady` 只发出“当前画面已提交”的信号，pending input、startup trace 和 retry reset 由 `terminal/session/session_installation_controller.js` 接收并编排。presentation hold、full render complete 和 presentation commit 的诊断事件同时记录 live/hold Canvas CSS/backing 尺寸及 window/renderer DPR；presentation gate 事件记录 visibility、measure、fit、resize 和 retry 状态；retry 在当前 generation 内有明确上限。controller 的 `installSession()` 独占 Canvas context 和 Ghostty `onRender` listener，session 销毁或模块 dispose 时统一取消 validation/retry timer、RAF、frame release 和 listener。
+renderer adapter 读取注入的字号、字体族、行高与工具背景映射 getter。presentation controller 读取注入的 replay/resize/visibility、当前设备 claim required 和 viewport geometry claim pending 门禁，并通过显式命令请求 viewport owner 确保必要的尺寸任务已安排，或请求 resize/transport 恢复；本机已观察到远端 owner，或 viewport 最终尺寸尚在稳定检查时，presentation 只能保留 last-known-good frame 并延迟 geometry 修复，不得先发送被动 resize。它不能自行推进 history cursor、发送 WebSocket 帧、声明 resize owner 或修改输入队列。`onReady` 只发出“当前画面已提交”的信号，pending input、startup trace 和 retry reset 由 `terminal/session/session_installation_controller.js` 接收并编排。presentation hold、full render complete 和 presentation commit 的诊断事件同时记录 live/hold Canvas CSS/backing 尺寸及 window/renderer DPR；presentation gate 事件记录 visibility、measure、fit、resize 和 retry 状态；retry 在当前 generation 内有明确上限。controller 的 `installSession()` 独占 Canvas context 和 Ghostty `onRender` listener，session 销毁或模块 dispose 时统一取消 validation/retry timer、RAF、frame release 和 listener。
 
 live geometry 期间 `renderLiveGeometryNow()` 只提交当前 session 的真实 Canvas，不捕获 hold；Ghostty 因持续 output 已完成的 `onRender` 帧会直接进入当前 snapshot，不能再重复触发一次 full render。每帧的高体积 Canvas 诊断事件在该模式下省略，避免 debug 开关反过来制造主线程负载。常规 validation/retry 不在 live geometry 或不可见 pane 上自旋；若最终网络 resize 等待超时，presentation 只调用 resize owner 提供的同 epoch retry 命令，仍不直接发送 WebSocket。
 
@@ -46,6 +46,8 @@ Kitty 图形适配对不完整命令、传输总量、并发解码、图片缓�
 相关测试为 `terminal_presentation_controller_test.mjs`、`terminal_renderer_adapter_test.mjs`、`terminal_runtime_controller_test.mjs`、`kitty_graphics_test.mjs`、`terminal_render_snapshot_test.mjs`、`terminal_frame_release_scheduler_test.mjs` 及 runtime Canvas residue guard。presentation 测试必须覆盖 viewport claim pending 时不调度被动 resize、live geometry 不进入 hold、output render 不重复绘制和隐藏 pane 不创建 retry/validation 循环。最小回归是字体/行高变化、连续背景、Powerline、块光标、pixel scroll、快速切 tab、resize、折叠/跨屏、主题变化、runtime reset、Canvas context 恢复和断网恢复；live geometry 确认真实 Canvas 连续可见，其余原子恢复确认旧帧持续保留到当前 identity/generation 的最终完整画面提交。
 
 任何 renderer patch 都不得清空终端、触发 replay/reset、改变 resize owner，或显示 history replay、snapshot、原子 resize、重连的中间过程。
+
+工具专用背景映射由 `getBackgroundColorMap(session, terminalTheme)` 注入。renderer 在绘制前同步，映射切换时完整重绘；activity 观察到前台进程变化后经 `syncBackgroundColors()` 更新，并由运行时按 presentation 门禁请求重绘。映射仅作用于实际背景绘制，合并行背景、cell seam、像素滚动一致；前景与选择色保留原路径。Codex 的识别、已知颜色和混色规则归 `tui_adapters/codex/`。不增加进程轮询或更改 VT 数据。
 
 ## 旧帧停滞调查
 

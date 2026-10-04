@@ -114,7 +114,7 @@ const MESSAGES = {
     "桌面端左键选中后自动复制，中键粘贴剪贴板内容": "On desktop, left selection auto-copies and middle click pastes clipboard contents",
     "在PC中开启底部快捷键栏": "Enable bottom shortcut bar on PC",
     "默认关闭；开启后始终显示终端快捷键栏": "Disabled by default; when enabled, the terminal shortcut bar is always visible.",
-    "在懒猫微服 PC 客户端中启用「接入 LightOS」后，这台物理机将作为客户端实例接入 LightOS，并允许你从 LightOS 访问其终端和相关资源。": "After enabling \"Access LightOS\" in the Lazycat Microserver PC client, this machine becomes a client instance for LightOS, allowing terminal and related resource access from LightOS.",
+    "在懒猫微服 PC 客户端中启用「接入 LightOS」后，这台物理机将作为物理机实例接入 LightOS，并允许你从 LightOS 访问其终端和相关资源。": "After enabling \"Access LightOS\" in the Lazycat Microserver PC client, this machine becomes a client instance for LightOS, allowing terminal and related resource access from LightOS.",
     "多屏输出说明": "Multi-Screen Output Notes",
     "PTY 是内核输出，内核无法同时输出不同分辨率的 Shell 结果，所以多设备同时用时，PTY 的输出分辨率会按照正在交互的设备的分辨率输出，其他没有交互的设备分辨率会发生变化，这个不是 bug，是技术限制。当你切换到不同终端时，WebShell 会自动用当前交互设备的分辨率重新布局终端界面。": "PTY output comes from the kernel and cannot render different-resolution shells simultaneously; when multiple devices interact at once, output resolution follows the active device, so non-active device resolution may change. This is a technical limitation. When you switch terminals, WebShell reflows the terminal using the current active device resolution.",
     "调试模式": "Debug Mode",
