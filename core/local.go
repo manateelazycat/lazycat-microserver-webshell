@@ -38,6 +38,15 @@ func (l *Local) request(request AgentRequest) AgentRequest {
 	return request
 }
 
+func (l *Local) Inspect(ctx context.Context, request AgentRequest) (WorkspaceState, error) {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	if l.closed {
+		return WorkspaceState{}, errors.New("terminal access disabled")
+	}
+	return l.daemon.inspectWorkspace(l.request(request))
+}
+
 func (l *Local) State(ctx context.Context, request AgentRequest) (WorkspaceState, error) {
 	l.mu.RLock()
 	defer l.mu.RUnlock()

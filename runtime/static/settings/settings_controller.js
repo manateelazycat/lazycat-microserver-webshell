@@ -87,12 +87,14 @@ export function createSettingsController({
   onMobileDoubleTapReminderChange = noop,
   onMobileShortcutsChange = noop,
   onForcePCModeChange = noop,
+  onLegacyPCLayoutChange = noop,
   isIndependentClient = async () => false,
   openClientSettings = asyncNoop,
 } = {}) {
   const defaultDesktopShortcuts = createDefaultDesktopShortcuts(navigatorObject);
   const forcePCModeStorageKey = `${storagePrefix}.forcePCMode`;
   const smoothCursorStorageKey = `${storagePrefix}.smoothCursorEnabled`;
+  const legacyPCLayoutStorageKey = `${storagePrefix}.legacyPCLayout`;
   const mobileRemoteDesktopStorageKey = "lightos-mobile-remote-desktop-enabled";
   let snapshot = cloneSettingsSnapshot({
     terminalCursorStyle: DEFAULT_TERMINAL_CURSOR_STYLE,
@@ -112,6 +114,7 @@ export function createSettingsController({
     mobileDoubleTapReminderEnabled: true,
     mobileRemoteDesktopEnabled: readStoredBoolean(storage, mobileRemoteDesktopStorageKey, false),
     forcePCModeEnabled: readStoredBoolean(storage, forcePCModeStorageKey, false),
+    legacyPCLayoutEnabled: readStoredBoolean(storage, legacyPCLayoutStorageKey, false),
     mobileShortcuts: defaultMobileShortcutRows,
     desktopShortcuts: defaultDesktopShortcuts,
   });
@@ -285,6 +288,7 @@ export function createSettingsController({
       terminalFontSize: snapshot.terminalFontSize,
       mobileRemoteDesktopEnabled: snapshot.mobileRemoteDesktopEnabled,
       forcePCModeEnabled: snapshot.forcePCModeEnabled,
+      legacyPCLayoutEnabled: snapshot.legacyPCLayoutEnabled,
     });
     replaceSnapshot(next);
     if (!refreshFonts) {
@@ -978,6 +982,12 @@ export function createSettingsController({
       persistLocal(forcePCModeStorageKey, value ? "true" : "false");
       onForcePCModeChange(value);
     },
+    onLegacyPCLayoutChange: () => {
+      const value = view.toggleValue?.("legacyPCLayout") === true;
+      replaceSnapshot({ legacyPCLayoutEnabled: value });
+      persistLocal(legacyPCLayoutStorageKey, value ? "true" : "false");
+      onLegacyPCLayoutChange(value);
+    },
     onMobileShortcutAdd: () => openMobileEditor({ rowIndex: 0, index: -1 }),
     onMobileShortcutReset: async () => {
       if (!await confirmAction("恢复默认手机快捷键？当前自定义配置会被替换。", {
@@ -1193,6 +1203,7 @@ export function createSettingsController({
     getDesktopShortcutsBarEnabled: () => snapshot.desktopShortcutsBarEnabled,
     getRestartWorkspaceRestoreEnabled: () => snapshot.restartWorkspaceRestoreEnabled,
     getForcePCModeEnabled: () => snapshot.forcePCModeEnabled,
+    getLegacyPCLayoutEnabled: () => snapshot.legacyPCLayoutEnabled,
     getMobileDoubleTapReminderEnabled: () => snapshot.mobileDoubleTapReminderEnabled,
     getMobilePreInputEnabled: () => snapshot.mobilePreInputEnabled,
     getMobilePixelScrollEnabled: () => snapshot.mobilePixelScrollEnabled,
@@ -1208,6 +1219,9 @@ export function createSettingsController({
     handleHostLayoutChange() {
       if (!isMobileLayout()) mobileView = "detail";
       view.syncMobileNavigation?.({ isMobile: isMobileLayout(), mobileView });
+    },
+    handleDesktopLayoutChange() {
+      view.renderDesktopShortcuts?.(snapshot.desktopShortcuts);
     },
     handleTerminalFontSizeShortcut(event) {
       const action = terminalFontSizeShortcutAction(event, navigatorObject);
@@ -1293,6 +1307,7 @@ export function createSettingsController({
       notifyChanges(snapshot, snapshot, { force: true });
       onTerminalFontSizeChange(snapshot.terminalFontSize, snapshot.terminalFontSize);
       onForcePCModeChange(snapshot.forcePCModeEnabled);
+      onLegacyPCLayoutChange(snapshot.legacyPCLayoutEnabled);
       initializeClientSettingsEntry();
     },
     syncDebugModeDependents() {
@@ -1300,6 +1315,7 @@ export function createSettingsController({
       view.syncToggles?.(snapshot, { debugMode: isDebugModeEnabled() });
       onDebugModeDependents(isDebugModeEnabled());
       onForcePCModeChange(snapshot.forcePCModeEnabled);
+      onLegacyPCLayoutChange(snapshot.legacyPCLayoutEnabled);
     },
   };
 

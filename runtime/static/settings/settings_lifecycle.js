@@ -67,6 +67,7 @@ export function createSettingsLifecycle({
       listen(elements.mobileRemoteDesktopToggle, "change", handlers.onMobileRemoteDesktopChange);
       listen(elements.forcePCModeToggle, "change", handlers.onForcePCModeChange);
       listen(elements.mobilePreInputToggle, "change", handlers.onMobilePreInputChange);
+      listen(elements.legacyPCLayoutToggle, "change", handlers.onLegacyPCLayoutChange);
       listen(elements.mobilePixelScrollToggle, "change", handlers.onMobilePixelScrollChange);
       listen(elements.mobileDoubleTapReminderToggle, "change", handlers.onMobileDoubleTapReminderChange);
       listen(elements.mobileShortcutAddButton, "click", handlers.onMobileShortcutAdd);

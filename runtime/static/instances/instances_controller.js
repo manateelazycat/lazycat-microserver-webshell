@@ -39,6 +39,7 @@ export function createInstancesController({
   setActiveName = () => 0,
   updateLocation = () => {},
   onSwitchTarget = async () => {},
+  onInstancesChange = () => {},
   onSameTargetNavigation = () => {},
   consumePopState = () => false,
   prepareSwitcherOpen = () => {},
@@ -62,6 +63,7 @@ export function createInstancesController({
     }
     instances = cloneInstances(nextInstances);
     render();
+    onInstancesChange();
   };
 
   const instancesLoader = loader || loaderFactory({

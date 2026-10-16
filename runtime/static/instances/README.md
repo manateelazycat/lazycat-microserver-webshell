@@ -6,6 +6,8 @@
 
 本模块不负责实例可见性和账号授权判断。`/api/instances` 的结果由 Provider 和 LightOS Admin 权威提供，浏览器不得推断、补全或缓存额外实例，也不得直接访问 Admin 或客户端服务凭据。
 
+`onInstancesChange` 在权威列表更新后通知新版 PC 导航刷新，只暴露变化信号；侧栏 DOM、后台实例会话元数据及预览由 `app/desktop_workspace/` 独立维护。
+
 本模块不负责工作区重置、tab/pane、终端 session、WebSocket、历史、缓存、resize、输入或 Canvas presentation。当前活动 selector 和 generation 由 `workspace/target_controller.js` 持有；用户选择实例后，controller 只通过 `onSwitchTarget(nextName, options)` 发出命令，由 target controller 完成目标切换编排。
 
 ## 公开入口与契约

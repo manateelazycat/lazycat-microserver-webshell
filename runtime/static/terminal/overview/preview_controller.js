@@ -277,6 +277,14 @@ export function createTerminalOverviewPreviewController({
       return scheduled;
     },
     cleanup: () => store.cleanup().catch(() => 0),
+    release(pane) {
+      const state = states.get(pane);
+      if (!state) return;
+      if (state.captureTimer) windowObject?.clearTimeout?.(state.captureTimer);
+      state.captureTimer = 0;
+      state.captureSeq += 1;
+      clearPrepared(pane, { removeState: true });
+    },
     delete(pane) {
       if (!pane) {
         return Promise.resolve(false);

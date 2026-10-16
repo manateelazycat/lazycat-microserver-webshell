@@ -18,3 +18,5 @@ Close 先撤权并断开 HTTP/WebSocket，再关闭 Core。Core 取消信号也�
 启用可选 SSH handler 时，Close 也关闭其生命周期；SSH 自己的配置关闭只回收 SSH，不触碰浏览器工作区。协议见 `../sshserver/PROTOCOL.md`；本包不处理密码、SSH 握手或转发端口。
 
 库检查：`go build ./localserver`、`go vet ./localserver`。真实验证包括授权失败、两个以上 pane 的单连接、大输出流控、压缩恢复、图形回退、文件及退出；PC 管理和 hportal 网络路径另需完整联测。
+
+`GET /workspace/inspect` 复用同一 HTTP 门禁，并调用 `Core.Local.Inspect()` 返回已有会话和分屏元数据。未使用工作区返回空列表；该入口不创建 shell、不更新滚动历史、不恢复会话。手工核对未初始化、已有会话和访问撤销后的查询结果，以及查询前后会话数量不变。
