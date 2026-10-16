@@ -20,6 +20,10 @@ func (s *pluginServer) handleWorkspace(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "account id is required", http.StatusUnauthorized)
 		return
 	}
+	if r.Method == http.MethodGet && r.URL.Query().Get("inspect") == "1" {
+		s.handleWorkspaceInspection(w, r, accountID, selector)
+		return
+	}
 	if isClientTarget(selector) {
 		cols, rows := parseTerminalSize(r.URL.Query().Get("cols"), r.URL.Query().Get("rows"))
 		s.handleClientWorkspace(w, r, accountID, selector, cols, rows, s.currentTerminalScrollback())

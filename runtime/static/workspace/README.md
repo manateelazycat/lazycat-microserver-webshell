@@ -12,6 +12,8 @@
 
 target lifecycle 唯一持有 active selector、generation 和 disposed 状态；target controller 唯一编排目标变更后的缓存/网络/业务模块通知、workspace reset、URL 更新和 refresh。
 
+新版 PC 导航由 `app/desktop_workspace/` 独立维护，只通过本模块的现有命令选择实例、激活/创建/关闭/重命名会话；每个侧栏会话仍对应一个 tab，保留原有分屏。`resetForInstance()` 释放浏览器终端资源时保留已保存的预览，实际关闭 tab/pane 时仍删除图片。
+
 ## 跨设备成员同步契约
 
 跨设备新建/关闭标签通过既有 activity 响应发现：activity owner 比较完整 pane ID 集合，只在新增/消失时调用 refresh owner 的 `syncMembership()` 按需获取完整 workspace。默认仍只有原来的 4 秒 activity interval，没有新增 WS、interval 或成员同步重试 timer。错误/缺失/重复 ID 等不完整响应不能触发删除；旧 activity 请求、切换目标及本地 action 跨越的响应不得发起成员同步。单独改名、排序或布局调整而 pane 集合不变，不能靠此信号保证同步。

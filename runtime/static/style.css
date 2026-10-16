@@ -1,3 +1,5 @@
+@import "./app/desktop_workspace/workspace.css";
+
 :root {
   --terminal-bg: #000000;
   --terminal-fg: #00cd00;

@@ -153,7 +153,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch r.URL.Path {
 	case "/metrics":
 		s.hostMetrics(w, r)
-	case "/workspace", "/activity":
+	case "/workspace", "/workspace/inspect", "/activity":
 		s.workspace(w, r)
 	case "/ws":
 		s.queue(w, r)
@@ -171,6 +171,19 @@ func reply(w http.ResponseWriter, status int, value any) {
 }
 
 func (s *Server) workspace(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path == "/workspace/inspect" {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		state, err := s.local.Inspect(r.Context(), core.AgentRequest{})
+		if err != nil {
+			reply(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+		reply(w, http.StatusOK, state)
+		return
+	}
 	q := r.URL.Query()
 	req := core.AgentRequest{Cols: core.ParsePositiveInt(q.Get("cols")), Rows: core.ParsePositiveInt(q.Get("rows")), TerminalScrollback: core.ParsePositiveInt(q.Get("terminal_scrollback"))}
 	s.setScrollback(req.TerminalScrollback)

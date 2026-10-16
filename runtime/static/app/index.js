@@ -36,3 +36,4 @@ export {
   nativePasteText,
 } from "./paste/index.js";
 export { createAppFileDropController } from "./file_drop/index.js";
+export { createDesktopWorkspaceController } from "./desktop_workspace/index.js";

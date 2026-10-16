@@ -88,7 +88,7 @@ export function createWorkspaceTabController({
   };
 
   const recreateTabButton = (tab) => tabView.recreateTabButton(tab);
-  const disposePane = (pane) => disposePaneSession(pane);
+  const disposePane = (pane, options) => disposePaneSession(pane, options);
 
   const splitPane = (tabId, paneId, direction) => {
     const tab = tabs.get(tabId);
@@ -144,7 +144,7 @@ export function createWorkspaceTabController({
     return true;
   };
 
-  const closeTab = (tabId, { allowLast = true, remember = true } = {}) => {
+  const closeTab = (tabId, { allowLast = true, remember = true, preservePreview = false } = {}) => {
     const tab = tabs.get(tabId);
     if (!tab || disposed) {
       return false;
@@ -177,7 +177,7 @@ export function createWorkspaceTabController({
       }
     }
     for (const pane of tab.panes.values()) {
-      disposePane(pane);
+      disposePane(pane, { preservePreview });
     }
     cancelTabResize(tab);
     tabView.disposeTab(tab);
@@ -283,7 +283,7 @@ export function createWorkspaceTabController({
 
   const resetForInstance = () => runApplying(() => {
     for (const tab of [...tabs.values()]) {
-      closeTab(tab.id, { remember: false });
+      closeTab(tab.id, { remember: false, preservePreview: true });
     }
     clearRecentTabs();
   });
