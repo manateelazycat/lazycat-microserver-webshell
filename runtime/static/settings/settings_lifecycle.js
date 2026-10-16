@@ -54,6 +54,7 @@ export function createSettingsLifecycle({
       listen(elements.fontSizeInput, "change", handlers.onFontSizeChange);
       listen(elements.fontSizeResetButton, "click", handlers.onFontSizeReset);
       listen(elements.cursorStyleSelect, "change", handlers.onCursorStyleChange);
+      listen(elements.smoothCursorToggle, "change", handlers.onSmoothCursorChange);
       listen(elements.lineHeightInput, "input", handlers.onLineHeightInput);
       listen(elements.lineHeightInput, "change", handlers.onLineHeightChange);
       listen(elements.lineHeightResetButton, "click", handlers.onLineHeightReset);

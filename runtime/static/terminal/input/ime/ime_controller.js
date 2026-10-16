@@ -101,6 +101,7 @@ export function createTerminalIMEController({
       session.term?.canvas,
       session.term?.textarea,
       session.terminalFrameHold,
+      session.terminalCursorLayer,
       session.compositionPreview,
     ].filter(Boolean));
     for (const node of Array.from(host.childNodes || [])) {

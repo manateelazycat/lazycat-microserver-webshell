@@ -37,9 +37,16 @@ export function createTerminalBackendManager({ wasmURL, isVisible = () => true, 
             // A visible pane needs a current viewport as soon as its write ends.
             visible: () => isVisible(sessions.get(term)),
             onChange: () => {
+              const session = sessions.get(term);
+              const backend = term.wasmTerm;
               term.linkDetector?.invalidateCache();
-              if (isVisible(sessions.get(term))) term.requestRender?.({ full: true, throttle: true });
-              onReady(sessions.get(term));
+              // RemoteTerminal owns full-frame invalidation and dirty rows.
+              // Keep ordinary output incremental while structural changes
+              // still force a complete redraw through needsFullRedraw().
+              if (isVisible(session)) {
+                if (backend?.dirty || backend?.isFrameCurrent) term.requestRender?.({ throttle: true });
+              }
+              onReady(session);
             },
             onError: (error) => onError(sessions.get(term), error),
             onDispose: (backend) => backends.delete(backend),

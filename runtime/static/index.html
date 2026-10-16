@@ -285,6 +285,14 @@
                   <option value="bar">{{ $t('竖线') }}</option>
                   <option value="underline">{{ $t('下划线') }}</option>
                 </select>
+                <label class="settings-switch-row" for="settingsSmoothCursorToggle">
+                  <span class="settings-switch-label">
+                    <span>{{ $t('平滑光标') }}</span>
+                    <span>{{ $t('短距离移动时平滑过渡；系统开启“减少动态效果”时仍会停用动画') }}</span>
+                  </span>
+                  <input class="settings-switch-input" id="settingsSmoothCursorToggle" type="checkbox" checked />
+                  <span class="settings-switch" aria-hidden="true"></span>
+                </label>
               </section>
               <section class="settings-section" aria-labelledby="settingsFontSizeTitle">
                 <div class="settings-section-head">

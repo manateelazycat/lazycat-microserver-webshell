@@ -706,6 +706,7 @@ export function startGlobalRuntime() {
     onDebugModeDependents: (enabled) => devices.setDebugMode(enabled),
     onTerminalFontFamilyChange: (fontFamily) => terminalMetrics?.applyFontFamily(fontFamily),
     onTerminalCursorStyleChange: (style) => terminalRenderer?.applyCursorStyle(style),
+    onTerminalSmoothCursorChange: () => terminalRenderer?.refreshCursorMotions(),
     onTerminalFontSizeChange: (fontSize) => terminalMetrics?.applyFontSize(fontSize),
     onTerminalScrollbackChange: (previousScrollback, nextScrollback) => (
       terminalMetrics?.applyScrollbackChange(previousScrollback, nextScrollback)
@@ -871,6 +872,29 @@ export function startGlobalRuntime() {
     getFontFamily: () => terminalOptionsBase.fontFamily,
     getBackgroundColorMap: (session, theme) => codexThemeAdapter.getBackgroundColorMap(session, theme),
     getSessions: () => Array.from(tabs.values()).flatMap((tab) => Array.from(tab.panes.values())),
+    isCursorAnimationAllowed: (session) => {
+      const tab = tabs.get(getActiveTabId());
+      return Boolean(
+        !document.hidden
+        && settings?.getTerminalSmoothCursorEnabled() !== false
+        && session?.renderReady === true
+        && !session.closed
+        && tab?.panes?.get(tab.activePaneId) === session
+        && terminalPresentation?.isRenderAllowed(session) === true
+        && terminalResize?.isVisible(session) === true
+        && terminalResize?.isLiveGeometryActive(session) !== true
+        && !session.terminalFrameHeld
+        && !session.resizePresentationHold
+        && !session.presentationCommitPending
+        && !session.terminalRenderSuppressionActive
+        && !session.term?.renderSuppressionDepth
+        && !session.term?.backendResizePending
+        && Number(session.term?.viewportY || 0) <= 0.01
+        && Number(session.term?.targetViewportY || 0) <= 0.01
+      );
+    },
+    workScheduler: terminalWorkScheduler,
+    registerSessionCleanup: (session, cleanup) => terminalSessionController?.addCleanup(session, cleanup),
   });
 
   terminalPresentation = createTerminalPresentationController({

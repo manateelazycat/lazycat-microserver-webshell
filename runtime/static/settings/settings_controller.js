@@ -76,6 +76,7 @@ export function createSettingsController({
   onDebugModeDependents = noop,
   onTerminalFontFamilyChange = noop,
   onTerminalCursorStyleChange = noop,
+  onTerminalSmoothCursorChange = noop,
   onTerminalFontSizeChange = noop,
   onTerminalScrollbackChange = noop,
   onTerminalLineHeightChange = noop,
@@ -90,9 +91,11 @@ export function createSettingsController({
 } = {}) {
   const defaultDesktopShortcuts = createDefaultDesktopShortcuts(navigatorObject);
   const forcePCModeStorageKey = `${storagePrefix}.forcePCMode`;
+  const smoothCursorStorageKey = `${storagePrefix}.smoothCursorEnabled`;
   const mobileRemoteDesktopStorageKey = "lightos-mobile-remote-desktop-enabled";
   let snapshot = cloneSettingsSnapshot({
     terminalCursorStyle: DEFAULT_TERMINAL_CURSOR_STYLE,
+    terminalSmoothCursorEnabled: readStoredBoolean(storage, smoothCursorStorageKey, true),
     terminalFontSize: readStoredTerminalFontSize(storage, storagePrefix),
     terminalLineHeightPercent: DEFAULT_TERMINAL_LINE_HEIGHT_PERCENT,
     terminalScrollback: DEFAULT_TERMINAL_SCROLLBACK,
@@ -210,6 +213,9 @@ export function createSettingsController({
   const notifyChanges = (next, previous, { force = false, forceFontRefresh = false } = {}) => {
     if (force || next.terminalCursorStyle !== previous.terminalCursorStyle) {
       onTerminalCursorStyleChange(next.terminalCursorStyle, previous.terminalCursorStyle);
+    }
+    if (force || next.terminalSmoothCursorEnabled !== previous.terminalSmoothCursorEnabled) {
+      onTerminalSmoothCursorChange(next.terminalSmoothCursorEnabled, previous.terminalSmoothCursorEnabled);
     }
     if (force || next.terminalScrollback !== previous.terminalScrollback) {
       onTerminalScrollbackChange(previous.terminalScrollback, next.terminalScrollback);
@@ -886,6 +892,11 @@ export function createSettingsController({
         refreshFonts: false,
       }).catch((error) => view.setFeedback?.(error.message || "光标样式保存失败。", "error"));
     },
+    onSmoothCursorChange: () => {
+      const value = view.toggleValue?.("smoothCursor") === true;
+      replaceSnapshot({ terminalSmoothCursorEnabled: value });
+      persistLocal(smoothCursorStorageKey, value ? "true" : "false");
+    },
     onLineHeightInput: () => {
       clearTimer(lineHeightSaveTimer);
       try {
@@ -1181,6 +1192,7 @@ export function createSettingsController({
     getSnapshot: () => cloneSettingsSnapshot(snapshot),
     getTerminalFontFamily: () => snapshot.terminalFontFamily,
     getTerminalCursorStyle: () => snapshot.terminalCursorStyle,
+    getTerminalSmoothCursorEnabled: () => snapshot.terminalSmoothCursorEnabled,
     getTerminalFontSize: () => snapshot.terminalFontSize,
     getTerminalLineHeightPercent: () => snapshot.terminalLineHeightPercent,
     getTerminalScrollback: () => snapshot.terminalScrollback,

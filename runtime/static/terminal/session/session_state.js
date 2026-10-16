@@ -194,6 +194,7 @@ export function createTerminalSessionState({
     name,
     shellEl: resources.shellEl,
     terminalHost: resources.terminalHost,
+    terminalCursorLayer: null,
     terminalFrameHold: resources.terminalFrameHold,
     terminalFrameHeld: false,
     terminalFrameHoldIdentity: null,

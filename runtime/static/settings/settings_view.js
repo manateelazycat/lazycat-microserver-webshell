@@ -51,6 +51,7 @@ export function createSettingsView({
     fontSizeInput: byID("settingsFontSizeInput"),
     fontSizeResetButton: byID("settingsFontSizeResetButton"),
     cursorStyleSelect: byID("settingsCursorStyleSelect"),
+    smoothCursorToggle: byID("settingsSmoothCursorToggle"),
     lineHeightInput: byID("settingsLineHeightInput"),
     lineHeightResetButton: byID("settingsLineHeightResetButton"),
     scrollbackInput: byID("settingsScrollbackInput"),
@@ -638,6 +639,7 @@ export function createSettingsView({
       if (elements.mobileShortcutCustomKeyField) elements.mobileShortcutCustomKeyField.hidden = !isInput || elements.mobileShortcutKeySelect?.value !== "custom";
     },
     syncToggles(snapshot, { debugMode = false } = {}) {
+      if (elements.smoothCursorToggle) elements.smoothCursorToggle.checked = snapshot.terminalSmoothCursorEnabled;
       if (elements.mobileRemoteDesktopToggle) elements.mobileRemoteDesktopToggle.checked = snapshot.mobileRemoteDesktopEnabled;
       if (elements.forcePCModeToggle) {
         elements.forcePCModeToggle.checked = snapshot.forcePCModeEnabled;
@@ -652,6 +654,7 @@ export function createSettingsView({
     },
     toggleValue(name) {
       const map = {
+        smoothCursor: elements.smoothCursorToggle,
         mobileRemoteDesktop: elements.mobileRemoteDesktopToggle,
         forcePCMode: elements.forcePCModeToggle,
         desktopMouseClipboard: elements.desktopMouseClipboardToggle,

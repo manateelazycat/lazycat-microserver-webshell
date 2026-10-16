@@ -1,8 +1,10 @@
-import { unpackRows } from "./cell_packet.js";
+import { changedPackedRows, unpackRow, unpackRows } from "./cell_packet.js";
 import { describeCells, compareCellDescriptions } from "./cell_diagnostics.js";
 
 const cancelled = () => Object.assign(new Error("Terminal backend generation changed"), { code: "BACKEND_CANCELLED" });
 let checkpointWASMMismatchLogged = false;
+
+const sameColors = (left, right) => JSON.stringify(left || null) === JSON.stringify(right || null);
 
 export class RemoteTerminal {
   constructor({ workerFactory, wasmURL, cols, rows, config, onChange, onError, viewport, visible, onDispose, diagnosticsEnabled, resizeDiagnosticsEnabled, onDiagnostic }) {
@@ -66,6 +68,9 @@ export class RemoteTerminal {
     this.lines = null;
     this.viewportCells = null;
     this.viewportRevision = -1;
+    this.dirty = false;
+    this.dirtyRows = new Set();
+    this.fullRedraw = true;
     this.snapshotPending = null;
     this.diagnosticPending = null;
     this.resizeTrace = null;
@@ -233,10 +238,42 @@ export class RemoteTerminal {
     const unpackAt = timing ? performance.now() : 0;
     if (this.frame && frame.revision < this.frame.revision) return;
     if (frame.viewport && (frame.viewport.columns !== frame.cols || frame.viewport.rows !== frame.rows)) throw new Error("Terminal frame geometry mismatch");
+    const previousFrame = this.frame;
+    const previousLines = this.lines;
     this.acceptProgress(frame, false);
     if (frame.viewport) {
-      this.lines = unpackRows(frame.viewport);
-      this.viewportCells = this.lines.flat();
+      const changedRows = previousFrame?.viewport && previousLines
+        ? changedPackedRows(previousFrame.viewport, frame.viewport)
+        : null;
+      let nextLines;
+      if (!changedRows || changedRows.size > frame.rows / 3) {
+        nextLines = unpackRows(frame.viewport);
+      } else {
+        nextLines = previousLines.slice();
+        for (const row of changedRows) nextLines[row] = unpackRow(frame.viewport, row);
+      }
+      const structuralChange = !previousFrame || !previousLines
+        || previousFrame.cols !== frame.cols || previousFrame.rows !== frame.rows
+        || previousFrame.historyEpoch !== frame.historyEpoch
+        || previousFrame.alternate !== frame.alternate
+        || !sameColors(previousFrame.colors, frame.colors);
+      this.fullRedraw ||= structuralChange;
+      if (!this.fullRedraw) {
+        for (const row of changedRows || []) this.dirtyRows.add(row);
+      } else {
+        this.dirtyRows.clear();
+      }
+      this.lines = nextLines;
+      if (!changedRows || !this.viewportCells || this.viewportCells.length !== frame.cols * frame.rows) {
+        this.viewportCells = this.lines.flat();
+      } else {
+        for (const row of changedRows) {
+          const offset = row * frame.cols;
+          for (let column = 0; column < frame.cols; column += 1) {
+            this.viewportCells[offset + column] = nextLines[row][column];
+          }
+        }
+      }
       this.viewportRevision = frame.revision;
     }
     this.frame = frame;
@@ -264,7 +301,10 @@ export class RemoteTerminal {
       this.syncOutputTimer = setTimeout(() => {
         this.syncOutputTimer = null;
         this.syncOutputDeadline = 0;
-        if (!this.disposed && !this.failed && this.generation === generation) this.onChange?.();
+        if (!this.disposed && !this.failed && this.generation === generation) {
+          if (this.visible?.()) this.getViewport();
+          this.onChange?.();
+        }
       }, remaining);
     }
     if (notify) this.onChange?.();
@@ -435,11 +475,11 @@ export class RemoteTerminal {
   isAlternateScreen() { return this.currentState?.alternate === true; }
   isRowWrapped(row) { return this.frame?.wrapped?.[row] === true; }
   getHyperlinkUri() { return null; }
-  needsFullRedraw() { return this.dirty === true; }
-  isRowDirty() { return this.dirty === true; }
+  needsFullRedraw() { return this.fullRedraw === true; }
+  isRowDirty(row) { return this.fullRedraw === true || this.dirtyRows.has(row); }
   update() { return this.dirty ? 2 : 0; }
   ensureRenderStateCurrent() {}
-  markClean() { this.dirty = false; }
+  markClean() { this.dirty = false; this.fullRedraw = false; this.dirtyRows.clear(); }
   clearDirty() { this.markClean(); }
   hasResponse() { return this.responses.length > 0; }
   readResponse() { return this.responses.shift() || null; }
@@ -505,6 +545,7 @@ export class RemoteTerminal {
     this.reads.clear();
     this.history.clear();
     this.progress = this.frame = this.lines = this.viewportCells = null;
+    this.dirtyRows.clear();
     this.outputPresentations.clear();
     this.responses = [];
     this.onDispose?.(this);

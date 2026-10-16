@@ -22,7 +22,6 @@ export function installBackendTerminalAdapter(term) {
     const frame = await backend.write(data);
     if (term.isDisposed || term.wasmTerm !== backend || generation !== backend.generation) throw retired();
     requireCurrentIdentity(term, backend, identity);
-    term.renderFullNextFrame = true;
     term.processTerminalResponses();
     if ((typeof data === "string" && data.includes("\x07")) || (data instanceof Uint8Array && data.includes(7))) term.bellEmitter.fire();
     term.linkDetector?.invalidateCache();
@@ -36,7 +35,9 @@ export function installBackendTerminalAdapter(term) {
       term.scrollEmitter.fire(Math.floor(term.viewportY));
     }
     if (typeof data === "string" && data.includes("\x1B]")) term.checkForTitleChange(data);
-    term.requestRender({ full: true, throttle: true });
+    // The viewport is authoritative only after scroll preservation above.
+    // Preparing it here avoids a stale render task for the progress-only reply.
+    if (backend.visible?.()) backend.getViewport();
     if (callback) requestAnimationFrame(callback);
   };
   term.writeReplay = async (data) => {

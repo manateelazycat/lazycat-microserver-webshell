@@ -954,6 +954,15 @@ body.split-resize-active * {
   user-select: none;
 }
 
+.terminal-host .terminal-cursor-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 0;
+  pointer-events: none;
+  will-change: transform;
+}
+
 .terminal-frame-hold {
   position: absolute;
   inset: 0;

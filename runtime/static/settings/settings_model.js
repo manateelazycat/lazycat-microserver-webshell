@@ -771,6 +771,7 @@ export function normalizeTerminalCursorStyle(value) {
 export function cloneSettingsSnapshot(snapshot) {
   return {
     terminalCursorStyle: normalizeTerminalCursorStyle(snapshot?.terminalCursorStyle),
+    terminalSmoothCursorEnabled: snapshot?.terminalSmoothCursorEnabled !== false,
     terminalFontSize: normalizeTerminalFontSize(snapshot?.terminalFontSize),
     terminalLineHeightPercent: normalizeTerminalLineHeightPercent(snapshot?.terminalLineHeightPercent),
     terminalScrollback: normalizeTerminalScrollback(snapshot?.terminalScrollback),
