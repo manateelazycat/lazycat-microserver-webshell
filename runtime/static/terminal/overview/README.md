@@ -4,6 +4,8 @@
 
 本目录负责标签总览的打开/关闭、卡片渲染、分屏 Canvas 缩略图、标签选择/关闭/拖拽排序、移动端边缘手势和浏览器历史 guard。
 
+新版 PC 通过 `getGroupedOverview` 注入独立 PC 导航 owner，复用本目录的打开关闭、预览来源选择和分屏缩略图绘制；实例分组 DOM 和跨实例命令由 `app/desktop_workspace/` 负责。分组卡片同时携带实例 selector 和会话 ID，避免跨实例 ID 相同导致误操作。移动端与传统 PC 继续使用原卡片和排序流程。
+
 总览只观察工作区 tab/pane，并通过显式命令请求新建、激活、关闭和移动标签。它不建立 WebSocket、不修改 history cursor、不读取或保存 PTY 字节、不恢复 Ghostty 状态，也不决定输入是否 ready。
 
 ## 公开入口与契约
@@ -30,6 +32,8 @@ IndexedDB 数据库 `lcmd-webshell-overview-previews-v1` 最多保留 64 项并�
 `start()` 幂等注册 listener 并启动过期记录清理；稳定 presentation 以 320ms 有界节流捕获最新缩略图，持续输出不会无限推迟落盘，页面隐藏时可做一次尽力而为的即时捕获。全局 runtime 在 terminal live geometry 期间拒绝 capture 授权，避免为每个拖拽帧编码 Canvas；最终几何提交后由稳定 presentation 补一次最新预览。pane 被真实删除时删除对应记录；应用整体 dispose 只关闭数据库连接，不清空仍有效记录。
 
 `dispose()` 取消所有 RAF/timer、结束拖拽、关闭已解码图片、使 capture/load generation 失效、移除 listener 并关闭总览。迟到的 encode、IndexedDB request 或 image decode 不得修改 UI 或覆盖新 identity。history generation 变更后的旧图片只是不再展示，不通过无条件 key 删除，避免迟到清理误删同 pane 的新 generation 图片；后续 capture 或 TTL/容量清理负责回收。
+
+`releasePreview(pane)` 只释放该观察对象的计时器、解码图片和迟到加载，不删除已保存的图片。切换实例时释放旧终端的内存观察对象并保留图片，实际关闭会话时才删除；跨实例元数据失效时同样使用 release。
 
 ## 文件清单
 

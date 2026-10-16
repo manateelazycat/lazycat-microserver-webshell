@@ -13,6 +13,8 @@ export function createTerminalOverviewController({
   getOrderedTabs = () => [],
   getActiveTabId = () => "",
   getActiveName = () => "",
+  getGroupedOverview = () => null,
+  onOverviewVisibilityChange = noop,
   workspaceLocationURL = () => windowObject?.location?.href || "",
   isMobileLayout = () => false,
   isFrameHoldCurrent = () => false,
@@ -106,6 +108,9 @@ export function createTerminalOverviewController({
     if (tabOverviewDragState) {
       finishTabOverviewDrag({ cancel: true });
     }
+    const grouped = getGroupedOverview();
+    if (grouped?.renderOverview(view, paneOverviewSource)) return;
+    view.elements.grid.classList.remove("desktop-overview-groups");
     const orderedTabs = orderedTabsSnapshot();
     const previewItems = view.renderTabs?.({
       orderedTabs,
@@ -521,6 +526,7 @@ export function createTerminalOverviewController({
       tabOverviewFocusFrame = 0;
     }
     view.setOpen?.(false);
+    onOverviewVisibilityChange(false);
   };
 
   const openTabOverview = () => {
@@ -529,6 +535,8 @@ export function createTerminalOverviewController({
     }
     prepareOpen();
     view.setOpen?.(true);
+    onOverviewVisibilityChange(true);
+    getGroupedOverview()?.refresh();
     renderTabOverview();
     scheduleTabOverviewRender();
     tabOverviewFocusFrame = requestFrame(() => {
@@ -560,6 +568,13 @@ export function createTerminalOverviewController({
       return;
     }
     const target = event?.target;
+    const grouped = getGroupedOverview();
+    const createButton = target?.closest?.("[data-desktop-overview-create]");
+    if (grouped && createButton) {
+      Promise.resolve(grouped.create(createButton.dataset.desktopOverviewCreate))
+        .catch((error) => showToast(error.message));
+      return;
+    }
     if (view.isBackdropTarget?.(target)) {
       closeTabOverview();
       return;
@@ -568,20 +583,31 @@ export function createTerminalOverviewController({
     if (closeButton) {
       event?.preventDefault?.();
       event?.stopPropagation?.();
-      closeTabFromOverview(closeButton.dataset?.tabOverviewClose);
+      if (grouped && closeButton.dataset.instanceSelector) {
+        Promise.resolve(grouped.close(closeButton.dataset.instanceSelector, closeButton.dataset.tabOverviewClose))
+          .catch((error) => showToast(error.message));
+      } else closeTabFromOverview(closeButton.dataset?.tabOverviewClose);
       return;
     }
     const cardButton = view.closestCardButton?.(target);
     if (cardButton) {
-      selectTabFromOverview(cardButton.dataset?.tabId);
+      if (grouped && cardButton.dataset.instanceSelector) {
+        closeTabOverview();
+        Promise.resolve(grouped.select(cardButton.dataset.instanceSelector, cardButton.dataset.tabId))
+          .catch((error) => showToast(error.message));
+      } else selectTabFromOverview(cardButton.dataset?.tabId);
       return;
     }
     const card = view.closestCard?.(target);
     if (card) {
-      selectTabFromOverview(card.dataset?.tabId);
+      if (grouped && card.dataset.instanceSelector) {
+        closeTabOverview();
+        Promise.resolve(grouped.select(card.dataset.instanceSelector, card.dataset.tabId))
+          .catch((error) => showToast(error.message));
+      } else selectTabFromOverview(card.dataset?.tabId);
       return;
     }
-    if (!view.isHeaderTarget?.(target)) {
+    if (!view.isHeaderTarget?.(target) && !target?.closest?.("[data-desktop-overview-group]")) {
       closeTabOverview();
     }
   };
@@ -824,6 +850,7 @@ export function createTerminalOverviewController({
     capturePreview: (pane, options) => overviewPreview.capture(pane, options),
     captureAllPreviews: (panes, options) => overviewPreview.captureAll(panes, options),
     deletePreview: (pane) => overviewPreview.delete(pane),
+    releasePreview: (pane) => overviewPreview.release(pane),
     isOpen: isTabOverviewOpen,
     open: openTabOverview,
     scheduleRender: scheduleTabOverviewRender,

@@ -25,6 +25,7 @@ controller 对外提供只读快照/getter、`start()`、`load()`、`open()`、`
 `settings_controller.js` 独占以下可变状态：
 
 - 服务端设置 snapshot 和本地字号、强制 PC、移动远程桌面偏好。
+- 本地传统 PC 布局偏好：`legacyPCLayoutEnabled` 默认关闭，保存在本浏览器的 `webshell.legacyPCLayout`，仅调试模式下生效，通过 `onLegacyPCLayoutChange` 通知布局 owner；服务端设置响应不得覆盖它。PC 快捷键动作在新版布局中以会话名称展示，动作值及用户自定义名称保持不变。
 - PATCH 串行队列、pending 字段 overlay、请求 generation 和 AbortController。
 - 字体编辑选择、两套快捷键编辑器、手机快捷键拖拽状态。
 - 面板移动导航状态、focus/scroll/debounce timer 和 scrollback keepalive 值。

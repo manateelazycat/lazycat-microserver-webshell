@@ -35,6 +35,8 @@ Core 可以使用标准库及通用协议/解析库，并依赖 `internal/pkg/fo
 
 v42 新增浏览器光标样式的设置持久化；终端帧、发布和 SSH 协议保持兼容，WASM 与 v39/v40/v41 相同。Provider 显式保留 v41 的 attach、工作区恢复和内存快照协商能力；Core 不负责浏览器光标绘制。
 
+v43 新增 Agent `inspect` 与 `Local.Inspect()`，只返回已存在工作区的会话和分屏元数据；尚未初始化的工作区返回空列表，不创建 PTY、不修改滚动历史、不执行重启恢复。两者沿用 selector/account 和关闭状态校验。终端帧及 WASM 仍与 v42 相同，Provider 显式保留 v42 的已有能力。
+
 `host_metrics.go` 仅定义客户端整机指标的可空数据类型及注入接口，不读系统资源、不创建采样任务。实际采样位于独立 `hostmetrics` module，Linux 磁盘选择由 Unix adapter 注入，容器入口不装配它。
 
 在仓库根目录执行 `go build ./core`、`go build ./...`、`go vet ./...`。可交叉编译 Core 以检查平台依赖泄漏，但这不是整机平台支持验收。

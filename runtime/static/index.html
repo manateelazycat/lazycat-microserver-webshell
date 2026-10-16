@@ -435,6 +435,14 @@
                   <span class="settings-switch" aria-hidden="true"></span>
                 </label>
                 <div class="settings-debug-options" id="settingsDebugOptions" hidden>
+                  <label class="settings-switch-row" for="settingsLegacyPCLayoutToggle">
+                    <span class="settings-switch-label">
+                      <span>{{ $t('切换到传统PC端布局') }}</span>
+                      <span>{{ $t('默认关闭；开启后恢复原PC顶部栏和标签布局') }}</span>
+                    </span>
+                    <input class="settings-switch-input" id="settingsLegacyPCLayoutToggle" type="checkbox" />
+                    <span class="settings-switch" aria-hidden="true"></span>
+                  </label>
                   <label class="settings-switch-row" for="settingsTerminalRenderCaptureToggle">
                     <span class="settings-switch-label">
                       <span>{{ $t('终端渲染异常捕获') }}</span>
