@@ -14,6 +14,7 @@ Gate: required
 Given 用户首次打开新 PC 布局，侧栏及实例分组均展开
 When 用户收起侧栏，再通过唯一保留的展开按钮恢复侧栏
 Then 终端先使用释放的空间，再适配恢复后的空间，当前会话和分屏保持可用
+And 收起时展开按钮位于预留的左侧窄留白区内，不覆盖终端内容
 
 # 场景 3：预览按实例展示全部会话
 ID: SC-DESKTOP-GROUPED-OVERVIEW
@@ -32,3 +33,77 @@ Given 用户有已打开的会话，传统 PC 布局开关默认关闭
 When 用户在调试模式中开启传统 PC 布局，再关闭该开关
 Then 界面先恢复原 PC 顶部栏、标签和实例菜单，再回到新版侧栏布局，已有会话保持可用
 And 移动布局仍使用原有导航和预览方式
+
+# 场景 5：短暂连接失败后自动显示会话
+ID: SC-DESKTOP-SESSION-AUTO-RECOVERY
+Profile: draft
+Gate: required
+Given 用户首次打开新版 PC 工作区，部分实例的终端服务暂时无法连接
+When 这些实例恢复可连接状态
+Then 左侧栏和终端预览自动显示对应实例的会话，用户无需点击重试
+And 等待恢复期间显示连接状态，已经显示的会话列表保持可用
+And 物理机会话无需先点击物理机实例即可自动显示，单个实例的慢请求不妨碍其他实例恢复
+
+# 场景 6：系统顶部安全区不遮挡终端
+ID: SC-DESKTOP-TOP-SAFE-AREA
+Profile: draft
+Gate: required
+Given 用户在存在系统顶部安全区的平板或折叠屏上使用新版 PC 布局
+When 用户展开或收起侧栏，或改变窗口尺寸
+Then 侧栏和终端内容均处于系统栏下方，终端顶部不被遮挡，也没有重复预留的顶部空白
+
+# 场景 7：切换和预览保持已确认的会话
+ID: SC-DESKTOP-STABLE-SESSION-LIST
+Profile: draft
+Gate: required
+Given 多个实例已有会话，用户已经查看过这些实例的会话列表
+When 用户切换实例或打开终端预览，新工作区仍在加载
+Then 界面保留已确认的会话或显示加载状态，不短暂显示「暂无终端会话」
+
+# 场景 8：侧栏沿用传统会话操作
+ID: SC-DESKTOP-SESSION-INTERACTIONS
+Profile: draft
+Gate: required
+Given 用户在新版布局中打开多个终端会话，并已配置传统标签快捷键
+When 用户通过快捷键切换或移动会话，通过右键菜单操作会话，并双击会话名称修改后确认
+Then 这些操作与传统布局作用于同一个会话及其分屏，名称修改在原位置完成且刷新后保留
+And Enter 或失焦保存名称，Escape 取消编辑
+
+# 场景 9：会话和实例拖拽顺序保持可用
+ID: SC-DESKTOP-VERTICAL-REORDER
+Profile: draft
+Gate: required
+Given 用户有多个可访问实例，其中一个支持排序的实例包含至少三个会话
+When 用户拖拽会话及实例分组改变上下顺序，并刷新页面
+Then 会话的新顺序和该浏览器中的实例分组顺序均保留，会话仍属于原实例
+And 一次会话拖放只提交一个排序结果，取消或失败后仍有可用顺序
+
+# 场景 10：追踪已知和未预置的 Agent 工具
+ID: SC-DESKTOP-FOREGROUND-AGENT-TRACKING
+Profile: draft
+Gate: required
+Given 已有会话中运行 Codex 或一个未预置名称的 Agent 工具
+When 工具启动、退出或前台进程发生变化
+Then 侧栏自动反映真实前台工具或入口名称及会话运行状态，无需先点击对应实例
+And 工具名不包含其他命令参数或内联代码
+And 用户切到同一实例的其他会话或其他实例后，未查看会话完成一轮工作时显示未读，Agent 无需退出；收起侧栏后仍继续追踪
+And 返回查看对应会话后清除其未读，其他会话未读保留；首次读取已有状态和历史回放不产生新未读
+
+# 场景 11：已有物理机会话自动兼容显示
+ID: SC-DESKTOP-EXISTING-CLIENT-WORKSPACE
+Profile: draft
+Gate: required
+Given 物理机已有终端会话且能够通过原有工作区正常访问
+When 用户打开新版布局，后台查询无法使用附加的会话检查能力
+Then 左侧栏自动显示原有会话，无需先点击物理机，也不误报必须更新 PC 客户端
+And 原有会话的身份、分屏和正在运行的任务保持可用
+
+# 场景 12：区分工作、未读结果和出错
+ID: SC-DESKTOP-SESSION-WORK-STATUS
+Profile: draft
+Gate: required
+Given 用户已有能够报告工作状态的 Agent 会话，并在同一实例的另一个会话或另一个实例中查看终端
+When Agent 开始工作、完成一轮工作，随后另一轮执行出错
+Then 对应会话的终端图标左侧依次显示像素转圈、绿色未读对钩和红点，名称位置不随状态变化
+And 一轮工作在两次后台刷新之间完成时仍显示未读；等待输入或授权不显示成功完成或错误
+And 用户查看完成的会话后只清除该会话的绿色未读提示，减少动态效果时工作状态仍可辨认

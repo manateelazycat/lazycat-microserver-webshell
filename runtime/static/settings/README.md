@@ -20,6 +20,8 @@
 
 controller 对外提供只读快照/getter、`start()`、`load()`、`open()`、`close()`、`openTheme()`、`flushPending()`、`dispose()` 和快捷键解析/字号命令。返回的数组与对象均为副本，调用方不能反向修改设置状态。
 
+`getDesktopShortcutHint(action)` 返回当前配置对应的按键显示文本，供传统标签菜单和新版侧栏菜单复用；新版将左右移动的显示名称转为上下移动，动作值和用户自定义按键保持不变。
+
 ## 状态所有权
 
 `settings_controller.js` 独占以下可变状态：

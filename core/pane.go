@@ -45,6 +45,7 @@ type terminalPane struct {
 	commandLine                string
 	cwd                        string
 	activityCheckedAt          time.Time
+	programStatus              programStatusTracker
 	controlPending             []byte
 	localCWDPending            []byte
 	localCWDReports            bool
@@ -173,6 +174,7 @@ func (p *terminalPane) appendOutput(data []byte) {
 	// Read may already have returned bytes when close starts. Check lifecycle
 	// under the same mutex that protects checkpoint disposal before parsing.
 	if !p.closing && !p.exited {
+		p.programStatus.write(filtered, p.history.end)
 		outputFrom := p.history.end
 		pendingBefore := 0
 		if p.checkpoint != nil {
@@ -339,6 +341,7 @@ func (p *terminalPane) close() {
 func (p *terminalPane) summary() paneSummary {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	programStatus := p.programStatus.ProgramStatus
 	return paneSummary{
 		ID:                p.id,
 		Cols:              p.cols,
@@ -355,5 +358,8 @@ func (p *terminalPane) summary() paneSummary {
 		ExitMessage:       p.exitText,
 		ExitRetained:      p.exitRetained,
 		ActivityCheckedAt: unixMillis(p.activityCheckedAt),
+		HistoryGeneration: p.historyGeneration,
+		OutputOffset:      p.history.end,
+		ProgramStatus:     &programStatus,
 	}
 }

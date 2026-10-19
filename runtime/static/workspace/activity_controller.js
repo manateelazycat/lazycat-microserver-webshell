@@ -18,6 +18,7 @@ export function createWorkspaceActivityController({
   ensureResponseSelector = () => {},
   observeServerGeometry = () => {},
   onPaneProcessChange = () => {},
+  onPaneActivity = () => {},
   syncPaneMembership = () => Promise.resolve(false),
   getMutationState = () => ({ version: 0, pending: false }),
   recoverSessions = () => {},
@@ -70,6 +71,7 @@ export function createWorkspaceActivityController({
       }
       markSessionActivityNotification(pane, wasBusy, isBusy);
       markSessionIdleNotification(pane, wasBusy, isBusy);
+      onPaneActivity(pane, paneState);
       if (tab.activePaneId === pane.id) {
         refreshTabAutoLabel(tab);
         if (tab.id === getActiveTabId()) {

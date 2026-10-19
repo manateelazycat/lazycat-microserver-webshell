@@ -14,6 +14,8 @@ target lifecycle 唯一持有 active selector、generation 和 disposed 状态�
 
 新版 PC 导航由 `app/desktop_workspace/` 独立维护，只通过本模块的现有命令选择实例、激活/创建/关闭/重命名会话；每个侧栏会话仍对应一个 tab，保留原有分屏。`resetForInstance()` 释放浏览器终端资源时保留已保存的预览，实际关闭 tab/pane 时仍删除图片。
 
+标签原位改名可通过 `getRenameAnchor(tab)` 注入侧栏的按钮、标签和可滚动视口；编辑状态、IME、确认/取消、乐观保存及回滚仍由 tab label owner 维护。没有侧栏锚点时使用原顶部标签位置。会话拖拽和传统菜单/快捷键复用同一个排序和命名协议。
+
 ## 跨设备成员同步契约
 
 跨设备新建/关闭标签通过既有 activity 响应发现：activity owner 比较完整 pane ID 集合，只在新增/消失时调用 refresh owner 的 `syncMembership()` 按需获取完整 workspace。默认仍只有原来的 4 秒 activity interval，没有新增 WS、interval 或成员同步重试 timer。错误/缺失/重复 ID 等不完整响应不能触发删除；旧 activity 请求、切换目标及本地 action 跨越的响应不得发起成员同步。单独改名、排序或布局调整而 pane 集合不变，不能靠此信号保证同步。
@@ -39,6 +41,7 @@ target lifecycle 唯一持有 active selector、generation 和 disposed 状态�
 - `tab_registry.js`：tab Map、ID 序列、活动 tab 和最近 tab 快照的唯一状态 owner。
 - `activity_controller.js`：既有 workspace activity 轮询、pane busy 状态同步、成员集合变化检测和关闭确认 guard。
 - activity 更新前台命令或命令行后通过 `onPaneProcessChange(pane)` 通知外部适配层；不识别具体 TUI、不直接绘制，沿用既有轮询周期。
+- activity 通过 `onPaneActivity(pane, state)` 交出已通过当前目标校验的元数据，供新版 PC 目录追踪会话输出游标；presentation 可注入外部未读汇总，传统布局和移动端默认行为保持不变。
 - `tab_label_controller.js`：tab 标题展示、desktop inline rename、optimistic 提交与失败回滚。
 - `tab_label_lifecycle.js`：inline rename 的 AbortController、focus RAF 和销毁资源。
 - `tab_navigation_controller.js`：tab DOM 顺序、前后/索引切换、最近 tab 交换与按实例持久化。

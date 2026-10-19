@@ -72,21 +72,24 @@ type tabState struct {
 }
 
 type paneSummary struct {
-	ID                string `json:"id"`
-	Cols              int    `json:"cols"`
-	Rows              int    `json:"rows"`
-	PixelWidth        int    `json:"pixel_width,omitempty"`
-	PixelHeight       int    `json:"pixel_height,omitempty"`
-	TTY               string `json:"tty,omitempty"`
-	Busy              bool   `json:"busy"`
-	Command           string `json:"command,omitempty"`
-	CommandLine       string `json:"command_line,omitempty"`
-	CWD               string `json:"cwd,omitempty"`
-	ActivityCheckedAt int64  `json:"activity_checked_at,omitempty"`
-	Exited            bool   `json:"exited"`
-	ExitCode          int    `json:"exit_code"`
-	ExitMessage       string `json:"exit_message,omitempty"`
-	ExitRetained      bool   `json:"exit_retained,omitempty"`
+	ID                string         `json:"id"`
+	Cols              int            `json:"cols"`
+	Rows              int            `json:"rows"`
+	PixelWidth        int            `json:"pixel_width,omitempty"`
+	PixelHeight       int            `json:"pixel_height,omitempty"`
+	TTY               string         `json:"tty,omitempty"`
+	Busy              bool           `json:"busy"`
+	Command           string         `json:"command,omitempty"`
+	CommandLine       string         `json:"command_line,omitempty"`
+	CWD               string         `json:"cwd,omitempty"`
+	ActivityCheckedAt int64          `json:"activity_checked_at,omitempty"`
+	HistoryGeneration string         `json:"history_generation,omitempty"`
+	OutputOffset      uint64         `json:"output_offset,string"`
+	ProgramStatus     *ProgramStatus `json:"program_status,omitempty"`
+	Exited            bool           `json:"exited"`
+	ExitCode          int            `json:"exit_code"`
+	ExitMessage       string         `json:"exit_message,omitempty"`
+	ExitRetained      bool           `json:"exit_retained,omitempty"`
 }
 
 type WorkspaceActionRequest struct {

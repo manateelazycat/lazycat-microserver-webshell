@@ -2,8 +2,8 @@ package provider
 
 import "net/http"
 
-// Inspection uses the normal authorization boundary, but bypasses workspace
-// initialization and restart recovery for both container and client instances.
+// Inspection uses normal authorization. New runtimes provide read-only metadata;
+// deployed PC cores can use their established workspace read path for compatibility.
 func (s *pluginServer) handleWorkspaceInspection(w http.ResponseWriter, r *http.Request, accountID, selector string) {
 	var state WorkspaceState
 	var err error
@@ -12,7 +12,7 @@ func (s *pluginServer) handleWorkspaceInspection(w http.ResponseWriter, r *http.
 			writeClientTerminalError(w, err)
 			return
 		}
-		err = s.clientTerminalJSON(r.Context(), r.Header, selector, http.MethodGet, "/workspace/inspect", nil, nil, &state)
+		state, err = s.clientWorkspaceInspection(r.Context(), r.Header, NormalizeAgentScope(selector, accountID))
 		if err != nil {
 			writeClientTerminalError(w, err)
 			return
@@ -37,6 +37,7 @@ func (s *pluginServer) handleWorkspaceInspection(w http.ResponseWriter, r *http.
 			return
 		}
 		state = *response.State
+		applyAgentWorkspaceCapabilities(&state, response.Version)
 	}
 	state.ServerRevision = s.currentServerRevision()
 	writeJSON(w, state)

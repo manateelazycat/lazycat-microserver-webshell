@@ -34,7 +34,8 @@ export function createSettingsView({
   navigatorObject = globalThis.navigator,
 } = {}) {
   const desktopLabel = (label) => documentObject?.body?.classList.contains("desktop-workspace-mode")
-    ? String(label).replaceAll("标签", "会话") : label;
+    ? String(label).replaceAll("标签", "会话").replace("左移", "上移").replace("右移", "下移")
+      .replace("移到最前", "移到最上方").replace("移到最后", "移到最下方") : label;
   const byID = (id) => documentObject?.getElementById?.(id) || null;
   const elements = {
     menuButton: byID("settingsMenuButton"),

@@ -16,6 +16,7 @@ import {
   cloneSettingsSnapshot,
   createDefaultDesktopShortcuts,
   defaultMobileShortcutRows,
+  displayShortcut,
   getShortcutKeyFromEvent,
   isNativePasteShortcutEvent,
   isShiftInsertPasteShortcutEvent,
@@ -1201,6 +1202,10 @@ export function createSettingsController({
     },
     getDesktopMouseClipboardEnabled: () => snapshot.desktopMouseClipboardEnabled,
     getDesktopShortcutsBarEnabled: () => snapshot.desktopShortcutsBarEnabled,
+    getDesktopShortcutHint(action) {
+      const shortcut = snapshot.desktopShortcuts.find((item) => item.action === action);
+      return shortcut ? displayShortcut(shortcut.shortcut, navigatorObject) : "";
+    },
     getRestartWorkspaceRestoreEnabled: () => snapshot.restartWorkspaceRestoreEnabled,
     getForcePCModeEnabled: () => snapshot.forcePCModeEnabled,
     getLegacyPCLayoutEnabled: () => snapshot.legacyPCLayoutEnabled,
