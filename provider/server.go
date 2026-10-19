@@ -34,6 +34,8 @@ type pluginServer struct {
 	attachmentBackend      attachmentUploadBackend
 	attachmentFilesBackend attachmentFileBackend
 
+	clientWorkspaceInspectionFallbacks sync.Map
+
 	settingsMu sync.Mutex
 	devicesMu  sync.Mutex
 	devices    map[string]webshellDeviceRecord

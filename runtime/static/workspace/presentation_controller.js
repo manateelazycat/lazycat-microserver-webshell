@@ -22,6 +22,7 @@ export function createWorkspacePresentationController({
   getTabs = () => new Map(),
   getActiveTabId = () => "",
   getCurrentTab = () => null,
+  hasExternalNotifications = () => false,
   getMobileDoubleTapReminderEnabled = () => false,
   requiresTouchKeyboardDoubleTap = () => false,
   renderTabLabel = () => false,
@@ -88,7 +89,7 @@ export function createWorkspacePresentationController({
   const updateDocumentTitle = () => {
     const tab = getCurrentTab();
     const title = tab?.label || "WebShell";
-    const hasNotification = Array.from(tabsMap().values()).some((item) => item.hasNotification);
+    const hasNotification = hasExternalNotifications() || Array.from(tabsMap().values()).some((item) => item.hasNotification);
     if (documentObject) {
       documentObject.title = `${hasNotification ? "* " : ""}${title} - LightOS WebShell`;
     }

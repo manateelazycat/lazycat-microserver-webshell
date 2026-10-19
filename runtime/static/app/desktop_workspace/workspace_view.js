@@ -1,3 +1,5 @@
+import { desktopSessionActivity } from "./session_presentation.js";
+
 export const desktopIcon = (documentObject, name) => {
   const paths = {
     sidebar: "M9 4v16M4 4h16v16H4z",
@@ -5,6 +7,7 @@ export const desktopIcon = (documentObject, name) => {
     add: "M12 5v14M5 12h14",
     terminal: "m5 7 4 5-4 5M12 17h7",
     close: "m7 7 10 10M17 7 7 17",
+    check: "m5 12 4 4 10-10",
   };
   const svg = documentObject.createElementNS("http://www.w3.org/2000/svg", "svg");
   svg.setAttribute("viewBox", "0 0 24 24");
@@ -12,6 +15,28 @@ export const desktopIcon = (documentObject, name) => {
   const path = documentObject.createElementNS(svg.namespaceURI, "path");
   path.setAttribute("d", paths[name]);
   svg.append(path);
+  return svg;
+};
+
+const sessionStatusIcon = (documentObject, status) => {
+  if (status === "unread") return desktopIcon(documentObject, "check");
+  const svg = documentObject.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 12 12");
+  svg.setAttribute("aria-hidden", "true");
+  if (status === "error") {
+    const dot = documentObject.createElementNS(svg.namespaceURI, "circle");
+    dot.setAttribute("cx", "6"); dot.setAttribute("cy", "6"); dot.setAttribute("r", "3");
+    svg.append(dot);
+  } else if (status === "working") {
+    svg.setAttribute("shape-rendering", "crispEdges");
+    [[1, 1], [5, 1], [9, 1], [9, 5], [9, 9], [5, 9], [1, 9], [1, 5]].forEach(([x, y], index) => {
+      const pixel = documentObject.createElementNS(svg.namespaceURI, "rect");
+      pixel.setAttribute("x", String(x)); pixel.setAttribute("y", String(y));
+      pixel.setAttribute("width", "2"); pixel.setAttribute("height", "2");
+      pixel.style.animationDelay = `${index * -100}ms`;
+      svg.append(pixel);
+    });
+  }
   return svg;
 };
 
@@ -69,6 +94,8 @@ export function createDesktopWorkspaceView({ documentObject = document, windowOb
     const replacements = {
       "rename-tab": "重命名会话", "close-tab": "关闭会话", "close-other-tabs": "关闭其他会话",
       "move-pane-new-tab": "移动窗格到新会话",
+      "move-tab-first": "移到最上方", "move-tab-left": "上移会话",
+      "move-tab-right": "下移会话", "move-tab-last": "移到最下方",
     };
     for (const [action, text] of Object.entries(replacements)) {
       const element = documentObject.querySelector(`#contextMenu [data-action="${action}"]`);
@@ -82,11 +109,16 @@ export function createDesktopWorkspaceView({ documentObject = document, windowOb
     // Capture the presented position so repeated clicks continue the transition.
     const before = area.getBoundingClientRect();
     areaAnimation?.cancel();
+    if (!animate) sidebar.style.transition = "none";
     collapsed = value;
     documentObject.body.classList.toggle("desktop-workspace-collapsed", active && collapsed);
     sidebar.inert = collapsed;
     expand.hidden = !active || !collapsed;
     collapse.setAttribute("aria-expanded", collapsed ? "false" : "true");
+    if (!animate) {
+      sidebar.getBoundingClientRect();
+      sidebar.style.removeProperty("transition");
+    }
     if (active && animate && !windowObject.matchMedia("(prefers-reduced-motion: reduce)").matches) {
       const delta = before.left - area.getBoundingClientRect().left;
       if (delta && area.animate) areaAnimation = area.animate([
@@ -122,7 +154,7 @@ export function createDesktopWorkspaceView({ documentObject = document, windowOb
     message.dataset.desktopAction = "retry";
     sessions.append(message);
     wrapper.append(sessions);
-    header.append(toggle, add, name);
+    header.append(name, add, toggle);
     root.append(header, wrapper);
     list.append(root);
     const section = { root, toggle, add, name, status, wrapper, sessions, message, rows: new Map() };
@@ -138,17 +170,39 @@ export function createDesktopWorkspaceView({ documentObject = document, windowOb
     button.type = "button";
     button.className = "desktop-workspace-session-select";
     button.dataset.desktopAction = "select";
+    const status = documentObject.createElement("span");
+    status.className = "desktop-workspace-session-state";
+    status.setAttribute("role", "img");
+    status.setAttribute("aria-hidden", "true");
     const label = documentObject.createElement("span");
-    button.append(desktopIcon(documentObject, "terminal"), label);
+    label.className = "desktop-workspace-session-label";
+    button.append(status, desktopIcon(documentObject, "terminal"), label);
     const close = iconButton("close", "关闭会话", "close");
-    row.append(button, close);
-    const entry = { row, button, label, close };
+    const application = documentObject.createElement("span");
+    application.className = "desktop-workspace-session-application";
+    application.hidden = true;
+    row.append(button, application, close);
+    const entry = { row, button, label, close, application, status };
     section.rows.set(tab.id, entry);
     return entry;
   };
 
   return Object.freeze({
     sidebar, expand, list,
+    getRenameAnchor(selector, tabId) {
+      const entry = sections.get(selector)?.rows.get(tabId);
+      return entry ? { button: entry.button, label: entry.label, viewport: list } : null;
+    },
+    revealSession(selector, tabId) {
+      const section = sections.get(selector);
+      if (!section) return;
+      section.wrapper.style.transition = "none";
+      section.root.classList.remove("is-collapsed");
+      section.wrapper.inert = false;
+      section.wrapper.getBoundingClientRect();
+      section.wrapper.style.removeProperty("transition");
+      section.rows.get(tabId)?.row.scrollIntoView({ block: "nearest" });
+    },
     isCollapsed: () => collapsed,
     setCollapsed,
     setActive(value) {
@@ -195,7 +249,7 @@ export function createDesktopWorkspaceView({ documentObject = document, windowOb
         section.name.title = group.name;
         section.status.dataset.status = group.running ? "running" : "stopped";
         section.status.setAttribute("aria-label", group.running ? "运行中" : "已停止");
-        section.name.disabled = !group.running;
+        section.name.setAttribute("aria-disabled", String(!group.running));
         section.add.disabled = !group.running;
         section.add.title = `在 ${group.name} 新建终端会话`;
         section.add.setAttribute("aria-label", section.add.title);
@@ -209,9 +263,23 @@ export function createDesktopWorkspaceView({ documentObject = document, windowOb
         }
         group.tabs.forEach((tab, position) => {
           const entry = section.rows.get(tab.id) || createRow(section, tab);
+          entry.row.dataset.reorderable = String(group.canReorder);
           const label = tab.label || tab.id;
+          const activity = desktopSessionActivity(tab);
+          if (entry.status.dataset.state !== activity.status) {
+            entry.status.dataset.state = activity.status;
+            entry.status.replaceChildren(...(activity.status === "idle" ? [] : [sessionStatusIcon(documentObject, activity.status)]));
+          }
+          entry.status.setAttribute("aria-hidden", String(activity.status === "idle"));
+          entry.status.setAttribute("aria-label", activity.statusLabel);
+          entry.application.hidden = !activity.application;
+          entry.application.textContent = activity.application;
+          entry.application.title = activity.application;
+          entry.row.classList.toggle("has-notification", activity.notification);
+          entry.row.classList.toggle("is-busy", activity.busy);
           if (entry.label.textContent !== label) entry.label.textContent = label;
-          entry.button.title = label;
+          entry.button.title = activity.statusLabel ? `${label} · ${activity.statusLabel}` : label;
+          entry.button.setAttribute("aria-label", entry.button.title);
           entry.button.disabled = !group.running;
           entry.close.disabled = !group.running;
           entry.close.setAttribute("aria-label", `关闭 ${label}`);
@@ -225,8 +293,7 @@ export function createDesktopWorkspaceView({ documentObject = document, windowOb
         });
         section.message.hidden = group.tabs.length > 0 && !group.error;
         section.message.disabled = !group.error;
-        section.message.textContent = !group.running ? "实例已停止" : group.error
-          || (group.loaded ? "暂无终端会话" : "正在加载会话…");
+        section.message.textContent = group.message;
       });
     },
     dispose() {

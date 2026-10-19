@@ -24,6 +24,8 @@
 
 调用方只注入只读 tab/pane 查询、活动 tab/session getter、选择文本/链接读取，以及复制、粘贴、搜索、截图、分屏、移动和关闭等显式命令。模块不直接修改 tab registry、pane registry 或终端 session 状态。
 
+`openTabMenu(event, target)` 允许新版侧栏在实例和会话选择完成后打开同一个桌面菜单，旧 `bindTab()` 也复用该入口。会话目标仍含 tab/pane ID，异步旧菜单通过 context generation 失效；当前快捷键通过 `getShortcutHint(action)` 注入，以伪元素展示，不污染移动菜单的动作名称。
+
 ## 状态所有权
 
 `context_menu_controller.js` 是以下状态的唯一 owner：

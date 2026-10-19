@@ -19,6 +19,8 @@ PTY 输出保留原始 CR/LF 语义，终端配置必须关闭 `convertEol`。Ki
 - `terminalOutputByteLength()`、`terminalOutputByteChunkEnd()`、`splitTerminalOutputText()`、`coalesceTerminalOutputBatch()`：无状态字节测量、Unicode/UTF-8 安全分片和批次合并算法。
 - `MAX_QUEUED_TERMINAL_OUTPUT_BYTES`：供 history 的网络暂存队列复用同一 4 MiB 内存 guard，不表示 history 状态归 output 所有。
 
+`onLiveOutput(session, data)` 只在当前 output generation 的实时写入成功后通知外部观察器，数据仅用于即时观察终端状态控制序列，不保存或记录正文。回放写入不触发该回调；工作状态和未读属于工作区 owner，output 不持有或修改通知状态。
+
 Queue turn complete 只登记待确认 cursor/sequence。窗口协议在 `appliedHistoryCursor` 越过已接收边界后累计确认已消费的轮次，不等待后续队列排空或 Canvas 绘制；旧 `turn-ack-v1` 仍要求队列为空且游标恰好到达边界。默认 ACK serializer 由 `output_controller.js` 持有，会再次校验当前 socket、Unified channel、connection epoch 和 channel generation 后才发送 JSON；单 pane ACK 失败只能请求该 logical stream 恢复，不能关闭 Unified 物理连接或影响兄弟 pane。output lifecycle 对每个 pane 只允许一个待执行的 RAF/fallback timer；重复 schedule 不创建新任务，flush 入口会清理另一句柄。
 
 普通回放轮次受 512 KiB / 12ms 局部预算约束，并服从页面共享调度器剩余预算。普通 Ghostty 写入最多 64 KiB，相邻兼容条目合并后逐批解析；live 输出每轮最多 8 批。显式 `maxEntries` 仍按入队条目计数，保留 resize ACK fence 的冻结边界；`force` 也必须有界，调用者根据返回值继续排空。队列同时限制 4 MiB 和 8192 个条目。普通输出与 startup error 共用按序队列，不能因立即显示错误而越过尚未处理的 PTY 数据。

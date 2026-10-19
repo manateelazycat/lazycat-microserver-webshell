@@ -1754,6 +1754,15 @@ body.split-resize-active * {
   display: none;
 }
 
+.context-menu-btn[data-shortcut-hint]:not([data-shortcut-hint=""])::after {
+  content: attr(data-shortcut-hint);
+  margin-left: auto;
+  padding-left: 22px;
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
 .context-menu-btn:hover {
   background: var(--panel-hover-bg);
 }

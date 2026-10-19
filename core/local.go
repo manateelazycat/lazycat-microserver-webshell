@@ -44,7 +44,9 @@ func (l *Local) Inspect(ctx context.Context, request AgentRequest) (WorkspaceSta
 	if l.closed {
 		return WorkspaceState{}, errors.New("terminal access disabled")
 	}
-	return l.daemon.inspectWorkspace(l.request(request))
+	state, err := l.daemon.inspectWorkspace(ctx, l.request(request))
+	state.AgentCapabilities = []string{"tab_reorder_anchor", "workspace_restart_restore", "unified_terminal"}
+	return state, err
 }
 
 func (l *Local) State(ctx context.Context, request AgentRequest) (WorkspaceState, error) {

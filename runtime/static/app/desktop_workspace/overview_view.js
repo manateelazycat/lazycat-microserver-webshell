@@ -55,8 +55,7 @@ export function createDesktopOverviewView({ documentObject = document } = {}) {
         section.add.title = `在 ${group.name} 新建终端会话`;
         section.add.setAttribute("aria-label", section.add.title);
         section.message.hidden = group.tabs.length > 0 && !group.error;
-        section.message.textContent = !group.running ? "实例已停止" : group.error
-          || (group.loaded ? "暂无终端会话" : "正在加载会话…");
+        section.message.textContent = group.message;
         const ids = new Set(group.tabs.map((tab) => tab.id));
         for (const [id, item] of section.items) {
           if (!ids.has(id)) {

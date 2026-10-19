@@ -97,22 +97,32 @@ func (d *agentDaemon) validateRequestAccountLocked(accountID string) error {
 
 // inspectWorkspace never initializes a workspace, creates a pane, restores a
 // session or changes its scrollback. An unused instance has an empty directory.
-func (d *agentDaemon) inspectWorkspace(request AgentRequest) (WorkspaceState, error) {
+func (d *agentDaemon) inspectWorkspace(ctx context.Context, request AgentRequest) (WorkspaceState, error) {
 	d.mu.Lock()
-	defer d.mu.Unlock()
 	if d.closed {
+		d.mu.Unlock()
 		return WorkspaceState{}, errors.New("terminal access disabled")
 	}
 	if err := d.validateRequestSelectorLocked(request.Selector); err != nil {
+		d.mu.Unlock()
 		return WorkspaceState{}, err
 	}
 	if err := d.validateRequestAccountLocked(request.AccountID); err != nil {
+		d.mu.Unlock()
 		return WorkspaceState{}, err
 	}
 	if d.workspace == nil {
-		return WorkspaceState{Selector: d.selector, Tabs: []tabState{}, RecentTabIDs: []string{}}, nil
+		selector := d.selector
+		d.mu.Unlock()
+		return WorkspaceState{Selector: selector, Tabs: []tabState{}, RecentTabIDs: []string{}}, nil
 	}
-	return d.workspace.snapshot(), nil
+	workspace := d.workspace
+	d.mu.Unlock()
+	// Refresh only existing panes through the injected platform activity source.
+	// Inactive instances need current process identity too; inspection must never
+	// initialize a workspace or attach a terminal merely to discover that identity.
+	_, _ = workspace.refreshActivity(ctx)
+	return workspace.snapshot(), nil
 }
 
 func (d *agentDaemon) WorkspaceState(ctx context.Context, request AgentRequest) (WorkspaceState, error) {

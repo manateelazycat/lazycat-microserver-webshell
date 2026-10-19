@@ -5,14 +5,15 @@
 
 .desktop-workspace-mode .tabs-bar,
 .desktop-workspace-mode #instanceSwitcherList,
-.desktop-workspace-mode .desktop-workspace-duplicate,
-.desktop-workspace-mode #contextMenu [data-action^="move-tab-"] {
+.desktop-workspace-mode .desktop-workspace-duplicate {
   display: none;
 }
 
 .desktop-workspace-mode .app-shell {
   flex-direction: row;
   overflow: hidden;
+  padding-top: var(--lzc-safe-area-inset-top);
+  box-sizing: border-box;
 }
 
 .desktop-workspace-mode .terminal-area {
@@ -22,19 +23,18 @@
 }
 
 .desktop-workspace-mode.desktop-workspace-collapsed .terminal-area {
-  margin-left: 0;
+  margin-left: calc(max(10px, var(--lzc-safe-area-inset-left)) + 42px);
 }
 
 .desktop-workspace-sidebar {
   --desktop-workspace-ease: cubic-bezier(0.23, 1, 0.32, 1);
   position: absolute;
-  inset: 0 auto 0 0;
+  inset: var(--lzc-safe-area-inset-top) auto 0 0;
   z-index: 25;
   display: flex;
   flex-direction: column;
   width: 248px;
   min-height: 0;
-  padding-top: var(--lzc-safe-area-inset-top);
   box-sizing: border-box;
   border-right: 1px solid var(--chrome-line);
   background: var(--chrome-bg);
@@ -88,6 +88,11 @@
   top: calc(100% + 8px);
   width: 240px;
   max-height: calc(100dvh - 70px - var(--lzc-safe-area-inset-top));
+}
+
+.desktop-workspace-mode .instance-switcher-actions {
+  padding-bottom: 0;
+  border-bottom: 0;
 }
 
 .desktop-workspace-list {
@@ -155,14 +160,15 @@
   gap: 7px;
   flex: 1 1 auto;
   min-width: 0;
-  padding: 6px 3px;
+  padding: 6px 8px;
   border: 0;
   background: transparent;
   color: var(--chrome-text-muted);
   font-size: 12px;
   font-weight: 600;
   text-align: left;
-  cursor: pointer;
+  cursor: grab;
+  touch-action: pan-y;
 }
 
 .desktop-workspace-instance-name span:last-child {
@@ -224,7 +230,7 @@
   cursor: pointer;
 }
 
-.desktop-workspace-session-select > span {
+.desktop-workspace-session-label {
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -238,6 +244,81 @@
 
 .desktop-workspace-session.is-active .desktop-workspace-session-select {
   color: var(--chrome-text-strong);
+}
+
+.desktop-workspace-session-select.renaming > .desktop-workspace-session-label {
+  visibility: hidden;
+}
+
+.desktop-workspace-session.is-busy .desktop-workspace-session-select svg {
+  opacity: 1;
+}
+
+.desktop-workspace-session-state {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  height: 14px;
+  flex: 0 0 12px;
+  color: var(--chrome-text-muted);
+}
+
+.desktop-workspace-session-state svg {
+  width: 12px;
+  height: 12px;
+  opacity: 1;
+}
+
+.desktop-workspace-session-state[data-state="working"] svg,
+.desktop-workspace-session-state[data-state="error"] svg {
+  fill: currentColor;
+  stroke: none;
+}
+
+.desktop-workspace-session-state[data-state="working"] rect {
+  animation: desktop-workspace-pixel-progress 800ms steps(1, end) infinite;
+}
+
+.desktop-workspace-session-state[data-state="unread"] {
+  color: #22c55e;
+}
+
+.desktop-workspace-session-state[data-state="unread"] svg {
+  stroke-width: 2.5;
+}
+
+.desktop-workspace-session-state[data-state="error"] {
+  color: var(--danger);
+}
+
+@keyframes desktop-workspace-pixel-progress {
+  0%, 12.5% { opacity: 1; }
+  25%, 100% { opacity: 0.2; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .desktop-workspace-session-state[data-state="working"] rect {
+    animation: none;
+    opacity: 0.55;
+  }
+  .desktop-workspace-session-state[data-state="working"] rect:first-child {
+    opacity: 1;
+  }
+}
+
+.desktop-workspace-session-application {
+  flex: 0 0 auto;
+  max-width: 76px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--chrome-text-muted);
+  font-size: 10px;
+}
+
+.desktop-workspace-session-application[hidden] {
+  display: none;
 }
 
 .desktop-workspace-session > .desktop-workspace-icon {
@@ -271,9 +352,40 @@
 
 .desktop-workspace-icon:disabled,
 .desktop-workspace-instance-name:disabled,
+.desktop-workspace-instance-name[aria-disabled="true"],
 .desktop-workspace-session-select:disabled {
   opacity: 0.4;
   cursor: default;
+}
+
+.desktop-workspace-session[data-reorderable="true"] .desktop-workspace-session-select {
+  cursor: grab;
+  touch-action: pan-y;
+}
+
+.desktop-workspace-reorder-placeholder {
+  box-sizing: border-box;
+  border: 1px dashed var(--chrome-line);
+  border-radius: 6px;
+  background: var(--panel-subtle-bg);
+}
+
+.desktop-workspace-reorder-placeholder[data-kind="session"] {
+  margin: 2px 0;
+}
+
+.is-desktop-workspace-dragging {
+  box-sizing: border-box;
+  border-radius: 6px;
+  background: var(--chrome-bg);
+  box-shadow: 0 8px 24px var(--panel-shadow);
+  opacity: 0.92;
+}
+
+body.is-desktop-workspace-reordering,
+body.is-desktop-workspace-reordering * {
+  cursor: grabbing !important;
+  user-select: none;
 }
 
 .desktop-workspace-icon:focus-visible,
@@ -370,6 +482,12 @@
 @media (hover: none), (pointer: coarse) {
   .desktop-workspace-session > .desktop-workspace-icon {
     opacity: 1;
+  }
+}
+
+@media (pointer: coarse) {
+  .desktop-workspace-mode .tab-rename-input {
+    font-size: 16px;
   }
 }
 

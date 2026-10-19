@@ -1161,6 +1161,7 @@ export function startGlobalRuntime() {
     isTouchShortcutLayout: () => isTouchShortcutLayout(),
     isTouchSelectionLayout: () => isTouchSelectionLayout(),
     createIcon: (name) => createSVGIcon(name),
+    getShortcutHint: (action) => settings?.getDesktopShortcutHint(action) || "",
     prepareMobileOpen: () => {
       terminalIME?.blurMobileKeyboard();
       instances.closeSwitcher();
@@ -1349,14 +1350,28 @@ export function startGlobalRuntime() {
   const renderTabLabel = (tab) => workspaceTabLabels?.renderTabLabel(tab) === true;
   const updateMobileActiveTabTitle = () => workspacePresentation?.updateMobileActiveTabTitle();
   const refreshTabAutoLabel = (tab) => workspacePresentation?.refreshTabAutoLabel(tab) === true;
-  const updateDocumentTitle = () => workspacePresentation?.updateDocumentTitle();
-  const clearTabNotification = (tab) => workspacePresentation?.clearTabNotification(tab) === true;
-  const markSessionTitleNotification = (session) => workspacePresentation?.markSessionTitleNotification(session) === true;
+  const updateDocumentTitle = () => {
+    desktopWorkspace?.scheduleRender();
+    return workspacePresentation?.updateDocumentTitle();
+  };
+  const syncNotificationPresentation = (changed) => {
+    if (changed) {
+      desktopWorkspace?.syncNotifications();
+      desktopWorkspace?.scheduleRender();
+    }
+    return changed === true;
+  };
+  const clearTabNotification = (tab) => {
+    desktopWorkspace?.clearNotification(tab?.id);
+    return syncNotificationPresentation(workspacePresentation?.clearTabNotification(tab));
+  };
+  const markSessionTitleNotification = (session) => !desktopWorkspace?.isActive()
+    && syncNotificationPresentation(workspacePresentation?.markSessionTitleNotification(session));
   const markSessionActivityNotification = (session, wasBusy, isBusy) => (
-    workspacePresentation?.markSessionActivityNotification(session, wasBusy, isBusy) === true
+    !desktopWorkspace?.isActive() && syncNotificationPresentation(workspacePresentation?.markSessionActivityNotification(session, wasBusy, isBusy))
   );
   const markSessionIdleNotification = (session, wasBusy, isBusy) => (
-    workspacePresentation?.markSessionIdleNotification(session, wasBusy, isBusy) === true
+    !desktopWorkspace?.isActive() && syncNotificationPresentation(workspacePresentation?.markSessionIdleNotification(session, wasBusy, isBusy))
   );
   const markSessionUserInput = (session) => workspacePresentation?.markSessionUserInput(session);
   const resetSessionUserInput = (session) => workspacePresentation?.resetSessionUserInput(session);
@@ -1424,24 +1439,43 @@ export function startGlobalRuntime() {
   const applyRecentTabIds = (ids, options) => workspaceTabNavigation.applyRecentTabIds(ids, options);
   const rememberRecentTab = (tabId, previousTabId) => workspaceTabNavigation.rememberRecentTab(tabId, previousTabId);
   const swapRecentTabs = () => workspaceTabNavigation.swapRecentTabs();
-  const scrollTabButtonIntoView = (button) => workspaceTabNavigation.scrollButtonIntoView(button);
+  const scrollTabButtonIntoView = (button) => {
+    workspaceTabNavigation.scrollButtonIntoView(button);
+    desktopWorkspace?.scrollSessionIntoView(button?.dataset?.tabId);
+  };
 
   desktopWorkspace = createDesktopWorkspaceController({
     documentObject: document,
     windowObject: window,
+    storage: window.localStorage,
+    storagePrefix,
     isMobileLayout,
     isEmbedMode,
     isLegacyLayout: () => isDebugModeEnabled() && settings?.getLegacyPCLayoutEnabled() === true,
     getInstances: () => instances.snapshot().instances,
     loadInstances: () => instances.load(),
     getActiveName,
+    getActiveGeneration,
     getActiveTabId,
     getOrderedTabs,
     switchTarget: (name) => instances.switchTo(name),
-    activateTab: (tabId) => setActiveTab(tabId),
+    refreshActiveWorkspace: (name) => refreshWorkspaceWithRetry({
+      instanceName: name, generation: getActiveGeneration(), focus: false,
+    }),
+    activateTab: (tabId, options) => setActiveTab(tabId, options),
     createTab: () => createUserTab(),
     closeTab: (tabId) => closeTab(tabId),
-    renameTab: (tabId) => renameTab(tabId),
+    beginInlineRename: (tabId) => workspaceTabLabels?.beginInlineTabRename(tabId),
+    cancelInlineRename: () => workspaceTabLabels?.finishInlineTabRename({ commit: false }),
+    isRenaming: () => workspaceTabLabels?.isRenaming() === true,
+    positionInlineRename: () => workspaceTabLabels?.positionInlineTabRenameInput(),
+    openContextMenu: (event, tabId) => terminalInteraction.openTabMenu(event, {
+      type: "tab", tabId, paneId: tabs.get(tabId)?.activePaneId,
+    }),
+    previewTabOrder: (order) => workspaceTabView.syncTabButtonOrder(order.map((id) => tabs.get(id)).filter(Boolean)),
+    reorderTab: (tabId, beforeTabId) => postWorkspaceAction("reorder_tab", {
+      tab_id: tabId, before_tab_id: beforeTabId,
+    }, { focus: false, preferStateActiveTab: false, preserveLocalState: true }),
     closeMenus: () => {
       closeContextMenu();
       instances.closeSwitcher();
@@ -1450,6 +1484,7 @@ export function startGlobalRuntime() {
     isOverviewOpen: () => terminalOverview?.isOpen() === true,
     scheduleOverviewRender: () => terminalOverview?.scheduleRender(),
     releasePreview: (pane) => terminalOverview?.releasePreview(pane),
+    onNotificationsChange: () => workspacePresentation?.updateDocumentTitle(),
     onLayoutChange: () => {
       terminalResize?.resizeActiveTabForCurrentDevice();
       settings?.handleDesktopLayoutChange();
@@ -1682,10 +1717,12 @@ export function startGlobalRuntime() {
     ensureResponseSelector: (state, name, label) => ensureResponseSelector(state, name, label),
     observeServerGeometry: (pane, state) => terminalResize?.observeServerGeometry(pane, state),
     onPaneProcessChange: (session) => {
+      desktopWorkspace?.scheduleRender();
       if (terminalRenderer?.syncBackgroundColors(session) && terminalPresentation?.isRenderAllowed(session)) {
         session.term?.requestRender?.({ full: true });
       }
     },
+    onPaneActivity: (session, state) => desktopWorkspace?.updatePaneActivity(session, state),
     recoverSessions: (sessions) => terminalPresentation?.recoverSessions(sessions),
     refreshTabAutoLabel: (tab) => refreshTabAutoLabel(tab),
     updateMobileActiveTabTitle: () => updateMobileActiveTabTitle(),
@@ -1910,6 +1947,7 @@ export function startGlobalRuntime() {
   });
 
   terminalOutput = createTerminalOutputController({
+    onLiveOutput: (session, data) => desktopWorkspace?.markSessionOutput(session, data),
     observeWriteBatch: (session, data, options) => diagnostics.beginTerminalWriteComparison(session, data, options),
     observeReplayBytes: (session, data, options) => diagnostics.observeTerminalReplayBytes(session, data, options),
     isByteIOLogEnabled: () => diagnostics.isByteIOLogEnabled(),
@@ -2093,6 +2131,8 @@ export function startGlobalRuntime() {
     tabsElement: tabsEl,
     getTabs: () => tabs,
     getActiveTabId,
+    getRenameAnchor: (tab) => desktopWorkspace?.isActive()
+      ? desktopWorkspace.getRenameAnchor(tab?.id) : null,
     isMobileLayout: () => isMobileLayout(),
     isApplyingWorkspaceState,
     closeContextMenu: () => closeContextMenu(),
@@ -2111,6 +2151,7 @@ export function startGlobalRuntime() {
     getTabs: () => tabs,
     getActiveTabId,
     getCurrentTab: () => currentTab(),
+    hasExternalNotifications: () => desktopWorkspace?.hasNotifications() === true,
     getMobileDoubleTapReminderEnabled: () => settings?.getMobileDoubleTapReminderEnabled() === true,
     requiresTouchKeyboardDoubleTap: () => requiresTouchKeyboardDoubleTap(),
     renderTabLabel: (tab) => renderTabLabel(tab),
@@ -2205,7 +2246,8 @@ export function startGlobalRuntime() {
   const closePane = (tabId, paneId) => workspaceTabController.closePane(tabId, paneId);
   const closeTab = (tabId, options) => workspaceTabController.closeTab(tabId, options);
   const closeOtherTabs = (tabId) => workspaceTabController.closeOtherTabs(tabId);
-  const renameTab = (tabId) => workspaceTabController.renameTab(tabId);
+  const renameTab = (tabId) => desktopWorkspace?.isActive()
+    ? desktopWorkspace.beginRename(tabId) : workspaceTabController.renameTab(tabId);
   const movePaneToNewTab = (tabId, paneId) => workspaceTabController.movePaneToNewTab(tabId, paneId);
   const moveTab = (tabId, position) => workspaceTabController.moveTab(tabId, position);
 
@@ -2238,7 +2280,10 @@ export function startGlobalRuntime() {
     persistActiveTab: (tabId) => persistActiveWorkspaceTab(tabId),
     showToast: (message) => showToast(message),
   });
-  const setActiveTab = (tabId, options) => workspaceTabActivation.activate(tabId, options);
+  const setActiveTab = (tabId, options) => {
+    desktopWorkspace?.syncNotifications();
+    return workspaceTabActivation.activate(tabId, options);
+  };
 
   workspaceStateApply = createWorkspaceStateApplyController({
     getTabs: () => tabs,
@@ -2303,7 +2348,8 @@ export function startGlobalRuntime() {
       activeWorkspaceGeneration = "";
     },
     syncNetworkSockets: (options) => syncTerminalNetworkMonitorSockets(options),
-    onTargetChange: ({ name }) => {
+    onTargetChange: ({ previousName, name }) => {
+      desktopWorkspace?.handleTargetChange(previousName);
       if (terminalUnifiedTransport?.getTargetName()
         && !terminalUnifiedTransport.matchesTarget(name)) {
         terminalUnifiedTransport.close("workspace_target_changed");
