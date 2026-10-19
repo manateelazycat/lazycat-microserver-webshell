@@ -36,7 +36,7 @@ Kitty 图形适配对不完整命令、传输总量、并发解码、图片缓�
 - `presentation_view.js`：live Canvas 清理、hold Canvas 挂载/复制/释放和 shell dataset DOM 适配；抓帧前会恢复被宿主清理路径意外脱离的模块自有 Canvas，并在 hold 事务期间同步 `terminalFrameHeld`/`renderRecovery` 状态。
 - `presentation_lifecycle.js`：validation/retry timer、presentation RAF、frame release、Canvas context 和 `onRender` listener 生命周期。
 - `renderer_adapter.js`：字体/行高度量、主题映射、底部 viewport、cell seam、Powerline 和块光标 patch 的唯一 owner。
-- `cursor_renderer.js`：块状光标背景和覆盖文字的同步绘制。优先使用当前单元格实际显示背景作为文字色，对比不足时选黑/白；识别宽字符续格，沿用普通字形/Powerline 路径并裁剪至完整字符区域。只绘制副本，不修改原单元格；临时绕过选区和颜色映射后恢复状态，Canvas 恢复时同步恢复字体缓存。随包渲染器的第四个文字绘制参数仍为像素滚动偏移。
+- `cursor_renderer.js`：块状光标背景和覆盖文字的同步绘制。优先使用当前单元格实际显示背景作为文字色，对比不足时选黑/白；识别宽字符续格，沿用普通字形/Powerline 路径并裁剪至完整字符区域。只绘制副本，不修改原单元格；临时绕过选区和颜色映射后恢复状态，每个字符的 Canvas 状态恢复时同步恢复字体缓存，避免光标跨格覆盖时后续字符使用错误字体。随包渲染器的第四个文字绘制参数仍为像素滚动偏移。
 - `runtime_controller.js`：Ghostty runtime reset、清屏、引用同步、首次 fit reset 和按 reason 幂等嵌套 render suppression 的唯一 owner；同一 reason 重复 begin 不增加底层 suppression depth，未知 reason end 不释放其他作用域；不决定 history replay 时机。
 - `kitty_graphics.js`：Ghostty Kitty graphics patch、响应识别和像素尺寸。
 - `terminal_render_snapshot.js`：render/presentation 快照和匹配校验。

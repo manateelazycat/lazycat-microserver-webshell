@@ -116,6 +116,7 @@ const drawTerminalCursorText = (renderer, cursorRect, {
       };
       const selection = renderer.currentSelectionCoords;
       const colorMap = renderer.webshellColorMap;
+      const lastRenderFont = renderer.lastRenderFont;
       renderer.ctx.save();
       try {
         renderer.currentSelectionCoords = null;
@@ -128,6 +129,8 @@ const drawTerminalCursorText = (renderer, cursorRect, {
         renderer.currentSelectionCoords = selection;
         renderer.webshellColorMap = colorMap;
         renderer.ctx.restore();
+        // Canvas restore also restores the font; keep its cache in sync per cell.
+        renderer.lastRenderFont = lastRenderFont;
       }
     }
   }
