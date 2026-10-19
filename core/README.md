@@ -33,6 +33,8 @@ Core 可以使用标准库及通用协议/解析库，并依赖 `internal/pkg/fo
 
 ## 验证
 
+v43 修正物理机 activity：Linux 本地 TTY 路径归一化、macOS 完整命令行、Windows 应用启动器身份选择。保留当前版本的终端帧、SSH、发布协议和 WASM，Provider 显式保留 v42 及既有版本的兼容能力；物理机需运行重建后的客户端终端核心才能应用采集修复。
+
 v42 新增浏览器光标样式的设置持久化；终端帧、发布和 SSH 协议保持兼容，WASM 与 v39/v40/v41 相同。Provider 显式保留 v41 的 attach、工作区恢复和内存快照协商能力；Core 不负责浏览器光标绘制。
 
 `host_metrics.go` 仅定义客户端整机指标的可空数据类型及注入接口，不读系统资源、不创建采样任务。实际采样位于独立 `hostmetrics` module，Linux 磁盘选择由 Unix adapter 注入，容器入口不装配它。

@@ -32,7 +32,8 @@ const (
 	// v40 adds a purpose-scoped local service publication tunnel; terminal replay is unchanged.
 	// v41 owns the standalone client runtime; v40 wire protocols remain compatible.
 	// v42 persists browser cursor appearance; terminal wire and checkpoint formats are unchanged.
-	AgentProtocolVersion = "lcmd-webshell-agent-v42"
+	// v43 fixes physical PTY activity identity; wire and checkpoint formats are unchanged.
+	AgentProtocolVersion = "lcmd-webshell-agent-v43"
 
 	agentFrameBinary         = byte('B')
 	AgentFrameText           = byte('T')
