@@ -78,14 +78,14 @@ func isCurrentAgentProtocolVersion(version string) bool {
 
 // v27 and later implement these workspace features.
 func supportsWorkspaceRecovery(version string) bool {
-	if strings.TrimSpace(version) == "lcmd-webshell-agent-v39" {
+	if version := strings.TrimSpace(version); version == "lcmd-webshell-agent-v39" || version == "lcmd-webshell-agent-v41" || version == "lcmd-webshell-agent-v42" {
 		return true
 	}
 	return isCurrentAgentProtocolVersion(version) || strings.TrimSpace(version) == "lcmd-webshell-agent-v40" || strings.TrimSpace(version) == "lcmd-webshell-agent-v38" || strings.TrimSpace(version) == "lcmd-webshell-agent-v37" || strings.TrimSpace(version) == "lcmd-webshell-agent-v36" || strings.TrimSpace(version) == "lcmd-webshell-agent-v35" || strings.TrimSpace(version) == "lcmd-webshell-agent-v34" || strings.TrimSpace(version) == "lcmd-webshell-agent-v33" || strings.TrimSpace(version) == "lcmd-webshell-agent-v32" || strings.TrimSpace(version) == "lcmd-webshell-agent-v31" || strings.TrimSpace(version) == "lcmd-webshell-agent-v30" || strings.TrimSpace(version) == "lcmd-webshell-agent-v29" || strings.TrimSpace(version) == "lcmd-webshell-agent-v28" || strings.TrimSpace(version) == "lcmd-webshell-agent-v27"
 }
 
 func isAttachCompatibleAgentProtocolVersion(version string) bool {
-	if strings.TrimSpace(version) == "lcmd-webshell-agent-v39" {
+	if version := strings.TrimSpace(version); version == "lcmd-webshell-agent-v39" || version == "lcmd-webshell-agent-v41" || version == "lcmd-webshell-agent-v42" {
 		return true
 	}
 	switch strings.TrimSpace(version) {
@@ -1253,7 +1253,7 @@ func persistentAgentAttachCommandArgs(scope AgentScope, paneID string, cols, row
 		commandArgs = append(commandArgs, "--integrity-protocol", syncRequest.IntegrityProtocol)
 	}
 	if syncRequest.CheckpointProtocol == TerminalMemoryCheckpointProtocol {
-		// v39/v40/v41 share the initialized-page WASM fingerprint. Earlier agents remain
+		// v43 retains the pinned v39/v40/v41 initialized-page WASM fingerprint. Other agents remain
 		// wire-compatible but must replay bytes instead of exporting an incompatible heap.
 		quoted := make([]string, 0, len(commandArgs)-3)
 		for _, arg := range commandArgs[3:] {
@@ -1261,7 +1261,7 @@ func persistentAgentAttachCommandArgs(scope AgentScope, paneID string, cols, row
 		}
 		script := "set -- " + strings.Join(quoted, " ") + "\n" +
 			"case \"$(" + ShellScriptQuote(agentInstallPath) + " agent version)\" in\n" +
-			ShellScriptQuote(AgentProtocolVersion) + "|lcmd-webshell-agent-v40|lcmd-webshell-agent-v39)\n" +
+			ShellScriptQuote(AgentProtocolVersion) + "|lcmd-webshell-agent-v41|lcmd-webshell-agent-v40|lcmd-webshell-agent-v39)\n" +
 			"set -- \"$@\" --checkpoint-protocol " + ShellScriptQuote(TerminalMemoryCheckpointProtocol) + "\n;;\nesac\nexec \"$@\""
 		return []string{"exec", "-i", scope.Selector, "/bin/sh", "-c", script}
 	}

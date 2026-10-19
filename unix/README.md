@@ -7,6 +7,7 @@
 - platform_linux.go、shell_linux.go、activity_linux.go：原 Linux 容器平台、用户切换、Shell 引导和 /proc 活动查询。
 - platform_unix.go、pty_unix.go、ipc_unix.go、listener_unix.go：Unix 共用的原 agent PTY、等待和 IPC 原语。
 - local_unix.go：LocalPlatform，以桌面用户启动默认 Shell，保留系统 rc；Linux 交互非 login，macOS 交互 login。nano shim 仅通过 PATH 注入。
+- local_activity_linux.go：仅在物理机采集入口将短 TTY 名 `pts/N` 转换为 `/dev/pts/N`，结果按原 pane TTY 名返回；容器扫描规则不变。macOS activity 分别采集可执行名与完整 `args`，保留 Node 启动脚本路径供前端识别 TUI。
 - local_process_unix.go：关闭本地 PTY 前，回收所属 session 和当前可确认的后代；不按可执行名杀进程。
 - ssh_unix.go、ssh_modes_*.go：SSH 专用命令及 PTY 启动；无 PTY 使用独立 session/process group，PTY 启动前应用尺寸与系统支持的 RFC 4254 termios。信号针对所属终端前台进程组或无 PTY 命令组；不改变浏览器平台启动路径。
 - platform_darwin.go、activity_darwin.go：macOS 平台及 ps/lsof 活动查询；不依赖 /proc。

@@ -25,7 +25,7 @@ func scanDarwinActivities(ctx context.Context, ttys []string) (map[string]core.P
 	if len(wanted) == 0 {
 		return result, nil
 	}
-	out, err := exec.CommandContext(ctx, "/bin/ps", "-axo", "pid=,stat=,tty=,comm=").Output()
+	out, err := exec.CommandContext(ctx, "/bin/ps", "-ww", "-axo", "pid=,stat=,tty=,comm=").Output()
 	if err != nil {
 		return nil, err
 	}
@@ -55,6 +55,23 @@ func scanDarwinActivities(ctx context.Context, ttys []string) (map[string]core.P
 		byPID[pid] = tty
 	}
 	if len(selected) > 0 {
+		// Keep executable identity separate from its arguments. In particular,
+		// a Node launcher needs its script path for the frontend's TUI adapters.
+		out, err = exec.CommandContext(ctx, "/bin/ps", "-ww", "-p", strings.Join(selected, ","), "-o", "pid=,args=").Output()
+		if err == nil {
+			for _, line := range strings.Split(string(out), "\n") {
+				line = strings.TrimSpace(line)
+				separator := strings.IndexAny(line, " \t")
+				if separator < 0 {
+					continue
+				}
+				if tty := byPID[line[:separator]]; tty != "" {
+					a := result[tty]
+					a.CommandLine = strings.TrimSpace(line[separator:])
+					result[tty] = a
+				}
+			}
+		}
 		out, err = exec.CommandContext(ctx, "/usr/sbin/lsof", "-a", "-p", strings.Join(selected, ","), "-d", "cwd", "-Fn").Output()
 		if err == nil {
 			tty := ""

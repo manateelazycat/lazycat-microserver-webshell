@@ -33,6 +33,8 @@ Core 可以使用标准库及通用协议/解析库，并依赖 `internal/pkg/fo
 
 ## 验证
 
+v43 修正物理机 activity：Linux 本地 TTY 路径归一化、macOS 完整命令行、Windows 应用启动器身份选择。此修复基于客户端固定的 v41 源码与 WASM，不改变帧、SSH、发布或快照 ABI；Provider 显式保留 v41/v42 的传输兼容，内存快照仅与本分支固定的 v39/v40/v41 指纹协商，其他版本使用原始字节回放。
+
 `host_metrics.go` 仅定义客户端整机指标的可空数据类型及注入接口，不读系统资源、不创建采样任务。实际采样位于独立 `hostmetrics` module，Linux 磁盘选择由 Unix adapter 注入，容器入口不装配它。
 
 在仓库根目录执行 `go build ./core`、`go build ./...`、`go vet ./...`。可交叉编译 Core 以检查平台依赖泄漏，但这不是整机平台支持验收。
