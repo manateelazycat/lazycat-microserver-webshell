@@ -16,7 +16,7 @@
 - `createTerminalSearchController()`：搜索状态与动作编排入口，公开 `start()`、`open()`、`openFromSelection()`、`close()`、`setQuery()`、`move()`、`refresh()`、`isOpen()` 和 `dispose()`。
 - `createTerminalSearchView()`、`createTerminalSearchLifecycle()`：搜索 DOM 与 listener/延迟聚焦资源适配。
 - `createTerminalClipboardController()`：公开 `start()`、`installSession()`、`copyText()`、`readText()`、`getSelectedText()`、`copySession()`、`pasteSession()`、`copyCurrentSelection()`、`bindDesktopSession()` 和 `dispose()`。`installSession()` 只观察 live `term.write` 中的 OSC 52 写入并复制到浏览器剪贴板，不认领鼠标或右键，不处理 history replay 的 `writeReplay`，也不响应 OSC 52 读取查询。
-- `createBrowserClipboardAdapter()`：浏览器 Clipboard API、权限错误归一化和隐藏 textarea fallback。
+- `createBrowserClipboardAdapter()`：浏览器 Clipboard API、权限错误归一化和隐藏 textarea fallback；`readContent()` 返回 `{ files, text }`，优先图片，每个 ClipboardItem 只取一种图片格式，不将纯文本转成文件。
 - `createTerminalClipboardLifecycle()`：桌面拖选/中键 listener 的动态注册和清理。
 - `createTerminalLinkController()`：链接识别、指针 cell 命中、打开和复制反馈入口，公开 `start()`、`findFirst()`、`findAtPosition()`、`open()`、`copy()` 和 `dispose()`。
 - `findFirstTerminalURL()`、`findTerminalURLAtPosition()`：无状态 URL 匹配和终端逻辑行/cell 映射算法。
@@ -35,7 +35,7 @@
 
 `search_controller.js` 是 query、match 列表、当前 match index、搜索 session ID 和面板打开状态的唯一 owner。`search_model.js` 与 `terminal_text_model.js` 只执行无状态读取和匹配，不持有 session、DOM 或异步资源。
 
-`clipboard_controller.js` 是复制、主动读取文本粘贴、桌面剪贴板交互和 OSC 52 写入落地的唯一 owner。选择文本和完整缓冲区状态通过 selection controller 的显式读取/清理命令注入；本模块不再直接修改 terminal session 的选择字段。异步读取完成后必须重新校验 dispose 和 session closed 状态。主动 `clipboard-read` 被拒绝时先显示可操作反馈，再通过注入命令聚焦原生 paste 目标；原生事件的文件/文本分流归 `app/paste`。TUI 通过 OSC 52 写出的选区只写入浏览器剪贴板，不弹出第二份复制 toast；特定 TUI 的右键和拖选事件归属由 `terminal/tui_adapters/` 决定，clipboard controller 不认领这些事件。
+`clipboard_controller.js` 是复制、主动读取剪贴板粘贴、桌面剪贴板交互和 OSC 52 写入落地的唯一 owner。`pasteSession(session)` 通过 adapter 读取图片或文本；图片交给注入的 `pasteFiles` 命令，由 `app/paste` 上传并将路径写回原 pane；显式传入文本的 `pasteSession(session, text)` 不再次读取剪贴板。选择文本和完整缓冲区状态通过 selection controller 的显式读取/清理命令注入；本模块不再直接修改 terminal session 的选择字段。异步读取完成后必须重新校验 dispose 和 session closed 状态。主动 `clipboard-read` 被拒绝时先显示可操作反馈，再通过注入命令聚焦原生 paste 目标；原生事件的文件/文本分流归 `app/paste`。TUI 通过 OSC 52 写出的选区只写入浏览器剪贴板，不弹出第二份复制 toast；特定 TUI 的右键和拖选事件归属由 `terminal/tui_adapters/` 决定，clipboard controller 不认领这些事件。
 
 `link_controller.js` 是链接打开、复制反馈和迟到复制结果 guard 的唯一 owner。`link_model.js` 只读取终端逻辑行和字符到 cell 映射，不持有 session、DOM、selection、socket 或异步资源。
 
@@ -48,6 +48,8 @@
 搜索 `start()` 幂等安装 input、keydown 和三个按钮 listener；延迟聚焦 timer 由 `search_lifecycle.js` 独占。搜索 `dispose()` 会取消该 timer、移除 listener、隐藏面板并拒绝迟到动作。
 
 剪贴板 `start()` 启用动态 session 绑定；`bindDesktopSession()` 返回幂等 cleanup，并由 terminal session lifecycle 持有。`clipboard_lifecycle.js` 统一清理 shell mousedown/auxclick 和 document mousemove/mouseup listener；`dispose()` 后迟到 Clipboard Promise 不得发送输入或修改选择 UI。
+
+菜单粘贴上传完成后只为仍然活动的原 pane 恢复焦点，避免用户切换 pane/实例后被迟到上传抢回焦点。
 
 链接 `start()` 是幂等生命周期入口，不注册 listener。`dispose()` 递增异步 operation generation；已经开始但尚未完成的复制结果不得再显示反馈，后续 URL 查询、打开和复制都必须拒绝。
 

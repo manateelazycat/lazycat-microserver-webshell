@@ -1075,6 +1075,7 @@ export function startGlobalRuntime() {
     },
     reassertSessionSize: (session) => terminalResize?.reassertSize(session, { force: true }),
     focusForNativePaste: (session) => terminalIME?.focusForNativePaste(session),
+    pasteFiles: (session, files) => appPaste?.handleClipboardFiles(session, files).completion || false,
     prepareSelectionManager: (session) => terminalSelection?.prepareManager(session),
     dragThresholdPx: desktopSelectionCopyMoveThresholdPx,
   });

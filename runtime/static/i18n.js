@@ -371,6 +371,7 @@ const MESSAGES = {
     "上传失败": "Upload failed",
     "剪贴板没有可导入的内容。": "There is no importable content in the clipboard.",
     "剪贴板读取失败。": "Clipboard read failed.",
+    "当前页面策略禁止主动读取剪贴板，请使用 Ctrl+V 或 Command+V 粘贴。": "Clipboard access is blocked by this page's policy. Paste with Ctrl+V or Command+V.",
     "请选择要上传的文件。": "Select a file to upload.",
     "松开后上传": "Release to upload",
     "个文件": "files",

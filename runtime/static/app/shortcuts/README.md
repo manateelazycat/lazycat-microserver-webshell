@@ -21,6 +21,8 @@ controller 公开 `runAction()`、`handleKeydown()`、`toggleFullscreen()`、`is
 - `shortcut_lifecycle.js` 持有 disposed/generation fence，拒绝页面销毁后的迟到命令。
 - 页面 listener、定时器和其他资源仍由 `app_lifecycle.js` 或对应业务模块清理。
 
+Ctrl+V / Command+V 只聚焦终端并保留浏览器默认粘贴，由原生 paste 事件消费图片或文本，避免重复读取和上传。Ctrl+Shift+V、Shift+Insert、自定义粘贴快捷键和显式 `runAction("paste_terminal")` 调用注入的 `pasteTerminal`，与右键菜单共用图片优先的主动剪贴板读取，避免浏览器的纯文本粘贴命令丢弃图片。
+
 ## 文件清单与验证
 
 - `index.js`：唯一公开入口。
