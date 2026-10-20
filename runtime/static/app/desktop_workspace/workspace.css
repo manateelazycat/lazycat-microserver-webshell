@@ -23,7 +23,7 @@
 }
 
 .desktop-workspace-mode.desktop-workspace-collapsed .terminal-area {
-  margin-left: calc(max(10px, var(--lzc-safe-area-inset-left)) + 42px);
+  margin-left: 0;
 }
 
 .desktop-workspace-sidebar {
@@ -56,7 +56,6 @@
   padding: 10px 12px 12px;
 }
 
-.desktop-workspace-toolbar > .tab-overview-toggle,
 .desktop-workspace-toolbar > .attachment-toggle,
 .desktop-workspace-toolbar .instance-switcher-btn,
 .desktop-workspace-toolbar > .desktop-workspace-icon {
@@ -74,7 +73,7 @@
   color: var(--chrome-text);
 }
 
-.desktop-workspace-toolbar > .desktop-workspace-icon {
+.desktop-workspace-toolbar > .attachment-toggle {
   margin-left: auto;
 }
 
@@ -83,10 +82,10 @@
 }
 
 .desktop-workspace-toolbar .instance-switcher-panel {
-  left: 0;
-  right: auto;
+  left: auto;
+  right: 0;
   top: calc(100% + 8px);
-  width: 240px;
+  width: 224px;
   max-height: calc(100dvh - 70px - var(--lzc-safe-area-inset-top));
 }
 

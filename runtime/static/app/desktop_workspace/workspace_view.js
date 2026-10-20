@@ -2,7 +2,7 @@ import { desktopSessionActivity } from "./session_presentation.js";
 
 export const desktopIcon = (documentObject, name) => {
   const paths = {
-    sidebar: "M9 4v16M4 4h16v16H4z",
+    collapse: "m15 5-7 7 7 7",
     chevron: "m9 5 7 7-7 7",
     add: "M12 5v14M5 12h14",
     terminal: "m5 7 4 5-4 5M12 17h7",
@@ -65,18 +65,18 @@ export function createDesktopWorkspaceView({ documentObject = document, windowOb
     button.append(desktopIcon(documentObject, name));
     return button;
   };
-  const collapse = iconButton("sidebar", "收起侧栏", "collapse");
+  const collapse = iconButton("collapse", "收起侧栏", "collapse");
   collapse.setAttribute("aria-controls", sidebar.id);
   collapse.setAttribute("aria-expanded", "true");
   toolbar.append(collapse);
   sidebar.append(toolbar, list, footer);
-  const expand = iconButton("sidebar", "展开侧栏", "expand");
+  const expand = iconButton("chevron", "展开侧栏", "expand");
   expand.classList.add("desktop-workspace-expand");
   expand.setAttribute("aria-controls", sidebar.id);
   expand.setAttribute("aria-expanded", "false");
   expand.hidden = true;
   shell.prepend(sidebar, expand);
-  const relocations = ["tabOverviewToggle", "attachmentToggle", "instanceSwitcher", "terminalNetworkMonitor"]
+  const relocations = ["attachmentToggle", "instanceSwitcher", "terminalNetworkMonitor"]
     .map((id) => {
       const element = documentObject.getElementById(id);
       const anchor = documentObject.createComment(`desktop-workspace:${id}`);
@@ -212,7 +212,7 @@ export function createDesktopWorkspaceView({ documentObject = document, windowOb
       for (const { element, anchor } of relocations) {
         if (active) {
           if (element.id === "terminalNetworkMonitor") footer.append(element);
-          else toolbar.insertBefore(element, collapse);
+          else toolbar.append(element);
         } else anchor.after(element);
       }
       documentObject.getElementById("instanceSwitcherList")?.previousElementSibling
