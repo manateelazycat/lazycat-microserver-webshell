@@ -2132,6 +2132,10 @@ body.split-resize-active * {
   border-bottom: 0;
 }
 
+.settings-section[aria-labelledby="settingsFontSizeTitle"] {
+  gap: 6px;
+}
+
 [data-settings-panel="terminal"] > .settings-section {
   border-bottom: 0;
 }
@@ -3858,9 +3862,10 @@ body.is-mobile-shortcut-dragging {
   min-height: 0;
   padding: 14px;
   overflow-x: hidden;
-  overflow-y: hidden;
+  overflow-y: auto;
   align-content: start;
   overscroll-behavior-y: contain;
+  touch-action: pan-y;
   scrollbar-width: none;
   box-sizing: border-box;
 }
@@ -3871,7 +3876,6 @@ body.is-mobile-shortcut-dragging {
 }
 
 .tab-overview-grid.is-scrollable {
-  overflow-y: auto;
   scrollbar-color: rgba(128, 128, 128, 0.5) rgba(128, 128, 128, 0.1);
   scrollbar-width: thin;
 }

@@ -45,8 +45,8 @@ export function createTerminalOverviewLifecycle({
       listen(elements.newTab, "click", handlers.onNewTab);
       listen(elements.root, "click", handlers.onRootClick);
       listen(elements.root, "pointerdown", handlers.onCardPointerDown);
+      listen(elements.grid, "scroll", handlers.onGridScroll, { passive: true });
       listen(documentObject, "touchstart", handlers.onEdgeSwipeStart, { capture: true, passive: true });
-      listen(documentObject, "touchmove", handlers.onEdgeSwipeMove, { capture: true, passive: false });
       listen(documentObject, "touchend", handlers.onEdgeSwipeEnd, { capture: true, passive: true });
       listen(documentObject, "touchcancel", handlers.onEdgeSwipeEnd, { capture: true, passive: true });
       listen(windowObject, "resize", handlers.onResize);

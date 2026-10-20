@@ -189,7 +189,6 @@ export function createTerminalOverviewView({
     if (!elements.grid) {
       return [];
     }
-    elements.grid.classList.remove("is-scrollable");
     syncPreviewRatio(mobileLayout);
     const wanted = new Set(orderedTabs.map(tab => tab.id));
     const existing = new Map();

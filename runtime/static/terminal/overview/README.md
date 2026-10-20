@@ -31,6 +31,10 @@ IndexedDB 数据库 `lcmd-webshell-overview-previews-v1` 最多保留 64 项并�
 
 `dispose()` 取消所有 RAF/timer、结束拖拽、关闭已解码图片、使 capture/load generation 失效、移除 listener 并关闭总览。迟到的 encode、IndexedDB request 或 image decode 不得修改 UI 或覆盖新 identity。history generation 变更后的旧图片只是不再展示，不通过无条件 key 删除，避免迟到清理误删同 pane 的新 generation 图片；后续 capture 或 TTL/容量清理负责回收。
 
+预览网格始终使用原生纵向滚动，`is-scrollable` 仅控制滚动条外观，刷新时不反复移除该状态。触摸按下只建立长按候选，不立即捕获指针；移动超过阈值或网格实际滚动后取消候选，不阻止原生滑动。识别为长按拖拽后才捕获指针并安装阻止原生移动的临时监听。边缘打开总览的非被动 touchmove 监听也只在边缘手势期间安装，结束或取消立即清理。
+
+按住卡片或滚动期间只标记预览待更新，不重排卡片和重绘缩略图；原生滚动停止 140ms 后再刷新最新预览，避免打断惯性。活动拖拽的边缘自动滚动不进入普通滚动等待。关闭和 dispose 清理等待计时器、待更新状态及全部临时拖动监听。移动端需手工验证持续输出时反复上下滑动、惯性到达两端、长按排序、取消手势及重新打开总览。
+
 ## 文件清单
 
 - `index.js`：单一公开入口。
