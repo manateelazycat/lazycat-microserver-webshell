@@ -53,11 +53,11 @@ const MESSAGES = {
     "切换主题": "Switch theme",
     "关闭": "Close",
     "返回": "Back",
-    "终端设置": "Terminal Settings",
-    "主题设置": "Theme Settings",
-    "手机快捷键设置": "Mobile Shortcuts Settings",
-    "PC快捷键设置": "PC Shortcuts Settings",
-    "服务转发设置": "Service Forwarding Settings",
+    "终端设置": "Terminal",
+    "主题设置": "Theme",
+    "手机快捷键设置": "Mobile Shortcuts",
+    "PC快捷键设置": "PC Shortcuts",
+    "服务转发设置": "Service Forwarding",
     "字体": "Font",
     "显示": "Display",
     "滚动历史": "Scrollback",
@@ -94,6 +94,23 @@ const MESSAGES = {
     "关闭设置": "Close Settings",
     "设置分类": "Settings Category",
     "终端字体": "Terminal Font",
+    "光标样式": "Cursor Style",
+    "块状": "Block",
+    "竖线": "Bar",
+    "下划线": "Underline",
+    "平滑光标": "Smooth Cursor",
+    "短距离移动时平滑过渡；系统开启“减少动态效果”时仍会停用动画": "Animate short cursor movements. Animation stays disabled when Reduce Motion is enabled in your system settings.",
+    "字体大小": "Font Size",
+    "范围 10–32px，默认 16px，修改后立即生效。": "Range: 10–32px. Default: 16px. Changes take effect immediately.",
+    "增加字号": "Increase Font Size",
+    "减少字号": "Decrease Font Size",
+    "恢复默认字号": "Restore Default Font Size",
+    "光标样式保存失败。": "Could not save the cursor style.",
+    "滚动历史行数": "Scrollback Lines",
+    "行间距必须是 {min}-{max}% 之间的整数。": "Line height must be an integer between {min}% and {max}%.",
+    "字号必须是 {min}-{max} 之间的整数。": "Font size must be an integer between {min} and {max}.",
+    "字号设置无效。": "Invalid font size.",
+    "滚动历史行数必须是 {min}-{max} 之间的整数。": "Scrollback lines must be an integer between {min} and {max}.",
     "行间距": "Line Height",
     "按百分比调整终端行高，100% 为默认，增大后同屏显示行数会减少。": "Adjust terminal line height by percent; 100% is default. Increasing it reduces the number of lines visible per screen.",
     "增加行间距": "Increase Line Height",
@@ -181,7 +198,7 @@ const MESSAGES = {
     "服务名称": "Service Name",
     "子域名": "Subdomain",
     "图标": "Icon",
-    "不使用账号保护": "No Account Protection",
+    "不使用账号保护": "No account protection",
     "允许未登录 Lazycat Microserver 账号时访问该服务": "Allow accessing this service without logging in to Lazycat Microserver account",
     "取消": "Cancel",
     "部署服务": "Deploy Service",
@@ -229,7 +246,6 @@ const MESSAGES = {
     "当前使用": "In use",
     "切换到": "Switch to",
     "全屏": "Fullscreen",
-    "关闭其他标签": "Close Other Tabs",
     "最后一个标签": "Last Tab",
     "标签移到最前": "Move Tab to First",
     "标签左移": "Move Tab Left",
@@ -333,7 +349,6 @@ const MESSAGES = {
     "未安装应用入口": "App entry not installed",
     "打开": "Open",
     "已部署": "Deployed",
-    "不使用账号保护": "No account protection",
     "服务删除失败": "Service deletion failed",
     "服务部署失败。": "Service deployment failed.",
     "服务转发列表刷新失败。": "Service forwarding list refresh failed.",
@@ -353,7 +368,6 @@ const MESSAGES = {
     "子域名只能包含小写字母、数字和连字符，且必须以字母或数字开头。": "The subdomain may contain only lowercase letters, numbers, and hyphens, and must start with a letter or number.",
     "图标必须是 PNG 图片。": "The icon must be a PNG image.",
     "无效": "Invalid",
-    "确认更新": "Confirm Update",
     "WebShell 启动失败": "WebShell failed to start",
     "检测到后台进程": "Background process detected",
     "确认": "Confirm",
@@ -464,13 +478,259 @@ const MESSAGES = {
     "会话=": "Session=",
     "分屏=": "Pane=",
     "正在运行: ": "Running: ",
+    "重新创建终端": "Recreate Terminal",
+    "正在重新创建终端...": "Recreating terminal...",
+    "重新创建终端失败。": "Could not recreate the terminal.",
+    "剪贴板没有可粘贴的文本或文件。": "The clipboard contains no text or files to paste.",
+    "粘贴失败。": "Paste failed.",
+    "快捷键执行失败。": "Could not run the shortcut.",
+    "上传已取消": "Upload canceled",
+    "文件列表请求不可用。": "File listing is unavailable.",
+    "文件列表读取失败 ({status})": "Could not load the file list ({status})",
+    "文件列表读取失败。": "Could not load the file list.",
+    "当前浏览器无法上传附件。": "This browser cannot upload attachments.",
+    "当前页面策略禁止主动读取剪贴板，请使用系统粘贴快捷键。": "Clipboard access is blocked by this page's policy. Use your system paste shortcut.",
+    "当前浏览器无法创建附件文件。": "This browser cannot create attachment files.",
+    "当前浏览器环境无法读取剪贴板。": "Clipboard reading is unavailable in this browser.",
+    "没有可用的当前终端。": "No terminal is currently available.",
+    "一次最多下载 {count} 个条目。": "Download up to {count} items at a time.",
+    "一次最多上传 {count} 个文件。": "Upload up to {count} files at a time.",
+    "当前终端已切换，请重新选择文件。": "The terminal has changed. Select the files again.",
+    "路径复制失败。": "Could not copy the path.",
+    "文件超过 2GB：{name}": "File exceeds 2GB: {name}",
+    "上传成功，点击复制路径。": "Upload succeeded. Click to copy the path.",
+    "文件路径已复制到剪切板,粘贴即可": "File path copied to the clipboard. Paste it to continue.",
+    "关闭上传提示": "Close Upload Status",
+    "设备心跳失败": "Device heartbeat failed",
+    "设备列表响应无效": "Invalid device list response",
+    "设备心跳超时 ({timeout}ms)": "Device heartbeat timed out ({timeout}ms)",
+    "在线设备列表请求失败": "Could not load online devices",
+    "当前在线": "Online Now",
+    "无法返回首页": "Could not return to the home page",
+    "LightOS 首页地址不可用。": "The LightOS home URL is unavailable.",
+    "LightOS 首页地址协议无效。": "The LightOS home URL uses an invalid protocol.",
+    "无法获取 LightOS 首页地址 ({status})": "Could not retrieve the LightOS home URL ({status})",
+    "LightOS 首页地址响应无效: {error}": "Invalid LightOS home URL response: {error}",
+    "服务转发创建失败": "Could not create service forwarding",
+    "服务转发部署失败 ({status})": "Could not deploy service forwarding ({status})",
+    "服务转发列表加载失败": "Could not load service forwarding entries",
+    "服务转发删除失败": "Could not delete service forwarding",
+    "服务转发状态加载失败": "Could not load service forwarding status",
+    "服务转发更新失败": "Could not update service forwarding",
+    "服务转发操作已失效。": "This service forwarding operation is no longer valid.",
+    "正在加载服务转发...": "Loading service forwarding...",
+    "服务转发列表已刷新。": "Service forwarding list refreshed.",
+    "当前没有可用实例。": "No instances are currently available.",
+    "跳过鉴权会让能够访问发布域名的人直接访问这台物理机可达的目标服务。确定公开吗？": "Skipping authentication lets anyone who can access the published domain use the target service reachable from this machine. Make it public?",
+    "公开物理机服务": "Make Machine Service Public",
+    "确认公开": "Make Public",
+    "无法编辑不属于当前实例的服务。": "Cannot edit a service belonging to another instance.",
+    "服务已部署，但 APK 生成失败。": "Service deployed, but APK generation failed.",
+    "服务已部署。": "Service deployed.",
+    "服务已部署，但列表刷新失败。": "Service deployed, but the list could not be refreshed.",
+    "无法删除不属于当前实例的服务。": "Cannot delete a service belonging to another instance.",
+    "删除服务「{name}」？": "Delete service “{name}”?",
+    "删除快捷键「{name}」？": "Delete shortcut “{name}”?",
+    "编辑 {name}": "Edit {name}",
+    "发送文字: {text}": "Send text: {text}",
+    "切换到第 {count} 个标签": "Switch to tab {count}",
+    "第 {count} 个标签": "Tab {count}",
+    "删除服务": "Delete Service",
+    "服务已删除。": "Service deleted.",
+    "主机端口 {port} 已被占用，服务转发暂时不可用。": "Host port {port} is in use. Service forwarding is temporarily unavailable.",
+    "目标地址由物理机访问，可填写主机名、局域网或公网 IP": "The target is accessed from this machine. Enter a hostname, LAN IP, or public IP.",
+    "选区内容已变化，请重新选择后复制。": "The selection has changed. Select it again before copying.",
+    "选区内容过多，请缩小范围后复制。": "The selection is too large. Select less text before copying.",
+    "复制未完成，请稍后重试。": "Copying did not complete. Try again shortly.",
+    "没有可复制的选区。": "There is no selection to copy.",
+    "已复制。": "Copied.",
+    "复制失败。": "Copy failed.",
+    "链接已复制。": "Link copied.",
+    "匹配结果过多，请缩小搜索范围。": "Too many matches. Narrow your search.",
+    "搜索未完成，请稍后重试。": "Search did not complete. Try again shortly.",
+    "读取选区失败，请重试。": "Could not read the selection. Try again.",
+    "没有可搜索的选区。": "There is no selection to search.",
+    "粘贴内容过大，已丢弃部分输入。": "The pasted content is too large. Some input was discarded.",
+    "终端尚未恢复，待发送输入已达到 256 KiB 上限。": "The terminal has not recovered. Pending input has reached the 256 KiB limit.",
+    "当前截图范围过长，请向终端底部滚动后重试。": "The capture range is too long. Scroll toward the bottom of the terminal and try again.",
+    "没有可导出的终端内容。": "There is no terminal content to export.",
+    "当前终端画面尚未就绪。": "The terminal display is not ready yet.",
+    "终端布局已变化，请重试截图。": "The terminal layout has changed. Capture it again.",
+    "终端内容已变化，请重试截图。": "The terminal content has changed. Capture it again.",
+    "终端历史在截图过程中发生变化，请重试。": "Terminal history changed during capture. Try again.",
+    "终端长图正在生成，请稍候。": "A long screenshot is being generated. Please wait.",
+    "正在生成终端长图…": "Generating terminal screenshot…",
+    "长图已生成，共 {count} 张。现在保存？": "Generated {count} screenshots. Save them now?",
+    "长图已生成。现在分享或保存？": "Screenshot ready. Share or save it now?",
+    "终端长图": "Terminal Screenshot",
+    "截图已打开分享。": "Screenshot opened for sharing.",
+    "已取消截图分享。": "Screenshot sharing canceled.",
+    "截图下载已开始，共 {count} 张。": "Downloading {count} screenshots.",
+    "截图下载已开始。": "Screenshot download started.",
+    "截图未完成，请稍后重试。": "Screenshot capture did not complete. Try again shortly.",
+    "已选中完整终端缓冲区。": "Entire terminal buffer selected.",
+    "请更新 PC 客户端并重新启用 LightOS 接入，当前终端服务不支持统一连接。": "Update the PC client and re-enable LightOS access. The current terminal service does not support unified connections.",
+    "关闭此窗格并终止正在运行的命令？": "Close this pane and terminate its running commands?",
+    "关闭此标签并终止正在运行的命令？": "Close this tab and terminate its running commands?",
+    "关闭其他标签并终止正在运行的命令？": "Close the other tabs and terminate their running commands?",
+    "没有可切换的最近终端。": "There is no recent terminal to switch to.",
+    "终端服务协议版本不一致，需要确认更新。": "The terminal service protocol version differs. Confirm the update to continue.",
+    "终端暂时无法恢复，请刷新页面重试。": "The terminal cannot recover right now. Refresh the page to try again.",
+    "网络监视器加载失败": "Could not load the network monitor",
+    "暂无可复制的流量消费数据。": "There is no traffic consumption data to copy.",
+    "流量消费统计已复制。": "Traffic consumption statistics copied.",
+    "复制流量消费统计失败。": "Could not copy traffic consumption statistics.",
+    "初始化性能数据已复制。": "Initialization performance data copied.",
+    "复制初始化性能数据失败。": "Could not copy initialization performance data.",
+    "暂无可复制的调试日志。": "There are no debug logs to copy.",
+    "调试日志已复制。": "Debug logs copied.",
+    "复制调试日志失败。": "Could not copy debug logs.",
+    "已完成": "Completed",
+    "等待历史回放": "Waiting for history replay",
+    "正在校准历史回放": "Calibrating history replay",
+    "历史回放消费正常": "History replay traffic is normal",
+    "异常：历史回放消费大于本次应回放字节": "Warning: replay traffic exceeds the expected byte count",
+    "异常：历史回放消费不足本次应回放字节的一半": "Warning: replay traffic is less than half the expected byte count",
+    "当前历史回放流量消费": "Current history replay traffic",
+    "当前会话历史总字节大小": "Total history bytes for this session",
+    "本次应回放 {size} MB": "Expected replay: {size} MB",
+    "模式 {mode}": "Mode: {mode}",
+    "页面标识: {id}": "Page ID: {id}",
+    "浏览器: {agent}": "Browser: {agent}",
+    "时间基准 Unix ms: {time}": "Time origin (Unix ms): {time}",
+    "计时起点 performance.now ms: {time}（运行时启动，不含此前资源加载）": "Timer start (performance.now ms): {time} (runtime startup, excluding earlier resource loading)",
+    "终端输出": "Terminal Output",
+    "历史回放": "History Replay",
+    "实时输出": "Live Output",
+    "终端输入": "Terminal Input",
+    "用户输入": "User Input",
+    "终端自动响应": "Automatic Terminal Response",
+    "终端控制": "Terminal Control",
+    "尺寸同步": "Size Sync",
+    "主题同步": "Theme Sync",
+    "终端连接": "Terminal Connection",
+    "连接保活": "Connection Keepalive",
+    "消费确认": "Consumption Acknowledgment",
+    "终端诊断": "Terminal Diagnostics",
+    "会话控制": "Session Control",
+    "设置就绪": "Settings ready",
+    "工作区应用完成": "Workspace applied",
+    "逻辑层 socket 已打开": "Logical socket opened",
+    "物理 WebSocket 已打开": "Physical WebSocket opened",
+    "物理通道服务端 Agent 准备开始": "Server-side agent preparation started",
+    "Agent 准备": "Agent preparation",
+    "Agent attach 准备完成": "Agent attach ready",
+    "首个终端数据": "First terminal data",
+    "历史回放接收完成": "History replay received",
+    "收到服务端尺寸确认": "Server size acknowledgment received",
+    "终端渲染开始": "Terminal rendering started",
+    "Presentation 就绪状态": "Presentation readiness",
+    "完整渲染完成": "Full render completed",
+    "终端渲染完成": "Terminal rendering completed",
+    "Worker 已创建": "Worker created",
+    "Worker 重建开始": "Worker restart started",
+    "Worker 请求发出": "Worker request sent",
+    "Worker 请求完成": "Worker request completed",
+    "Worker 失败": "Worker failure",
+    "本地尺寸事务清理": "Local resize transaction cleanup",
+    "本地尺寸更新等待调度": "Local resize waiting for scheduling",
+    "连续服务端尺寸等待按序应用": "Server resizes waiting to be applied in order",
+    "本地尺寸应用开始": "Local resize application started",
+    "本地尺寸应用结果": "Local resize application result",
+    "本地尺寸应用取消": "Local resize application canceled",
+    "本地尺寸应用失败": "Local resize application failed",
+    "收到服务端尺寸拒绝": "Server size rejection received",
+    "本地终端尺寸已提交": "Local terminal size submitted",
+    "整段历史接收开始": "Full history reception started",
+    "整段历史接收完成": "Full history reception completed",
+    "整段历史解析完成": "Full history parsing completed",
+    "历史按尺寸边界分段解析": "History parsed by resize boundaries",
+    "终端进程已退出": "Terminal process exited",
+    "真实终端": "Live terminal",
+    "终端初始化": "Terminal initialization",
+    "等待下一步 · {step}": "Waiting for the next step · {step}",
+    "终端服务协议更新完成": "Terminal service protocol update completed",
+    "终端服务协议更新确认失败": "Could not confirm the terminal service protocol update",
+    "主题加载完成": "Themes loaded",
+    "设置加载完成": "Settings loaded",
+    "实例列表加载完成": "Instance list loaded",
+    "物理通道预连接已发起": "Physical channel preconnection started",
+    "与前端初始化并行，pane 就绪后再订阅": "Runs alongside frontend initialization; subscribes when the pane is ready",
+    "Ghostty、主题、设置和实例初始化完成": "Ghostty, themes, settings, and instances initialized",
+    "应用 bootstrap 完成": "Application bootstrap completed",
+    "WebShell 错误终端创建失败": "Could not create the WebShell error terminal",
+    "网络已断开，终端暂停重试": "Network disconnected; terminal retries paused",
+    "网络已恢复，终端开始重连": "Network restored; terminal reconnecting",
+    "版本检查跳过：当前网络离线": "Version check skipped: network offline",
+    "错误日志已启用": "Error logging enabled",
+    "终端 resize 呈现等待较长": "Terminal resize presentation is taking longer than expected",
+    "终端自动恢复已停止": "Automatic terminal recovery stopped",
+    "终端处理停滞，正在恢复": "Terminal processing stalled; recovering",
+    "终端后台启动失败": "Terminal backend startup failed",
+    "终端连接已恢复": "Terminal connection restored",
+    "终端历史回放已暂停": "Terminal history replay paused",
+    "终端历史回放恢复重试": "Terminal history replay recovery retry",
+    "终端待发送输入超过限制": "Pending terminal input exceeds the limit",
+    "终端清理失败": "Terminal cleanup failed",
+    "终端运行时重置失败，降级清理后继续": "Terminal runtime reset failed; continuing after fallback cleanup",
+    "终端运行时清理失败": "Terminal runtime cleanup failed",
+    "终端输入已就绪": "Terminal input ready",
+    "真实终端 Canvas 已显示": "Live terminal canvas displayed",
+    "终端 pane 已创建": "Terminal pane created",
+    "终端历史回放等待尺寸": "Terminal history replay waiting for size",
+    "终端历史回放重置异常": "Terminal history replay reset error",
+    "终端网络错误将自动重试": "Terminal network error; retries are automatic",
+    "终端连接建立失败": "Could not establish the terminal connection",
+    "终端连接异常，准备重试": "Terminal connection error; preparing to retry",
+    "终端连接流程开始": "Terminal connection process started",
+    "终端回放身份校验失败": "Terminal replay identity verification failed",
+    "终端会话消息身份不匹配": "Terminal session message identity mismatch",
+    "终端历史同步失败": "Terminal history sync failed",
+    "终端 WebSocket 已打开": "Terminal WebSocket opened",
+    "服务端终端解析失败，使用原始历史回放": "Server-side terminal parsing failed; using raw history replay",
+    "服务端终端快照异常": "Server-side terminal checkpoint error",
+    "PTY replay 完成通知": "PTY replay completion notification",
+    "agent 准备中": "Preparing agent",
+    "终端 WebSocket 已断开": "Terminal WebSocket disconnected",
+    "终端连接已停放": "Terminal connection parked",
+    "统一终端 logical stream 将重试": "Unified terminal logical stream will retry",
+    "统一终端 logical stream 建立失败": "Could not establish the unified terminal logical stream",
+    "终端物理通道异常，正在恢复": "Terminal physical channel error; recovering",
+    "终端物理通道恢复失败": "Terminal physical channel recovery failed",
+    "统一终端物理通道已断开，立即重建": "Unified terminal physical channel disconnected; rebuilding immediately",
+    "统一终端物理通道健康检查失败": "Unified terminal physical channel health check failed",
+    "统一终端物理通道 WebSocket 错误，立即关闭重建": "Unified terminal physical channel WebSocket error; closing and rebuilding immediately",
+    "统一终端协议错误": "Unified terminal protocol error",
+    "物理通道预连接未完成，等待终端正常接入": "Physical channel preconnection incomplete; waiting for normal terminal connection",
+    "分屏调整失败": "Could not resize the split panes",
+    "workspace 响应完成": "Workspace response completed",
+    "workspace 应用完成": "Workspace applied",
+    "终端事件 {type}": "Terminal event {type}",
   },
 };
+
+// Match complete dynamic UI messages so counts and user-provided names keep
+// their values without relying on partial Chinese word replacements.
+const MESSAGE_TEMPLATES = Object.entries(MESSAGES["en-US"])
+  .filter(([key]) => /\{\w+\}/.test(key))
+  .map(([key, translation]) => {
+    const names = [];
+    const source = key.split(/(\{\w+\})/).map((part) => {
+      if (/^\{\w+\}$/.test(part)) {
+        names.push(part.slice(1, -1));
+        return "([\\s\\S]*?)";
+      }
+      return part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    }).join("");
+    return { pattern: new RegExp(`^${source}$`), names, translation };
+  });
 
 const PLACEHOLDER_RE = /\{\{\s*\$t\(\s*(['"])((?:\\.|(?!\1)[\s\S])*?)\1\s*\)\s*\}\}/g;
 const TEXT_NODE_SKIP_TAGS = new Set(["SCRIPT", "STYLE", "NOSCRIPT"]);
 const TRANSLATABLE_ATTRIBUTES = new Set(["aria-label", "title", "placeholder"]);
 const CHINESE_CHAR_RE = /[\u4e00-\u9fff]/;
+const LOCALIZED_TEXT_VALUES = new WeakMap();
+const LOCALIZED_ATTRIBUTE_VALUES = new WeakMap();
 
 const localeFallbackChain = {
   "zh": "zh-CN",
@@ -526,14 +786,24 @@ const translateWithLocale = (key, locale) => {
     return "";
   }
   const canonicalLocale = resolveLocale(locale);
-  return MESSAGES[canonicalLocale]?.[target] || target;
+  const exact = MESSAGES[canonicalLocale]?.[target];
+  if (exact) return exact;
+  if (canonicalLocale === "en-US" && CHINESE_CHAR_RE.test(target)) {
+    for (const { pattern, names, translation } of MESSAGE_TEMPLATES) {
+      const match = target.match(pattern);
+      if (!match) continue;
+      const values = Object.fromEntries(names.map((name, index) => [name, match[index + 1]]));
+      return translation.replace(/\{(\w+)\}/g, (_placeholder, name) => values[name] ?? "");
+    }
+  }
+  return target;
 };
 
 const translateText = (value, locale) => {
   const source = String(value || "");
   const exact = translateWithLocale(source, locale);
   if (exact !== source) return exact;
-  if (resolveLocale(locale) !== "en-US") return source;
+  if (resolveLocale(locale) !== "en-US" || !CHINESE_CHAR_RE.test(source)) return source;
   return Object.keys(MESSAGES["en-US"])
     .filter((key) => key && CHINESE_CHAR_RE.test(key) && source.includes(key))
     .sort((left, right) => right.length - left.length)
@@ -552,6 +822,10 @@ const localizeNodeText = (node, locale) => {
   if (!node || node.nodeType !== Node.TEXT_NODE) {
     return;
   }
+  // Our own mutation must not translate Chinese inside a preserved user value
+  // a second time after a message template has already been localized.
+  const previous = LOCALIZED_TEXT_VALUES.get(node);
+  if (previous?.locale === locale && previous.value === node.textContent) return;
   const next = (() => {
     const rendered = renderTemplate(node.textContent || "", locale);
     if (rendered !== node.textContent) {
@@ -565,6 +839,7 @@ const localizeNodeText = (node, locale) => {
     return translated === trimmed ? rendered : translated;
   })();
   if (next !== node.textContent) {
+    LOCALIZED_TEXT_VALUES.set(node, { locale, value: next });
     node.textContent = next;
   }
 };
@@ -577,8 +852,16 @@ const localizeNodeAttributes = (element, locale) => {
     if (!TRANSLATABLE_ATTRIBUTES.has(attribute.name)) {
       continue;
     }
+    const previous = LOCALIZED_ATTRIBUTE_VALUES.get(element)?.get(attribute.name);
+    if (previous?.locale === locale && previous.value === attribute.value) continue;
     const next = translateText(renderTemplate(attribute.value || "", locale), locale);
     if (next !== attribute.value) {
+      let values = LOCALIZED_ATTRIBUTE_VALUES.get(element);
+      if (!values) {
+        values = new Map();
+        LOCALIZED_ATTRIBUTE_VALUES.set(element, values);
+      }
+      values.set(attribute.name, { locale, value: next });
       element.setAttribute(attribute.name, next);
     }
   }
@@ -613,12 +896,21 @@ const setupDynamicObserve = (root, options) => {
       if (record.type === "characterData") {
         localizeNode(record.target, options.locale);
       }
+      if (record.type === "attributes") {
+        localizeNodeAttributes(record.target, options.locale);
+      }
       for (const node of Array.from(record.addedNodes || [])) {
         localizeNode(node, options.locale);
       }
     }
   });
-  observer.observe(root, { childList: true, subtree: true, characterData: true });
+  observer.observe(root, {
+    childList: true,
+    subtree: true,
+    characterData: true,
+    attributes: true,
+    attributeFilter: Array.from(TRANSLATABLE_ATTRIBUTES),
+  });
   return () => observer.disconnect();
 };
 

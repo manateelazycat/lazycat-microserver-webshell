@@ -300,12 +300,11 @@
                 </div>
                 <div class="settings-number-row">
                   <label class="settings-number-label" for="settingsFontSizeInput">
-                    <span>{{ $t('字号') }}</span>
-                    <span>{{ $t('调整终端字号，范围 10–32px，默认 16px，修改后立即生效。') }}</span>
+                    <span id="settingsFontSizeDescription">{{ $t('范围 10–32px，默认 16px，修改后立即生效。') }}</span>
                   </label>
                   <div class="settings-number-control">
                     <div class="settings-number-stepper">
-                      <input class="settings-number-input" id="settingsFontSizeInput" type="number" min="10" max="32" step="1" inputmode="numeric" />
+                      <input class="settings-number-input" id="settingsFontSizeInput" type="number" min="10" max="32" step="1" inputmode="numeric" aria-labelledby="settingsFontSizeTitle" aria-describedby="settingsFontSizeDescription" />
                       <div class="settings-number-stepper-buttons">
                         <button class="settings-number-stepper-button up" type="button" data-number-step="up" data-number-target="settingsFontSizeInput" aria-label="{{ $t('增加字号') }}"></button>
                         <button class="settings-number-stepper-button down" type="button" data-number-step="down" data-number-target="settingsFontSizeInput" aria-label="{{ $t('减少字号') }}"></button>

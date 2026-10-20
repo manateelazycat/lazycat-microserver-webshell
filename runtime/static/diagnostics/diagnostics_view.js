@@ -65,6 +65,7 @@ const initializationStatusLabel = (status) => ({
 
 export function createDiagnosticsView({ documentObject = globalThis.document } = {}) {
   const byID = (id) => documentObject?.getElementById?.(id) || null;
+  const translate = (key) => typeof globalThis.$t === "function" ? globalThis.$t(key) : key;
   const elements = {
     debugLogPanel: byID("debugLogPanel"),
     debugLogList: byID("debugLogList"),
@@ -378,9 +379,9 @@ export function createDiagnosticsView({ documentObject = globalThis.document } =
         const payloadScope = calibration.recoveryBaseline === "ghostty-memory-v1"
           ? "压缩快照载荷＋原始增量，不含 Base64/JSON 封装"
           : "原始历史回放载荷";
-        const metricsLabel = `当前历史回放流量消费 ${formatMegabytes(replayBytes)} MB 当前会话历史总字节大小 ${formatMegabytes(historyBytes)} MB`;
-        panel.setAttribute("aria-label", `${metricsLabel} ${stateLabel}`);
-        panel.title = `${stateLabel} · 本次应回放 ${expected} MB · 模式 ${syncMode} · ${payloadScope}`;
+        const metricsLabel = `${translate("当前历史回放流量消费")} ${formatMegabytes(replayBytes)} MB ${translate("当前会话历史总字节大小")} ${formatMegabytes(historyBytes)} MB`;
+        panel.setAttribute("aria-label", `${metricsLabel} ${translate(stateLabel)}`);
+        panel.title = [translate(stateLabel), translate(`本次应回放 ${expected} MB`), translate(`模式 ${syncMode}`), translate(payloadScope)].join(" · ");
         panel.hidden = false;
       }
     },
