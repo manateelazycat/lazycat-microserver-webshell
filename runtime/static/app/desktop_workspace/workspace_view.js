@@ -8,6 +8,7 @@ export const desktopIcon = (documentObject, name) => {
     terminal: "m5 7 4 5-4 5M12 17h7",
     close: "m7 7 10 10M17 7 7 17",
     check: "m5 12 4 4 10-10",
+    upload: "m21 3-6.5 18-4-7.5L3 9.5 21 3ZM21 3 10.5 13.5",
   };
   const svg = documentObject.createElementNS("http://www.w3.org/2000/svg", "svg");
   svg.setAttribute("viewBox", "0 0 24 24");
@@ -83,6 +84,8 @@ export function createDesktopWorkspaceView({ documentObject = document, windowOb
       element.before(anchor);
       return { element, anchor };
     });
+  const originalUploadIcon = documentObject.getElementById("attachmentToggle").querySelector("svg");
+  const sidebarUploadIcon = desktopIcon(documentObject, "upload");
   const sections = new Map();
   const originalLabels = new Map();
   let active = false;
@@ -215,6 +218,8 @@ export function createDesktopWorkspaceView({ documentObject = document, windowOb
           else toolbar.append(element);
         } else anchor.after(element);
       }
+      if (active) originalUploadIcon.replaceWith(sidebarUploadIcon);
+      else sidebarUploadIcon.replaceWith(originalUploadIcon);
       documentObject.getElementById("instanceSwitcherList")?.previousElementSibling
         ?.classList.toggle("desktop-workspace-duplicate", active);
       syncLabels();
