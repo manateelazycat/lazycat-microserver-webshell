@@ -6,8 +6,6 @@
 
 本模块当前只接管主题责任域。字体文件、字体选择、字号、行高和 scrollback 由 `settings/` 与终端 metrics/resize 模块维护，通过公开契约接入，不能重新把实现放回 `global-runtime.js`。
 
-主题目录末尾提供 `Omarchy Glass`：深蓝灰底色、蓝紫与青绿色高亮。独立的 `body[data-theme="omarchy-glass"]` 样式为工作区添加柔和背景层，终端 Canvas 以高不透明度合成，标签栏、菜单及设置面板使用半透明表面；支持时增加背景模糊。纯色 ANSI/协议颜色保持六位十六进制格式，不修改 VT 或渲染器。切换至其他主题时自动恢复原有不透明表面。内置 fallback 也保留该主题，避免刷新加载目录前丢失已保存的选择。
-
 本模块不负责 tab/pane、终端 session、Ghostty renderer、WebSocket、历史、缓存、resize、输入或 Canvas presentation。主题变化只通过 `onThemeChange(theme, previousTheme)` 发布；外部 rendering 适配层负责使用既有 presentation hold 更新终端。主题变化不得触发历史 replay，更不得显示历史回放过程。
 
 ## 公开入口与契约
