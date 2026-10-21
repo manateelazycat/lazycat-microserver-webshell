@@ -50,6 +50,37 @@
   --mobile-bottom-overlay-offset: calc(var(--mobile-shortcuts-total-height) + 12px + var(--mobile-bottom-dock-offset));
 }
 
+/* A dark glass workspace. Scope every surface so other themes stay opaque. */
+body[data-theme="omarchy-glass"] {
+  --chrome-bg: rgba(26, 27, 38, 0.72);
+  --panel-bg: rgba(26, 27, 38, 0.82);
+  --panel-border: rgba(192, 202, 245, 0.16);
+  --panel-shadow: rgba(10, 12, 20, 0.45);
+  background:
+    radial-gradient(ellipse at 10% 5%, rgba(122, 162, 247, 0.3), transparent 60%),
+    radial-gradient(ellipse at 90% 95%, rgba(125, 207, 255, 0.16), transparent 55%),
+    #15161e;
+}
+
+body[data-theme="omarchy-glass"] :is(.app-shell, .terminal-area, .pane-shell, .terminal-host, .terminal-frame-hold) {
+  background: transparent;
+}
+
+body[data-theme="omarchy-glass"] .terminal-host > canvas:not(.terminal-cursor-layer) {
+  opacity: 0.88;
+}
+
+body[data-theme="omarchy-glass"] :is(.tabs-bar, .mobile-shortcuts) {
+  background: var(--chrome-bg);
+}
+
+@supports ((backdrop-filter: blur(16px)) or (-webkit-backdrop-filter: blur(16px))) {
+  body[data-theme="omarchy-glass"] :is(.tabs-bar, .mobile-shortcuts, .settings-panel, .theme-picker-panel, .instance-switcher-panel, .context-menu, .dialog-panel) {
+    -webkit-backdrop-filter: blur(16px) saturate(115%);
+    backdrop-filter: blur(16px) saturate(115%);
+  }
+}
+
 body.mobile-keyboard-visible {
   --mobile-bottom-dock-offset: var(--mobile-keyboard-inset-bottom);
 }
