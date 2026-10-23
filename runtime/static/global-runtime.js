@@ -1513,37 +1513,6 @@ export function startGlobalRuntime() {
     showToast,
   });
 
-  desktopWorkspace = createDesktopWorkspaceController({
-    documentObject: document,
-    windowObject: window,
-    isMobileLayout,
-    isEmbedMode,
-    isLegacyLayout: () => isDebugModeEnabled() && settings?.getLegacyPCLayoutEnabled() === true,
-    getInstances: () => instances.snapshot().instances,
-    loadInstances: () => instances.load(),
-    getActiveName,
-    getActiveTabId,
-    getOrderedTabs,
-    switchTarget: (name) => instances.switchTo(name),
-    activateTab: (tabId) => setActiveTab(tabId),
-    createTab: () => createUserTab(),
-    closeTab: (tabId) => closeTab(tabId),
-    renameTab: (tabId) => renameTab(tabId),
-    closeMenus: () => {
-      closeContextMenu();
-      instances.closeSwitcher();
-    },
-    closeOverview: () => terminalOverview?.close(),
-    isOverviewOpen: () => terminalOverview?.isOpen() === true,
-    scheduleOverviewRender: () => terminalOverview?.scheduleRender(),
-    releasePreview: (pane) => terminalOverview?.releasePreview(pane),
-    onLayoutChange: () => {
-      terminalResize?.resizeActiveTabForCurrentDevice();
-      settings?.handleDesktopLayoutChange();
-    },
-    showToast,
-  });
-
   terminalOverview = createTerminalOverviewController({
     documentObject: document,
     windowObject: window,
