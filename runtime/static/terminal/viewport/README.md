@@ -54,3 +54,7 @@ geometry、recovery probe 和键盘恢复使用 generation 检查；旧 sequence
 自动化测试：`terminal_viewport_controller_test.mjs` 覆盖 portrait-to-portrait 折叠、分阶段尺寸只提交最终 generation、键盘不 claim 和 dispose fence；`TestRuntimeTerminalViewportModuleBoundary` 固定单一公开入口、版本化静态资源、global runtime 接线和旧 viewport 状态/实现不得回流入口文件。真实回归由 `spec-tests/terminal/resize-sync` 和 `spec-tests/terminal/viewport` 覆盖跨设备 owner、折叠/展开及原子保帧。
 
 最小真实回归：在 `debug123` 的桌面与移动页面加载当前工作区资源；移动端打开/收起软键盘并旋转视口，确认快捷键栏和光标可见、终端最终 Canvas 非空、没有 replay 中间帧或 `pageerror`；桌面 resize 保持正常；每个页面始终只有 1 条 Unified 物理 WebSocket。
+
+`isAuxiliaryInputFocused()` 由全局运行时注入，表示独立预输入框正在编辑。键盘 inset 计算和失焦恢复同样识别这一输入焦点，避免原终端 textarea 失焦时提前清除底栏避让；本模块不读取预输入 DOM 或草稿状态。
+
+键盘避让的 `syncPan()` 同步独立光标层的 `top` 偏移，使底部编辑区的光标与终端 Canvas 一起移动。光标绘制仍独占自身字符位置的 transform；收起键盘时清除避让偏移。手工验证移动端 Codex 编辑时打开/收起键盘、输入和移动光标，确认光标位置贴合文字且不被底栏遮挡；桌面和终端回滚浏览保持原行为。

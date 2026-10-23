@@ -12,3 +12,5 @@
 ## 生命周期与 guard
 
 每个 session 只安装一次 custom key handler；session cleanup 或模块 `dispose()` 后回调不得再向终端发送字节。`AltGraph`、非 ASCII 键和带 Ctrl/Meta 的组合不会误发 ESC 前缀。该模块只产生用户输入或快捷键字节，不触发 history replay、snapshot、resize 或重连中间画面。
+
+`resolveKeyInput(session, event)` 注入工具专属键位适配；返回非空字节时经 `term.input(..., true)` 发送，避免后续默认编码重复发送。Codex Shift+Enter 的身份判断和编码由 `tui_adapters/codex/` 维护，本模块不识别进程或修改普通 Enter。

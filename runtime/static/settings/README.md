@@ -82,3 +82,5 @@ controller 对外提供只读快照/getter、`start()`、`load()`、`open()`、`
 字号区域只保留一次“字体大小 / Font Size”标题，输入行只显示范围、默认值和立即生效说明；输入框通过 `aria-labelledby` 和 `aria-describedby` 关联现有标题及说明，点击说明仍能聚焦输入框。
 
 字号区域的标题与说明采用 6px 间距，其他设置分组继续使用原有间距。
+
+手机端输入新增默认关闭的预输入框开关，快照字段为 `mobilePreInputEnabled`，仅保存 `mobile_pre_input_enabled`；复用串行保存、pending overlay、失败回滚和控件禁用。`getMobilePreInputEnabled()` 与 `onMobilePreInputChange` 只提供偏好，不持有草稿或附件，预输入交互由 `terminal/pre_input/` 独立维护。

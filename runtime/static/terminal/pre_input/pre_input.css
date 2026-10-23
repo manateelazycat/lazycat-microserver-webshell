@@ -1,0 +1,251 @@
+.pre-input[hidden],
+.pre-input [hidden] {
+  display: none !important;
+}
+
+/* Share the dock's keyboard transform; the module measures its full height. */
+body.mobile-pre-input-visible .mobile-shortcuts.has-pre-input {
+  display: flex;
+}
+
+body.mobile-pre-input-visible .mobile-shortcuts.has-pre-input .mobile-shortcut-row:empty {
+  display: none;
+}
+
+body.mobile-pre-input-visible.mobile-shortcuts-empty .app-shell {
+  inset: 0 0 calc(var(--mobile-shortcuts-total-height) + var(--mobile-bottom-dock-offset)) 0;
+}
+
+body:not(.force-pc-mode).mobile-pre-input-visible.mobile-shortcuts-empty .instance-switcher-panel {
+  --instance-switcher-shortcuts-height: var(--mobile-shortcuts-total-height);
+}
+
+body.mobile-action-sheet-open.mobile-pre-input-visible .mobile-shortcuts,
+body.attachment-browser-open.mobile-pre-input-visible .mobile-shortcuts {
+  display: none;
+}
+
+.pre-input {
+  min-width: 0;
+  padding: 3px 3px 0;
+  color: var(--chrome-text-strong);
+}
+
+.pre-input-surface {
+  min-width: 0;
+  border: 1px solid var(--chrome-line);
+  border-radius: 24px;
+  background: var(--panel-subtle-bg);
+}
+
+.pre-input-surface:focus-within {
+  border-color: var(--input-focus-border);
+}
+
+.pre-input-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  padding: 4px;
+  min-width: 0;
+}
+
+.mobile-shortcuts .pre-input .pre-input-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 40px;
+  width: 40px;
+  height: 40px;
+  min-width: 40px;
+  padding: 8px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--chrome-text-strong);
+  box-shadow: none;
+  cursor: pointer;
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.pre-input-icon,
+.pre-input-icon svg {
+  display: block;
+  width: 24px;
+  height: 24px;
+  flex: none;
+}
+
+.pre-input-text {
+  display: block;
+  flex: 1 1 0;
+  width: 0;
+  min-width: 0;
+  min-height: 24px;
+  max-height: 128px;
+  margin: 8px 4px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  outline: none;
+  background: transparent;
+  color: var(--chrome-text-strong);
+  font: 16px/24px system-ui, sans-serif;
+  resize: none;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  user-select: text;
+  -webkit-user-select: text;
+  -webkit-touch-callout: default;
+  box-sizing: content-box;
+}
+
+.pre-input-text::placeholder {
+  color: var(--chrome-text-muted);
+}
+
+.mobile-shortcuts .pre-input .pre-input-send {
+  background: var(--accent);
+  color: #fff;
+}
+
+.mobile-shortcuts .pre-input button:active {
+  opacity: 0.7;
+  transform: scale(0.96);
+}
+
+.mobile-shortcuts .pre-input button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.mobile-shortcuts .pre-input button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.pre-input-tray {
+  display: flex;
+  gap: 10px;
+  padding: 12px 12px 2px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+}
+
+.pre-input-attachment {
+  position: relative;
+  display: flex;
+  flex: 0 0 76px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  width: 76px;
+  height: 76px;
+  border-radius: 12px;
+  background: var(--panel-input-bg);
+}
+
+.pre-input-thumbnail {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: inherit;
+}
+
+.pre-input-filename {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  max-width: 64px;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  font: 11px/14px system-ui, sans-serif;
+  text-align: center;
+}
+
+.pre-input-thumbnail + .pre-input-filename {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  max-width: none;
+  padding: 3px;
+  border-radius: 0 0 12px 12px;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  -webkit-line-clamp: 1;
+}
+
+.mobile-shortcuts .pre-input .pre-input-remove {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 2px solid var(--terminal-bg);
+  border-radius: 50%;
+  background: var(--chrome-bg);
+  color: var(--chrome-text-strong);
+  box-sizing: border-box;
+  box-shadow: none;
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.pre-input-remove .pre-input-icon,
+.pre-input-remove .pre-input-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.pre-input-toolbar {
+  display: flex;
+  gap: 16px;
+  padding: 12px 10px 4px;
+}
+
+.mobile-shortcuts .pre-input .pre-input-action {
+  flex: 0 0 64px;
+  flex-direction: column;
+  gap: 7px;
+  width: 64px;
+  height: 68px;
+  padding: 8px;
+  border-radius: 16px;
+  background: var(--panel-subtle-bg);
+}
+
+.pre-input-action-label {
+  font: 12px/16px system-ui, sans-serif;
+}
+
+.pre-input-status {
+  padding: 6px 12px 2px;
+  color: var(--chrome-text-muted);
+  font: 12px/18px system-ui, sans-serif;
+  overflow-wrap: anywhere;
+  max-height: 54px;
+  overflow-y: auto;
+}
+
+.pre-input-status[data-tone="error"] {
+  color: var(--danger);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .mobile-shortcuts .pre-input button:hover {
+    filter: brightness(1.15);
+  }
+}

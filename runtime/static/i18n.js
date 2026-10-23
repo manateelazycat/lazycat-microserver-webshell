@@ -125,6 +125,28 @@ const MESSAGES = {
     "像素级滚动": "Pixel-Level Scrolling",
     "仅移动端可用，滚动时按像素平滑移动终端内容": "Available on mobile only; scroll terminal content by pixels for smoother movement.",
     "手机端输入": "Mobile Input",
+    "启用预输入框": "Enable Draft Input",
+    "默认关闭；在手机快捷键栏下方编辑文字和附件，点击发送后一起输入终端": "Disabled by default; compose text and attachments below the mobile shortcuts, then send them to the terminal together.",
+    "终端预输入": "Terminal Draft Input",
+    "待发送附件": "Pending Attachments",
+    "添加附件": "Add Attachments",
+    "输入文字，发送到终端": "Compose text for the terminal",
+    "发送到终端": "Send to Terminal",
+    "相册": "Photos",
+    "文件": "Files",
+    "移除附件": "Remove Attachment",
+    "正在上传": "Uploading",
+    "预输入框设置保存失败。": "Draft input settings could not be saved.",
+    "发送已暂停，返回原终端后可重试。": "Sending paused. Return to the original terminal to retry.",
+    "终端已关闭，发送已停止。": "The terminal was closed. Sending stopped.",
+    "终端已切换，草稿未发送。": "The terminal changed. Your draft was not sent.",
+    "上传未返回有效文件路径，请重试。": "The upload did not return a valid path. Please retry.",
+    "终端暂时无法接收，请重试。": "The terminal cannot accept input right now. Please retry.",
+    "发送失败，请重试。": "Sending failed. Please retry.",
+    "发送已取消。": "Sending cancelled.",
+    "一次最多选择 32 个附件。": "Select up to 32 attachments at a time.",
+    "请选择有效的附件。": "Select valid attachments.",
+    "文件超过 2GB": "File exceeds 2GB",
     "双击屏幕提醒": "Double-Tap Reminder",
     "熟悉手机双击进入编辑的操作后,可以关闭这个选项": "After getting used to double-tap to enter edit mode, you can disable this option.",
     "鼠标选中复制、中键粘贴": "Select with left click to copy, paste with middle click",
@@ -822,6 +844,7 @@ const localizeNodeText = (node, locale) => {
   if (!node || node.nodeType !== Node.TEXT_NODE) {
     return;
   }
+  if (node.parentElement?.closest('[translate="no"]')) return;
   // Our own mutation must not translate Chinese inside a preserved user value
   // a second time after a message template has already been localized.
   const previous = LOCALIZED_TEXT_VALUES.get(node);
@@ -848,6 +871,7 @@ const localizeNodeAttributes = (element, locale) => {
   if (!element || element.nodeType !== Node.ELEMENT_NODE || !element.attributes) {
     return;
   }
+  if (element.closest('[translate="no"]')) return;
   for (const attribute of Array.from(element.attributes)) {
     if (!TRANSLATABLE_ATTRIBUTES.has(attribute.name)) {
       continue;
@@ -872,7 +896,7 @@ const localizeNode = (node, locale) => {
     return;
   }
   if (node.nodeType === Node.ELEMENT_NODE) {
-    if (TEXT_NODE_SKIP_TAGS.has(node.tagName)) {
+    if (TEXT_NODE_SKIP_TAGS.has(node.tagName) || node.closest('[translate="no"]')) {
       return;
     }
     localizeNodeAttributes(node, locale);

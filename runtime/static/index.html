@@ -374,6 +374,14 @@
                 <div class="settings-section-head">
                   <h3 id="settingsMobileInputTitle">{{ $t('手机端输入') }}</h3>
                 </div>
+                <label class="settings-switch-row" for="settingsMobilePreInputToggle">
+                  <span class="settings-switch-label">
+                    <span>{{ $t('启用预输入框') }}</span>
+                    <span>{{ $t('默认关闭；在手机快捷键栏下方编辑文字和附件，点击发送后一起输入终端') }}</span>
+                  </span>
+                  <input class="settings-switch-input" id="settingsMobilePreInputToggle" type="checkbox" />
+                  <span class="settings-switch" aria-hidden="true"></span>
+                </label>
                 <label class="settings-switch-row" for="settingsMobileDoubleTapReminderToggle">
                   <span class="settings-switch-label">
                     <span>{{ $t('双击屏幕提醒') }}</span>

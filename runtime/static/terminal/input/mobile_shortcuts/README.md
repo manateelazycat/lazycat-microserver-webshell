@@ -15,6 +15,8 @@
 
 `onAction(action, session, context)` 是唯一业务动作出口；`sendInput(session, data)` 是唯一输入出口。controller 只发布用户意图，不直接修改外部状态。
 
+`resolveShortcutInputData(shortcut, modifiers, session)` 接收本次操作绑定的会话，使调用方可注入工具专属组合键编码；sticky 修饰键仍由本模块合并传入并在使用后清除，普通快捷键和文本沿用原编码。
+
 ## 状态与生命周期
 
 controller 独占 sticky modifier、触感反馈偏好、按钮交互状态和渲染 generation；lifecycle 独占动态按钮 listener、重复 timeout/interval。每次 `render()` 先撤销上一批按钮资源；`dispose()` 幂等并使迟到 timer/事件失效。快捷栏通过 `shouldPreserveInputFocus()` 保持当前输入，不维护额外的聚焦许可时限，也不将 DOM 焦点视为系统键盘显示证据。

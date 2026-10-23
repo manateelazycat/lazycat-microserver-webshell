@@ -424,7 +424,7 @@ export function createTerminalInputController({
     return true;
   };
 
-  const sendOrQueue = (session, data, { userInput = true } = {}) => {
+  const sendOrQueue = (session, data, { userInput = true, acceptQueued = false } = {}) => {
     if (!session || disposed || session.exitExpected) {
       return false;
     }
@@ -473,7 +473,8 @@ export function createTerminalInputController({
         return true;
       }
     }
-    if (!enqueuePending(session, data, { parked: connectionWasParked })) {
+    const queued = enqueuePending(session, data, { parked: connectionWasParked });
+    if (!queued) {
       appendDebugError(
         "终端待发送输入超过限制",
         `${session.name}/${session.id}, parked=${connectionWasParked}, bytes=${session.pendingInputSize}`,
@@ -483,7 +484,7 @@ export function createTerminalInputController({
         : "待发送输入过大，已拒绝继续排队。");
     }
     checkConnectionHealth(session, { connect: true });
-    return false;
+    return acceptQueued && queued;
   };
 
   const handleData = (session, data) => {

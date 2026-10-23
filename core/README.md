@@ -48,3 +48,5 @@ v42 新增浏览器光标样式的设置持久化；终端帧、发布和 SSH �
 Unified 队列接收关键 checkpoint 诊断时转记当前应用日志；原生 daemon 仍写自己的独立日志。去重标识包含作用域、pane、创建时间、首次故障时间及 WASM 指纹。输入日志载荷上限 128 KiB，输出上限 64 KiB，超限明确标注省略。
 
 WASM 页面初始化由 `tools/ghostty-page-initialization.patch` 在 `Page.initBuf` 统一处理，只清零新页面的单元格区；链接、字形和样式表沿用各自初始化。不得依赖 WASM 的 page allocator 返回全零内存。该约束覆盖初始化、重排、扩容和页面复制；不清空运行中的终端、既有历史或待恢复的完整内存快照。
+
+v44 增加 Provider 侧移动端预输入开关持久化；终端帧、SSH、发布协议及 WASM 快照格式不变。Provider 显式保留 v43 及既有版本的 attach、工作区恢复和快照协商能力。

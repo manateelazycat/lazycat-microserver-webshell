@@ -20,6 +20,7 @@ type settingsPatch struct {
 	DesktopMouseClipboardEnabled   optionalBool             `json:"desktop_mouse_clipboard_enabled"`
 	DesktopShortcutsBarEnabled     optionalBool             `json:"desktop_shortcuts_bar_enabled"`
 	RestartWorkspaceRestoreEnabled optionalBool             `json:"restart_workspace_restore_enabled"`
+	MobilePreInputEnabled          optionalBool             `json:"mobile_pre_input_enabled"`
 	MobilePixelScrollEnabled       optionalBool             `json:"mobile_pixel_scroll_enabled"`
 	MobileDoubleTapReminderEnabled optionalBool             `json:"mobile_double_tap_reminder_enabled"`
 	MobileShortcuts                optionalMobileShortcuts  `json:"mobile_shortcuts"`
@@ -210,6 +211,9 @@ func (s *pluginServer) handleSettings(w http.ResponseWriter, r *http.Request) {
 				} else if !wasEnabled || strings.TrimSpace(settings.RestartWorkspaceRestoreEpoch) == "" {
 					settings.RestartWorkspaceRestoreEpoch, err = NewHistoryGeneration()
 				}
+			}
+			if payload.MobilePreInputEnabled.Set && !payload.MobilePreInputEnabled.Null {
+				settings.MobilePreInputEnabled = payload.MobilePreInputEnabled.Value
 			}
 			if payload.MobilePixelScrollEnabled.Set && !payload.MobilePixelScrollEnabled.Null {
 				settings.MobilePixelScrollEnabled = &payload.MobilePixelScrollEnabled.Value

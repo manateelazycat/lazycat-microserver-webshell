@@ -23,6 +23,7 @@ export function createTerminalMobileViewportController({
   isMobileLayout = () => false,
   isTouchShortcutLayout = () => false,
   getActiveSession = () => null,
+  isAuxiliaryInputFocused = () => false,
   getSessions = () => [],
   hasActivePanes = () => Boolean(getActiveSession()),
   claimActiveTabForCurrentDevice = noop,
@@ -101,6 +102,13 @@ export function createTerminalMobileViewportController({
     const canvas = term?.canvas || term?.renderer?.getCanvas?.();
     const textarea = term?.textarea;
     const preview = session?.compositionPreview;
+    const cursorLayer = session?.terminalCursorLayer;
+    if (isHTMLElement(cursorLayer)) {
+      // Cursor rendering owns its cell-position transform. Apply the shared
+      // keyboard pan through top so later cursor draws retain both offsets.
+      const top = panY > 0 ? `-${panY}px` : "";
+      if (cursorLayer.style.top !== top) cursorLayer.style.top = top;
+    }
     for (const node of [canvas, textarea, preview]) {
       if (isHTMLElement(node)) {
         const nodeTransform = node === textarea && isTouchShortcutLayout() ? "" : transform;
@@ -404,6 +412,7 @@ export function createTerminalMobileViewportController({
   };
 
   const isTerminalTextareaFocused = () => {
+    if (isAuxiliaryInputFocused()) return true;
     const activeElement = documentObject?.activeElement;
     if (!isHTMLElement(activeElement)) {
       return false;

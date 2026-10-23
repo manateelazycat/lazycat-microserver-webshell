@@ -82,6 +82,7 @@ export function createSettingsController({
   onTerminalLineHeightChange = noop,
   onDesktopShortcutsBarChange = noop,
   onRestartWorkspaceRestoreSaved = noop,
+  onMobilePreInputChange = noop,
   onMobilePixelScrollChange = noop,
   onMobileDoubleTapReminderChange = noop,
   onMobileShortcutsChange = noop,
@@ -106,6 +107,7 @@ export function createSettingsController({
     desktopMouseClipboardEnabled: true,
     desktopShortcutsBarEnabled: false,
     restartWorkspaceRestoreEnabled: false,
+    mobilePreInputEnabled: false,
     mobilePixelScrollEnabled: true,
     mobileDoubleTapReminderEnabled: true,
     mobileRemoteDesktopEnabled: readStoredBoolean(storage, mobileRemoteDesktopStorageKey, false),
@@ -228,6 +230,9 @@ export function createSettingsController({
     }
     if (force || next.desktopShortcutsBarEnabled !== previous.desktopShortcutsBarEnabled) {
       onDesktopShortcutsBarChange(next.desktopShortcutsBarEnabled, previous.desktopShortcutsBarEnabled);
+    }
+    if (force || next.mobilePreInputEnabled !== previous.mobilePreInputEnabled) {
+      onMobilePreInputChange(next.mobilePreInputEnabled, previous.mobilePreInputEnabled);
     }
     if (force || next.mobilePixelScrollEnabled !== previous.mobilePixelScrollEnabled) {
       onMobilePixelScrollChange(next.mobilePixelScrollEnabled, previous.mobilePixelScrollEnabled);
@@ -953,6 +958,9 @@ export function createSettingsController({
       }).then(() => onRestartWorkspaceRestoreSaved(value))
         .catch((error) => view.setFeedback?.(error.message || "重启恢复设置保存失败。", "error"));
     },
+    onMobilePreInputChange: () => saveToggle(
+      "mobilePreInputEnabled", "mobile_pre_input_enabled", "mobilePreInput", "预输入框设置保存失败。",
+    ),
     onMobilePixelScrollChange: () => saveToggle(
       "mobilePixelScrollEnabled", "mobile_pixel_scroll_enabled", "mobilePixelScroll", "像素级滚动设置保存失败。",
     ),
@@ -1186,6 +1194,7 @@ export function createSettingsController({
     getRestartWorkspaceRestoreEnabled: () => snapshot.restartWorkspaceRestoreEnabled,
     getForcePCModeEnabled: () => snapshot.forcePCModeEnabled,
     getMobileDoubleTapReminderEnabled: () => snapshot.mobileDoubleTapReminderEnabled,
+    getMobilePreInputEnabled: () => snapshot.mobilePreInputEnabled,
     getMobilePixelScrollEnabled: () => snapshot.mobilePixelScrollEnabled,
     getMobileRemoteDesktopEnabled: () => snapshot.mobileRemoteDesktopEnabled,
     getMobileShortcutRows: () => cloneMobileShortcutRows(snapshot.mobileShortcuts),

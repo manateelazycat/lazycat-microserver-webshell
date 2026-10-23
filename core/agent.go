@@ -33,7 +33,7 @@ const (
 	// v41 owns the standalone client runtime; v40 wire protocols remain compatible.
 	// v42 persists browser cursor appearance; terminal wire and checkpoint formats are unchanged.
 	// v43 fixes physical PTY activity identity; wire and checkpoint formats are unchanged.
-	AgentProtocolVersion = "lcmd-webshell-agent-v43"
+	AgentProtocolVersion = "lcmd-webshell-agent-v44"
 
 	agentFrameBinary         = byte('B')
 	AgentFrameText           = byte('T')

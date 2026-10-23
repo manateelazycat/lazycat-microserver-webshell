@@ -54,6 +54,7 @@ type State struct {
 	DesktopMouseClipboardEnabled   bool                 `json:"desktop_mouse_clipboard_enabled"`
 	DesktopShortcutsBarEnabled     bool                 `json:"desktop_shortcuts_bar_enabled"`
 	RestartWorkspaceRestoreEnabled bool                 `json:"restart_workspace_restore_enabled"`
+	MobilePreInputEnabled          bool                 `json:"mobile_pre_input_enabled"`
 	MobilePixelScrollEnabled       bool                 `json:"mobile_pixel_scroll_enabled"`
 	MobileDoubleTapReminderEnabled bool                 `json:"mobile_double_tap_reminder_enabled"`
 	MobileShortcuts                MobileShortcutRows   `json:"mobile_shortcuts"`
@@ -71,6 +72,7 @@ type Settings struct {
 	DesktopShortcutsBarEnabled     *bool                `json:"desktop_shortcuts_bar_enabled,omitempty"`
 	RestartWorkspaceRestoreEnabled *bool                `json:"restart_workspace_restore_enabled,omitempty"`
 	RestartWorkspaceRestoreEpoch   string               `json:"restart_workspace_restore_epoch,omitempty"`
+	MobilePreInputEnabled          bool                 `json:"mobile_pre_input_enabled,omitempty"`
 	MobilePixelScrollEnabled       *bool                `json:"mobile_pixel_scroll_enabled,omitempty"`
 	MobileDoubleTapReminderEnabled *bool                `json:"mobile_double_tap_reminder_enabled,omitempty"`
 	MobileShortcuts                *MobileShortcutRows  `json:"mobile_shortcuts,omitempty"`
@@ -375,6 +377,7 @@ func (s Store) State() (State, error) {
 		DesktopMouseClipboardEnabled:   desktopMouseClipboardEnabled(settings),
 		DesktopShortcutsBarEnabled:     desktopShortcutsBarEnabled(settings),
 		RestartWorkspaceRestoreEnabled: restartWorkspaceRestoreEnabled(settings),
+		MobilePreInputEnabled:          settings.MobilePreInputEnabled,
 		MobilePixelScrollEnabled:       mobilePixelScrollEnabled(settings),
 		MobileDoubleTapReminderEnabled: mobileDoubleTapReminderEnabled(settings),
 		MobileShortcuts:                effectiveMobileShortcuts(settings),

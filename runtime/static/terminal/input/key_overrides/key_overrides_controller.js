@@ -56,6 +56,7 @@ export function createTerminalKeyOverridesController({
   KeyboardEventCtor = globalThis.KeyboardEvent,
   backtabSequence = BACKTAB_SEQUENCE,
   handleFontSizeShortcut = noop,
+  resolveKeyInput = () => "",
   hasStickyModifiers = () => false,
   shouldApplyStickyTextInput = () => false,
   consumeStickyInput = () => "",
@@ -99,6 +100,11 @@ export function createTerminalKeyOverridesController({
         return false;
       }
       if (handleFontSizeShortcut(event)) {
+        return true;
+      }
+      const adaptedInput = resolveKeyInput(session, event);
+      if (adaptedInput) {
+        term.input(adaptedInput, true);
         return true;
       }
       const altMetaInput = terminalAltMetaInputFromEvent(event, { KeyboardEventCtor });

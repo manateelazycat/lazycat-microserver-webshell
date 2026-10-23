@@ -49,6 +49,8 @@ export {
 export { createTerminalTUIAdapterInstaller } from "./installation_controller.js";
 export {
   createCodexThemeAdapter,
+  resolveCodexKeyInput,
+  resolveCodexShortcutInput,
   isCodexTerminalIdentity,
   installCodexFullscreenTouchAdapter,
   installCodexFullscreenContextMenuAdapter,
