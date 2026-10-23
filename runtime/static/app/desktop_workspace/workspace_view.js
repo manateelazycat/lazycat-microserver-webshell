@@ -152,6 +152,7 @@ export function createDesktopWorkspaceView({ documentObject = document, windowOb
     name.dataset.desktopAction = "instance";
     const status = documentObject.createElement("span");
     status.className = "instance-switcher-item-status-dot";
+    status.setAttribute("role", "img");
     name.append(status, documentObject.createElement("span"));
     const wrapper = documentObject.createElement("div");
     wrapper.className = "desktop-workspace-sessions-wrapper";
@@ -261,8 +262,10 @@ export function createDesktopWorkspaceView({ documentObject = document, windowOb
         section.toggle.setAttribute("aria-label", section.toggle.title);
         section.name.lastChild.textContent = group.name;
         section.name.title = group.name;
-        section.status.dataset.status = group.running ? "running" : "stopped";
-        section.status.setAttribute("aria-label", group.running ? "运行中" : "已停止");
+        section.status.dataset.status = !group.running ? "stopped" : group.connecting ? "connecting" : "running";
+        const statusLabel = !group.running ? "已停止" : group.connecting ? "正在连接" : "运行中";
+        section.status.setAttribute("aria-label", statusLabel);
+        section.status.title = statusLabel;
         section.name.setAttribute("aria-disabled", String(!group.running));
         section.add.disabled = !group.running;
         section.add.title = `在 ${group.name} 新建终端会话`;

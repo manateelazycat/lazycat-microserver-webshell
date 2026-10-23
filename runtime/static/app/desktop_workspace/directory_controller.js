@@ -119,8 +119,9 @@ export function createDesktopWorkspaceDirectory({
     const error = active && !liveReady ? "" : record?.error || "";
     const retrying = record?.retrying === true;
     const running = isRunningInstance(instance);
-    const message = !running ? "实例已停止" : error || (retrying ? "正在连接终端服务…"
-      : pending || !loaded ? "正在加载会话…" : "");
+    // A routine refresh of confirmed metadata is not a new connection.
+    const connecting = running && !error && (retrying || !loaded || (active && !liveReady));
+    const message = running ? error : "";
     return {
       selector,
       name: instanceDisplayName(instance),
@@ -131,6 +132,7 @@ export function createDesktopWorkspaceDirectory({
       pending,
       error,
       retrying,
+      connecting,
       message,
       canReorder: record?.capabilities?.includes("tab_reorder_anchor") === true,
     };
