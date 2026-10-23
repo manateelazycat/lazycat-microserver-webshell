@@ -12,6 +12,8 @@
 
 target lifecycle 唯一持有 active selector、generation 和 disposed 状态；target controller 唯一编排目标变更后的缓存/网络/业务模块通知、workspace reset、URL 更新和 refresh。
 
+presentation owner 区分「工作区尚未确认」和「已确认无会话」。开始切换目标时隐藏空工作区入口，只有当前目标的权威 state 成功 apply 后才解除等待；state apply 的临时清空也不显示「新建终端」。初次加载、快速连续切换、请求失败及重试期间均保持此门禁，已确认的空工作区仍显示原有入口。
+
 新版 PC 导航由 `app/desktop_workspace/` 独立维护，只通过本模块的现有命令选择实例、激活/创建/关闭/重命名会话；每个侧栏会话仍对应一个 tab，保留原有分屏。`resetForInstance()` 释放浏览器终端资源时保留已保存的预览，实际关闭 tab/pane 时仍删除图片。
 
 标签原位改名可通过 `getRenameAnchor(tab)` 注入侧栏的按钮、标签和可滚动视口；编辑状态、IME、确认/取消、乐观保存及回滚仍由 tab label owner 维护。没有侧栏锚点时使用原顶部标签位置。会话拖拽和传统菜单/快捷键复用同一个排序和命名协议。

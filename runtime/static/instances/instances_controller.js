@@ -33,7 +33,7 @@ export function createInstancesController({
   loaderFactory = createInstancesLoader,
   navigation = null,
   navigationFactory = createInstancesNavigation,
-  view = createInstancesView({ documentObject }),
+  view = createInstancesView({ documentObject, windowObject }),
   lifecycleFactory = createInstancesLifecycle,
   getActiveName = () => "",
   setActiveName = () => 0,
@@ -248,6 +248,7 @@ export function createInstancesController({
     windowObject,
     elements: view.elements,
     handlers: {
+      onViewportChange: () => view.scheduleSwitcherPosition?.(),
       onDocumentKeyDown: (event) => {
         if (event.key === "Escape") {
           closeSwitcher();

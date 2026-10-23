@@ -1,11 +1,11 @@
 import { desktopSessionActivity } from "./session_presentation.js";
+import { createDesktopSessionLabels } from "./session_label.js";
 
 export const desktopIcon = (documentObject, name) => {
   const paths = {
     collapse: "m15 5-7 7 7 7",
     chevron: "m9 5 7 7-7 7",
     add: "M12 5v14M5 12h14",
-    terminal: "m5 7 4 5-4 5M12 17h7",
     close: "m7 7 10 10M17 7 7 17",
     check: "m5 12 4 4 10-10",
     upload: "m21 3-6.5 18-4-7.5L3 9.5 21 3ZM21 3 10.5 13.5",
@@ -42,6 +42,7 @@ const sessionStatusIcon = (documentObject, status) => {
 };
 
 export function createDesktopWorkspaceView({ documentObject = document, windowObject = window } = {}) {
+  const labels = createDesktopSessionLabels({ documentObject, windowObject });
   const shell = documentObject.querySelector(".app-shell");
   const area = documentObject.getElementById("terminalArea");
   const sidebar = documentObject.createElement("aside");
@@ -70,7 +71,14 @@ export function createDesktopWorkspaceView({ documentObject = document, windowOb
   collapse.setAttribute("aria-controls", sidebar.id);
   collapse.setAttribute("aria-expanded", "true");
   toolbar.append(collapse);
-  sidebar.append(toolbar, list, footer);
+  const resizeHandle = documentObject.createElement("div");
+  resizeHandle.className = "desktop-workspace-resize-handle";
+  resizeHandle.tabIndex = 0;
+  resizeHandle.setAttribute("role", "separator");
+  resizeHandle.setAttribute("aria-label", "调整侧栏宽度");
+  resizeHandle.setAttribute("aria-orientation", "vertical");
+  resizeHandle.setAttribute("aria-controls", area.id);
+  sidebar.append(toolbar, list, footer, resizeHandle);
   const expand = iconButton("chevron", "展开侧栏", "expand");
   expand.classList.add("desktop-workspace-expand");
   expand.setAttribute("aria-controls", sidebar.id);
@@ -179,19 +187,19 @@ export function createDesktopWorkspaceView({ documentObject = document, windowOb
     status.setAttribute("aria-hidden", "true");
     const label = documentObject.createElement("span");
     label.className = "desktop-workspace-session-label";
-    button.append(status, desktopIcon(documentObject, "terminal"), label);
     const close = iconButton("close", "关闭会话", "close");
     const application = documentObject.createElement("span");
     application.className = "desktop-workspace-session-application";
     application.hidden = true;
-    row.append(button, application, close);
+    button.append(status, label, application);
+    row.append(button, close);
     const entry = { row, button, label, close, application, status };
     section.rows.set(tab.id, entry);
     return entry;
   };
 
   return Object.freeze({
-    sidebar, expand, list,
+    sidebar, expand, list, resizeHandle,
     getRenameAnchor(selector, tabId) {
       const entry = sections.get(selector)?.rows.get(tabId);
       return entry ? { button: entry.button, label: entry.label, viewport: list } : null;
@@ -236,6 +244,7 @@ export function createDesktopWorkspaceView({ documentObject = document, windowOb
       const wanted = new Set(groups.map((group) => group.selector));
       for (const [selector, section] of sections) {
         if (!wanted.has(selector)) {
+          for (const entry of section.rows.values()) labels.remove(entry.label);
           section.root.remove();
           sections.delete(selector);
         }
@@ -262,6 +271,7 @@ export function createDesktopWorkspaceView({ documentObject = document, windowOb
         const ids = new Set(group.tabs.map((tab) => tab.id));
         for (const [id, entry] of section.rows) {
           if (!ids.has(id)) {
+            labels.remove(entry.label);
             entry.row.remove();
             section.rows.delete(id);
           }
@@ -282,7 +292,7 @@ export function createDesktopWorkspaceView({ documentObject = document, windowOb
           entry.application.title = activity.application;
           entry.row.classList.toggle("has-notification", activity.notification);
           entry.row.classList.toggle("is-busy", activity.busy);
-          if (entry.label.textContent !== label) entry.label.textContent = label;
+          labels.set(entry.label, label);
           entry.button.title = activity.statusLabel ? `${label} · ${activity.statusLabel}` : label;
           entry.button.setAttribute("aria-label", entry.button.title);
           entry.button.disabled = !group.running;
@@ -302,6 +312,7 @@ export function createDesktopWorkspaceView({ documentObject = document, windowOb
       });
     },
     dispose() {
+      labels.dispose();
       areaAnimation?.cancel();
       this.setActive(false);
       sidebar.remove();

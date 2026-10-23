@@ -25,8 +25,10 @@ export function createWorkspacePresentationController({
   hasExternalNotifications = () => false,
   getMobileDoubleTapReminderEnabled = () => false,
   requiresTouchKeyboardDoubleTap = () => false,
+  isApplyingWorkspaceState = () => false,
   renderTabLabel = () => false,
 } = {}) {
+  let workspacePending = true;
   const tabsMap = () => {
     const value = getTabs();
     return value instanceof Map ? value : new Map();
@@ -171,7 +173,7 @@ export function createWorkspacePresentationController({
     if (!emptyState) {
       return false;
     }
-    const empty = tabsMap().size === 0;
+    const empty = !workspacePending && !isApplyingWorkspaceState() && tabsMap().size === 0;
     emptyState.hidden = !empty;
     if (empty) {
       updateMobileActiveTabTitle();
@@ -180,6 +182,14 @@ export function createWorkspacePresentationController({
   };
 
   return Object.freeze({
+    beginWorkspaceLoad() {
+      workspacePending = true;
+      updateEmptyState();
+    },
+    markWorkspaceReady() {
+      workspacePending = false;
+      updateEmptyState();
+    },
     clearTabNotification,
     markSessionActivityNotification,
     markSessionIdleNotification,

@@ -2,6 +2,7 @@ import { createDesktopWorkspaceDirectory } from "./directory_controller.js";
 import { createDesktopWorkspaceView } from "./workspace_view.js";
 import { createDesktopOverviewView } from "./overview_view.js";
 import { createDesktopWorkspaceReorderController } from "./reorder_controller.js";
+import { createDesktopSidebarResizeController } from "./sidebar_resize_controller.js";
 
 export function createDesktopWorkspaceController({
   documentObject = globalThis.document,
@@ -36,6 +37,9 @@ export function createDesktopWorkspaceController({
   releasePreview = () => {},
   onNotificationsChange = () => {},
   onLayoutChange = () => {},
+  onResizeStart = () => null,
+  onResize = () => {},
+  onResizeEnd = () => {},
   showToast = () => {},
 } = {}) {
   const view = createDesktopWorkspaceView({ documentObject, windowObject });
@@ -226,6 +230,21 @@ export function createDesktopWorkspaceController({
     });
   };
 
+  const sidebarResize = createDesktopSidebarResizeController({
+    documentObject, windowObject, sidebar: view.sidebar, handle: view.resizeHandle,
+    storage, storageKey: `${storagePrefix}.desktopSidebarWidth`,
+    isEnabled: () => active && !disposed && !view.isCollapsed(),
+    onStart: () => {
+      reorder.cancel();
+      cancelInlineRename();
+      closeMenus();
+      return onResizeStart();
+    },
+    onResize,
+    onEnd: (context) => { onResizeEnd(context); positionInlineRename(); },
+    onLayoutChange,
+  });
+
   const onClick = (event) => {
     const button = event.target.closest("[data-desktop-action]");
     if (!button) return;
@@ -233,6 +252,7 @@ export function createDesktopWorkspaceController({
     const selector = button.closest("[data-selector]")?.dataset.selector;
     const tabId = button.closest("[data-tab-id]")?.dataset.tabId;
     if (action === "collapse" || action === "expand") {
+      sidebarResize.finish();
       reorder.cancel();
       cancelInlineRename();
       closeMenus();
@@ -256,6 +276,7 @@ export function createDesktopWorkspaceController({
 
   return Object.freeze({
     isActive: () => active,
+    finishResize: () => sidebarResize.finish(),
     beginRename,
     getRenameAnchor: (tabId) => view.getRenameAnchor(getActiveName(), tabId),
     scrollSessionIntoView(tabId) {
@@ -281,6 +302,7 @@ export function createDesktopWorkspaceController({
     },
     handleTargetChange(previousName) {
       if (!active) return;
+      sidebarResize.finish();
       directory.syncActiveNotifications(previousName, { leaving: true });
       directory.sync();
     },
@@ -309,6 +331,7 @@ export function createDesktopWorkspaceController({
       if (disposed) return;
       const next = !isEmbedMode && !isMobileLayout() && !isLegacyLayout();
       if (next !== active) {
+        sidebarResize.finish();
         reorder.cancel();
         cancelInlineRename();
         navigation += 1;
@@ -316,6 +339,7 @@ export function createDesktopWorkspaceController({
         closeMenus();
         closeOverview();
         active = next;
+        sidebarResize.sync({ notify: false });
         view.setActive(active);
         directory.sync();
         onLayoutChange();
@@ -372,6 +396,7 @@ export function createDesktopWorkspaceController({
     },
     dispose() {
       if (disposed) return;
+      sidebarResize.dispose();
       disposed = true;
       navigation += 1;
       if (frame) windowObject.cancelAnimationFrame(frame);

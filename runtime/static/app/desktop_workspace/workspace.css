@@ -17,7 +17,7 @@
 }
 
 .desktop-workspace-mode .terminal-area {
-  margin-left: 248px;
+  margin-left: var(--desktop-workspace-sidebar-width, min(248px, 33.333333vw));
   min-width: 0;
   flex: 1 1 0;
 }
@@ -28,12 +28,13 @@
 
 .desktop-workspace-sidebar {
   --desktop-workspace-ease: cubic-bezier(0.23, 1, 0.32, 1);
+  --desktop-workspace-status-size: 5px;
   position: absolute;
   inset: var(--lzc-safe-area-inset-top) auto 0 0;
   z-index: 25;
   display: flex;
   flex-direction: column;
-  width: 248px;
+  width: var(--desktop-workspace-sidebar-width, min(248px, 33.333333vw));
   min-height: 0;
   box-sizing: border-box;
   border-right: 1px solid var(--chrome-line);
@@ -98,12 +99,10 @@
   height: 34px;
 }
 
-.desktop-workspace-toolbar .instance-switcher-panel {
-  left: auto;
-  right: 0;
-  top: calc(100% + 8px);
-  width: 224px;
-  max-height: calc(100dvh - 70px - var(--lzc-safe-area-inset-top));
+.desktop-workspace-mode .desktop-workspace-menu-panel {
+  position: fixed;
+  margin: 0;
+  z-index: 60;
 }
 
 .desktop-workspace-mode .instance-switcher-actions {
@@ -194,8 +193,8 @@
 }
 
 .desktop-workspace-instance-name .instance-switcher-item-status-dot {
-  width: 5px;
-  height: 5px;
+  width: var(--desktop-workspace-status-size);
+  height: var(--desktop-workspace-status-size);
   flex: 0 0 auto;
 }
 
@@ -217,11 +216,12 @@
 }
 
 .desktop-workspace-session {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 2px;
   margin: 2px 0;
-  padding: 0 4px 0 28px;
+  padding: 0 5px 0 20px;
   min-height: 33px;
   border-radius: 6px;
   transition: background-color 125ms ease;
@@ -247,9 +247,13 @@
 }
 
 .desktop-workspace-session-label {
+  flex: 1 1 0;
+  min-width: 0;
+  max-height: 2.8em;
+  line-height: 1.4;
   overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
+  white-space: pre;
+  text-overflow: clip;
 }
 
 .desktop-workspace-session-select svg {
@@ -274,15 +278,15 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 12px;
-  height: 14px;
-  flex: 0 0 12px;
+  width: 1em;
+  height: 1em;
+  flex: 0 0 1em;
   color: var(--chrome-text-muted);
 }
 
 .desktop-workspace-session-state svg {
-  width: 12px;
-  height: 12px;
+  width: 1em;
+  height: 1em;
   opacity: 1;
 }
 
@@ -325,7 +329,7 @@
 
 .desktop-workspace-session-application {
   flex: 0 0 auto;
-  max-width: 76px;
+  max-width: min(76px, 25%);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -338,11 +342,46 @@
 }
 
 .desktop-workspace-session > .desktop-workspace-icon {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
   opacity: 0;
+  pointer-events: none;
+  background: transparent;
 }
 
 .desktop-workspace-session:focus-within > .desktop-workspace-icon {
   opacity: 1;
+  pointer-events: auto;
+}
+
+.desktop-workspace-session:focus-within .desktop-workspace-session-select {
+  margin-right: 26px;
+}
+
+.desktop-workspace-resize-handle {
+  position: absolute;
+  inset: 0 -4px 0 auto;
+  width: 8px;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.desktop-workspace-resize-handle:hover,
+.desktop-workspace-resize-handle:focus-visible,
+.is-desktop-workspace-resizing .desktop-workspace-resize-handle {
+  background: var(--accent);
+  background-clip: content-box;
+  padding-inline: 3px;
+  box-sizing: border-box;
+  outline: none;
+}
+
+body.is-desktop-workspace-resizing,
+body.is-desktop-workspace-resizing * {
+  cursor: col-resize !important;
+  user-select: none;
 }
 
 .desktop-workspace-message {
@@ -482,7 +521,7 @@ body.is-desktop-workspace-reordering * {
 }
 
 @media (hover: hover) and (pointer: fine) {
-  .desktop-workspace-icon:not(:disabled):hover,
+  .desktop-workspace-icon:not(:disabled):not([data-desktop-action="close"]):hover,
   .desktop-workspace-toolbar > button:hover,
   .desktop-workspace-toolbar .instance-switcher-btn:hover,
   .desktop-workspace-session:hover {
@@ -492,12 +531,26 @@ body.is-desktop-workspace-reordering * {
 
   .desktop-workspace-session:hover > .desktop-workspace-icon {
     opacity: 1;
+    pointer-events: auto;
+  }
+
+  .desktop-workspace-session > .desktop-workspace-icon:not(:disabled):hover {
+    color: var(--chrome-text-strong);
+  }
+
+  .desktop-workspace-session:hover .desktop-workspace-session-select {
+    margin-right: 26px;
   }
 }
 
 @media (hover: none), (pointer: coarse) {
   .desktop-workspace-session > .desktop-workspace-icon {
     opacity: 1;
+    pointer-events: auto;
+  }
+
+  .desktop-workspace-session .desktop-workspace-session-select {
+    margin-right: 26px;
   }
 }
 

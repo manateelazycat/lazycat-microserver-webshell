@@ -418,7 +418,10 @@ export function startGlobalRuntime() {
   const applyWorkspaceState = (state, options) => {
     workspaceTabReorder?.beforeApplyWorkspaceState(state, options);
     const applied = workspaceStateApply?.apply(state, options) || false;
-    if (applied) desktopWorkspace?.acceptState(state, options?.instanceName || state.selector || getActiveName());
+    if (applied) {
+      desktopWorkspace?.acceptState(state, options?.instanceName || state.selector || getActiveName());
+      workspacePresentation?.markWorkspaceReady();
+    }
     return applied;
   };
   let serverRevision = null;
@@ -1500,6 +1503,13 @@ export function startGlobalRuntime() {
       terminalResize?.resizeActiveTabForCurrentDevice();
       settings?.handleDesktopLayoutChange();
     },
+    onResizeStart: () => {
+      const tab = currentTab();
+      terminalResize?.beginTabInteractiveResize(tab);
+      return tab;
+    },
+    onResize: (tab) => terminalResize?.updateTabInteractiveResize(tab),
+    onResizeEnd: (tab) => terminalResize?.endTabInteractiveResize(tab),
     showToast,
   });
 
@@ -2228,6 +2238,7 @@ export function startGlobalRuntime() {
     documentObject: document,
     mobileActiveTabTitle,
     emptyState,
+    isApplyingWorkspaceState,
     mobileKeyboardFocusPrompt,
     getTabs: () => tabs,
     getActiveTabId,
@@ -2333,7 +2344,10 @@ export function startGlobalRuntime() {
   const moveTab = (tabId, position) => workspaceTabController.moveTab(tabId, position);
 
   workspaceTabActivation = createWorkspaceTabActivationController({
-    finishLayoutInteraction: () => workspaceLayoutView?.finishDrag(),
+    finishLayoutInteraction: () => {
+      workspaceLayoutView?.finishDrag();
+      desktopWorkspace?.finishResize();
+    },
     tabRegistry: workspaceTabRegistry,
     tabView: workspaceTabView,
     getInstanceGeneration: getActiveGeneration,
@@ -2430,6 +2444,7 @@ export function startGlobalRuntime() {
     },
     syncNetworkSockets: (options) => syncTerminalNetworkMonitorSockets(options),
     onTargetChange: ({ previousName, name }) => {
+      workspacePresentation?.beginWorkspaceLoad();
       desktopWorkspace?.handleTargetChange(previousName);
       if (terminalUnifiedTransport?.getTargetName()
         && !terminalUnifiedTransport.matchesTarget(name)) {
