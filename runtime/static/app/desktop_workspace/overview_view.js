@@ -54,7 +54,7 @@ export function createDesktopOverviewView({ documentObject = document } = {}) {
         section.add.disabled = !group.running;
         section.add.title = `在 ${group.name} 新建终端会话`;
         section.add.setAttribute("aria-label", section.add.title);
-        section.message.hidden = group.tabs.length > 0 && !group.error;
+        section.message.hidden = !group.message || (group.tabs.length > 0 && !group.error);
         section.message.textContent = group.message;
         const ids = new Set(group.tabs.map((tab) => tab.id));
         for (const [id, item] of section.items) {

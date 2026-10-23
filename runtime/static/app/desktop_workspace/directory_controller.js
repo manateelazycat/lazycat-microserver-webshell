@@ -120,7 +120,7 @@ export function createDesktopWorkspaceDirectory({
     const retrying = record?.retrying === true;
     const running = isRunningInstance(instance);
     const message = !running ? "实例已停止" : error || (retrying ? "正在连接终端服务…"
-      : pending || !loaded ? "正在加载会话…" : "暂无终端会话");
+      : pending || !loaded ? "正在加载会话…" : "");
     return {
       selector,
       name: instanceDisplayName(instance),

@@ -306,7 +306,7 @@ export function createDesktopWorkspaceView({ documentObject = document, windowOb
             section.sessions.insertBefore(entry.row, section.sessions.children[position] || null);
           }
         });
-        section.message.hidden = group.tabs.length > 0 && !group.error;
+        section.message.hidden = !group.message || (group.tabs.length > 0 && !group.error);
         section.message.disabled = !group.error;
         section.message.textContent = group.message;
       });
