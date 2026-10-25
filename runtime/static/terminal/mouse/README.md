@@ -22,6 +22,8 @@ TUI adapter 只能通过 controller 的 `hasTracking()`、`claimEvent()`、`send
 
 `mouse_lifecycle.js` 独占 shell/document listener 和清理函数。`mouse_model.js` 不持有 DOM、timer、session、socket 或可变全局状态。
 
+桌面 `wheel` 在 controller 内按 session 累计位移：像素使用 renderer 当前 CSS 行高，行和页按终端行高及行数换算，每满一行编码一次滚轮输入，余量保留。方向、主轴、位移单位或鼠标跟踪模式变化时清理余量；有余量时通过现有 render 通知观察鼠标模式退出，session 销毁时取消订阅并清理。未满一行也必须消费事件，避免落入 Ghostty 的历史回滚或方向键路径。`momentum === true` 的事件只消费并清理余量，不转发；没有该标记时不猜测惯性。协议编码仍负责方向、坐标和修饰键，移动端传入的离散 `sendWheel()` 步数保持原语义。
+
 ## 生命周期与事件顺序
 
 `installSession()` 幂等并按调用顺序安装 capture listener；session 销毁时 `disposeSession()` 必须移除 shell 与 document listener并清空临时状态。应用销毁时 `dispose()` 清理所有 session，后续编码、发送和事件认领全部失效。
@@ -42,3 +44,5 @@ TUI adapter 只能通过 controller 的 `hasTracking()`、`claimEvent()`、`send
 相关测试为 `terminal_mouse_controller_test.mjs`、`TestRuntimeTerminalMouseTrackingSequences`、Claude/opencode/herdr/pi 事件所有权 guard 和 Grok 双击键盘 guard。最小回归包括 Legacy/SGR press/release/move/wheel、桌面拖动跨 document、右键/点击抑制、触摸 press/move/release、工具 adapter claim、Grok 冷启动直接双击键盘、Grok 单击/滑动和 session 销毁清理。
 
 任何 mouse 操作都不得清空终端、触发或显示 history replay、snapshot、resize 或重连中间过程。
+
+`terminal/wheel-reporting` 的手工回归使用 MacBook 触控板和真实终端鼠标上报，比较累计位移与收到的 CSI 数量，并在 pi 中确认精细滚动。检查明确标记的惯性、慢速/快速/反向滚动、普通鼠标、字号变化、会话隔离及退出 TUI 后的历史回滚；构建检查不代表这些场景已通过。
