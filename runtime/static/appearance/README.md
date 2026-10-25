@@ -2,7 +2,7 @@
 
 ## 职责
 
-`appearance/` 负责浏览器侧的主题目录、当前主题、主题持久化、页面 CSS 变量、浏览器 `theme-color`、主题选择器、设置页主题列表，以及这些 DOM、手势、滚动条、异步请求和 listener 的生命周期。
+`appearance/` 负责浏览器侧的主题目录、当前主题、主题持久化、页面 CSS 变量、浏览器 `theme-color`、主题选择器、设置页主题列表，以及这些 DOM、手势、滚动条、异步请求和 listener 的生命周期。宿主接入与 lzc-music 一致：初始 HTML 使用 `lzcapp-navigation-bar-scheme=hidden`、`lzcapp-disable-dark=true`、`mobile-web-app-capable=yes` 和 `apple-mobile-web-app-status-bar-style=black-translucent`，安全区读取宿主变量并回退到浏览器 env；不调用全屏/控制栏切换，也不单独覆盖 Android inset。既有 iOS 关闭按钮隐藏由宿主接入脚本维护，主题变化只同步页面颜色和 `theme-color`。
 
 本模块当前只接管主题责任域。字体文件、字体选择、字号、行高和 scrollback 由 `settings/` 与终端 metrics/resize 模块维护，通过公开契约接入，不能重新把实现放回 `global-runtime.js`。
 

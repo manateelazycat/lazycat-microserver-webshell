@@ -25,7 +25,10 @@ export function createAppPasteController({
   };
 
   const handleFilePaste = (session, files, operationGeneration, errorMessage = "附件粘贴上传失败。") => {
-    const completion = Promise.resolve().then(() => uploadFiles(files, { session })).then(async (result) => {
+    const completion = Promise.resolve().then(() => {
+      if (disposed || generation !== operationGeneration || !isSessionValid(session)) return null;
+      return uploadFiles(files, { session });
+    }).then(async (result) => {
       const paths = Array.isArray(result?.paths) ? result.paths : [];
       const text = formatPastedAttachmentPaths(paths);
       if (
@@ -46,6 +49,24 @@ export function createAppPasteController({
     return completion;
   };
 
+  const handleFiles = (session, files, errorMessage) => {
+    if (!started || disposed || !isSessionValid(session)) {
+      return { handled: false, files: [], completion: Promise.resolve(false) };
+    }
+    const selected = Array.from(files || []).filter((file) => (
+      file && typeof file === "object" && Number.isFinite(Number(file.size))
+    ));
+    if (selected.length === 0) {
+      return { handled: false, files: [], completion: Promise.resolve(false) };
+    }
+    reassertSize(session);
+    return {
+      handled: true,
+      files: selected,
+      completion: handleFilePaste(session, selected, generation, errorMessage),
+    };
+  };
+
   return Object.freeze({
     dispose() {
       if (disposed) return false;
@@ -54,21 +75,10 @@ export function createAppPasteController({
       return true;
     },
     handleDroppedFiles(session, files) {
-      if (!started || disposed || !session || session.closed) {
-        return { handled: false, files: [], completion: Promise.resolve(false) };
-      }
-      const selected = Array.from(files || []).filter((file) => (
-        file && typeof file === "object" && Number.isFinite(Number(file.size))
-      ));
-      if (selected.length === 0) {
-        return { handled: false, files: [], completion: Promise.resolve(false) };
-      }
-      reassertSize(session);
-      return {
-        handled: true,
-        files: selected,
-        completion: handleFilePaste(session, selected, generation, "附件上传失败。"),
-      };
+      return handleFiles(session, files, "附件上传失败。");
+    },
+    handleClipboardFiles(session, files) {
+      return handleFiles(session, files, "附件粘贴上传失败。");
     },
     handleNativePaste(session, event) {
       if (!started || disposed || !session || session.closed || !event) {

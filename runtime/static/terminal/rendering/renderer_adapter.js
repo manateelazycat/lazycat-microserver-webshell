@@ -1,3 +1,5 @@
+import { installTerminalCursor } from "./cursor_renderer.js";
+
 const terminalCellFlagInverse = 16;
 const terminalCellFlagInvisible = 32;
 const terminalCellFlagFaint = 128;
@@ -15,10 +17,25 @@ export function createTerminalRendererAdapter({
   initialFontSize = 16,
   getFontFamily = () => "monospace",
   getBackgroundColorMap = () => null,
+  getSessions = () => [],
+  isCursorAnimationAllowed = () => true,
+  registerSessionCleanup = () => {},
+  workScheduler = null,
   pixelScrollOffsetEpsilon = defaultPixelScrollOffsetEpsilon,
   viewportBottomEpsilon = defaultViewportBottomEpsilon,
 } = {}) {
   let disposed = false;
+  const cursors = new Set();
+  const reducedMotion = windowObject?.matchMedia?.("(prefers-reduced-motion: reduce)");
+
+  const refreshCursorMotionEnvironment = () => {
+    for (const cursor of cursors) cursor.reset();
+    for (const session of getSessions()) {
+      if (!session?.closed) session?.term?.requestRender?.({ full: true });
+    }
+  };
+  documentObject?.addEventListener?.("visibilitychange", refreshCursorMotionEnvironment);
+  reducedMotion?.addEventListener("change", refreshCursorMotionEnvironment);
 
   const terminalViewportValue = (value) => {
     const number = Number(value || 0);
@@ -525,23 +542,19 @@ export function createTerminalRendererAdapter({
       renderer.ctx.fillRect(x, y, width * cellWidth + bleedLeft + bleedRight, height);
     };
     if (typeof renderer.renderCursor === "function") {
-      renderer.webshellOriginalRenderCursor = renderer.renderCursor.bind(renderer);
-      renderer.renderCursor = (column, row) => {
-        if (renderer.cursorStyle !== "block") {
-          renderer.webshellOriginalRenderCursor(column, row);
-          return;
-        }
-        const metrics = renderer.metrics || renderer.getMetrics?.();
-        const width = Number(metrics?.width) || 0;
-        const height = Number(metrics?.height) || 0;
-        if (!width || !height) {
-          renderer.webshellOriginalRenderCursor(column, row);
-          return;
-        }
-        const bleed = terminalCellBleedPx(renderer);
-        renderer.ctx.fillStyle = renderer.theme.cursor;
-        renderer.ctx.fillRect(column * width - bleed, row * height, width + bleed * 2, height);
-      };
+      const cursor = installTerminalCursor({
+        session, documentObject, windowObject, workScheduler,
+        isAnimationAllowed: () => !disposed && reducedMotion?.matches !== true && isCursorAnimationAllowed(session),
+        getCell: terminalLineCellAt,
+        getBackground: terminalCellBackgroundCSS,
+        getBleed: terminalCellBleedPx,
+      });
+      if (cursor) {
+        cursors.add(cursor);
+        registerSessionCleanup(session, () => {
+          if (cursors.delete(cursor)) cursor.dispose();
+        });
+      }
     }
     if (typeof renderer.renderCellText === "function") {
       renderer.webshellOriginalRenderCellText = renderer.renderCellText.bind(renderer);
@@ -602,16 +615,37 @@ export function createTerminalRendererAdapter({
 
   return Object.freeze({
     adjustFontMetrics: terminalAdjustedFontMetrics,
+    applyCursorStyle(style) {
+      if (disposed) return false;
+      for (const session of getSessions()) {
+        const term = session?.term;
+        if (session.closed || !term?.options || term.options.cursorStyle === style) continue;
+        term.options.cursorStyle = style;
+        // Clear the old block even when cursor position and VT cells are unchanged.
+        term.requestRender?.({ full: true });
+      }
+      return true;
+    },
     captureViewport,
 
     dispose() {
       disposed = true;
+      documentObject?.removeEventListener?.("visibilitychange", refreshCursorMotionEnvironment);
+      reducedMotion?.removeEventListener("change", refreshCursorMotionEnvironment);
+      for (const cursor of cursors) cursor.dispose();
+      cursors.clear();
     },
 
     estimatedFontMetrics: terminalEstimatedFontMetrics,
     installBaseline,
     installBottomScrollbar,
     installCellSeam,
+
+    refreshCursorMotions() {
+      if (disposed) return false;
+      refreshCursorMotionEnvironment();
+      return true;
+    },
 
     installSession(session) {
       if (disposed) {

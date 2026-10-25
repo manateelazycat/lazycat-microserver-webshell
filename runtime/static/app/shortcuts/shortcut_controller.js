@@ -197,6 +197,7 @@ export function createAppShortcutController({
         return true;
       case "paste_terminal":
         focusForNativePaste();
+        await pasteTerminal();
         return true;
       case "search_terminal":
         openSearch();
@@ -251,7 +252,9 @@ export function createAppShortcutController({
     ) {
       return false;
     }
-    if (shiftInsertPaste) {
+    // Ctrl+Shift+V is often the browser's plain-text-only paste command.
+    // Read images explicitly instead of letting that command discard them.
+    if (shiftInsertPaste || (nativePaste && event.ctrlKey && event.shiftKey)) {
       event.preventDefault?.();
       event.stopPropagation?.();
       event.stopImmediatePropagation?.();
@@ -288,8 +291,11 @@ export function createAppShortcutController({
       return false;
     }
     if (configuredAction === "paste_terminal") {
-      focusForNativePaste();
+      event.preventDefault?.();
+      event.stopPropagation?.();
+      event.stopImmediatePropagation?.();
       closeContextMenu();
+      runAction(configuredAction).catch((error) => showToast(error?.message || "粘贴失败。"));
       return true;
     }
     event.preventDefault?.();

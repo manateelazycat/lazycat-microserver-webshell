@@ -25,3 +25,5 @@ Codex 的主题适配同样独立位于 `codex/`：提供进程识别与背景�
 - `codex/`：Codex fullscreen 触摸、右键、桌面本地选择，以及输入区域派生背景跟随 WebShell 主题。
 
 相关 Node/Go 行为测试按工具分布在仓库根目录。最小回归需同时覆盖目标 TUI 和一个不匹配 TUI，确认事件所有权不会跨工具泄漏。
+
+触摸依赖统一注入 `selectStringAtCell(cell)` 和 `applySelection(start, end, options)`：前者委托 selection owner 开始连续字符串选择，后者传递初始范围以稳定拖动扩选。断词、宽字符和选区归一化仍只由 `terminal/selection/` 负责；各工具的长按候选判断、滚动和鼠标协议归属不变。

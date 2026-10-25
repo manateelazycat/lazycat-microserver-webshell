@@ -50,6 +50,11 @@ export function createSettingsLifecycle({
       listen(elements.fontDeleteSelectedButton, "click", handlers.onFontDeleteSelectedClick);
       listen(elements.fontUploadButton, "click", handlers.onFontUploadClick);
       listen(elements.fontInput, "change", handlers.onFontInputChange);
+      listen(elements.fontSizeInput, "input", handlers.onFontSizeInput);
+      listen(elements.fontSizeInput, "change", handlers.onFontSizeChange);
+      listen(elements.fontSizeResetButton, "click", handlers.onFontSizeReset);
+      listen(elements.cursorStyleSelect, "change", handlers.onCursorStyleChange);
+      listen(elements.smoothCursorToggle, "change", handlers.onSmoothCursorChange);
       listen(elements.lineHeightInput, "input", handlers.onLineHeightInput);
       listen(elements.lineHeightInput, "change", handlers.onLineHeightChange);
       listen(elements.lineHeightResetButton, "click", handlers.onLineHeightReset);
@@ -61,6 +66,7 @@ export function createSettingsLifecycle({
       listen(elements.restartWorkspaceRestoreToggle, "change", handlers.onRestartWorkspaceRestoreChange);
       listen(elements.mobileRemoteDesktopToggle, "change", handlers.onMobileRemoteDesktopChange);
       listen(elements.forcePCModeToggle, "change", handlers.onForcePCModeChange);
+      listen(elements.mobilePreInputToggle, "change", handlers.onMobilePreInputChange);
       listen(elements.mobilePixelScrollToggle, "change", handlers.onMobilePixelScrollChange);
       listen(elements.mobileDoubleTapReminderToggle, "change", handlers.onMobileDoubleTapReminderChange);
       listen(elements.mobileShortcutAddButton, "click", handlers.onMobileShortcutAdd);

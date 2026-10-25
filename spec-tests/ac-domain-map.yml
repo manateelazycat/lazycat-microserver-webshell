@@ -3,6 +3,7 @@ domains:
     paths:
       - runtime/static/terminal/**
       - runtime/static/terminal-client/**
+      - clientruntime/**
       - sshserver/**
       - hostmetrics/**
       - spec/terminal/**

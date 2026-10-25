@@ -88,7 +88,7 @@ const terminalSelectionCellText = (manager, cell, absoluteRow, column, scrollbac
   if (!cell.codepoint) {
     return { text: " ", content: false };
   }
-  const text = cell.grapheme_len > 0
+  const text = typeof cell.text === "string" ? cell.text : cell.grapheme_len > 0
     ? (absoluteRow < scrollback
       ? manager.wasmTerm?.getScrollbackGraphemeString?.(absoluteRow, column)
       : manager.wasmTerm?.getGraphemeString?.(absoluteRow - scrollback, column))
@@ -98,6 +98,110 @@ const terminalSelectionCellText = (manager, cell, absoluteRow, column, scrollbac
   }
   return { text, content: Boolean(text.trim()) };
 };
+
+// Work only around the touched logical line. Never scan the full scrollback
+// or infer a soft wrap from a visually full row (TUI columns may be unrelated).
+export const terminalTouchStringRange = (term, point) => {
+  const manager = term?.selectionManager;
+  const backend = manager?.wasmTerm;
+  if (!backend || !point || !Number.isInteger(point.absoluteRow) || !Number.isInteger(point.col)) return null;
+  const scrollback = Math.max(0, Math.floor(backend.getScrollbackLength?.() || 0));
+  const rows = Math.max(0, Number(term.rows) || 0);
+  const rowCache = new Map();
+  const rowAt = (row) => {
+    if (rowCache.has(row)) return rowCache.get(row);
+    const line = terminalSelectionLineAt(manager, row, scrollback);
+    if (!line) return null;
+    const glyphs = [];
+    const columns = Math.min(line.length, Number(term.cols) || line.length);
+    for (let col = 0; col < columns; col += 1) {
+      const cell = line[col];
+      if (cell?.width === 0) continue;
+      const { text } = terminalSelectionCellText(manager, cell, row, col, scrollback);
+      glyphs.push({
+        text,
+        padding: !cell?.codepoint,
+        start: { col, absoluteRow: row },
+        end: { col: Math.min(columns - 1, col + Math.max(1, Number(cell?.width) || 1) - 1), absoluteRow: row },
+      });
+    }
+    rowCache.set(row, glyphs);
+    return glyphs;
+  };
+  const wrapped = (row) => row >= scrollback && row < scrollback + rows
+    && backend.isRowWrapped?.(row - scrollback) === true;
+  const touchedRow = rowAt(point.absoluteRow);
+  if (!touchedRow) return null;
+  const target = touchedRow.find((glyph) => point.col >= glyph.start.col && point.col <= glyph.end.col);
+  if (!target) return null;
+
+  let first = point.absoluteRow;
+  let last = first;
+  let count = touchedRow.length;
+  while (first > scrollback && last - first < 31 && count < 8192 && wrapped(first - 1)) {
+    const previous = rowAt(first - 1);
+    if (!previous || count + previous.length > 8192) break;
+    first -= 1;
+    count += previous.length;
+  }
+  while (last - first < 31 && count < 8192 && wrapped(last) && last + 1 < scrollback + rows) {
+    const next = rowAt(last + 1);
+    if (!next || count + next.length > 8192) break;
+    last += 1;
+    count += next.length;
+  }
+  const glyphs = [];
+  for (let row = first; row <= last; row += 1) {
+    const line = rowAt(row) || [];
+    let length = line.length;
+    // A wide glyph may wrap with an unused final cell. Real spaces stay boundaries.
+    if (wrapped(row)) while (length > 0 && line[length - 1].padding && line[length - 1] !== target) length -= 1;
+    glyphs.push(...line.slice(0, length));
+  }
+  const index = glyphs.indexOf(target);
+  if (index < 0) return null;
+  const boundaryAt = (position) => {
+    const text = glyphs[position]?.text || "";
+    if (!text || /[\s，。！？；：、…“”‘（）【】《》「」『』〈〉\[\]{}()<>"`,;!|\u2500-\u259f]/u.test(text)) return true;
+    if (/^[’']$/u.test(text)) {
+      return !/\p{L}/u.test(glyphs[position - 1]?.text || "")
+        || !/\p{L}/u.test(glyphs[position + 1]?.text || "");
+    }
+    return false;
+  };
+  if (boundaryAt(index)) return { start: target.start, end: target.end };
+  let start = index;
+  let end = index;
+  while (start > 0 && !boundaryAt(start - 1)) start -= 1;
+  while (end + 1 < glyphs.length && !boundaryAt(end + 1)) end += 1;
+  const token = glyphs.slice(start, end + 1).map((glyph) => glyph.text).join("");
+  if (/\p{Script=Han}/u.test(token) && !/[\\/]/u.test(token)) {
+    const chineseBoundaryAt = (position) => {
+      const text = glyphs[position].text;
+      const before = glyphs[position - 1]?.text || "";
+      const after = glyphs[position + 1]?.text || "";
+      if (text === "?") return true;
+      if (text === ":") return !/\d/u.test(before) || !/\d/u.test(after);
+      if (text === ".") return !/[a-z\d]/i.test(before) || !/[a-z\d]/i.test(after);
+      return false;
+    };
+    let left = index;
+    let right = index;
+    if (chineseBoundaryAt(index)) return { start: target.start, end: target.end };
+    while (left > start && !chineseBoundaryAt(left - 1)) left -= 1;
+    while (right < end && !chineseBoundaryAt(right + 1)) right += 1;
+    start = left;
+    end = right;
+  }
+  // Keep URL/path punctuation inside a token, excluding sentence punctuation after it.
+  while (end > index && /^[.:?]$/u.test(glyphs[end].text)) end -= 1;
+  return { start: glyphs[start].start, end: glyphs[end].end };
+};
+
+export const extendTerminalSelectionCells = (range, cell) => ({
+  start: compareTerminalSelectionCells(cell, range.start) < 0 ? cell : range.start,
+  end: compareTerminalSelectionCells(cell, range.end) > 0 ? cell : range.end,
+});
 
 export const terminalSelectionText = (manager) => {
   const range = terminalSelectionRange(manager);

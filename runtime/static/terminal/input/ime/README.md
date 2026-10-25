@@ -22,6 +22,8 @@ Android 默认依赖同步 focus；VirtualKeyboard.show 仅在已有 manual poli
 
 焦点交接仅在 document 未聚焦、未识别为双击、无滚动且事件尚未取消时，尝试保留单次轻触的默认行为；Ghostty 包装器只结束滚动状态，不取消该 touchend。shell 捕获对应的兼容 mousedown/mouseup/click，只 stopImmediatePropagation，不 preventDefault，避免 Ghostty 单击聚焦或重复鼠标输入，同时允许浏览器默认聚焦。匹配限于同终端、16px 内、1000ms 内的可信左键事件，排除明确的物理鼠标来源，并在物理鼠标 pointerdown 或匹配 click 后清理；该窗口仅用于兼容鼠标事件匹配，不是键盘许可。诊断事件包括 tap.page-default-offered/host/mouse 和 tap.preserve-default-queried。Grok 延迟点击和 fullscreen TUI 必须尊重 `shouldPreserveTouchDefault(event)`，不得取消 IME 已放行的第一下页面焦点交接。
 
+候选确认后的短暂去重只过滤重复的候选文本，不过滤独立空格事件。Android 豆包输入法用回车确认英文候选后，后续空格继续发送给终端；用空格确认时保留候选提交中已有的空格。
+
 移动 textarea 与输出、光标布局及 viewport pan 隔离；原生候选窗使用固定输入框锚点，独立 composition 预览按终端字体和光标绘制。
 
 `ios_terminal_host.js` 仍是 HTML 在 ES module 前加载的经典脚本，不通过 `index.js` 导入。

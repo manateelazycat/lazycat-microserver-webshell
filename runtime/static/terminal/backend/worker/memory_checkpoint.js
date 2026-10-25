@@ -1,5 +1,7 @@
 import { Ghostty } from "../../../ghostty-web.js";
 
+let checkpointWASMMismatchReported = false;
+
 const digest = async (bytes) => Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)),
   (byte) => byte.toString(16).padStart(2, "0")).join("");
 
@@ -19,8 +21,17 @@ export async function loadCheckpointGhostty(wasmURL) {
 }
 
 export function validateMemoryCheckpoint(ghostty, checkpoint) {
-  if (checkpoint?.protocol !== "ghostty-memory-v1" || checkpoint.wasm_sha256 !== ghostty.wasmSHA256)
-    throw new Error("Terminal checkpoint WASM version mismatch; update the terminal service protocol");
+  if (checkpoint?.protocol !== "ghostty-memory-v1")
+    throw new Error("Terminal checkpoint protocol mismatch; update the terminal service protocol");
+  if (checkpoint.wasm_sha256 !== ghostty.wasmSHA256 && !checkpointWASMMismatchReported) {
+    checkpointWASMMismatchReported = true;
+    // Let the page deduplicate warnings across panes and Worker restarts.
+    globalThis.postMessage({
+      type: "checkpoint-wasm-mismatch",
+      browser: ghostty.wasmSHA256,
+      checkpoint: checkpoint.wasm_sha256,
+    });
+  }
   const size = checkpoint.memory_bytes;
   if (!Number.isSafeInteger(size) || size < 65536 || size > 256 * 1024 * 1024 || size % 65536 !== 0)
     throw new Error("Terminal checkpoint memory size is invalid");

@@ -224,7 +224,8 @@ const deliverScreenshotFiles = async (files) => {
       if (error?.name === "AbortError") return "cancelled";
     }
   }
-  for (const { blob, name } of files) {
+  const android = isAndroidHost();
+  for (const [index, { blob, name }] of files.entries()) {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
@@ -233,10 +234,15 @@ const deliverScreenshotFiles = async (files) => {
     document.body.appendChild(link);
     link.click();
     link.remove();
-    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
-    await nextFrame();
+    // Native download handling and file dialogs can outlive the click event.
+    window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    if (index < files.length - 1) {
+      // Android must hand off each file before another download is started.
+      if (android) await new Promise((resolve) => window.setTimeout(resolve, 500));
+      else await nextFrame();
+    }
   }
-  return "saved";
+  return "download-requested";
 };
 
 export const createTerminalLongScreenshot = ({
@@ -470,7 +476,7 @@ export const createTerminalLongScreenshot = ({
       const confirmed = await confirmDialog(files.length > 1 ? `长图已生成，共 ${files.length} 张。现在保存？` : "长图已生成。现在分享或保存？", { title: "终端长图", okText: "继续", cancelText: "取消" });
       if (!confirmed) return;
       const result = await deliverScreenshotFiles(files);
-      showToast(result === "shared" ? "截图已打开分享。" : result === "cancelled" ? "已取消截图分享。" : files.length > 1 ? `截图已保存，共 ${files.length} 张。` : "截图已保存。");
+      showToast(result === "shared" ? "截图已打开分享。" : result === "cancelled" ? "已取消截图分享。" : files.length > 1 ? `截图下载已开始，共 ${files.length} 张。` : "截图下载已开始。");
     } catch (error) {
       if (!session.closed && error?.code !== "BACKEND_CANCELLED") showToast(error?.code?.startsWith("BACKEND_") ? "截图未完成，请稍后重试。" : error?.message || "截图失败。");
     } finally {

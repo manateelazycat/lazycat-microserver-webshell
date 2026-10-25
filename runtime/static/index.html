@@ -4,6 +4,8 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no, viewport-fit=cover" />
     <meta name="theme-color" content="#000000" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="lzcapp-navigation-bar-scheme" content="hidden" />
     <meta name="lzcapp-disable-dark" content="true" />
     <!-- This block only runs when a legacy worker is present, ensuring reliable updates from previous versions. -->
@@ -274,6 +276,46 @@
                   <div class="settings-font-cards" id="settingsFontCards" role="listbox" aria-label="{{ $t('终端字体') }}"></div>
                 </div>
               </section>
+              <section class="settings-section" aria-labelledby="settingsCursorStyleTitle">
+                <div class="settings-section-head">
+                  <h3 id="settingsCursorStyleTitle">{{ $t('光标样式') }}</h3>
+                </div>
+                <select class="settings-select" id="settingsCursorStyleSelect" aria-label="{{ $t('光标样式') }}">
+                  <option value="block">{{ $t('块状') }}</option>
+                  <option value="bar">{{ $t('竖线') }}</option>
+                  <option value="underline">{{ $t('下划线') }}</option>
+                </select>
+                <label class="settings-switch-row" for="settingsSmoothCursorToggle">
+                  <span class="settings-switch-label">
+                    <span>{{ $t('平滑光标') }}</span>
+                    <span>{{ $t('短距离移动时平滑过渡；系统开启“减少动态效果”时仍会停用动画') }}</span>
+                  </span>
+                  <input class="settings-switch-input" id="settingsSmoothCursorToggle" type="checkbox" checked />
+                  <span class="settings-switch" aria-hidden="true"></span>
+                </label>
+              </section>
+              <section class="settings-section" aria-labelledby="settingsFontSizeTitle">
+                <div class="settings-section-head">
+                  <h3 id="settingsFontSizeTitle">{{ $t('字体大小') }}</h3>
+                </div>
+                <div class="settings-number-row">
+                  <label class="settings-number-label" for="settingsFontSizeInput">
+                    <span id="settingsFontSizeDescription">{{ $t('范围 10–32px，默认 16px，修改后立即生效。') }}</span>
+                  </label>
+                  <div class="settings-number-control">
+                    <div class="settings-number-stepper">
+                      <input class="settings-number-input" id="settingsFontSizeInput" type="number" min="10" max="32" step="1" inputmode="numeric" aria-labelledby="settingsFontSizeTitle" aria-describedby="settingsFontSizeDescription" />
+                      <div class="settings-number-stepper-buttons">
+                        <button class="settings-number-stepper-button up" type="button" data-number-step="up" data-number-target="settingsFontSizeInput" aria-label="{{ $t('增加字号') }}"></button>
+                        <button class="settings-number-stepper-button down" type="button" data-number-step="down" data-number-target="settingsFontSizeInput" aria-label="{{ $t('减少字号') }}"></button>
+                      </div>
+                    </div>
+                    <button class="settings-icon-button" id="settingsFontSizeResetButton" type="button" aria-label="{{ $t('恢复默认字号') }}" title="{{ $t('恢复默认') }}">
+                      <svg t="1778915656350" class="icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" p-id="8293" width="200" height="200" aria-hidden="true"><path d="M566.4 80c-195.2 0-358.4 131.2-412.8 307.2l-41.6-60.8c-16-19.2-44.8-25.6-67.2-9.6-22.4 16-25.6 44.8-12.8 67.2l108.8 153.6c6.4 9.6 12.8 16 22.4 19.2 3.2 0 6.4 3.2 6.4 3.2h6.4c3.2 0 9.6 0 12.8-3.2H192c3.2 0 6.4-3.2 9.6-6.4l156.8-112c22.4-16 25.6-44.8 12.8-67.2-16-22.4-44.8-25.6-67.2-12.8l-64 44.8c44.8-134.4 169.6-230.4 320-230.4 185.6 0 336 150.4 336 336s-150.4 336-336 336c-83.2 0-166.4-32-227.2-89.6-19.2-19.2-51.2-16-67.2 3.2-19.2 19.2-16 51.2 3.2 67.2 80 73.6 182.4 115.2 291.2 115.2 236.8 0 432-195.2 432-432S806.4 80 566.4 80z" fill="currentColor" p-id="8294"></path></svg>
+                    </button>
+                  </div>
+                </div>
+              </section>
               <section class="settings-section" aria-labelledby="settingsLineHeightTitle">
                 <div class="settings-section-head">
                   <h3 id="settingsLineHeightTitle">{{ $t('显示') }}</h3>
@@ -332,6 +374,14 @@
                 <div class="settings-section-head">
                   <h3 id="settingsMobileInputTitle">{{ $t('手机端输入') }}</h3>
                 </div>
+                <label class="settings-switch-row" for="settingsMobilePreInputToggle">
+                  <span class="settings-switch-label">
+                    <span>{{ $t('启用预输入框') }}</span>
+                    <span>{{ $t('默认关闭；在手机快捷键栏下方编辑文字和附件，点击发送后一起输入终端') }}</span>
+                  </span>
+                  <input class="settings-switch-input" id="settingsMobilePreInputToggle" type="checkbox" />
+                  <span class="settings-switch" aria-hidden="true"></span>
+                </label>
                 <label class="settings-switch-row" for="settingsMobileDoubleTapReminderToggle">
                   <span class="settings-switch-label">
                     <span>{{ $t('双击屏幕提醒') }}</span>

@@ -10,12 +10,16 @@
 
 外部只能从 `terminal/selection/index.js` 导入：
 
-- `createTerminalSelectionController()`：唯一状态与编排入口，公开 `start()`、`installSession()`、`observeSession()`、`prepareManager()`、`syncRuntimeReferences()`、`selectAll()`、`clear()`、`clearFullBufferSelection()`、`getSelectedText()`、`hasSelection()`、`isFullBufferSelection()`、`cellFromPoint()`、`apply()`、`clearIfTapOutside()`、`update()`、`updateHandles()`、`updateAutoScroll()`、`stopAutoScroll()`、`isSheetOpen()`、`disposeSession()` 和 `dispose()`。
+- `createTerminalSelectionController()`：唯一状态与编排入口，公开 `start()`、`installSession()`、`observeSession()`、`prepareManager()`、`syncRuntimeReferences()`、`selectAll()`、`selectStringAtCell()`、`clear()`、`clearFullBufferSelection()`、`getSelectedText()`、`hasSelection()`、`isFullBufferSelection()`、`cellFromPoint()`、`apply()`、`clearIfTapOutside()`、`update()`、`updateHandles()`、`updateAutoScroll()`、`stopAutoScroll()`、`isSheetOpen()`、`disposeSession()` 和 `dispose()`。
 - `createTerminalSelectionView()`：选择工具栏、移动 overlay/handle 和 point-to-cell DOM 适配。
 - `createTerminalSelectionLifecycle()`：永久与 session listener、timeout、interval 和 disposable 的幂等清理。
 - `selection_model.js` 导出的 cell/range/text 函数：无状态选择算法和 Ghostty 行读取。
 
-TUI adapter 和 mouse protocol 只能调用 controller 的 `cellFromPoint()`、`apply()`、`clearIfTapOutside()`、`updateHandles()`、`updateAutoScroll()` 与 `stopAutoScroll()`；不得直接修改 selection manager 或完整缓冲区选择状态。
+TUI adapter 和 mouse protocol 只能调用 controller 的 `cellFromPoint()`、`selectStringAtCell()`、`apply()`、`clearIfTapOutside()`、`updateHandles()`、`updateAutoScroll()` 与 `stopAutoScroll()`；不得直接修改 selection manager 或完整缓冲区选择状态。
+
+`selectStringAtCell(session, cell)` 用触摸位置读取完整字形并扩选连续字符串，返回已应用的初始范围或 `null`。英文单词、文件名和路径保留内部连接符；中文以空白、标点和终端边框为边界。宽字符续格映射到完整字形，组合字符及 emoji 沿用原始字形文本；空白或边界字符只选当前位置，不强制补选下一格。只对明确的 active-screen 软换行拼接相邻行，不从满行外观推断历史行或 TUI 列的连接关系；扫描至多 32 行、相邻扩展至多 8192 个字形，不遍历完整历史。
+
+长按后的手指拖动通过 `apply(..., { initialRange })` 扩展原范围，细微抖动或回到原字符串内不缩回两格；松手后的手柄继续使用普通 cell 选区调整，可缩小范围。`allowSingleCell` 只用于明确单格选择，复用 manager 现有 `webshellForceSelection` 兼容补丁。桌面双击字符串和普通拖选规则保持原路径。
 
 ## 状态所有权
 
@@ -46,3 +50,5 @@ TUI adapter 和 mouse protocol 只能调用 controller 的 `cellFromPoint()`、`
 相关测试为 `terminal_selection_controller_test.mjs`、触摸选择 Go guard、Claude fullscreen touch/desktop selection 隔离测试、剪贴板和上下文菜单测试。最小回归包括：普通选择复制、完整缓冲区复制、双击字符串、移动长按、手柄跨行、边缘自动滚动、点按选区外清除、工具栏复制/粘贴/搜索/清除、桌面自动复制、pane 销毁清理，以及 input focus -> 默认选择 -> TUI adapter -> 通用 mouse tracking 的安装顺序。
 
 任何选择操作都不得清空终端、触发或显示 history replay、snapshot、resize 或重连中间过程。
+
+长按字符串手工回归：手机和平板分别长按英文单词、文件路径、中文短句、宽字符右半格及组合字符，确认连续内容自动选中；在空白/标点处长按不带出相邻内容。确认长按后轻微移动仍保留初始范围，手柄可缩小/跨行调整；普通终端与 Claude/Codex/opencode 等已适配 TUI 均复用同一规则，滚动和双击键盘保持可用。产品口径见 `spec/terminal/touch-string-selection/`，不新增自动化场景代码。

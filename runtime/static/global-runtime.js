@@ -7,6 +7,8 @@
 import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
 import {
   createCodexThemeAdapter,
+  resolveCodexKeyInput,
+  resolveCodexShortcutInput,
   installCodexFullscreenTouchAdapter,
   installCodexFullscreenContextMenuAdapter,
   installCodexFullscreenDesktopSelectionAdapter,
@@ -44,7 +46,8 @@ import {
 } from "./diagnostics/index.js";
 import { createDevicesController } from "./devices/index.js";
 import { createServiceForwardingController } from "./service_forwarding/index.js";
-import { createAttachmentsController } from "./attachments/index.js";
+import { createAttachmentsController, createAttachmentsAPI, validateAttachmentFiles } from "./attachments/index.js";
+import { createPreInputController } from "./terminal/pre_input/index.js";
 import {
   createInstancesController,
   isClientInstanceName,
@@ -55,6 +58,7 @@ import {
   createAppearanceRuntimeController,
 } from "./appearance/index.js";
 import {
+  DEFAULT_TERMINAL_CURSOR_STYLE as defaultTerminalCursorStyle,
   DEFAULT_TERMINAL_FONT_FAMILY as defaultTerminalFontFamily,
   DEFAULT_TERMINAL_LINE_HEIGHT_PERCENT as defaultTerminalLineHeightPercent,
   DEFAULT_TERMINAL_SCROLLBACK as defaultTerminalScrollback,
@@ -168,6 +172,7 @@ import {
   createAppLifecycle,
   createAppFileDropController,
   createAppPasteController,
+  formatPastedAttachmentPaths,
   createAgentProtocolUpdateController,
   createAppRuntimeRecoveryController,
   createAppShortcutController,
@@ -292,6 +297,7 @@ export function startGlobalRuntime() {
   const initialTerminalFontSize = readStoredTerminalFontSize(window.localStorage, storagePrefix);
   const terminalOptionsBase = {
     cursorBlink: false,
+    cursorStyle: defaultTerminalCursorStyle,
     // PTY LF preserves the current column; inserting CR corrupts TUI updates.
     convertEol: false,
     scrollback: defaultTerminalScrollback,
@@ -352,6 +358,7 @@ export function startGlobalRuntime() {
   let terminalKeyOverrides = null;
   let terminalIME = null;
   let mobileShortcutsController = null;
+  let preInput = null;
   let terminalSelection = null;
   let terminalPolicy = null;
   let terminalMetrics = null;
@@ -448,6 +455,7 @@ export function startGlobalRuntime() {
   const terminalOptions = (overrides = {}) => ({
     ...terminalOptionsBase,
     fontSize: settings?.getTerminalFontSize() || initialTerminalFontSize,
+    cursorStyle: settings?.getTerminalCursorStyle() || defaultTerminalCursorStyle,
     theme: appearance.getTerminalTheme(),
     ...overrides,
   });
@@ -702,6 +710,8 @@ export function startGlobalRuntime() {
     },
     onDebugModeDependents: (enabled) => devices.setDebugMode(enabled),
     onTerminalFontFamilyChange: (fontFamily) => terminalMetrics?.applyFontFamily(fontFamily),
+    onTerminalCursorStyleChange: (style) => terminalRenderer?.applyCursorStyle(style),
+    onTerminalSmoothCursorChange: () => terminalRenderer?.refreshCursorMotions(),
     onTerminalFontSizeChange: (fontSize) => terminalMetrics?.applyFontSize(fontSize),
     onTerminalScrollbackChange: (previousScrollback, nextScrollback) => (
       terminalMetrics?.applyScrollbackChange(previousScrollback, nextScrollback)
@@ -713,6 +723,7 @@ export function startGlobalRuntime() {
         refreshWorkspace({ focus: false }).catch((error) => showToast(error.message));
       }
     },
+    onMobilePreInputChange: () => preInput?.syncContext(),
     onMobilePixelScrollChange: (enabled) => terminalMetrics?.applyMobilePixelScroll(enabled),
     onMobileDoubleTapReminderChange: () => updateMobileActiveTabTitle(),
     onMobileShortcutsChange: () => mobileShortcutsController?.render(),
@@ -866,6 +877,30 @@ export function startGlobalRuntime() {
     initialFontSize: initialTerminalFontSize,
     getFontFamily: () => terminalOptionsBase.fontFamily,
     getBackgroundColorMap: (session, theme) => codexThemeAdapter.getBackgroundColorMap(session, theme),
+    getSessions: () => Array.from(tabs.values()).flatMap((tab) => Array.from(tab.panes.values())),
+    isCursorAnimationAllowed: (session) => {
+      const tab = tabs.get(getActiveTabId());
+      return Boolean(
+        !document.hidden
+        && settings?.getTerminalSmoothCursorEnabled() !== false
+        && session?.renderReady === true
+        && !session.closed
+        && tab?.panes?.get(tab.activePaneId) === session
+        && terminalPresentation?.isRenderAllowed(session) === true
+        && terminalResize?.isVisible(session) === true
+        && terminalResize?.isLiveGeometryActive(session) !== true
+        && !session.terminalFrameHeld
+        && !session.resizePresentationHold
+        && !session.presentationCommitPending
+        && !session.terminalRenderSuppressionActive
+        && !session.term?.renderSuppressionDepth
+        && !session.term?.backendResizePending
+        && Number(session.term?.viewportY || 0) <= 0.01
+        && Number(session.term?.targetViewportY || 0) <= 0.01
+      );
+    },
+    workScheduler: terminalWorkScheduler,
+    registerSessionCleanup: (session, cleanup) => terminalSessionController?.addCleanup(session, cleanup),
   });
 
   terminalPresentation = createTerminalPresentationController({
@@ -1007,6 +1042,7 @@ export function startGlobalRuntime() {
     documentObject: document,
     navigatorObject: navigator,
     mobileShortcuts,
+    isAuxiliaryInputFocused: () => preInput?.isInputFocused() === true,
     isIOSPlatform: (navigatorObject) => isIOSPlatform(navigatorObject),
     isAndroidPlatform: (navigatorObject) => isAndroidPlatform(navigatorObject),
     isForcePCModeActive: () => isForcePCModeActive(),
@@ -1046,6 +1082,7 @@ export function startGlobalRuntime() {
     },
     reassertSessionSize: (session) => terminalResize?.reassertSize(session, { force: true }),
     focusForNativePaste: (session) => terminalIME?.focusForNativePaste(session),
+    pasteFiles: (session, files) => appPaste?.handleClipboardFiles(session, files).completion || false,
     prepareSelectionManager: (session) => terminalSelection?.prepareManager(session),
     dragThresholdPx: desktopSelectionCopyMoveThresholdPx,
   });
@@ -1307,7 +1344,10 @@ export function startGlobalRuntime() {
 
   const currentTab = () => tabs.get(getActiveTabId()) || null;
   const renderTabLabel = (tab) => workspaceTabLabels?.renderTabLabel(tab) === true;
-  const updateMobileActiveTabTitle = () => workspacePresentation?.updateMobileActiveTabTitle();
+  const updateMobileActiveTabTitle = () => {
+    workspacePresentation?.updateMobileActiveTabTitle();
+    preInput?.syncContext();
+  };
   const refreshTabAutoLabel = (tab) => workspacePresentation?.refreshTabAutoLabel(tab) === true;
   const updateDocumentTitle = () => workspacePresentation?.updateDocumentTitle();
   const clearTabNotification = (tab) => workspacePresentation?.clearTabNotification(tab) === true;
@@ -1360,7 +1400,10 @@ export function startGlobalRuntime() {
     hideSelection: () => terminalSelection?.hide(),
     handleViewportLayoutChange: () => terminalViewport?.handleLayoutChange(),
     resizeActiveTabForCurrentDevice: () => terminalResize?.resizeActiveTabForCurrentDevice(),
-    handleHostLayoutChange: () => settings?.handleHostLayoutChange(),
+    handleHostLayoutChange: () => {
+      settings?.handleHostLayoutChange();
+      preInput?.syncContext();
+    },
     updateMobileActiveTabTitle: () => updateMobileActiveTabTitle(),
     updateSelection: () => terminalSelection?.update(),
   });
@@ -1451,7 +1494,10 @@ export function startGlobalRuntime() {
   const setActiveTabByIndex = (index) => workspaceTabNavigation.activateByIndex(index);
 
   workspacePaneActivation = createWorkspacePaneActivationController({
-    onActivated: () => terminalStartupError?.syncActiveExit(),
+    onActivated: () => {
+      terminalStartupError?.syncActiveExit();
+      preInput?.syncContext();
+    },
     documentObject: document,
     ElementCtor: globalThis.Element,
     HTMLElementCtor: globalThis.HTMLElement,
@@ -1728,6 +1774,7 @@ export function startGlobalRuntime() {
 
   terminalKeyOverrides = createTerminalKeyOverridesController({
     KeyboardEventCtor: globalThis.KeyboardEvent,
+    resolveKeyInput: resolveCodexKeyInput,
     handleFontSizeShortcut: (event) => settings?.handleTerminalFontSizeShortcut(event) === true,
     hasStickyModifiers: () => mobileShortcutsController?.hasStickyModifiers() === true,
     shouldApplyStickyTextInput: (value, inputType) => (
@@ -1807,6 +1854,39 @@ export function startGlobalRuntime() {
     doubleTapDelayMs: mobileKeyboardDoubleTapDelayMs,
   });
 
+  const preInputAttachmentsAPI = createAttachmentsAPI({ baseURL: window.location.href });
+  preInput = createPreInputController({
+    windowObject: window,
+    documentObject: document,
+    host: mobileShortcuts,
+    isEnabled: () => settings?.getMobilePreInputEnabled() === true,
+    isMobileLayout: () => isMobileLayout() || isTouchShortcutLayout(),
+    getContext: () => {
+      const session = activeSession();
+      return { targetName: getActiveName(), session: isCurrentInstanceSession(session) ? session : null };
+    },
+    uploadFile: ({ targetName, file, onProgress }) => preInputAttachmentsAPI.upload({
+      targetName, files: [file], onProgress,
+    }),
+    validateFiles: validateAttachmentFiles,
+    formatPaths: formatPastedAttachmentPaths,
+    sendText: (session, text) => {
+      if (!isCurrentInstanceSession(session) || session.closed || session.exitExpected) return false;
+      const bracketed = session.term?.wasmTerm?.hasBracketedPaste?.() === true;
+      return terminalInput?.sendOrQueue(session, bracketed ? `\x1b[200~${text}\x1b[201~` : text, {
+        acceptQueued: true,
+      }) === true;
+    },
+    registerSessionCleanup: (session, cleanup) => terminalSessionController?.addCleanup(session, cleanup),
+    onHeightChange: () => terminalResize?.resizeActiveTabForCurrentDevice(),
+    onKeyboardFocusChange: (focused) => {
+      if (focused) terminalViewport?.cancelKeyboardDismissRecovery();
+      else terminalViewport?.scheduleKeyboardDismissRecovery();
+      terminalViewport?.sync();
+    },
+    translate: (key) => typeof globalThis.$t === "function" ? globalThis.$t(key) : key,
+  });
+
   mobileShortcutsController = createMobileShortcutsController({
     documentObject: document,
     windowObject: window,
@@ -1819,7 +1899,9 @@ export function startGlobalRuntime() {
     isDesktopShortcutBarLayout: () => isDesktopShortcutBarLayout(),
     terminalIME,
     sendInput: (session, data) => terminalInput?.sendOrQueue(session, data),
-    resolveShortcutInputData: (shortcut, modifiers) => resolveMobileShortcutInputData(shortcut, modifiers),
+    resolveShortcutInputData: (shortcut, modifiers, session) => (
+      resolveCodexShortcutInput(session, shortcut, modifiers) || resolveMobileShortcutInputData(shortcut, modifiers)
+    ),
     normalizeShortcutText: (value) => normalizeMobileShortcutTextData(value),
     applyStickyModifierInput: (value, modifiers) => applyStickyModifierInput(value, modifiers),
     canApplyStickyModifierInput: (value) => canApplyStickyModifierInput(value),
@@ -2235,6 +2317,7 @@ export function startGlobalRuntime() {
       instances.handleActiveTargetChange();
       serviceForwarding.handleTargetChange();
       attachments.handleTargetChange();
+      preInput?.syncContext();
     },
     resetWorkspace: () => workspaceTabController?.resetForInstance(),
     updateLocation: (name, options) => updateLocationName(name, options),
@@ -2431,6 +2514,7 @@ export function startGlobalRuntime() {
   });
 
   mobileShortcutsController?.render();
+  preInput?.syncContext();
   installMobileCustomSelects();
   dialogController.install();
   appCommands.install({
@@ -2501,6 +2585,7 @@ export function startGlobalRuntime() {
     settings?.dispose();
     appCommands?.dispose();
     shortcutController?.dispose();
+    preInput?.dispose();
     mobileShortcutsController?.dispose();
     mobileSelect?.dispose();
     layoutController?.dispose();

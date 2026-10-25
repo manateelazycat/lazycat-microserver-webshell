@@ -56,3 +56,5 @@ pending input 的过期 timer 绑定当前 logical channel generation 或 client
 ## 恢复边界的输入顺序
 
 resize ACK 可在 presentation/onReady 之前打开输入 gate。sendOrQueue 必须先按顺序转交旧 pendingInput，再接受新文字/回车；不能让新输入绕过恢复期间积累的前缀。flushPending 只移除 send 已接受的条目，失败时保留尚未接受的数据和字节预算。真实基线与验证由 spec-tests/investigations/network-presentation-recovery 和 terminal/resize-sync 记录。
+
+`sendOrQueue(session, data, { acceptQueued: true })` 可用于需要清空草稿的输入来源：输入已发送或被 pending 队列接受时返回 true，拒绝时返回 false。默认参数沿用既有返回语义；不改变发送门禁、队列容量、恢复顺序和过期处理。预输入 UI 与附件事务位于独立的 `terminal/pre_input/`。

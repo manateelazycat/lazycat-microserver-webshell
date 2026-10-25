@@ -40,14 +40,6 @@ export const normalizeTerminalCompositionTextCandidates = (...values) => {
   return candidates.sort((left, right) => right.length - left.length);
 };
 
-export const isTerminalASCIICompositionCommit = (value) => {
-  const points = Array.from(stripTerminalInputSentinel(value));
-  return points.length > 0 && points.every((point) => {
-    const codePoint = point.codePointAt(0);
-    return Number.isFinite(codePoint) && codePoint >= 0x21 && codePoint <= 0x7e;
-  });
-};
-
 export const isIOSPlatform = (navigatorObject = globalThis.navigator) => {
   const platform = String(navigatorObject?.userAgentData?.platform || navigatorObject?.platform || "");
   const userAgent = String(navigatorObject?.userAgent || "");

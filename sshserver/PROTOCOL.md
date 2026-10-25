@@ -2,7 +2,7 @@
 
 仅供受信任 LightOS 服务端与客户端终端装配使用；当前未提供用户侧票据签发接口。不得将设备 token、终端 secret、gateway credential 或 SSH 票据交给浏览器。
 
-沿用 `/s/cloud.lazycat.lightos.client-terminal.managed.<instance>.<epoch>/` 路由。hportal 先核对 Device API token 的微服身份，再在同一连接上确认本地 listener 掌握该代凭据，最后覆盖注入 gateway credential 和可信微服头。SSH 不新增绕过此流程的公开监听器。
+沿用 `/s/cloud.lazycat.lightos.client-terminal.managed.<instance>.<epoch>/` 路由。宿主网关先核对 Device API token 的微服身份，再在同一连接上确认本地 listener 掌握该代凭据，最后覆盖注入 gateway credential 和可信微服头。SSH 不新增绕过此流程的公开监听器。
 
 | 路由（去掉 service 前缀后） | 用途 | 行为 |
 | --- | --- | --- |

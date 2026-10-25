@@ -26,12 +26,55 @@ export function packRows(lines, columns, getText = null) {
   return { bytes, texts, columns, rows: lines.length };
 }
 
-export function unpackRows(packet) {
+const validatePacket = (packet) => {
   const { bytes, columns, rows } = packet;
   if (!(bytes instanceof Uint8Array) || bytes.byteLength !== columns * rows * 16) throw new Error("Invalid terminal cell packet");
-  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  const texts = new Map(packet.texts);
-  return Array.from({ length: rows }, (_, row) => Array.from({ length: columns }, (_, col) => {
+};
+
+const packetTexts = (packet) => new Map(packet.texts || []);
+
+export function changedPackedRows(previous, next) {
+  validatePacket(previous);
+  validatePacket(next);
+  if (previous.columns !== next.columns || previous.rows !== next.rows) return null;
+
+  const changed = new Set();
+  const wordsPerRow = next.columns * 4;
+  const previousWords = new Uint32Array(
+    previous.bytes.buffer,
+    previous.bytes.byteOffset,
+    previous.bytes.byteLength / Uint32Array.BYTES_PER_ELEMENT,
+  );
+  const nextWords = new Uint32Array(
+    next.bytes.buffer,
+    next.bytes.byteOffset,
+    next.bytes.byteLength / Uint32Array.BYTES_PER_ELEMENT,
+  );
+  for (let row = 0; row < next.rows; row += 1) {
+    const start = row * wordsPerRow;
+    const end = start + wordsPerRow;
+    for (let index = start; index < end; index += 1) {
+      if (previousWords[index] !== nextWords[index]) {
+        changed.add(row);
+        break;
+      }
+    }
+  }
+
+  const previousTexts = packetTexts(previous);
+  const nextTexts = packetTexts(next);
+  for (const [index, text] of previousTexts) {
+    if (nextTexts.get(index) !== text) changed.add(Math.floor(index / next.columns));
+  }
+  for (const [index, text] of nextTexts) {
+    if (previousTexts.get(index) !== text) changed.add(Math.floor(index / next.columns));
+  }
+  return changed;
+}
+
+const unpackPacketRow = (packet, row, view, texts) => {
+  const { bytes, columns } = packet;
+  return Array.from({ length: columns }, (_, col) => {
     const index = row * columns + col;
     const offset = index * 16;
     const codepoint = view.getUint32(offset, true);
@@ -43,5 +86,19 @@ export function unpackRows(packet) {
       hyperlink_id: view.getUint16(offset + 12, true), grapheme_len: bytes[offset + 14],
       text: texts.get(index) ?? String.fromCodePoint(codepoint || 32),
     };
-  }));
+  });
+};
+
+export function unpackRow(packet, row) {
+  validatePacket(packet);
+  if (!Number.isInteger(row) || row < 0 || row >= packet.rows) throw new Error("Invalid terminal packet row");
+  const view = new DataView(packet.bytes.buffer, packet.bytes.byteOffset, packet.bytes.byteLength);
+  return unpackPacketRow(packet, row, view, packetTexts(packet));
+}
+
+export function unpackRows(packet) {
+  validatePacket(packet);
+  const view = new DataView(packet.bytes.buffer, packet.bytes.byteOffset, packet.bytes.byteLength);
+  const texts = packetTexts(packet);
+  return Array.from({ length: packet.rows }, (_, row) => unpackPacketRow(packet, row, view, texts));
 }

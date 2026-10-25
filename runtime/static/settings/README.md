@@ -6,6 +6,10 @@
 
 本模块不持有 tab、pane、session、WebSocket、history、replay、resize 或 Canvas 呈现状态。字体、字号、行高、scrollback 和移动布局变化只通过构造参数中的显式回调交给终端运行时适配层。设置变化不得触发、管理或展示历史回放过程。
 
+字体模块下方先显示光标样式，再显示字体大小。字体大小复用历史行数的数字输入、上下增减和恢复默认控件，打开时显示当前字号；输入范围沿用 10–32px，恢复默认为 16px。手动输入停止 360ms 或触发 change 后，统一调用 `setTerminalFontSize()`，沿用本机字号存储和现有 metrics 生效流程；快捷键调字号也同步更新输入框。关闭面板及 pagehide 提交尚未应用的有效字号，dispose 清除待提交计时器。服务端设置响应不覆盖正在等待提交的字号输入。
+
+光标样式文本下拉框提供块状、竖线和下划线，默认块状，沿用快捷键编辑器的选择框样式及移动端展开选项交互。`terminalCursorStyle` 属于设置快照，`getTerminalCursorStyle()` 供新建终端读取，`onTerminalCursorStyleChange` 将现有终端的显示更新交给 rendering owner。选项使用原生 select 支持键盘选择。
+
 ## 公开入口
 
 外部只能从 `settings/index.js` 导入：
@@ -39,6 +43,7 @@ controller 对外提供只读快照/getter、`start()`、`load()`、`open()`、`
 - 手机快捷键 `text` 原样保留空格、换行和制表符，不得 `trim()`。
 - 并发修改通过 pending overlay 防止较早 PATCH 响应覆盖尚未完成的较新字段。
 - 行高 PATCH 响应不重复注册或刷新未变化的字体族，避免在行高 live geometry 结束后额外开启 presentation hold；字体选择、上传、删除和初始 load 仍执行字体注册。
+- 光标样式只保存 `terminal_cursor_style`，复用串行队列和失败回滚；保存响应不刷新字体，显示变化只请求完整重绘，不调整终端尺寸。保存期间禁用样式选项，失败时回滚设置和现有终端样式并提示错误。
 - 重启恢复开关保存成功后只通过显式回调请求当前普通实例刷新一次 workspace，由服务端建立首份恢复描述；客户端物理机不触发该刷新。
 
 ## 生命周期
@@ -67,3 +72,15 @@ controller 对外提供只读快照/getter、`start()`、`load()`、`open()`、`
 相关 guard：`settings_controller_test.mjs`、`workspace_test.go` 的 PATCH 语义测试、`TestRuntimeSettingsModuleBoundary`、终端快捷键/字体/scrollback 静态契约和版本化资源/LPK 内容检查。触摸排序、边缘滚动与双指滚动需要在真实移动浏览器中手工核对。
 
 最小回归步骤：加载设置、切换布尔项、修改字号/行高/scrollback、上传和删除字体、保存/重置/清空两套快捷键、关闭并重新打开面板、触发 pagehide，再确认终端当前画面没有出现历史回放中间过程。
+
+光标样式手工回归：在多个已有终端间选择三种样式，新建终端并刷新页面确认保留；阻断设置保存请求确认选项和终端一起回滚且错误可见；输入内容与会话状态保持完整。产品口径见 `spec/terminal/cursor-appearance/`，本次不新增自动化场景代码。
+
+字号手工回归：先用已有快捷键调整字号再打开设置，确认输入框与实际字号一致；手动输入、点击增减及恢复默认后确认即时生效，重开设置/刷新保留；编辑途中使用快捷键不会被旧计时器覆盖，非法值提交后恢复原字号并提示错误。产品口径见 `spec/app/terminal-font-size-settings/`。
+
+中英文手工回归：英文环境下核对光标样式、平滑光标、字号说明、增减与恢复默认按钮提示以及数字校验错误；桌面侧栏与移动分类列表使用不带 Settings 后缀的英文名称。动态 title/aria-label 由全局国际化运行时处理；用户命名和设置值不作为界面文案翻译。产品口径见 `spec/app/localization/`。
+
+字号区域只保留一次“字体大小 / Font Size”标题，输入行只显示范围、默认值和立即生效说明；输入框通过 `aria-labelledby` 和 `aria-describedby` 关联现有标题及说明，点击说明仍能聚焦输入框。
+
+字号区域的标题与说明采用 6px 间距，其他设置分组继续使用原有间距。
+
+手机端输入新增默认关闭的预输入框开关，快照字段为 `mobilePreInputEnabled`，仅保存 `mobile_pre_input_enabled`；复用串行保存、pending overlay、失败回滚和控件禁用。`getMobilePreInputEnabled()` 与 `onMobilePreInputChange` 只提供偏好，不持有草稿或附件，预输入交互由 `terminal/pre_input/` 独立维护。

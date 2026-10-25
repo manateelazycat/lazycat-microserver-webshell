@@ -4,7 +4,6 @@ import {
   isAndroidPlatform,
   isBackwardDeleteInputType,
   isForwardDeleteInputType,
-  isTerminalASCIICompositionCommit,
   normalizeTerminalCompositionTextCandidates,
   stripTerminalInputSentinel,
   terminalInputDeleteBuffer,
@@ -102,6 +101,7 @@ export function createTerminalIMEController({
       session.term?.canvas,
       session.term?.textarea,
       session.terminalFrameHold,
+      session.terminalCursorLayer,
       session.compositionPreview,
     ].filter(Boolean));
     for (const node of Array.from(host.childNodes || [])) {
@@ -525,7 +525,6 @@ export function createTerminalIMEController({
     preedits = [],
     committed = "",
     sent = false,
-    suppressSeparator = false,
   } = {}) => {
     if (!session) {
       return null;
@@ -536,7 +535,6 @@ export function createTerminalIMEController({
       preedits: preeditCandidates,
       committed: stripTerminalInputSentinel(committed),
       sent: Boolean(sent),
-      suppressSeparator: Boolean(suppressSeparator),
       expiresAt: now() + 350,
     };
     session.pendingCompositionInput = pending;
@@ -565,7 +563,6 @@ export function createTerminalIMEController({
         (committed && rawValue === committed)
         || preedits.includes(rawValue)
         || (committed && preedits.some((preedit) => rawValue === `${preedit}${committed}`))
-        || (pending.suppressSeparator && rawValue === " ")
       ) {
         data = "";
         handled = true;
@@ -614,18 +611,17 @@ export function createTerminalIMEController({
       preedits: pending?.preedits || pending?.preedit || "",
       committed: committedText,
       sent: true,
-      suppressSeparator: Boolean(pending?.suppressSeparator),
     });
   };
 
-  const sendTextInput = (session, data, { dedupe = false, applySticky = false } = {}) => {
+  const sendTextInput = (session, data, { dedupe = false, applySticky = false, allowRepeat = false } = {}) => {
     const rawData = String(data || "");
     if (!session || !rawData) {
       return;
     }
     const currentTime = now();
     const last = session.lastTextInput;
-    if (dedupe && (last?.data === rawData || last?.rawData === rawData) && currentTime - last.time < 80) {
+    if (dedupe && !allowRepeat && (last?.data === rawData || last?.rawData === rawData) && currentTime - last.time < 80) {
       return;
     }
     const inputData = applySticky ? consumeStickyInput(rawData) : rawData;
@@ -700,23 +696,6 @@ export function createTerminalIMEController({
     if (session?.nativeDeleteInputPending) {
       endNativeDeleteInput(session);
     }
-    if (
-      type === "insertText"
-      && event.data === " "
-      && session?.pendingCompositionInput?.sent
-      && session.pendingCompositionInput.suppressSeparator
-    ) {
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      setComposing(session, false);
-      if (textarea) {
-        textarea.value = terminalInputDeleteBuffer;
-        moveTextareaCaretToEnd(textarea);
-      }
-      resetHostViewport(session, { clean: true });
-      positionInput(session);
-      return;
-    }
     if (type === "insertCompositionText" || type === "deleteCompositionText" || event.isComposing) {
       setComposing(session, true);
       if (typeof event.data === "string") {
@@ -772,7 +751,6 @@ export function createTerminalIMEController({
         preedits: preeditCandidates,
         committed: data,
         sent: true,
-        suppressSeparator: isTerminalASCIICompositionCommit(data),
       });
       if (textarea) {
         textarea.value = terminalInputDeleteBuffer;
@@ -822,6 +800,7 @@ export function createTerminalIMEController({
     }
     sendTextInput(session, data, {
       dedupe: type === "insertText" || type === "insertReplacementText" || Boolean(event.data),
+      allowRepeat: type === "insertText" && data === " ",
       applySticky: shouldApplyStickyTextInput(data, type),
     });
     resetHostViewport(session, { clean: true });
@@ -1065,7 +1044,6 @@ export function createTerminalIMEController({
         preedits: preeditCandidates,
         committed: committedText,
         sent: Boolean(committedText),
-        suppressSeparator: isTerminalASCIICompositionCommit(committedText),
       });
       textarea.value = terminalInputDeleteBuffer;
       moveTextareaCaretToEnd(textarea);

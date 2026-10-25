@@ -8,7 +8,7 @@
 
 ## 公开入口
 
-外部只能从 `index.js` 导入 `createAttachmentsController()`。控制器公开 `start()`、`dispose()`、`openDialog()`、`closeDialog()`、`openBrowser()`、`closeBrowser()`、`closeAll()`、`importFromClipboard()`、`uploadPastedFiles()`、`selectFiles()`、`isFileInputTarget()`、`handleEscape()`、`handleTargetChange()`、`handleTabRemoved()`、`refreshUploadPanels()`、`isAnyOpen()` 和只读 `snapshot()`。
+外部只能从 `index.js` 导入。`createAttachmentsAPI()` 和 `validateAttachmentFiles()` 提供无界面的上传传输与文件校验能力，可由全局运行时注入独立预输入模块；草稿、上传事务和发送由该模块拥有。`createAttachmentsController()` 管理原文件管理入口。控制器公开 `start()`、`dispose()`、`openDialog()`、`closeDialog()`、`openBrowser()`、`closeBrowser()`、`closeAll()`、`importFromClipboard()`、`uploadPastedFiles()`、`selectFiles()`、`isFileInputTarget()`、`handleEscape()`、`handleTargetChange()`、`handleTabRemoved()`、`refreshUploadPanels()`、`isAnyOpen()` 和只读 `snapshot()`。
 
 `uploadPastedFiles(files, { targetName, tabId })` 返回可等待的完成结果，结果固定携带创建时的实例、tab、上传 ID、状态和远端路径。它不拥有原生 paste 或文件拖放事件，也不直接向终端发送路径；应用级 paste controller 消费粘贴、拖放和移动端文件选择结果并负责原 pane fence。拖放入口由 `app/file_drop` 命中 pane 后调用 paste；移动端「上传文件」由注入的 `ingestSelectedFiles` 交给同一条 paste 链路。
 

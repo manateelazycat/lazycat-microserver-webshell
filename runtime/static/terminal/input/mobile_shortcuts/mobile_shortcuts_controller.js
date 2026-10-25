@@ -221,13 +221,13 @@ export function createMobileShortcutsController({
     }
   };
 
-  const resolveShortcutData = (shortcut) => {
+  const resolveShortcutData = (shortcut, session) => {
     const hadStickyModifiers = hasStickyModifiers();
     const encoded = resolveShortcutInputData(shortcut, {
       ctrl: sticky.ctrl,
       shift: sticky.shift,
       alt: sticky.alt,
-    });
+    }, session);
     if (hadStickyModifiers) {
       clearSticky();
     }
@@ -261,7 +261,7 @@ export function createMobileShortcutsController({
       }
       return true;
     }
-    const data = resolveShortcutData(shortcut);
+    const data = resolveShortcutData(shortcut, session);
     if (!data || !session) {
       return false;
     }

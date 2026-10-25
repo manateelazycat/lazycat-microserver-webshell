@@ -182,7 +182,7 @@ export function createTerminalContextMenuController({
         }
         Promise.resolve(result)
           .finally(() => {
-            if (!isMobileLayout() && !pane?.closed) {
+            if (!disposed && !isMobileLayout() && !pane?.closed && getActiveSession() === pane) {
               focusSession(pane);
             }
           })

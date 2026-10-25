@@ -2,11 +2,13 @@ import { createTerminalSelectionLifecycle } from "./selection_lifecycle.js";
 import {
   compareTerminalSelectionCells,
   currentTerminalSelectionCells,
+  extendTerminalSelectionCells,
   nextTerminalSelectionCell,
   normalizeTerminalSelectionCells,
   previousTerminalSelectionCell,
   terminalSelectionContainsCell,
   terminalSelectionText,
+  terminalTouchStringRange,
 } from "./selection_model.js";
 import { createTerminalSelectionView } from "./selection_view.js";
 
@@ -120,12 +122,14 @@ export function createTerminalSelectionController({
     update();
   };
 
-  const applySelection = (session, start, end) => {
+  const applySelection = (session, start, end, { allowSingleCell = false, initialRange = null } = {}) => {
     if (disposed) {
       return false;
     }
     const manager = session?.term?.selectionManager;
-    const normalized = normalizeTerminalSelectionCells(start, end);
+    const normalized = initialRange && end
+      ? extendTerminalSelectionCells(initialRange, end)
+      : normalizeTerminalSelectionCells(start, end);
     if (!manager || !normalized) {
       return false;
     }
@@ -133,17 +137,24 @@ export function createTerminalSelectionController({
     fullBufferSelections.delete(session);
     let nextStart = normalized.start;
     let nextEnd = normalized.end;
-    if (compareTerminalSelectionCells(nextStart, nextEnd) === 0) {
+    if (!allowSingleCell && !initialRange && compareTerminalSelectionCells(nextStart, nextEnd) === 0) {
       nextEnd = nextTerminalSelectionCell(session?.term?.cols, nextStart);
     }
     manager.markCurrentSelectionDirty?.();
     manager.selectionStart = { col: nextStart.col, absoluteRow: nextStart.absoluteRow };
     manager.selectionEnd = { col: nextEnd.col, absoluteRow: nextEnd.absoluteRow };
+    manager.webshellForceSelection = allowSingleCell || Boolean(initialRange);
     manager.isSelecting = false;
     manager.markCurrentSelectionDirty?.();
     renderSelection(session);
     emitSelectionChange(session);
     return true;
+  };
+
+  const selectStringAtCell = (session, cell) => {
+    if (disposed || !cell) return null;
+    const range = terminalTouchStringRange(session?.term, cell) || normalizeTerminalSelectionCells(cell, cell);
+    return applySelection(session, range.start, range.end, { allowSingleCell: true }) ? range : null;
   };
 
   const installSelectionManagerCopyPatch = (session) => {
@@ -533,7 +544,7 @@ export function createTerminalSelectionController({
       }
       activateSession(session);
       fullBufferSelections.delete(session);
-      return applySelection(session, state.startCell, current);
+      return applySelection(session, state.startCell, current, { initialRange: state.initialRange });
     };
     const beginTouchSelection = (state, touch = null) => {
       if (!state || touchState !== state || state.selecting || !isTouchSelectionLayout() || session.closed) {
@@ -552,7 +563,8 @@ export function createTerminalSelectionController({
       suppressTerminalTouchScroll(session);
       activateSession(session);
       fullBufferSelections.delete(session);
-      return applySelection(session, state.startCell, current);
+      state.initialRange = selectStringAtCell(session, current);
+      return Boolean(state.initialRange);
     };
     lifecycle.listenSession(session, session.shellEl, "touchstart", (event) => {
       resetTouchSelectionState();
@@ -581,6 +593,7 @@ export function createTerminalSelectionController({
       }
       touchState = {
         startCell,
+        initialRange: null,
         startX: touch.clientX,
         startY: touch.clientY,
         lastX: touch.clientX,
@@ -685,6 +698,7 @@ export function createTerminalSelectionController({
 
   return Object.freeze({
     apply: applySelection,
+    selectStringAtCell,
 
     cellFromPoint(session, clientX, clientY) {
       return disposed ? null : selectionView.cellFromPoint(session, clientX, clientY);

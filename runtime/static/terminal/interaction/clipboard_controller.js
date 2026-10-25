@@ -21,6 +21,7 @@ export function createTerminalClipboardController({
   activateSession = () => {},
   reassertSessionSize = () => {},
   focusForNativePaste = () => {},
+  pasteFiles = async () => false,
   prepareSelectionManager = () => {},
   dragThresholdPx = defaultDragThresholdPx,
   consoleObject = globalThis.console,
@@ -99,7 +100,12 @@ export function createTerminalClipboardController({
       return false;
     }
     try {
-      const value = text === null ? await readText() : String(text || "");
+      const content = text === null ? await clipboard.readContent() : null;
+      if (disposed || session.closed) return false;
+      if (content?.files?.length > 0) {
+        return await pasteFiles(session, content.files) === true;
+      }
+      const value = content ? String(content.text || "") : String(text || "");
       if (disposed || session.closed || !value) {
         return false;
       }

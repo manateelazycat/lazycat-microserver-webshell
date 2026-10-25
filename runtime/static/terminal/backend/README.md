@@ -14,7 +14,7 @@
 
 ## 顺序与呈现
 
-v17 的 `restore` RPC 属于同一串行通道，在独立、相同 WASM 指纹的模块实例内导入 Agent 状态。`checkpointRestorePending` 期间 `isReady=false`，禁止提前提交回放；重连/重置仍按 generation 退休旧操作。导入只重建 Worker 自己的 VT，不覆盖 UI 所用的键盘编码实例。`memory_checkpoint.js` 是固定 wrapper/引擎 ABI 的唯一适配点，恢复所有原生指针后清除旧 JS 缓冲指针，并应用当前浏览器主题默认值；不修改程序显式设置的动态颜色。日志新增 `state_checkpoint_restore_start/complete`。
+v17 的 `restore` RPC 属于同一串行通道，在独立模块实例内导入 Agent 状态。WASM 指纹不同仍继续恢复，Worker 通过 `checkpoint-wasm-mismatch` 通知 UI；同一页面只输出一次含双方摘要的警告，多 pane 和 Worker 重建不重复输出。协议、内存大小、解压后校验和及 wrapper ABI 校验仍保留。`checkpointRestorePending` 期间 `isReady=false`，禁止提前提交回放；重连/重置仍按 generation 退休旧操作。导入只重建 Worker 自己的 VT，不覆盖 UI 所用的键盘编码实例。`memory_checkpoint.js` 是固定 wrapper/引擎 ABI 的唯一适配点，恢复所有原生指针后清除旧 JS 缓冲指针，并应用当前浏览器主题默认值；不修改程序显式设置的动态颜色。日志新增 `state_checkpoint_restore_start/complete`。
 
 v19 的 `diagnose` RPC 仅由手动渲染捕获调用。`worker/render_diagnostics.js` 读取独立的原生活动屏幕及 RenderState，不刷新缓存、不标记 clean、不推进 revision，也不向 UI 提交新帧；响应只含逐行指纹与占格分布。`cell_diagnostics.js` 统一 UI 和原生对照口径。诊断失败或超时不进入终端故障恢复，缺少新 ABI 时返回明确的不可用状态。
 

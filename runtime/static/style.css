@@ -954,6 +954,15 @@ body.split-resize-active * {
   user-select: none;
 }
 
+.terminal-host .terminal-cursor-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 0;
+  pointer-events: none;
+  will-change: transform;
+}
+
 .terminal-frame-hold {
   position: absolute;
   inset: 0;
@@ -2121,6 +2130,10 @@ body.split-resize-active * {
 
 .settings-section:last-child {
   border-bottom: 0;
+}
+
+.settings-section[aria-labelledby="settingsFontSizeTitle"] {
+  gap: 6px;
 }
 
 [data-settings-panel="terminal"] > .settings-section {
@@ -3318,6 +3331,7 @@ body.split-resize-active * {
   outline: none;
 }
 
+select.settings-select,
 .settings-service-forward-field select,
 .mobile-shortcut-editor-field select,
 .desktop-shortcut-editor-field select {
@@ -3336,6 +3350,7 @@ body.split-resize-active * {
     5px 5px;
 }
 
+.settings-select.mobile-custom-select-open,
 .settings-service-forward-field select.mobile-custom-select-open,
 .mobile-shortcut-editor-field select.mobile-custom-select-open,
 .desktop-shortcut-editor-field select.mobile-custom-select-open {
@@ -3481,6 +3496,7 @@ body.split-resize-active * {
   pointer-events: none;
 }
 
+.settings-select,
 .mobile-shortcut-editor-field input,
 .mobile-shortcut-editor-field select,
 .mobile-shortcut-editor-field textarea,
@@ -3498,6 +3514,7 @@ body.split-resize-active * {
   box-sizing: border-box;
 }
 
+.settings-select,
 .mobile-shortcut-editor-field input,
 .mobile-shortcut-editor-field select,
 .desktop-shortcut-editor-field input,
@@ -3513,6 +3530,7 @@ body.split-resize-active * {
   line-height: 1.35;
 }
 
+.settings-select:focus,
 .mobile-shortcut-editor-field input:focus,
 .mobile-shortcut-editor-field select:focus,
 .mobile-shortcut-editor-field textarea:focus,
@@ -3844,9 +3862,10 @@ body.is-mobile-shortcut-dragging {
   min-height: 0;
   padding: 14px;
   overflow-x: hidden;
-  overflow-y: hidden;
+  overflow-y: auto;
   align-content: start;
   overscroll-behavior-y: contain;
+  touch-action: pan-y;
   scrollbar-width: none;
   box-sizing: border-box;
 }
@@ -3857,7 +3876,6 @@ body.is-mobile-shortcut-dragging {
 }
 
 .tab-overview-grid.is-scrollable {
-  overflow-y: auto;
   scrollbar-color: rgba(128, 128, 128, 0.5) rgba(128, 128, 128, 0.1);
   scrollbar-width: thin;
 }
@@ -6746,6 +6764,24 @@ body.attachment-browser-open .mobile-shortcuts {
 }
 
 @media (max-width: 640px), (hover: none), (pointer: coarse) {
+  body:not(.force-pc-mode) .instance-switcher-panel {
+    --instance-switcher-shortcuts-height: var(--mobile-shortcuts-total-height);
+    /* Reserve the menu anchor, safe area and bottom dock even in landscape. */
+    max-height: max(0px, calc(100dvh - var(--lzc-safe-area-inset-top) - 58px - var(--instance-switcher-shortcuts-height) - var(--mobile-bottom-dock-offset)));
+    overscroll-behavior-y: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  body:not(.force-pc-mode).mobile-shortcuts-empty .instance-switcher-panel {
+    --instance-switcher-shortcuts-height: 0px;
+  }
+
+  body:not(.force-pc-mode) .instance-switcher-list {
+    /* Let the complete menu scroll instead of nesting another scroll region. */
+    max-height: none;
+    overflow-y: visible;
+  }
+
   .theme-picker-panel,
   .settings-panel,
   .device-panel,

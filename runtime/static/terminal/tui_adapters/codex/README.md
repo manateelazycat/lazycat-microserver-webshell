@@ -19,3 +19,9 @@ npm 安装后的入口可能是 `node /usr/sbin/codex`、`node /home/用户/.loc
 构建前端后按 `spec/terminal/theme-following/` 手工验收：运行真实 Codex 并保留未提交文字，连续切换深色、浅色及不同色调主题，检查输入框和同色背景；先换主题再启动，刷新页面/重连后再换主题；滚动和选中文本；退出 Codex 后以及另一个非 Codex 会话显示同 RGB，确认没有新增改色。确认进程信息已由既有 activity 更新。无需新增自动化场景。
 
 按 `spec/terminal/codex-fullscreen-interaction/` 在真实 Codex 全屏会话验收：手机上下滑动浏览内容，长按后调整 WebShell 选区并打开操作栏；桌面点击仍有效、拖选归 WebShell、右键只出现 WebShell 菜单。再检查 Codex 非全屏界面和普通终端不受影响。
+
+## 输入组合键
+
+`input_adapter.js` 通过 `resolveCodexKeyInput()` 与 `resolveCodexShortcutInput()` 为精确识别的 Codex 会话保留 Shift+Enter，编码为 CSI-u `ESC [ 13 ; 2 u`。硬件键盘和快捷键栏的 Shift+Enter 共用该规则；输入法组合确认、普通 Enter、其他修饰组合及普通 shell 沿用原输入路径，不改写用户粘贴或自定义文本。规则依据 [Codex rust-v0.154.0 编辑器默认键位](https://github.com/openai/codex/blob/rust-v0.154.0/codex-rs/tui/src/keymap.rs)。
+
+手工验证 Codex 输入文字后按 Shift+Enter 只换行、不提交，普通 Enter 仍提交；移动端 Shift 快捷键加 Enter 和自定义 Shift+Enter 同样换行。切换到普通 shell 后确认原 Enter 行为保留。

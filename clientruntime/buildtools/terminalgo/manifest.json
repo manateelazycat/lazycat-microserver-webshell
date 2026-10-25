@@ -1,0 +1,13 @@
+{
+  "version": "go1.26.8",
+  "source": "https://go.dev/dl/?mode=json&include=all",
+  "archives": {
+    "linux-amd64": {"sha256": "d0f743b33e8d8945e6b1f432edd15785c70507121d6e2a723b21285eddf8b57b", "size": 66897291},
+    "linux-arm64": {"sha256": "211ffced9dcb9633a55eac6364816ec0ddd951389a740e88fa8b3337971bdda0", "size": 63811405},
+    "linux-riscv64": {"sha256": "75d368eef1dc44ff9de0c8cac4b37c519e541e6d46c4291c1ff959644a71af32", "size": 64772072},
+    "darwin-amd64": {"sha256": "186be014105aa6542b767d2c6ed5cca10a0214bdff809ef1724022a8c7894150", "size": 67759394},
+    "darwin-arm64": {"sha256": "a012b25b571bd0138a03dcd25375ceba866fe5ca822f426d2c66a4de56fd3f4b", "size": 64626620},
+    "windows-amd64": {"sha256": "b92c3b2adae85a11ba71fe7216daf0d84e82af4c8ab6c5625807f28622043a59", "size": 74957586},
+    "windows-arm64": {"sha256": "4bc560ed3ccb64eec0be6180b8c29185c07f5215276820adb4303d7bf3365435", "size": 71485334}
+  }
+}

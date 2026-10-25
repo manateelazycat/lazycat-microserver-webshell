@@ -3,6 +3,7 @@ import { createSettingsAPI } from "./settings_api.js";
 import { createSettingsLifecycle } from "./settings_lifecycle.js";
 import {
   BACKTAB_SEQUENCE,
+  DEFAULT_TERMINAL_CURSOR_STYLE,
   DEFAULT_TERMINAL_FONT_FAMILY,
   DEFAULT_TERMINAL_FONT_SIZE,
   DEFAULT_TERMINAL_LINE_HEIGHT_PERCENT,
@@ -22,6 +23,7 @@ import {
   normalizeShortcutDefinition,
   normalizeShortcutInputModifiers,
   normalizeTerminalFontSize,
+  normalizeTerminalCursorStyle,
   readStoredBoolean,
   readStoredTerminalFontSize,
   resolveMobileShortcutInputData,
@@ -73,11 +75,14 @@ export function createSettingsController({
   syncDebugControls = noop,
   onDebugModeDependents = noop,
   onTerminalFontFamilyChange = noop,
+  onTerminalCursorStyleChange = noop,
+  onTerminalSmoothCursorChange = noop,
   onTerminalFontSizeChange = noop,
   onTerminalScrollbackChange = noop,
   onTerminalLineHeightChange = noop,
   onDesktopShortcutsBarChange = noop,
   onRestartWorkspaceRestoreSaved = noop,
+  onMobilePreInputChange = noop,
   onMobilePixelScrollChange = noop,
   onMobileDoubleTapReminderChange = noop,
   onMobileShortcutsChange = noop,
@@ -87,8 +92,11 @@ export function createSettingsController({
 } = {}) {
   const defaultDesktopShortcuts = createDefaultDesktopShortcuts(navigatorObject);
   const forcePCModeStorageKey = `${storagePrefix}.forcePCMode`;
+  const smoothCursorStorageKey = `${storagePrefix}.smoothCursorEnabled`;
   const mobileRemoteDesktopStorageKey = "lightos-mobile-remote-desktop-enabled";
   let snapshot = cloneSettingsSnapshot({
+    terminalCursorStyle: DEFAULT_TERMINAL_CURSOR_STYLE,
+    terminalSmoothCursorEnabled: readStoredBoolean(storage, smoothCursorStorageKey, true),
     terminalFontSize: readStoredTerminalFontSize(storage, storagePrefix),
     terminalLineHeightPercent: DEFAULT_TERMINAL_LINE_HEIGHT_PERCENT,
     terminalScrollback: DEFAULT_TERMINAL_SCROLLBACK,
@@ -99,6 +107,7 @@ export function createSettingsController({
     desktopMouseClipboardEnabled: true,
     desktopShortcutsBarEnabled: false,
     restartWorkspaceRestoreEnabled: false,
+    mobilePreInputEnabled: false,
     mobilePixelScrollEnabled: true,
     mobileDoubleTapReminderEnabled: true,
     mobileRemoteDesktopEnabled: readStoredBoolean(storage, mobileRemoteDesktopStorageKey, false),
@@ -127,6 +136,7 @@ export function createSettingsController({
   let mobileShortcutClickSuppression = null;
   let mobileShortcutsScrollbarTimer = 0;
   let desktopShortcutsScrollbarTimer = 0;
+  let fontSizeSaveTimer = 0;
   let lineHeightSaveTimer = 0;
   let scrollbackSaveTimer = 0;
   let focusTimer = 0;
@@ -190,6 +200,8 @@ export function createSettingsController({
   };
 
   const syncView = () => {
+    if (!fontSizeSaveTimer) view.setFontSize?.(snapshot.terminalFontSize);
+    view.setCursorStyle?.(snapshot.terminalCursorStyle);
     view.setLineHeight?.(snapshot.terminalLineHeightPercent);
     view.setScrollback?.(snapshot.terminalScrollback);
     view.syncToggles?.(snapshot, { debugMode: isDebugModeEnabled() });
@@ -201,6 +213,12 @@ export function createSettingsController({
   };
 
   const notifyChanges = (next, previous, { force = false, forceFontRefresh = false } = {}) => {
+    if (force || next.terminalCursorStyle !== previous.terminalCursorStyle) {
+      onTerminalCursorStyleChange(next.terminalCursorStyle, previous.terminalCursorStyle);
+    }
+    if (force || next.terminalSmoothCursorEnabled !== previous.terminalSmoothCursorEnabled) {
+      onTerminalSmoothCursorChange(next.terminalSmoothCursorEnabled, previous.terminalSmoothCursorEnabled);
+    }
     if (force || next.terminalScrollback !== previous.terminalScrollback) {
       onTerminalScrollbackChange(previous.terminalScrollback, next.terminalScrollback);
     }
@@ -212,6 +230,9 @@ export function createSettingsController({
     }
     if (force || next.desktopShortcutsBarEnabled !== previous.desktopShortcutsBarEnabled) {
       onDesktopShortcutsBarChange(next.desktopShortcutsBarEnabled, previous.desktopShortcutsBarEnabled);
+    }
+    if (force || next.mobilePreInputEnabled !== previous.mobilePreInputEnabled) {
+      onMobilePreInputChange(next.mobilePreInputEnabled, previous.mobilePreInputEnabled);
     }
     if (force || next.mobilePixelScrollEnabled !== previous.mobilePixelScrollEnabled) {
       onMobilePixelScrollChange(next.mobilePixelScrollEnabled, previous.mobilePixelScrollEnabled);
@@ -325,6 +346,20 @@ export function createSettingsController({
         view.setSaving?.(savingKind, false);
       }
     });
+  };
+
+  const saveFontSizeFromInput = () => {
+    clearTimer(fontSizeSaveTimer);
+    fontSizeSaveTimer = 0;
+    let value;
+    try {
+      value = view.readFontSize();
+    } catch (error) {
+      view.setFontSize?.(snapshot.terminalFontSize);
+      view.setFeedback?.(error.message || "字号设置无效。", "error");
+      return;
+    }
+    controller.setTerminalFontSize(value);
   };
 
   const saveLineHeightFromInput = () => {
@@ -839,6 +874,34 @@ export function createSettingsController({
       if (!fontEditMode && !view.elements?.fontInput?.disabled) view.openFontPicker?.();
     },
     onFontInputChange: uploadFonts,
+    onFontSizeInput: () => {
+      clearTimer(fontSizeSaveTimer);
+      fontSizeSaveTimer = 0;
+      try {
+        view.readFontSize();
+      } catch (error) {
+        return;
+      }
+      fontSizeSaveTimer = windowObject?.setTimeout?.(saveFontSizeFromInput, 360) || 0;
+    },
+    onFontSizeChange: saveFontSizeFromInput,
+    onFontSizeReset: () => controller.setTerminalFontSize(DEFAULT_TERMINAL_FONT_SIZE),
+    onCursorStyleChange: (event) => {
+      const value = normalizeTerminalCursorStyle(event.target?.value);
+      if (value === snapshot.terminalCursorStyle) return;
+      enqueueMutation({
+        field: "terminalCursorStyle",
+        value,
+        patch: { terminal_cursor_style: value },
+        savingKind: "cursorStyle",
+        refreshFonts: false,
+      }).catch((error) => view.setFeedback?.(error.message || "光标样式保存失败。", "error"));
+    },
+    onSmoothCursorChange: () => {
+      const value = view.toggleValue?.("smoothCursor") === true;
+      replaceSnapshot({ terminalSmoothCursorEnabled: value });
+      persistLocal(smoothCursorStorageKey, value ? "true" : "false");
+    },
     onLineHeightInput: () => {
       clearTimer(lineHeightSaveTimer);
       try {
@@ -895,6 +958,9 @@ export function createSettingsController({
       }).then(() => onRestartWorkspaceRestoreSaved(value))
         .catch((error) => view.setFeedback?.(error.message || "重启恢复设置保存失败。", "error"));
     },
+    onMobilePreInputChange: () => saveToggle(
+      "mobilePreInputEnabled", "mobile_pre_input_enabled", "mobilePreInput", "预输入框设置保存失败。",
+    ),
     onMobilePixelScrollChange: () => saveToggle(
       "mobilePixelScrollEnabled", "mobile_pixel_scroll_enabled", "mobilePixelScroll", "像素级滚动设置保存失败。",
     ),
@@ -1080,6 +1146,7 @@ export function createSettingsController({
     },
     close() {
       const wasOpen = view.isOpen?.() === true;
+      if (fontSizeSaveTimer) saveFontSizeFromInput();
       cancelMobileShortcutInteraction();
       closeMobileEditor();
       closeDesktopEditor();
@@ -1099,6 +1166,7 @@ export function createSettingsController({
       loadGeneration += 1;
       clearTimer(mobileShortcutsScrollbarTimer);
       clearTimer(desktopShortcutsScrollbarTimer);
+      clearTimer(fontSizeSaveTimer);
       clearTimer(lineHeightSaveTimer);
       clearTimer(scrollbackSaveTimer);
       clearTimer(focusTimer);
@@ -1110,7 +1178,9 @@ export function createSettingsController({
       view.close?.();
     },
     flushPending() {
-      if (disposed || terminalScrollbackKeepaliveValue) return;
+      if (disposed) return;
+      if (fontSizeSaveTimer) saveFontSizeFromInput();
+      if (terminalScrollbackKeepaliveValue) return;
       let value;
       try {
         value = view.readScrollback?.();
@@ -1124,11 +1194,14 @@ export function createSettingsController({
     getRestartWorkspaceRestoreEnabled: () => snapshot.restartWorkspaceRestoreEnabled,
     getForcePCModeEnabled: () => snapshot.forcePCModeEnabled,
     getMobileDoubleTapReminderEnabled: () => snapshot.mobileDoubleTapReminderEnabled,
+    getMobilePreInputEnabled: () => snapshot.mobilePreInputEnabled,
     getMobilePixelScrollEnabled: () => snapshot.mobilePixelScrollEnabled,
     getMobileRemoteDesktopEnabled: () => snapshot.mobileRemoteDesktopEnabled,
     getMobileShortcutRows: () => cloneMobileShortcutRows(snapshot.mobileShortcuts),
     getSnapshot: () => cloneSettingsSnapshot(snapshot),
     getTerminalFontFamily: () => snapshot.terminalFontFamily,
+    getTerminalCursorStyle: () => snapshot.terminalCursorStyle,
+    getTerminalSmoothCursorEnabled: () => snapshot.terminalSmoothCursorEnabled,
     getTerminalFontSize: () => snapshot.terminalFontSize,
     getTerminalLineHeightPercent: () => snapshot.terminalLineHeightPercent,
     getTerminalScrollback: () => snapshot.terminalScrollback,
@@ -1191,7 +1264,11 @@ export function createSettingsController({
       view.setFeedback?.(message, tone);
     },
     setTerminalFontSize(size) {
+      if (disposed) return;
+      clearTimer(fontSizeSaveTimer);
+      fontSizeSaveTimer = 0;
       const next = normalizeTerminalFontSize(size);
+      view.setFontSize?.(next);
       if (next === snapshot.terminalFontSize) return;
       const previous = snapshot.terminalFontSize;
       snapshot = cloneSettingsSnapshot({ ...snapshot, terminalFontSize: next });

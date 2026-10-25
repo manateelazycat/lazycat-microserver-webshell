@@ -8,7 +8,7 @@
 
 ## 公开入口与生命周期
 
-外部只能从 `terminal/screenshot/index.js` 导入 API。截图事务通过创建时的 terminal/renderer geometry 校验一致性；尺寸、renderer 或 session 变化时必须中止。模块不注册长期 listener/timer，临时 Canvas、对象 URL 和异步事务由调用方及实现现有 finally 路径清理。
+外部只能从 `terminal/screenshot/index.js` 导入 API。截图事务通过创建时的 terminal/renderer geometry 校验一致性；尺寸、renderer 或 session 变化时必须中止。模块不注册常驻 listener。Android 多分片下载逐张交接，避免连续点击挤占原生下载处理；下载对象 URL 保留 60 秒，给原生下载器或保存对话框留出读取时间，再自动回收。页面卸载也会释放其对象 URL。网页反馈只表示下载已发起，不代替浏览器确认实际落盘。
 
 ## 文件与验证
 

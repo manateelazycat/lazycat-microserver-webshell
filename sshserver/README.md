@@ -1,6 +1,6 @@
 # 客户端 SSH 协议适配
 
-本模块负责标准 SSH 协议与独立 Core shell 的连接，不单独开放 SSH 端口、不安装系统 sshd、不操作浏览器工作区。`StartManaged` 将 SSH 挂到现有 localserver 监听器，由 hportal managed HTTP 通道转发。PC/CLI 已装配本模块；LightOS 独立管理设置、票据及微服 TCP 入口，启用并确认配置后才可通过实例命令连接。
+本模块负责标准 SSH 协议与独立 Core shell 的连接，不单独开放 SSH 端口、不安装系统 sshd、不操作浏览器工作区。`StartManaged` 将 SSH 挂到现有 localserver 监听器，由宿主受管理的 HTTP 网关转发。PC/CLI 已装配本模块；LightOS 独立管理设置、票据及微服 TCP 入口，启用并确认配置后才可通过实例命令连接。
 
 ## 入口和依赖
 
@@ -18,7 +18,7 @@
 
 依赖方向是装配入口 → SSH adapter → Core → 注入的平台接口。Core 不导入本模块。使用 [Go SSH](https://pkg.go.dev/golang.org/x/crypto/ssh)、标准库 `crypto/pbkdf2` 和 [bcrypt](https://pkg.go.dev/golang.org/x/crypto/bcrypt) 兼容旧密码，不自行实现加密算法。
 
-这是独立 Go module，当前 `x/crypto v0.57.0` 需要 Go 1.26。桌面和 CLI 的 terminal-core 子模块显式引用它；根模块及既有容器、移动端的依赖和 Go 要求不变。根目录 `go build ./...` 不会自动构建此模块，完整客户端产物使用各自的 terminal-core 构建脚本。
+这是独立 Go module，当前 `x/crypto v0.57.0` 需要 Go 1.26。clientruntime 及宿主的终端构建显式引用它；根模块及既有容器、移动端的依赖和 Go 要求不变。根目录 `go build ./...` 不会自动构建此模块，完整客户端产物使用各自的 terminal-core 构建脚本。
 
 ## 安全与生命周期约束
 
@@ -30,7 +30,7 @@
 - TCP 目标从客户端机器拨号，`-R` 在客户端机器监听；默认 `localhost` 仅绑定回环，显式地址按本机权限绑定。每连接最多 16 个远端 TCP listener；总通道配额也约束转发连接。Agent 和 X11 由 `-A`、`-X/-Y` 请求触发，关联 socket/命名管道与 cookie 仅存在于本机当前用户范围，不上传到微服。
 - 最多 32 个连接；从连接到完成认证限时 120 秒（包含确认主机指纹和手动输入密码），每连接最多 3 次认证尝试，每实例每分钟最多 30 次密码计算。认证成功后无固定挂机期限；心跳仅识别失效的网络连接。上层入口还需执行入口级连接限流。
 - SSH 拥有自己的 shell 集合；交互 shell 断线后由用户管理，没有自动到期时间，最多 32 个终端、每个最近 1 MiB 输出，拒绝同时附着。已退出记录在达到容量时可清理，运行中任务不能被容量回收。exec/文件传输/转发随连接结束；已断线时退出的会话可读取最终结果。明确撤权回收全部所属 PTY/进程，包括保留会话，不调用浏览器 `Local.Close`。关闭整个客户端接入时，由上层同时关闭浏览器和 SSH 生命周期。
-- managed 入口的私有父管道沿用 hportal；父进程终止会关闭服务，短暂缺少授权续期仅暂停新接入，不回收任务。状态额外报告 `admission_allowed`；旧客户端不带此字段时按原方式判断。SSH 配置错误、密钥存储错误或远端未接入不重启健康浏览器终端。没有设置/隧道专用票据时，普通 Webshell 票据不能使用 SSH 路由。
+- managed 入口的私有父管道由 clientruntime/managedruntime 管理；父进程终止会关闭服务，短暂缺少授权续期仅暂停新接入，不回收任务。状态额外报告 `admission_allowed`；旧客户端不带此字段时按原方式判断。SSH 配置错误、密钥存储错误或远端未接入不重启健康浏览器终端。没有设置/隧道专用票据时，普通 Webshell 票据不能使用 SSH 路由。
 
 用户命令、平台边界及手动测试步骤见 [USAGE.md](USAGE.md)。
 

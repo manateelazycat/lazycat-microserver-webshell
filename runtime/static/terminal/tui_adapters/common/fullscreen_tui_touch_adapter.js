@@ -12,6 +12,7 @@ export const installFullscreenTuiTouchAdapter = ({
   blurInput,
   suppressTouchScroll,
   applySelection,
+  selectStringAtCell,
   updateSelectionHandles,
   updateSelectionAutoScroll,
   stopSelectionAutoScroll,
@@ -33,6 +34,7 @@ export const installFullscreenTuiTouchAdapter = ({
 
   const gesture = createFullscreenTuiTouchGesture({ moveThresholdPx });
   let startCell = null;
+  let initialRange = null;
   let longPressTimer = 0;
   let selectionAutoScrollState = null;
   let mouseInputPrepared = false;
@@ -58,6 +60,7 @@ export const installFullscreenTuiTouchAdapter = ({
     stopSelectionAutoScroll?.(selectionAutoScrollState);
     selectionAutoScrollState = null;
     startCell = null;
+    initialRange = null;
     mouseInputPrepared = false;
     if (cancelGesture) {
       gesture.cancel();
@@ -81,13 +84,17 @@ export const installFullscreenTuiTouchAdapter = ({
     return touches.find((touch) => touch.identifier === snapshot.identifier) || null;
   };
 
-  const applySelectionAtPoint = (point) => {
+  const applySelectionAtPoint = (point, { initial = false } = {}) => {
     const current = point ? cellFromPoint?.(point.clientX, point.clientY) : null;
     if (!startCell || !current) {
       return false;
     }
     activatePane?.();
-    applySelection?.(startCell, current);
+    if (initial && selectStringAtCell) {
+      initialRange = selectStringAtCell(current);
+      return Boolean(initialRange);
+    }
+    applySelection?.(startCell, current, { initialRange });
     return true;
   };
 
@@ -96,7 +103,7 @@ export const installFullscreenTuiTouchAdapter = ({
       return;
     }
     const snapshot = gesture.snapshot();
-    if (!applySelectionAtPoint({ clientX: snapshot.lastX, clientY: snapshot.lastY })) {
+    if (!applySelectionAtPoint({ clientX: snapshot.lastX, clientY: snapshot.lastY }, { initial: true })) {
       clearState();
       return;
     }

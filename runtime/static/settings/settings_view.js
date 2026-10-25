@@ -1,9 +1,12 @@
 import {
+  DEFAULT_TERMINAL_FONT_SIZE,
   DEFAULT_TERMINAL_LINE_HEIGHT_PERCENT,
   DEFAULT_TERMINAL_SCROLLBACK,
   MAX_TERMINAL_LINE_HEIGHT_PERCENT,
+  MAX_TERMINAL_FONT_SIZE,
   MAX_TERMINAL_SCROLLBACK,
   MIN_TERMINAL_LINE_HEIGHT_PERCENT,
+  MIN_TERMINAL_FONT_SIZE,
   MIN_TERMINAL_SCROLLBACK,
   desktopShortcutActionLabels,
   desktopShortcutActionOptions,
@@ -45,6 +48,10 @@ export function createSettingsView({
     fontDeleteSelectedButton: byID("settingsFontDeleteSelectedButton"),
     fontCards: byID("settingsFontCards"),
     fontInput: byID("settingsFontInput"),
+    fontSizeInput: byID("settingsFontSizeInput"),
+    fontSizeResetButton: byID("settingsFontSizeResetButton"),
+    cursorStyleSelect: byID("settingsCursorStyleSelect"),
+    smoothCursorToggle: byID("settingsSmoothCursorToggle"),
     lineHeightInput: byID("settingsLineHeightInput"),
     lineHeightResetButton: byID("settingsLineHeightResetButton"),
     scrollbackInput: byID("settingsScrollbackInput"),
@@ -54,6 +61,7 @@ export function createSettingsView({
     desktopMouseClipboardToggle: byID("settingsDesktopMouseClipboardToggle"),
     desktopShortcutsBarToggle: byID("settingsDesktopShortcutsBarToggle"),
     restartWorkspaceRestoreToggle: byID("settingsRestartWorkspaceRestoreToggle"),
+    mobilePreInputToggle: byID("settingsMobilePreInputToggle"),
     mobilePixelScrollToggle: byID("settingsMobilePixelScrollToggle"),
     mobileDoubleTapReminderToggle: byID("settingsMobileDoubleTapReminderToggle"),
     mobileShortcutAddButton: byID("settingsMobileShortcutAddButton"),
@@ -346,6 +354,9 @@ export function createSettingsView({
     readLineHeight() {
       return readInteger(elements.lineHeightInput, MIN_TERMINAL_LINE_HEIGHT_PERCENT, MAX_TERMINAL_LINE_HEIGHT_PERCENT, "行间距");
     },
+    readFontSize() {
+      return readInteger(elements.fontSizeInput, MIN_TERMINAL_FONT_SIZE, MAX_TERMINAL_FONT_SIZE, "字号");
+    },
     readMobileShortcutDraft() {
       return {
         type: selectedMobileShortcutType(),
@@ -534,16 +545,24 @@ export function createSettingsView({
     setLineHeight(value) {
       if (elements.lineHeightInput) elements.lineHeightInput.value = String(value || DEFAULT_TERMINAL_LINE_HEIGHT_PERCENT);
     },
+    setFontSize(value) {
+      if (elements.fontSizeInput) elements.fontSizeInput.value = String(value || DEFAULT_TERMINAL_FONT_SIZE);
+    },
+    setCursorStyle(value) {
+      if (elements.cursorStyleSelect) elements.cursorStyleSelect.value = value;
+    },
     setMobileShortcutsScrolling(scrolling) {
       elements.mobileShortcutsPanel?.classList.toggle("is-scrolling", scrolling);
     },
     setSaving(kind, saving) {
       const map = {
+        cursorStyle: [elements.cursorStyleSelect],
         lineHeight: [elements.lineHeightResetButton],
         scrollback: [elements.scrollbackResetButton],
         desktopMouseClipboard: [elements.desktopMouseClipboardToggle],
         desktopShortcutsBar: [elements.desktopShortcutsBarToggle],
         restartWorkspaceRestore: [elements.restartWorkspaceRestoreToggle],
+        mobilePreInput: [elements.mobilePreInputToggle],
         mobilePixelScroll: [elements.mobilePixelScrollToggle],
         mobileDoubleTapReminder: [elements.mobileDoubleTapReminderToggle],
         mobileShortcuts: [elements.mobileShortcutAddButton, elements.mobileShortcutResetButton, ...Array.from(elements.mobileShortcutList?.querySelectorAll?.("button") || [])],
@@ -622,6 +641,7 @@ export function createSettingsView({
       if (elements.mobileShortcutCustomKeyField) elements.mobileShortcutCustomKeyField.hidden = !isInput || elements.mobileShortcutKeySelect?.value !== "custom";
     },
     syncToggles(snapshot, { debugMode = false } = {}) {
+      if (elements.smoothCursorToggle) elements.smoothCursorToggle.checked = snapshot.terminalSmoothCursorEnabled;
       if (elements.mobileRemoteDesktopToggle) elements.mobileRemoteDesktopToggle.checked = snapshot.mobileRemoteDesktopEnabled;
       if (elements.forcePCModeToggle) {
         elements.forcePCModeToggle.checked = snapshot.forcePCModeEnabled;
@@ -630,17 +650,20 @@ export function createSettingsView({
       if (elements.desktopMouseClipboardToggle) elements.desktopMouseClipboardToggle.checked = snapshot.desktopMouseClipboardEnabled;
       if (elements.desktopShortcutsBarToggle) elements.desktopShortcutsBarToggle.checked = snapshot.desktopShortcutsBarEnabled;
       if (elements.restartWorkspaceRestoreToggle) elements.restartWorkspaceRestoreToggle.checked = snapshot.restartWorkspaceRestoreEnabled;
+      if (elements.mobilePreInputToggle) elements.mobilePreInputToggle.checked = snapshot.mobilePreInputEnabled;
       if (elements.mobilePixelScrollToggle) elements.mobilePixelScrollToggle.checked = snapshot.mobilePixelScrollEnabled;
       if (elements.mobileDoubleTapReminderToggle) elements.mobileDoubleTapReminderToggle.checked = snapshot.mobileDoubleTapReminderEnabled;
       documentObject?.body?.classList.toggle("desktop-shortcuts-bar-enabled", snapshot.desktopShortcutsBarEnabled);
     },
     toggleValue(name) {
       const map = {
+        smoothCursor: elements.smoothCursorToggle,
         mobileRemoteDesktop: elements.mobileRemoteDesktopToggle,
         forcePCMode: elements.forcePCModeToggle,
         desktopMouseClipboard: elements.desktopMouseClipboardToggle,
         desktopShortcutsBar: elements.desktopShortcutsBarToggle,
         restartWorkspaceRestore: elements.restartWorkspaceRestoreToggle,
+        mobilePreInput: elements.mobilePreInputToggle,
         mobilePixelScroll: elements.mobilePixelScrollToggle,
         mobileDoubleTapReminder: elements.mobileDoubleTapReminderToggle,
       };

@@ -39,14 +39,18 @@ export function createTerminalOverviewController({
   const tabOverviewDragHoldDelayMs = 320;
   const tabOverviewDragAutoScrollEdgePx = 58;
   const tabOverviewDragAutoScrollMaxStepPx = 14;
+  const tabOverviewScrollIdleDelayMs = 140;
 
   let started = false;
   let disposed = false;
   let tabOverviewRenderFrame = 0;
   let tabOverviewFocusFrame = 0;
+  let tabOverviewScrollIdleTimer = 0;
+  let tabOverviewRenderPending = false;
   let tabOverviewDragState = null;
   let tabOverviewSuppressClickUntil = 0;
   let mobileOverviewEdgeSwipe = null;
+  let mobileOverviewEdgeSwipeCleanup = null;
   let dragTrackingCleanups = [];
   let dragTouchMoveCleanup = null;
   const ownedFrames = new Set();
@@ -100,12 +104,16 @@ export function createTerminalOverviewController({
   };
 
   const renderTabOverview = () => measureTask("tab overview render", () => {
-    if (disposed || !view.elements?.grid || tabOverviewDragState?.dragging) {
+    if (disposed || !view.elements?.grid) {
       return;
     }
-    if (tabOverviewDragState) {
-      finishTabOverviewDrag({ cancel: true });
+    // Keep the touched card and scroll geometry stable through the gesture and
+    // native momentum. Apply the latest preview after interaction settles.
+    if (tabOverviewDragState || tabOverviewScrollIdleTimer) {
+      tabOverviewRenderPending = true;
+      return;
     }
+    tabOverviewRenderPending = false;
     const orderedTabs = orderedTabsSnapshot();
     const previewItems = view.renderTabs?.({
       orderedTabs,
@@ -126,6 +134,26 @@ export function createTerminalOverviewController({
       renderTabOverview();
     });
   }
+
+  const clearTabOverviewScrollIdleTimer = () => {
+    if (tabOverviewScrollIdleTimer) {
+      windowObject?.clearTimeout?.(tabOverviewScrollIdleTimer);
+      tabOverviewScrollIdleTimer = 0;
+    }
+  };
+
+  const handleTabOverviewScroll = () => {
+    if (!isTabOverviewOpen() || tabOverviewDragState?.dragging) return;
+    clearTabOverviewScrollIdleTimer();
+    tabOverviewScrollIdleTimer = windowObject?.setTimeout?.(() => {
+      tabOverviewScrollIdleTimer = 0;
+      if (tabOverviewRenderPending) scheduleTabOverviewRender();
+    }, tabOverviewScrollIdleDelayMs) || 0;
+    if (tabOverviewDragState) {
+      tabOverviewSuppressClickUntil = now() + 350;
+      finishTabOverviewDrag({ cancel: true });
+    }
+  };
 
   const stopTabOverviewDragTracking = () => {
     for (const cleanup of dragTrackingCleanups.splice(0)) {
@@ -279,6 +307,7 @@ export function createTerminalOverviewController({
     const shouldMove = state.dragging && !cancel && targetIndex >= 0 && targetIndex !== state.originalIndex;
     resetTabOverviewDraggedCard(state);
     tabOverviewDragState = null;
+    if (tabOverviewRenderPending) scheduleTabOverviewRender();
     if (!state.dragging) {
       return;
     }
@@ -322,6 +351,10 @@ export function createTerminalOverviewController({
     if (!grid || state.dragging) {
       return;
     }
+    if (!hasTab(state.tabId) || tabOverviewScrollIdleTimer) {
+      finishTabOverviewDrag({ cancel: true });
+      return;
+    }
     if (state.longPressTimer) {
       windowObject?.clearTimeout?.(state.longPressTimer);
       state.longPressTimer = 0;
@@ -344,6 +377,13 @@ export function createTerminalOverviewController({
     state.placeholder = placeholder;
     grid.classList.add("is-dragging");
     documentObject.body.classList.add("is-tab-overview-dragging");
+    // Capture only after long-press recognition and reparenting the card.
+    try {
+      state.card.setPointerCapture?.(state.pointerId);
+    } catch (error) {
+      finishTabOverviewDrag({ cancel: true });
+      return;
+    }
     if (state.pointerType !== "mouse") {
       dragTouchMoveCleanup = lifecycle.listenTransient(
         documentObject,
@@ -442,10 +482,12 @@ export function createTerminalOverviewController({
         return;
       }
       if (state.pointerType !== "mouse" && !state.dragReady) {
+        tabOverviewSuppressClickUntil = now() + 350;
         finishTabOverviewDrag({ cancel: true });
         return;
       }
       beginTabOverviewDrag(state);
+      if (tabOverviewDragState !== state || !state.dragging) return;
     }
     event.preventDefault?.();
     event.stopPropagation?.();
@@ -500,7 +542,6 @@ export function createTerminalOverviewController({
         }
       }, tabOverviewDragHoldDelayMs) || 0;
     }
-    card.setPointerCapture?.(event.pointerId);
     dragTrackingCleanups = [
       lifecycle.listenTransient(documentObject, "pointermove", handleTabOverviewDragMove, { capture: true, passive: false }),
       lifecycle.listenTransient(documentObject, "pointerup", handleTabOverviewDragEnd, { capture: true, passive: false }),
@@ -512,6 +553,8 @@ export function createTerminalOverviewController({
 
   const closeTabOverview = () => {
     finishTabOverviewDrag({ cancel: true });
+    clearTabOverviewScrollIdleTimer();
+    tabOverviewRenderPending = false;
     if (tabOverviewRenderFrame) {
       cancelFrame(tabOverviewRenderFrame);
       tabOverviewRenderFrame = 0;
@@ -674,10 +717,13 @@ export function createTerminalOverviewController({
   };
 
   const resetMobileOverviewEdgeSwipe = () => {
+    mobileOverviewEdgeSwipeCleanup?.();
+    mobileOverviewEdgeSwipeCleanup = null;
     mobileOverviewEdgeSwipe = null;
   };
 
   const handleMobileOverviewEdgeSwipeStart = (event) => {
+    resetMobileOverviewEdgeSwipe();
     if (!isMobileLayout() || event?.touches?.length !== 1 || hasBlockingOverviewGestureOverlayOpen()) {
       resetMobileOverviewEdgeSwipe();
       return;
@@ -710,6 +756,12 @@ export function createTerminalOverviewController({
       horizontal: false,
       opened: false,
     };
+    mobileOverviewEdgeSwipeCleanup = lifecycle.listenTransient(
+      documentObject,
+      "touchmove",
+      handleMobileOverviewEdgeSwipeMove,
+      { capture: true, passive: false },
+    );
   };
 
   const handleMobileOverviewEdgeSwipeMove = (event) => {
@@ -783,9 +835,9 @@ export function createTerminalOverviewController({
         });
       },
       onRootClick: handleTabOverviewClick,
+      onGridScroll: handleTabOverviewScroll,
       onCardPointerDown: handleTabOverviewCardPointerDown,
       onEdgeSwipeStart: handleMobileOverviewEdgeSwipeStart,
-      onEdgeSwipeMove: handleMobileOverviewEdgeSwipeMove,
       onEdgeSwipeEnd: resetMobileOverviewEdgeSwipe,
       onResize: () => {
         ensureMobileOverviewHistoryGuard();
@@ -803,6 +855,8 @@ export function createTerminalOverviewController({
       }
       disposed = true;
       finishTabOverviewDrag({ cancel: true });
+      clearTabOverviewScrollIdleTimer();
+      tabOverviewRenderPending = false;
       stopTabOverviewDragTracking();
       if (tabOverviewRenderFrame) {
         cancelFrame(tabOverviewRenderFrame);

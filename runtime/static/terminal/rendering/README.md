@@ -36,6 +36,7 @@ Kitty 图形适配对不完整命令、传输总量、并发解码、图片缓�
 - `presentation_view.js`：live Canvas 清理、hold Canvas 挂载/复制/释放和 shell dataset DOM 适配；抓帧前会恢复被宿主清理路径意外脱离的模块自有 Canvas，并在 hold 事务期间同步 `terminalFrameHeld`/`renderRecovery` 状态。
 - `presentation_lifecycle.js`：validation/retry timer、presentation RAF、frame release、Canvas context 和 `onRender` listener 生命周期。
 - `renderer_adapter.js`：字体/行高度量、主题映射、底部 viewport、cell seam、Powerline 和块光标 patch 的唯一 owner。
+- `cursor_renderer.js`：块状光标背景和覆盖文字的同步绘制。优先使用当前单元格实际显示背景作为文字色，对比不足时选黑/白；识别宽字符续格，沿用普通字形/Powerline 路径并裁剪至完整字符区域。只绘制副本，不修改原单元格；临时绕过选区和颜色映射后恢复状态，每个字符的 Canvas 状态恢复时同步恢复字体缓存，避免光标跨格覆盖时后续字符使用错误字体。随包渲染器的第四个文字绘制参数仍为像素滚动偏移。
 - `runtime_controller.js`：Ghostty runtime reset、清屏、引用同步、首次 fit reset 和按 reason 幂等嵌套 render suppression 的唯一 owner；同一 reason 重复 begin 不增加底层 suppression depth，未知 reason end 不释放其他作用域；不决定 history replay 时机。
 - `kitty_graphics.js`：Ghostty Kitty graphics patch、响应识别和像素尺寸。
 - `terminal_render_snapshot.js`：render/presentation 快照和匹配校验。
@@ -46,6 +47,8 @@ Kitty 图形适配对不完整命令、传输总量、并发解码、图片缓�
 相关测试为 `terminal_presentation_controller_test.mjs`、`terminal_renderer_adapter_test.mjs`、`terminal_runtime_controller_test.mjs`、`kitty_graphics_test.mjs`、`terminal_render_snapshot_test.mjs`、`terminal_frame_release_scheduler_test.mjs` 及 runtime Canvas residue guard。presentation 测试必须覆盖 viewport claim pending 时不调度被动 resize、live geometry 不进入 hold、output render 不重复绘制和隐藏 pane 不创建 retry/validation 循环。最小回归是字体/行高变化、连续背景、Powerline、块光标、pixel scroll、快速切 tab、resize、折叠/跨屏、主题变化、runtime reset、Canvas context 恢复和断网恢复；live geometry 确认真实 Canvas 连续可见，其余原子恢复确认旧帧持续保留到当前 identity/generation 的最终完整画面提交。
 
 任何 renderer patch 都不得清空终端、触发 replay/reset、改变 resize owner，或显示 history replay、snapshot、原子 resize、重连的中间过程。
+
+`applyCursorStyle()` 只更新注入的现有终端显示选项并合并一次完整重绘，清除静止光标留下的旧形状；不测量字体、不 fit、不 resize、不捕获 hold。新终端从 settings getter 读取样式。手工验证深浅主题、普通/彩色/反色文字、中文/emoji/组合字符、Powerline、选区重叠及三种样式互换，确认光标移开恢复原配色且相邻字形完整。产品口径见 `spec/terminal/cursor-appearance/`。
 
 工具专用背景映射由 `getBackgroundColorMap(session, terminalTheme)` 注入。renderer 在绘制前同步，映射切换时完整重绘；activity 观察到前台进程变化后经 `syncBackgroundColors()` 更新，并由运行时按 presentation 门禁请求重绘。映射仅作用于实际背景绘制，合并行背景、cell seam、像素滚动一致；前景与选择色保留原路径。Codex 的识别、已知颜色和混色规则归 `tui_adapters/codex/`。不增加进程轮询或更改 VT 数据。
 
