@@ -137,6 +137,29 @@ export function createTerminalMouseController({
       activeButton: -1,
       lastMoveSequence: "",
     };
+    const wheelState = {
+      remainderPx: 0,
+      direction: 0,
+      axis: "",
+      deltaMode: -1,
+      tracking: "",
+    };
+    const resetWheelState = () => {
+      wheelState.remainderPx = 0;
+      wheelState.direction = 0;
+      wheelState.axis = "";
+      wheelState.deltaMode = -1;
+      wheelState.tracking = "";
+    };
+    const syncWheelTracking = () => {
+      const state = trackingState(session);
+      const tracking = state ? [state.x10, state.normal, state.drag, state.any, state.sgr].join(":") : "";
+      if (tracking !== wheelState.tracking) {
+        resetWheelState();
+        wheelState.tracking = tracking;
+      }
+      return state;
+    };
     const touchMouseState = {
       identifier: -1,
       active: false,
@@ -325,12 +348,53 @@ export function createTerminalMouseController({
     };
 
     const handleWheel = (event) => {
-      if (!isTerminalMouseTarget(event.target) || !trackingState(session)) {
+      if (!isTerminalMouseTarget(event.target) || !syncWheelTracking()) {
         return;
       }
-      if (sendMouseSequence(event, "wheel")) {
-        stopEvent(event);
+      // Even a fraction of a row belongs to the application. Do not let it
+      // reach Ghostty's history/alternate-screen wheel handler.
+      stopEvent(event);
+      if (event.momentum === true) {
+        resetWheelState();
+        return;
       }
+      const deltaMode = event.deltaMode;
+      const sequence = encode(session, event, "wheel");
+      if (!sequence) {
+        resetWheelState();
+        return;
+      }
+      // Preserve the protocol encoder's existing dominant-axis mapping.
+      const axis = Math.abs(event.deltaY || 0) >= Math.abs(event.deltaX || 0) ? "y" : "x";
+      const delta = axis === "y" ? event.deltaY : event.deltaX;
+      const direction = Math.sign(delta);
+      const renderer = session.term.renderer;
+      const rowHeight = Math.max(1, Number(renderer?.getMetrics?.().height) || Number(renderer?.charHeight) || 20);
+      let deltaPx = Math.abs(delta);
+      if (deltaMode === 1) {
+        deltaPx *= rowHeight;
+      } else if (deltaMode === 2) {
+        deltaPx *= rowHeight * session.term.rows;
+      }
+      if (!Number.isFinite(deltaPx) || !deltaPx) {
+        resetWheelState();
+        return;
+      }
+      if (direction !== wheelState.direction || axis !== wheelState.axis || deltaMode !== wheelState.deltaMode) {
+        wheelState.remainderPx = 0;
+      }
+      wheelState.direction = direction;
+      wheelState.axis = axis;
+      wheelState.deltaMode = deltaMode;
+      wheelState.remainderPx += deltaPx;
+      const count = Math.trunc(wheelState.remainderPx / rowHeight);
+      if (!count) {
+        return;
+      }
+      wheelState.remainderPx -= count * rowHeight;
+      mouseState.lastMoveSequence = "";
+      reassertSize(session, event);
+      sendInput(session, sequence.repeat(count));
     };
 
     const handleClickLike = (event) => {
@@ -441,7 +505,14 @@ export function createTerminalMouseController({
     lifecycle.listenSession(session, shell, "touchcancel", finishTouchMouse, listenerOptions);
     lifecycle.listenSession(session, documentObject, "mousemove", handleMouseMove, listenerOptions);
     lifecycle.listenSession(session, documentObject, "mouseup", handleMouseUp, listenerOptions);
+    const wheelRenderDisposable = session.term.onRender?.(() => {
+      if (wheelState.remainderPx) {
+        syncWheelTracking();
+      }
+    });
     lifecycle.addSessionCleanup(session, () => {
+      wheelRenderDisposable?.dispose?.();
+      resetWheelState();
       mouseState.activeButton = -1;
       mouseState.lastMoveSequence = "";
       resetTouchMouseState();
