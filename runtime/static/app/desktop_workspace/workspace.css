@@ -182,7 +182,7 @@
   font-size: 12px;
   font-weight: 600;
   text-align: left;
-  cursor: grab;
+  cursor: default;
   touch-action: pan-y;
 }
 
@@ -423,7 +423,7 @@ body.is-desktop-workspace-resizing * {
 }
 
 .desktop-workspace-session[data-reorderable="true"] .desktop-workspace-session-select {
-  cursor: grab;
+  cursor: default;
   touch-action: pan-y;
 }
 

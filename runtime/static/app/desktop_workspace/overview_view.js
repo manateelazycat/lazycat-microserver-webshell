@@ -16,7 +16,7 @@ export function createDesktopOverviewView({ documentObject = document } = {}) {
       const grid = view.elements.grid;
       grid.classList.add("desktop-overview-groups");
       grid.classList.toggle("mobile-overview-groups", mobileLayout);
-      if (mobileLayout) view.syncPreviewRatio(mobileLayout);
+      view.syncPreviewRatio(mobileLayout);
       const wanted = new Set(groups.map((group) => group.selector));
       for (const [selector, section] of sections) {
         if (!wanted.has(selector)) {
@@ -121,7 +121,7 @@ export function createDesktopOverviewView({ documentObject = document } = {}) {
         empty.textContent = "暂无可访问的实例";
         grid.append(empty);
       }
-      if (mobileLayout && view.syncScrollable()) {
+      if (view.syncScrollable()) {
         view.syncPreviewRatio(mobileLayout);
         view.syncScrollable();
       }

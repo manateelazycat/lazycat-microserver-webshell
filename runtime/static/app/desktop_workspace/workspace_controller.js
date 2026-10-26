@@ -1,4 +1,5 @@
 import { createDesktopWorkspaceDirectory } from "./directory_controller.js";
+import { createInstanceOrderController } from "./instance_order_controller.js";
 import { createDesktopWorkspaceView } from "./workspace_view.js";
 import { createDesktopOverviewView } from "./overview_view.js";
 import { createDesktopWorkspaceReorderController } from "./reorder_controller.js";
@@ -46,22 +47,13 @@ export function createDesktopWorkspaceController({
   const overviewView = createDesktopOverviewView({ documentObject });
   const collapsedGroups = new Set();
   const listeners = [];
-  const instanceOrderKey = `${storagePrefix}.desktopInstanceOrder`;
-  const readOrder = (value) => {
-    try {
-      const items = JSON.parse(value || "[]");
-      return Array.isArray(items) ? [...new Set(items.filter((item) => typeof item === "string" && item))] : [];
-    } catch { return []; }
-  };
-  let instanceOrder = [];
-  try { instanceOrder = readOrder(storage?.getItem(instanceOrderKey)); } catch {}
   const pendingSessionOrders = new Map();
   const committingSelectors = new Set();
   const ordered = (items, ids, key) => {
     const ranks = new Map(ids.map((id, index) => [id, index]));
     return [...items].sort((left, right) => (ranks.get(key(left)) ?? ids.length) - (ranks.get(key(right)) ?? ids.length));
   };
-  const groups = () => ordered(directory.groups(), instanceOrder, (group) => group.selector).map((group) => ({
+  const groups = () => ordered(directory.groups(), instanceOrder.getSelectors(), (group) => group.selector).map((group) => ({
     ...group,
     tabs: pendingSessionOrders.has(group.selector)
       ? ordered(group.tabs, pendingSessionOrders.get(group.selector), (tab) => tab.id) : group.tabs,
@@ -74,7 +66,7 @@ export function createDesktopWorkspaceController({
   let navigation = 0;
   let pendingSelection = 0;
 
-  const isOverviewEnabled = () => !isEmbedMode && (active || isMobileLayout());
+  const isOverviewEnabled = () => !disposed && !isEmbedMode;
   const isDirectoryVisible = () => active || (isOverviewEnabled() && isOverviewOpen());
   const scheduleRender = () => {
     if (disposed || !isDirectoryVisible() || frame) return;
@@ -92,8 +84,13 @@ export function createDesktopWorkspaceController({
       scheduleOverviewRender();
     });
   };
+  const instanceOrder = createInstanceOrderController({
+    windowObject, getAvailableSelectors: () => directory.groups().map((group) => group.selector), onChange: scheduleRender,
+  });
   const directory = createDesktopWorkspaceDirectory({
-    windowObject, getInstances, loadInstances, getActiveName, getActiveGeneration, getActiveTabId, getOrderedTabs,
+    windowObject, getInstances,
+    loadInstances: async () => { await loadInstances(); await instanceOrder.refresh(); },
+    getActiveName, getActiveGeneration, getActiveTabId, getOrderedTabs,
     isVisible: isDirectoryVisible,
     isViewingTerminal: () => active && !pendingSelection && !isOverviewOpen(),
     onChange: () => {
@@ -209,16 +206,16 @@ export function createDesktopWorkspaceController({
   reorder = createDesktopWorkspaceReorderController({
     documentObject, windowObject, list: view.list, isRenaming,
     canDrag: ({ kind, selector }) => active && !disposed && !committingSelectors.has(selector)
-      && (kind === "instance" || groups().find((group) => group.selector === selector)?.canReorder === true),
+      && (kind === "instance" ? !instanceOrder.isSaving()
+        : groups().find((group) => group.selector === selector)?.canReorder === true),
     onStart: ({ kind, selector, tabId }) => {
       closeMenus();
       if (kind === "session" && selector === getActiveName()) activateTab(tabId, { focus: false });
     },
     async onDrop({ kind, selector, tabId, beforeId, order }) {
       if (kind === "instance") {
-        instanceOrder = [...order, ...instanceOrder.filter((id) => !order.includes(id))];
-        try { storage?.setItem(instanceOrderKey, JSON.stringify(instanceOrder)); } catch {}
-        scheduleRender();
+        const index = order.indexOf(selector);
+        await instanceOrder.move(selector, beforeId, beforeId ? "" : order[index - 1] || "");
         return;
       }
       await commitSessionOrder({ selector, tabId, beforeId, order });
@@ -334,7 +331,7 @@ export function createDesktopWorkspaceController({
     acceptState(state, selector = state?.selector) {
       directory.accept(selector, state, { active: true });
     },
-    refresh: () => directory.refresh(),
+    refresh: () => Promise.all([directory.refresh(), instanceOrder.refresh()]),
     handleInstancesChange() {
       scheduleRender();
       directory.refresh();
@@ -342,6 +339,7 @@ export function createDesktopWorkspaceController({
     handleOverviewVisibility(open) {
       if (!open && active) directory.syncActiveNotifications();
       directory.sync();
+      if (open && !isEmbedMode) instanceOrder.refresh();
       if (open && active) overviewView.animateEntrance();
     },
     renderOverview(overview, paneSource) {
@@ -370,6 +368,7 @@ export function createDesktopWorkspaceController({
         onLayoutChange();
       }
       directory.sync();
+      if (isDirectoryVisible()) instanceOrder.refresh();
       scheduleRender();
     },
     start() {
@@ -395,17 +394,15 @@ export function createDesktopWorkspaceController({
           run(() => close(row.closest("[data-selector]").dataset.selector, row.dataset.tabId));
         }
       });
-      listen(windowObject, "storage", (event) => {
-        if (event.key !== instanceOrderKey) return;
-        reorder.cancel();
-        instanceOrder = readOrder(event.newValue);
-        scheduleRender();
-      });
       listen(documentObject, "visibilitychange", () => {
         if (active) directory.syncActiveNotifications();
         directory.sync();
+        if (!documentObject.hidden && isDirectoryVisible()) instanceOrder.refresh();
       });
-      listen(windowObject, "online", () => directory.sync());
+      listen(windowObject, "online", () => {
+        directory.sync();
+        if (isDirectoryVisible()) instanceOrder.refresh();
+      });
       listen(view.list, "keydown", (event) => {
         const row = event.target.closest(".desktop-workspace-session");
         if (event.key === "F2" && !event.ctrlKey && !event.altKey && !event.metaKey && row) {
@@ -430,6 +427,7 @@ export function createDesktopWorkspaceController({
       reorder.dispose();
       cancelInlineRename();
       directory.dispose();
+      instanceOrder.dispose();
       overviewView.clear();
       view.dispose();
     },

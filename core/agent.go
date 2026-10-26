@@ -38,7 +38,9 @@ const (
 	// v46 adds Provider-side workspace inspection compatibility for deployed PC cores.
 	// v47 exposes output positions in workspace metadata for background unread tracking.
 	// v48 observes terminal application lifecycle independently of foreground activity.
-	AgentProtocolVersion = "lcmd-webshell-agent-v48"
+	// v49 adds the Provider's public, account-scoped instance order bridge;
+	// terminal wire formats and checkpoint WASM remain unchanged.
+	AgentProtocolVersion = "lcmd-webshell-agent-v49"
 
 	agentFrameBinary         = byte('B')
 	AgentFrameText           = byte('T')

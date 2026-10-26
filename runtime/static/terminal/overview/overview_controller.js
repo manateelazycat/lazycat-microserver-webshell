@@ -69,7 +69,7 @@ export function createTerminalOverviewController({
   const overviewTabsSnapshot = (selector) => selector
     ? Array.from(getGroupedOverview()?.getOverviewTabs(selector) || []) : orderedTabsSnapshot();
   const canReorderOverviewTabs = (selector) => selector
-    ? isMobileLayout() && getGroupedOverview()?.canReorderOverviewTabs(selector) === true : canReorderTabs();
+    ? getGroupedOverview()?.canReorderOverviewTabs(selector) === true : canReorderTabs();
   const hasTab = (tabId) => orderedTabsSnapshot().some((tab) => tab?.id === tabId);
   const now = () => windowObject?.performance?.now?.() ?? globalThis.performance?.now?.() ?? Date.now();
 
