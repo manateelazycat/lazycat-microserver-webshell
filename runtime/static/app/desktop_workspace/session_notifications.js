@@ -28,7 +28,6 @@ export function updateDesktopSessionActivity(tab, pane, state, { read = false } 
   const previousCursor = outputCursor(pane.outputOffset);
   const sameHistory = generation && generation === pane.historyGeneration;
   const becameIdle = pane.busy === true && (state.busy !== true || state.exited === true);
-  const previousProgramState = pane.programState || "";
   const newHistory = generation && pane.historyGeneration && !sameHistory;
   if (newHistory) {
     pane.programState = "";
@@ -41,11 +40,10 @@ export function updateDesktopSessionActivity(tab, pane, state, { read = false } 
     updateDesktopProgramStatus(tab, pane, state.program_status, {
       read, baseline: newHistory || pane.programStatusSupported !== true,
     });
-    if (becameIdle && !pane.programState && !previousProgramState && !read
-      && !(state.exited && Number(state.exit_code || 0) !== 0)) tab.hasNotification = true;
-  } else if (becameIdle) {
-    if (!read && !["blocked", "error"].includes(pane.programState)) tab.hasNotification = true;
-    if (pane.programState === "working") pane.programState = "idle";
+  } else if (becameIdle && pane.programState === "working") {
+    // Old cores may leave a live-observed state behind after the process ends.
+    // Clear it without inventing a successful task completion.
+    pane.programState = "";
   }
   Object.assign(pane, {
     terminalExited: state.exited === true,

@@ -44,8 +44,10 @@ export function desktopSessionActivity(tab) {
   const panes = [...tab.panes.values()];
   const foreground = tab.panes.get(tab.activePaneId) || panes[0];
   const running = foreground && !foreground.closed && !foreground.terminalExited && !foreground.terminalExitRetained;
+  // Foreground residency is useful for process labels and close protection,
+  // but is not evidence that an interactive CLI is executing a task.
   const working = panes.some((pane) => !pane.closed && !pane.terminalExited
-    && (pane.programState ? pane.programState === "working" : pane.busy === true));
+    && pane.programState === "working");
   const error = panes.some((pane) => pane.programState === "error"
     || ((pane.terminalExited || pane.terminalExitRetained) && Number(pane.terminalExitCode || 0) !== 0));
   const unread = tab.hasNotification === true;

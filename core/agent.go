@@ -40,7 +40,9 @@ const (
 	// v48 observes terminal application lifecycle independently of foreground activity.
 	// v49 adds the Provider's public, account-scoped instance order bridge;
 	// terminal wire formats and checkpoint WASM remain unchanged.
-	AgentProtocolVersion = "lcmd-webshell-agent-v49"
+	// v50 answers application lifecycle capability queries before the DA sentinel;
+	// terminal wire formats and checkpoint WASM remain unchanged.
+	AgentProtocolVersion = "lcmd-webshell-agent-v50"
 
 	agentFrameBinary         = byte('B')
 	AgentFrameText           = byte('T')
