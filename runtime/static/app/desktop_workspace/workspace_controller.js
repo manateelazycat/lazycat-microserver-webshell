@@ -74,23 +74,27 @@ export function createDesktopWorkspaceController({
   let navigation = 0;
   let pendingSelection = 0;
 
+  const isOverviewEnabled = () => !isEmbedMode && (active || isMobileLayout());
+  const isDirectoryVisible = () => active || (isOverviewEnabled() && isOverviewOpen());
   const scheduleRender = () => {
-    if (disposed || !active || frame) return;
+    if (disposed || !isDirectoryVisible() || frame) return;
     frame = windowObject.requestAnimationFrame(() => {
       frame = 0;
-      if (disposed || !active) return;
-      const currentGroups = groups();
-      reorder?.validate(currentGroups);
-      if (reorder?.isDragging()) return;
-      if (!view.isCollapsed()) view.render(currentGroups, getActiveTabId(), collapsedGroups);
-      if (isRenaming() && !view.getRenameAnchor(getActiveName(), getActiveTabId())) cancelInlineRename();
-      positionInlineRename();
+      if (disposed || !isDirectoryVisible()) return;
+      if (active) {
+        const currentGroups = groups();
+        reorder?.validate(currentGroups);
+        if (reorder?.isDragging()) return;
+        if (!view.isCollapsed()) view.render(currentGroups, getActiveTabId(), collapsedGroups);
+        if (isRenaming() && !view.getRenameAnchor(getActiveName(), getActiveTabId())) cancelInlineRename();
+        positionInlineRename();
+      }
       scheduleOverviewRender();
     });
   };
   const directory = createDesktopWorkspaceDirectory({
     windowObject, getInstances, loadInstances, getActiveName, getActiveGeneration, getActiveTabId, getOrderedTabs,
-    isVisible: () => active,
+    isVisible: isDirectoryVisible,
     isViewingTerminal: () => active && !pendingSelection && !isOverviewOpen(),
     onChange: () => {
       scheduleRender();
@@ -139,7 +143,7 @@ export function createDesktopWorkspaceController({
     if (switching && !group.loaded) {
       group = await directory.ensureLoaded(selector);
       if (navigation !== transaction) return;
-      if (disposed || !active || !group?.loaded) throw new Error(group?.error || "无法读取实例会话，请先打开该实例");
+      if (disposed || !isOverviewEnabled() || !group?.loaded) throw new Error(group?.error || "无法读取实例会话，请先打开该实例");
     }
     const empty = group.loaded && !group.tabs.length;
     collapsedGroups.delete(selector);
@@ -175,6 +179,33 @@ export function createDesktopWorkspaceController({
     if (!disposed) showToast(error.message || String(error));
   });
 
+  const commitSessionOrder = async ({ selector, tabId, beforeId, order }) => {
+    pendingSessionOrders.set(selector, order);
+    committingSelectors.add(selector);
+    let originalOrder = null;
+    let generation = -1;
+    try {
+      if (!await select(selector, tabId, ++navigation, { focus: false })) return;
+      generation = getActiveGeneration();
+      originalOrder = getOrderedTabs().map((tab) => tab.id);
+      if (!originalOrder.includes(tabId) || (beforeId && !originalOrder.includes(beforeId))) return;
+      previewTabOrder(order);
+      await reorderTab(tabId, beforeId);
+    } catch (error) {
+      pendingSessionOrders.delete(selector);
+      if (selector === getActiveName() && generation === getActiveGeneration()) {
+        if (originalOrder) previewTabOrder(originalOrder);
+        scheduleRender();
+        try { await refreshActiveWorkspace(selector); } catch {}
+      }
+      throw error;
+    } finally {
+      pendingSessionOrders.delete(selector);
+      committingSelectors.delete(selector);
+      scheduleRender();
+    }
+  };
+
   reorder = createDesktopWorkspaceReorderController({
     documentObject, windowObject, list: view.list, isRenaming,
     canDrag: ({ kind, selector }) => active && !disposed && !committingSelectors.has(selector)
@@ -190,30 +221,7 @@ export function createDesktopWorkspaceController({
         scheduleRender();
         return;
       }
-      pendingSessionOrders.set(selector, order);
-      committingSelectors.add(selector);
-      let originalOrder = null;
-      let generation = -1;
-      try {
-        if (!await select(selector, tabId, ++navigation, { focus: false })) return;
-        generation = getActiveGeneration();
-        originalOrder = getOrderedTabs().map((tab) => tab.id);
-        if (!originalOrder.includes(tabId) || (beforeId && !originalOrder.includes(beforeId))) return;
-        previewTabOrder(order);
-        await reorderTab(tabId, beforeId);
-      } catch (error) {
-        pendingSessionOrders.delete(selector);
-        if (selector === getActiveName() && generation === getActiveGeneration()) {
-          if (originalOrder) previewTabOrder(originalOrder);
-          scheduleRender();
-          try { await refreshActiveWorkspace(selector); } catch {}
-        }
-        throw error;
-      } finally {
-        pendingSessionOrders.delete(selector);
-        committingSelectors.delete(selector);
-        scheduleRender();
-      }
+      await commitSessionOrder({ selector, tabId, beforeId, order });
     },
     onFinish: scheduleRender,
     onError: (error) => { if (!disposed) showToast(error.message || "会话排序失败。"); },
@@ -276,6 +284,23 @@ export function createDesktopWorkspaceController({
 
   return Object.freeze({
     isActive: () => active,
+    isOverviewEnabled,
+    getOverviewTabs: (selector) => groups().find((group) => group.selector === selector)?.tabs || [],
+    canReorderOverviewTabs(selector) {
+      const group = groups().find((item) => item.selector === selector);
+      return !disposed && isOverviewEnabled() && !committingSelectors.has(selector)
+        && group?.running === true && group.canReorder;
+    },
+    async reorderOverviewTab(selector, tabId, beforeId) {
+      if (!this.canReorderOverviewTabs(selector)) return;
+      const tabs = this.getOverviewTabs(selector);
+      if (!tabs.some((tab) => tab.id === tabId) || beforeId === tabId) return;
+      const order = tabs.map((tab) => tab.id).filter((id) => id !== tabId);
+      const index = beforeId ? order.indexOf(beforeId) : order.length;
+      if (index < 0) return;
+      order.splice(index, 0, tabId);
+      await commitSessionOrder({ selector, tabId, beforeId, order });
+    },
     finishResize: () => sidebarResize.finish(),
     beginRename,
     getRenameAnchor: (tabId) => view.getRenameAnchor(getActiveName(), tabId),
@@ -301,7 +326,7 @@ export function createDesktopWorkspaceController({
       if (active) directory.markSessionOutput(session, data);
     },
     handleTargetChange(previousName) {
-      if (!active) return;
+      if (!isDirectoryVisible()) return;
       sidebarResize.finish();
       directory.syncActiveNotifications(previousName, { leaving: true });
       directory.sync();
@@ -320,8 +345,9 @@ export function createDesktopWorkspaceController({
       if (open && active) overviewView.animateEntrance();
     },
     renderOverview(overview, paneSource) {
-      if (!active) return false;
-      overviewView.render({ view: overview, groups: groups(), activeTabId: getActiveTabId(), paneSource });
+      if (!isOverviewEnabled()) return false;
+      overviewView.render({ view: overview, groups: groups(), activeTabId: getActiveTabId(), paneSource,
+        mobileLayout: isMobileLayout() });
       return true;
     },
     select,
@@ -341,9 +367,9 @@ export function createDesktopWorkspaceController({
         active = next;
         sidebarResize.sync({ notify: false });
         view.setActive(active);
-        directory.sync();
         onLayoutChange();
       }
+      directory.sync();
       scheduleRender();
     },
     start() {

@@ -480,6 +480,10 @@ body.is-desktop-workspace-reordering * {
   padding: 8px 16px;
 }
 
+.tab-overview-grid.desktop-overview-groups {
+  display: block;
+}
+
 .desktop-workspace-mode .tab-overview-grid.desktop-overview-groups {
   display: block;
   padding: 8px 24px 24px;
@@ -516,6 +520,25 @@ body.is-desktop-workspace-reordering * {
 
 .desktop-overview-cards .tab-overview-card {
   min-height: 0;
+}
+
+.mobile-overview-groups .desktop-overview-cards {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-auto-rows: var(--tab-overview-mobile-card-height, auto);
+  gap: inherit;
+}
+
+.mobile-overview-groups .desktop-overview-group {
+  display: grid;
+  gap: inherit;
+}
+
+.mobile-overview-groups .desktop-overview-group-header {
+  padding: 12px 0 4px;
+}
+
+.mobile-overview-groups .tab-overview-preview {
+  aspect-ratio: var(--tab-overview-preview-ratio, 9 / 16);
 }
 
 .desktop-overview-message {

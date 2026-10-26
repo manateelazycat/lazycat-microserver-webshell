@@ -12,9 +12,11 @@ export function createDesktopOverviewView({ documentObject = document } = {}) {
         duration: reducedMotion ? 125 : 180, easing: "cubic-bezier(0.23, 1, 0.32, 1)",
       });
     },
-    render({ view, groups, activeTabId, paneSource }) {
+    render({ view, groups, activeTabId, paneSource, mobileLayout = false }) {
       const grid = view.elements.grid;
       grid.classList.add("desktop-overview-groups");
+      grid.classList.toggle("mobile-overview-groups", mobileLayout);
+      if (mobileLayout) view.syncPreviewRatio(mobileLayout);
       const wanted = new Set(groups.map((group) => group.selector));
       for (const [selector, section] of sections) {
         if (!wanted.has(selector)) {
@@ -102,6 +104,7 @@ export function createDesktopOverviewView({ documentObject = document } = {}) {
           if (selected) item.card.setAttribute("aria-current", "true");
           else item.card.removeAttribute("aria-current");
           item.label.textContent = tab.label || tab.id;
+          item.card.title = item.label.textContent;
           item.main.disabled = !group.running;
           item.close.disabled = !group.running;
           item.main.setAttribute("aria-label", `切换到 ${group.name} 的 ${item.label.textContent}`);
@@ -112,13 +115,17 @@ export function createDesktopOverviewView({ documentObject = document } = {}) {
           previews.push({ canvas: item.canvas, tab });
         });
       });
-      for (const { canvas, tab } of previews) view.drawPreview(canvas, tab, paneSource);
       if (!groups.length) {
         const empty = documentObject.createElement("p");
         empty.className = "desktop-overview-message";
         empty.textContent = "暂无可访问的实例";
         grid.append(empty);
       }
+      if (mobileLayout && view.syncScrollable()) {
+        view.syncPreviewRatio(mobileLayout);
+        view.syncScrollable();
+      }
+      for (const { canvas, tab } of previews) view.drawPreview(canvas, tab, paneSource);
     },
     clear() {
       entrance?.cancel();

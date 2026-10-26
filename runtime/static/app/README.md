@@ -18,7 +18,7 @@
 - `shortcuts/`：桌面快捷键动作映射、过滤和全屏命令；只通过显式回调调用业务模块，不拥有业务状态。
 - `paste/`：原生 `paste` 事件的文件优先/文本降级分流、上传 continuation 和原 pane generation fence；只调用注入的附件上传与终端输入命令，不主动读取剪贴板。
 - `file_drop/`：桌面文件拖放到终端画面的落点遮罩、文件夹拒绝和 drop 消费；命中 pane 后把文件交给 paste 的 `handleDroppedFiles()`，不拥有上传或路径输入。
-- `desktop_workspace/`：新版 PC 的独立侧栏和按实例分组的终端预览；查询后台实例的只读会话元数据，通过显式命令操作现有工作区，移动端和传统 PC 继续使用原布局。
+- `desktop_workspace/`：新版 PC 的独立侧栏，以及新版 PC 与移动端共用的实例目录和分组终端预览；查询后台实例的只读会话元数据，通过显式命令操作现有工作区。移动端仅打开总览时查询其他实例，保持原导航；传统 PC 继续使用原布局。
 - `server_revision/`：稳定 client ID、版本检查、部署重载提示及首次检查 timer；更新提示不拥有也不修改终端输入状态。
 - `agent_protocol_update/`：消费 Unified Queue 首次握手中的 Agent 当前/推荐协议版本，在终端右上角显示一次待更新提示；只有用户通过危险确认对话框明确同意后才请求 scoped Agent 更新，失败时保留提示。该模块不创建输入锁、不轮询、不按 pane 重复检测，也不自行替换 Agent。
 - `bootstrap/`：应用启动事务、启动失败呈现和旧 PWA/Cache API 一次性迁移清理；同时保存由 Provider 在旧 URL 提供的退役 Worker 源码。`index.html` 只对仍受旧 Worker 控制的页面触发现有 registration 更新，不导入或注册 Worker。模块不申请浏览器持久存储，只接收显式依赖，不实现业务模块。

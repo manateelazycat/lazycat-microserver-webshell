@@ -4,7 +4,7 @@
 
 本目录负责标签总览的打开/关闭、卡片渲染、分屏 Canvas 缩略图、标签选择/关闭/拖拽排序、移动端边缘手势和浏览器历史 guard。
 
-新版 PC 通过 `getGroupedOverview` 注入独立 PC 导航 owner，复用本目录的打开关闭、预览来源选择和分屏缩略图绘制；实例分组 DOM 和跨实例命令由 `app/desktop_workspace/` 负责。分组卡片同时携带实例 selector 和会话 ID，避免跨实例 ID 相同导致误操作。移动端与传统 PC 继续使用原卡片和排序流程。
+新版 PC 和非嵌入的移动端通过 `getGroupedOverview` 注入实例目录 owner，复用本目录的打开关闭、预览来源选择和分屏缩略图绘制；实例分组 DOM 和跨实例命令由 `app/desktop_workspace/` 负责。分组卡片同时携带实例 selector 和会话 ID，避免跨实例 ID 相同导致误操作。移动端保持原生滚动、边缘手势和长按排序流程，卡片尺寸沿用手机双列布局；传统 PC 与嵌入模式继续使用原卡片。PC 侧栏模式与移动端分组预览的启用条件独立，不恢复新版 PC 的预览入口。
 
 总览只观察工作区 tab/pane，并通过显式命令请求新建、激活、关闭和移动标签。它不建立 WebSocket、不修改 history cursor、不读取或保存 PTY 字节、不恢复 Ghostty 状态，也不决定输入是否 ready。
 
@@ -35,7 +35,7 @@ IndexedDB 数据库 `lcmd-webshell-overview-previews-v1` 最多保留 64 项并�
 
 预览网格始终使用原生纵向滚动，`is-scrollable` 仅控制滚动条外观，刷新时不反复移除该状态。触摸按下只建立长按候选，不立即捕获指针；移动超过阈值或网格实际滚动后取消候选，不阻止原生滑动。识别为长按拖拽后才捕获指针并安装阻止原生移动的临时监听。边缘打开总览的非被动 touchmove 监听也只在边缘手势期间安装，结束或取消立即清理。
 
-按住卡片或滚动期间只标记预览待更新，不重排卡片和重绘缩略图；原生滚动停止 140ms 后再刷新最新预览，避免打断惯性。活动拖拽的边缘自动滚动不进入普通滚动等待。关闭和 dispose 清理等待计时器、待更新状态及全部临时拖动监听。移动端需手工验证持续输出时反复上下滑动、惯性到达两端、长按排序、取消手势及重新打开总览。
+按住卡片或滚动期间只标记预览待更新，不重排卡片和重绘缩略图；原生滚动停止 140ms 后再刷新最新预览，避免打断惯性。活动拖拽的边缘自动滚动不进入普通滚动等待。关闭和 dispose 清理等待计时器、待更新状态及全部临时拖动监听。移动端分组卡片的拖拽 placeholder、目标与顺序均限制在所属实例的卡片容器，外层网格只负责滚动；提交时携带 selector，并复用目录 owner 的排序命令。移动端需手工验证持续输出时反复上下滑动、惯性到达两端、实例内长按排序、不跨组迁移、取消手势及重新打开总览。
 
 `releasePreview(pane)` 只释放该观察对象的计时器、解码图片和迟到加载，不删除已保存的图片。切换实例时释放旧终端的内存观察对象并保留图片，实际关闭会话时才删除；跨实例元数据失效时同样使用 release。
 
@@ -44,7 +44,7 @@ IndexedDB 数据库 `lcmd-webshell-overview-previews-v1` 最多保留 64 项并�
 - `index.js`：单一公开入口。
 - `overview_controller.js`：状态 owner、缩略图来源选择、拖拽排序、历史 guard 和移动端手势。
 - `overview_lifecycle.js`：DOM listener 注册和幂等清理。
-- `overview_view.js`：DOM 查询、卡片构建、响应式网格和分屏 Canvas 绘制。
+- `overview_view.js`：DOM 查询、卡片构建、响应式网格和分屏 Canvas 绘制；向分组视图提供 `syncPreviewRatio()` 与 `syncScrollable()`，共用手机尺寸与原生滚动条计算。
 - `preview_controller.js`：已提交 Canvas 的有界编码、持久图片加载/解码和 latest-only guard。
 - `preview_store.js`：独立 IndexedDB 图片记录、identity key、容量和过期清理。
 

@@ -1520,7 +1520,7 @@ export function startGlobalRuntime() {
     getOrderedTabs,
     getActiveTabId,
     getActiveName,
-    getGroupedOverview: () => desktopWorkspace?.isActive() ? desktopWorkspace : null,
+    getGroupedOverview: () => desktopWorkspace?.isOverviewEnabled() ? desktopWorkspace : null,
     onOverviewVisibilityChange: (open) => desktopWorkspace?.handleOverviewVisibility(open),
     workspaceLocationURL,
     isMobileLayout,
