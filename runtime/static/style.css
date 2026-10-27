@@ -5163,25 +5163,26 @@ body.is-tab-overview-dragging {
   display: none;
 }
 
-@media (max-width: 640px) and (hover: none) and (pointer: coarse) {
-  .tabs-bar {
+/* Navigation layout follows app/layout; touch input remains capability based. */
+@media (hover: none) and (pointer: coarse) {
+  :where(body:not(.responsive-desktop-layout)) .tabs-bar {
     gap: 6px;
     height: calc(42px + var(--lzc-safe-area-inset-top));
     min-height: calc(42px + var(--lzc-safe-area-inset-top));
     padding: var(--lzc-safe-area-inset-top) max(8px, var(--lzc-safe-area-inset-right)) 0 max(8px, var(--lzc-safe-area-inset-left));
   }
 
-  .tabs-strip {
+  :where(body:not(.responsive-desktop-layout)) .tabs-strip {
     align-items: center;
     gap: 6px;
     justify-content: flex-start;
   }
 
-  .tabs {
+  :where(body:not(.responsive-desktop-layout)) .tabs {
     display: none;
   }
 
-  .mobile-active-tab-title {
+  :where(body:not(.responsive-desktop-layout)) .mobile-active-tab-title {
     display: block;
     position: absolute;
     left: 50%;
@@ -5200,11 +5201,11 @@ body.is-tab-overview-dragging {
     pointer-events: none;
   }
 
-  .mobile-active-tab-title[hidden] {
+  :where(body:not(.responsive-desktop-layout)) .mobile-active-tab-title[hidden] {
     display: none;
   }
 
-  .terminal-network-monitor {
+  :where(body:not(.responsive-desktop-layout)) .terminal-network-monitor {
     position: absolute;
     top: var(--lzc-safe-area-inset-top);
     left: 50%;
@@ -5217,13 +5218,13 @@ body.is-tab-overview-dragging {
     transform: translateX(-50%);
   }
 
-  .terminal-network-monitor-summary {
+  :where(body:not(.responsive-desktop-layout)) .terminal-network-monitor-summary {
     gap: 2px 8px;
   }
 
-  .tab-overview-toggle,
-  .attachment-toggle,
-  .tab-add {
+  :where(body:not(.responsive-desktop-layout)) .tab-overview-toggle,
+  :where(body:not(.responsive-desktop-layout)) .attachment-toggle,
+  :where(body:not(.responsive-desktop-layout)) .tab-add {
     position: relative;
     z-index: 1;
     width: 34px;
@@ -5231,35 +5232,35 @@ body.is-tab-overview-dragging {
     margin: 0;
   }
 
-  .tab-add {
+  :where(body:not(.responsive-desktop-layout)) .tab-add {
     color: var(--terminal-fg);
     margin-left: auto;
   }
 
-  .attachment-toggle {
+  :where(body:not(.responsive-desktop-layout)) .attachment-toggle {
     color: var(--chrome-text);
   }
 }
 
-@media (max-width: 640px) {
-  .attachment-upload-panel {
+@media (max-width: 640px), (hover: none), (pointer: coarse) {
+  :where(body:not(.responsive-desktop-layout)) .attachment-upload-panel {
     top: 10px;
     right: max(10px, var(--lzc-safe-area-inset-right));
     left: max(10px, var(--lzc-safe-area-inset-left));
     width: auto;
   }
 
-  .attachment-upload-panel.search-open {
+  :where(body:not(.responsive-desktop-layout)) .attachment-upload-panel.search-open {
     top: 58px;
   }
 
-  .attachment-browser-backdrop {
+  :where(body:not(.responsive-desktop-layout)) .attachment-browser-backdrop {
     align-items: stretch;
     padding: 0;
     background: var(--panel-bg);
   }
 
-  .attachment-browser-panel {
+  :where(body:not(.responsive-desktop-layout)) .attachment-browser-panel {
     --attachment-browser-column-gap: 6px;
     --attachment-browser-grid-columns: 16px minmax(64px, 1fr) minmax(62px, 0.5fr) minmax(118px, 0.95fr);
     display: grid;
@@ -5281,7 +5282,7 @@ body.is-tab-overview-dragging {
     box-shadow: none;
   }
 
-  .attachment-browser-header {
+  :where(body:not(.responsive-desktop-layout)) .attachment-browser-header {
     position: relative;
     grid-template-columns: minmax(0, 1fr);
     justify-items: center;
@@ -5290,11 +5291,11 @@ body.is-tab-overview-dragging {
     box-sizing: border-box;
   }
 
-  .attachment-browser-close {
+  :where(body:not(.responsive-desktop-layout)) .attachment-browser-close {
     display: none;
   }
 
-  .attachment-browser-back {
+  :where(body:not(.responsive-desktop-layout)) .attachment-browser-back {
     position: absolute;
     left: max(10px, var(--lzc-safe-area-inset-left));
     top: calc(var(--lzc-safe-area-inset-top) + 27px);
@@ -5306,14 +5307,14 @@ body.is-tab-overview-dragging {
     transform: translateY(-50%);
   }
 
-  .attachment-browser-back .icon {
+  :where(body:not(.responsive-desktop-layout)) .attachment-browser-back .icon {
     display: block;
     width: 20px;
     height: 20px;
     fill: currentColor;
   }
 
-  .attachment-browser-title-wrap {
+  :where(body:not(.responsive-desktop-layout)) .attachment-browser-title-wrap {
     display: flex;
     min-width: 0;
     height: 54px;
@@ -5323,11 +5324,11 @@ body.is-tab-overview-dragging {
     text-align: center;
   }
 
-  .attachment-browser-title {
+  :where(body:not(.responsive-desktop-layout)) .attachment-browser-title {
     display: none;
   }
 
-  .attachment-browser-path {
+  :where(body:not(.responsive-desktop-layout)) .attachment-browser-path {
     max-width: min(68vw, 320px);
     margin-top: 0;
     color: var(--chrome-text-strong);
@@ -5337,36 +5338,36 @@ body.is-tab-overview-dragging {
     text-align: center;
   }
 
-  .attachment-browser-breadcrumbs {
+  :where(body:not(.responsive-desktop-layout)) .attachment-browser-breadcrumbs {
     min-height: 40px;
     padding-right: max(10px, var(--lzc-safe-area-inset-right));
     padding-left: max(10px, var(--lzc-safe-area-inset-left));
     -webkit-overflow-scrolling: touch;
   }
 
-  .attachment-browser-breadcrumb {
+  :where(body:not(.responsive-desktop-layout)) .attachment-browser-breadcrumb {
     max-width: min(42vw, 180px);
     height: 28px;
     padding: 0 8px;
     font-size: 12px;
   }
 
-  .attachment-browser-feedback {
+  :where(body:not(.responsive-desktop-layout)) .attachment-browser-feedback {
     min-height: 0;
   }
 
-  .attachment-browser-sortbar {
+  :where(body:not(.responsive-desktop-layout)) .attachment-browser-sortbar {
     min-height: 34px;
     padding-right: max(6px, var(--lzc-safe-area-inset-right));
     padding-left: max(6px, var(--lzc-safe-area-inset-left));
   }
 
-  .attachment-browser-sort-spacer {
+  :where(body:not(.responsive-desktop-layout)) .attachment-browser-sort-spacer {
     width: 16px;
     height: 16px;
   }
 
-  .attachment-browser-sort-button {
+  :where(body:not(.responsive-desktop-layout)) .attachment-browser-sort-button {
     min-height: 24px;
     height: auto;
     gap: 2px;
@@ -5375,39 +5376,39 @@ body.is-tab-overview-dragging {
     line-height: 1.35;
   }
 
-  .attachment-browser-sort-indicator {
+  :where(body:not(.responsive-desktop-layout)) .attachment-browser-sort-indicator {
     width: 7px;
     flex-basis: 7px;
     font-size: 8px;
   }
 
-  .attachment-browser-list {
+  :where(body:not(.responsive-desktop-layout)) .attachment-browser-list {
     min-height: 0;
     padding-bottom: 8px;
     overflow: auto;
   }
 
-  .attachment-browser-file {
+  :where(body:not(.responsive-desktop-layout)) .attachment-browser-file {
     min-height: 42px;
     padding-right: max(6px, var(--lzc-safe-area-inset-right));
     padding-left: max(6px, var(--lzc-safe-area-inset-left));
   }
 
-  .attachment-browser-check {
+  :where(body:not(.responsive-desktop-layout)) .attachment-browser-check {
     width: 16px;
     height: 16px;
     border-radius: 4px;
   }
 
-  .attachment-browser-file-name {
+  :where(body:not(.responsive-desktop-layout)) .attachment-browser-file-name {
     font-size: 12px;
   }
 
-  .attachment-browser-file-meta {
+  :where(body:not(.responsive-desktop-layout)) .attachment-browser-file-meta {
     font-size: 11px;
   }
 
-  .attachment-browser-actions {
+  :where(body:not(.responsive-desktop-layout)) .attachment-browser-actions {
     position: relative;
     padding-top: 10px;
     padding-right: max(10px, var(--lzc-safe-area-inset-right));
@@ -5416,38 +5417,38 @@ body.is-tab-overview-dragging {
     box-shadow: 0 -12px 24px rgba(0, 0, 0, 0.24);
   }
 
-  .header-actions {
+  :where(body:not(.responsive-desktop-layout)) .header-actions {
     position: relative;
     z-index: 1;
     flex: 0 0 auto;
   }
 
-  .instance-switcher {
+  :where(body:not(.responsive-desktop-layout)) .instance-switcher {
     max-width: none;
   }
 
-  .instance-switcher-btn {
+  :where(body:not(.responsive-desktop-layout)) .instance-switcher-btn {
     width: 34px;
     height: 34px;
     justify-content: center;
     padding: 0;
   }
 
-  .instance-switcher-panel {
+  :where(body:not(.responsive-desktop-layout)) .instance-switcher-panel {
     right: 0;
     width: min(360px, calc(100vw - 16px));
     max-height: calc(100dvh - 54px);
   }
 
-  .theme-picker-panel {
+  :where(body:not(.responsive-desktop-layout)) .theme-picker-panel {
     width: 100vw;
   }
 
-  .theme-picker-list {
+  :where(body:not(.responsive-desktop-layout)) .theme-picker-list {
     padding: var(--theme-picker-list-padding) max(var(--theme-picker-list-padding), var(--lzc-safe-area-inset-right)) calc(var(--theme-picker-list-padding) + var(--lzc-safe-area-inset-bottom)) max(var(--theme-picker-list-padding), var(--lzc-safe-area-inset-left));
   }
 
-  .settings-modal {
+  :where(body:not(.responsive-desktop-layout)) .settings-modal {
     z-index: 120;
     align-items: stretch;
     justify-content: flex-start;
@@ -5455,7 +5456,7 @@ body.is-tab-overview-dragging {
     background: var(--panel-bg);
   }
 
-  .settings-panel {
+  :where(body:not(.responsive-desktop-layout)) .settings-panel {
     width: 100vw;
     height: var(--mobile-visual-viewport-height, 100dvh);
     max-height: none;
@@ -5466,7 +5467,7 @@ body.is-tab-overview-dragging {
     box-shadow: none;
   }
 
-  .settings-header {
+  :where(body:not(.responsive-desktop-layout)) .settings-header {
     position: relative;
     justify-content: center;
     min-height: calc(54px + var(--lzc-safe-area-inset-top));
@@ -5474,7 +5475,7 @@ body.is-tab-overview-dragging {
     box-sizing: border-box;
   }
 
-  .settings-back {
+  :where(body:not(.responsive-desktop-layout)) .settings-back {
     position: absolute;
     left: max(10px, var(--lzc-safe-area-inset-left));
     top: calc(var(--lzc-safe-area-inset-top) + 27px);
@@ -5491,26 +5492,26 @@ body.is-tab-overview-dragging {
     transform: translateY(-50%);
   }
 
-  .settings-back .icon {
+  :where(body:not(.responsive-desktop-layout)) .settings-back .icon {
     display: block;
     width: 20px;
     height: 20px;
     fill: currentColor;
   }
 
-  .settings-close {
+  :where(body:not(.responsive-desktop-layout)) .settings-close {
     display: none;
   }
 
-  .settings-main {
+  :where(body:not(.responsive-desktop-layout)) .settings-main {
     flex-direction: column;
   }
 
-  .settings-tabs {
+  :where(body:not(.responsive-desktop-layout)) .settings-tabs {
     display: none;
   }
 
-  .settings-mobile-nav {
+  :where(body:not(.responsive-desktop-layout)) .settings-mobile-nav {
     display: flex;
     min-height: 0;
     flex: 1 1 auto;
@@ -5523,111 +5524,111 @@ body.is-tab-overview-dragging {
     -webkit-overflow-scrolling: touch;
   }
 
-  .settings-mobile-nav[hidden] {
+  :where(body:not(.responsive-desktop-layout)) .settings-mobile-nav[hidden] {
     display: none;
   }
 
-  .settings-mobile-nav::-webkit-scrollbar {
+  :where(body:not(.responsive-desktop-layout)) .settings-mobile-nav::-webkit-scrollbar {
     display: none;
   }
 
-  .settings-mobile-nav-item {
+  :where(body:not(.responsive-desktop-layout)) .settings-mobile-nav-item {
     padding-right: calc(max(18px, var(--lzc-safe-area-inset-right)) + 38px);
     padding-left: max(18px, var(--lzc-safe-area-inset-left));
   }
 
-  .settings-mobile-nav-item::after {
+  :where(body:not(.responsive-desktop-layout)) .settings-mobile-nav-item::after {
     right: max(22px, calc(var(--lzc-safe-area-inset-right) + 4px));
   }
 
-  .settings-mobile-nav-item:active {
+  :where(body:not(.responsive-desktop-layout)) .settings-mobile-nav-item:active {
     background: var(--panel-hover-bg);
   }
 
-  .settings-tab-panel {
+  :where(body:not(.responsive-desktop-layout)) .settings-tab-panel {
     align-self: stretch;
     width: 100%;
   }
 
-  .settings-panel[data-mobile-settings-view="index"] .settings-body {
+  :where(body:not(.responsive-desktop-layout)) .settings-panel[data-mobile-settings-view="index"] .settings-body {
     display: none;
   }
 
-  .settings-tab-panel[data-settings-panel="terminal"] {
+  :where(body:not(.responsive-desktop-layout)) .settings-tab-panel[data-settings-panel="terminal"] {
     width: auto;
   }
 
-  .settings-tab-panel[data-settings-panel="terminal"] > .settings-section {
+  :where(body:not(.responsive-desktop-layout)) .settings-tab-panel[data-settings-panel="terminal"] > .settings-section {
     width: 100%;
   }
 
-  .device-panel {
+  :where(body:not(.responsive-desktop-layout)) .device-panel {
     width: 100vw;
     height: var(--mobile-visual-viewport-height, 100dvh);
     max-height: none;
     min-width: 0;
   }
 
-  .device-section {
+  :where(body:not(.responsive-desktop-layout)) .device-section {
     width: 100%;
   }
 
-  [data-settings-panel="mobile-shortcuts"] > .settings-section,
-  [data-settings-panel="desktop-shortcuts"] > .settings-section {
+  :where(body:not(.responsive-desktop-layout)) [data-settings-panel="mobile-shortcuts"] > .settings-section,
+  :where(body:not(.responsive-desktop-layout)) [data-settings-panel="desktop-shortcuts"] > .settings-section {
     width: 100%;
   }
 
-  [data-settings-panel="service-forwards"] > .settings-section {
+  :where(body:not(.responsive-desktop-layout)) [data-settings-panel="service-forwards"] > .settings-section {
     width: 100%;
   }
 
-  .settings-number-row {
+  :where(body:not(.responsive-desktop-layout)) .settings-number-row {
     align-items: stretch;
     flex-direction: column;
     gap: 8px;
   }
 
-  .settings-number-control {
+  :where(body:not(.responsive-desktop-layout)) .settings-number-control {
     width: 100%;
     margin-left: 0;
     justify-content: space-between;
     flex-wrap: nowrap;
   }
 
-  .settings-number-stepper {
+  :where(body:not(.responsive-desktop-layout)) .settings-number-stepper {
     width: auto;
     flex: 1 1 auto;
   }
 
-  .settings-mobile-shortcut-item {
+  :where(body:not(.responsive-desktop-layout)) .settings-mobile-shortcut-item {
     grid-template-columns: 32px minmax(0, 1fr) auto;
   }
 
-  .settings-service-forward-actions,
-  .settings-service-forward-item-actions,
-  .settings-service-forward-form-actions {
+  :where(body:not(.responsive-desktop-layout)) .settings-service-forward-actions,
+  :where(body:not(.responsive-desktop-layout)) .settings-service-forward-item-actions,
+  :where(body:not(.responsive-desktop-layout)) .settings-service-forward-form-actions {
     justify-content: flex-start;
   }
 
-  .settings-service-forward-item {
+  :where(body:not(.responsive-desktop-layout)) .settings-service-forward-item {
     grid-template-columns: minmax(0, 1fr);
     align-items: stretch;
   }
 
-  .settings-service-forward-form-grid {
+  :where(body:not(.responsive-desktop-layout)) .settings-service-forward-form-grid {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .settings-service-forward-upstream {
+  :where(body:not(.responsive-desktop-layout)) .settings-service-forward-upstream {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .service-forward-editor {
+  :where(body:not(.responsive-desktop-layout)) .service-forward-editor {
     align-items: flex-end;
     padding: 0;
   }
 
-  .service-forward-editor-panel {
+  :where(body:not(.responsive-desktop-layout)) .service-forward-editor-panel {
     width: 100%;
     max-height: calc(var(--mobile-visual-viewport-height, 100dvh) - var(--lzc-safe-area-inset-top) - 12px);
     padding: 16px max(16px, var(--lzc-safe-area-inset-right)) calc(16px + var(--lzc-safe-area-inset-bottom)) max(16px, var(--lzc-safe-area-inset-left));
@@ -5639,36 +5640,36 @@ body.is-tab-overview-dragging {
     animation: service-forward-editor-sheet-in 0.18s ease-out;
   }
 
-  .settings-service-forward-form-actions {
+  :where(body:not(.responsive-desktop-layout)) .settings-service-forward-form-actions {
     align-items: stretch;
     flex-direction: column;
     flex-wrap: nowrap;
     gap: 10px;
   }
 
-  .settings-service-forward-form-actions .settings-text-button {
+  :where(body:not(.responsive-desktop-layout)) .settings-service-forward-form-actions .settings-text-button {
     width: 100%;
     min-height: 46px;
     border-radius: 9px;
     font-size: 14px;
   }
 
-  .settings-service-forward-form-spacer {
+  :where(body:not(.responsive-desktop-layout)) .settings-service-forward-form-spacer {
     display: none;
   }
 
-  #serviceForwardSubmitButton {
+  :where(body:not(.responsive-desktop-layout)) #serviceForwardSubmitButton {
     order: 1;
     border-color: var(--accent);
     background: var(--accent);
     color: #ffffff;
   }
 
-  #serviceForwardCancelButton {
+  :where(body:not(.responsive-desktop-layout)) #serviceForwardCancelButton {
     order: 2;
   }
 
-  #serviceForwardDeleteButton {
+  :where(body:not(.responsive-desktop-layout)) #serviceForwardDeleteButton {
     order: 3;
   }
 
@@ -5682,12 +5683,12 @@ body.is-tab-overview-dragging {
     }
   }
 
-  .mobile-shortcut-editor {
+  :where(body:not(.responsive-desktop-layout)) .mobile-shortcut-editor {
     align-items: flex-end;
     padding: 0;
   }
 
-  .mobile-shortcut-editor-panel {
+  :where(body:not(.responsive-desktop-layout)) .mobile-shortcut-editor-panel {
     width: 100%;
     max-height: calc(var(--mobile-visual-viewport-height, 100dvh) - var(--lzc-safe-area-inset-top) - 12px);
     padding: 16px max(16px, var(--lzc-safe-area-inset-right)) calc(16px + var(--lzc-safe-area-inset-bottom)) max(16px, var(--lzc-safe-area-inset-left));
@@ -5699,35 +5700,35 @@ body.is-tab-overview-dragging {
     animation: mobile-shortcut-editor-sheet-in 0.18s ease-out;
   }
 
-  .mobile-shortcut-editor-actions {
+  :where(body:not(.responsive-desktop-layout)) .mobile-shortcut-editor-actions {
     align-items: stretch;
     flex-direction: column;
     gap: 10px;
   }
 
-  .mobile-shortcut-editor-actions .settings-text-button {
+  :where(body:not(.responsive-desktop-layout)) .mobile-shortcut-editor-actions .settings-text-button {
     width: 100%;
     min-height: 46px;
     border-radius: 9px;
     font-size: 14px;
   }
 
-  .mobile-shortcut-editor-action-spacer {
+  :where(body:not(.responsive-desktop-layout)) .mobile-shortcut-editor-action-spacer {
     display: none;
   }
 
-  .mobile-shortcut-editor-actions button[type="submit"] {
+  :where(body:not(.responsive-desktop-layout)) .mobile-shortcut-editor-actions button[type="submit"] {
     order: 1;
     border-color: var(--accent);
     background: var(--accent);
     color: #ffffff;
   }
 
-  #mobileShortcutEditorCancel {
+  :where(body:not(.responsive-desktop-layout)) #mobileShortcutEditorCancel {
     order: 2;
   }
 
-  #mobileShortcutEditorDelete {
+  :where(body:not(.responsive-desktop-layout)) #mobileShortcutEditorDelete {
     order: 3;
   }
 
@@ -5741,27 +5742,27 @@ body.is-tab-overview-dragging {
     }
   }
 
-  .tab-overview-header {
+  :where(body:not(.responsive-desktop-layout)) .tab-overview-header {
     min-height: calc(46px + var(--lzc-safe-area-inset-top));
     grid-template-columns: 44px minmax(0, 1fr) 34px;
     padding: var(--lzc-safe-area-inset-top) max(10px, var(--lzc-safe-area-inset-right)) 0 max(10px, var(--lzc-safe-area-inset-left));
   }
 
-  .tab-overview-header h2 {
+  :where(body:not(.responsive-desktop-layout)) .tab-overview-header h2 {
     font-size: 16px;
   }
 
-  .tab-overview-back {
+  :where(body:not(.responsive-desktop-layout)) .tab-overview-back {
     width: 44px;
     height: 44px;
   }
 
-  .tab-overview-add {
+  :where(body:not(.responsive-desktop-layout)) .tab-overview-add {
     width: 34px;
     height: 34px;
   }
 
-  .tab-overview-grid {
+  :where(body:not(.responsive-desktop-layout)) .tab-overview-grid {
     --tab-overview-preview-ratio: var(--tab-overview-mobile-preview-ratio, 9 / 16);
     --tab-overview-columns: 2;
     --tab-overview-meta-height: 46px;
@@ -5773,42 +5774,42 @@ body.is-tab-overview-dragging {
     -webkit-overflow-scrolling: touch;
   }
 
-  .tab-overview-meta {
+  :where(body:not(.responsive-desktop-layout)) .tab-overview-meta {
     min-height: 46px;
     padding: 7px 8px;
   }
 
-  .tab-overview-name {
+  :where(body:not(.responsive-desktop-layout)) .tab-overview-name {
     font-size: 12px;
   }
 
-  .tab-overview-card-close {
+  :where(body:not(.responsive-desktop-layout)) .tab-overview-card-close {
     top: 5px;
     right: 5px;
     width: 30px;
     height: 30px;
   }
 
-  .app-shell {
+  :where(body:not(.responsive-desktop-layout)) .app-shell {
     inset: 0 0 calc(var(--mobile-shortcuts-total-height) + var(--mobile-bottom-dock-offset)) 0;
   }
 
-  body.mobile-shortcuts-empty .app-shell {
+  body:where(:not(.responsive-desktop-layout)).mobile-shortcuts-empty .app-shell {
     inset: 0 0 var(--mobile-bottom-dock-offset) 0;
   }
 
-  .search-panel {
+  :where(body:not(.responsive-desktop-layout)) .search-panel {
     top: 8px;
     right: 8px;
     left: 8px;
     max-width: none;
   }
 
-  .search-input {
+  :where(body:not(.responsive-desktop-layout)) .search-input {
     width: 100%;
   }
 
-  .mobile-shortcuts {
+  :where(body:not(.responsive-desktop-layout)) .mobile-shortcuts {
     position: fixed;
     right: 0;
     bottom: 0;
@@ -5827,19 +5828,19 @@ body.is-tab-overview-dragging {
     transition: transform 0.18s ease-out;
   }
 
-  .mobile-shortcuts.is-empty {
+  :where(body:not(.responsive-desktop-layout)) .mobile-shortcuts.is-empty {
     display: none;
   }
 
-body.mobile-action-sheet-open .mobile-shortcuts {
+body:where(:not(.responsive-desktop-layout)).mobile-action-sheet-open .mobile-shortcuts {
   display: none;
 }
 
-body.attachment-browser-open .mobile-shortcuts {
+body:where(:not(.responsive-desktop-layout)).attachment-browser-open .mobile-shortcuts {
   display: none;
 }
 
-.mobile-shortcut-row {
+:where(body:not(.responsive-desktop-layout)) .mobile-shortcut-row {
     display: flex;
     gap: 6px;
     min-width: 0;
@@ -5851,11 +5852,11 @@ body.attachment-browser-open .mobile-shortcuts {
     -webkit-overflow-scrolling: touch;
   }
 
-  .mobile-shortcut-row::-webkit-scrollbar {
+  :where(body:not(.responsive-desktop-layout)) .mobile-shortcut-row::-webkit-scrollbar {
     display: none;
   }
 
-  .mobile-shortcuts button {
+  :where(body:not(.responsive-desktop-layout)) .mobile-shortcuts button {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -5877,19 +5878,19 @@ body.attachment-browser-open .mobile-shortcuts {
     -webkit-tap-highlight-color: transparent;
   }
 
-  .mobile-shortcuts button[data-kind="menu"] {
+  :where(body:not(.responsive-desktop-layout)) .mobile-shortcuts button[data-kind="menu"] {
     position: relative;
     width: 40px;
     min-width: 40px;
     padding: 0;
   }
 
-  .mobile-shortcuts button[data-kind="menu"].has-selection {
+  :where(body:not(.responsive-desktop-layout)) .mobile-shortcuts button[data-kind="menu"].has-selection {
     background: transparent;
     color: var(--accent);
   }
 
-  .mobile-shortcut-icon {
+  :where(body:not(.responsive-desktop-layout)) .mobile-shortcut-icon {
     display: block;
     width: 18px;
     height: 18px;
@@ -5897,37 +5898,37 @@ body.attachment-browser-open .mobile-shortcuts {
     fill: currentColor;
   }
 
-  .mobile-shortcuts button[data-kind="symbol"] {
+  :where(body:not(.responsive-desktop-layout)) .mobile-shortcuts button[data-kind="symbol"] {
     min-width: 24px;
     padding: 0 4px;
     font-size: 14px;
   }
 
-  .mobile-shortcuts button[data-kind="nav"] {
+  :where(body:not(.responsive-desktop-layout)) .mobile-shortcuts button[data-kind="nav"] {
     min-width: 24px;
     padding: 0 4px;
     font-size: 13px;
   }
 
-  .mobile-shortcuts button:active {
+  :where(body:not(.responsive-desktop-layout)) .mobile-shortcuts button:active {
     transform: translateY(1px);
     opacity: 0.72;
   }
 
-  .mobile-shortcuts button.active,
-  .mobile-shortcuts button[aria-pressed="true"] {
+  :where(body:not(.responsive-desktop-layout)) .mobile-shortcuts button.active,
+  :where(body:not(.responsive-desktop-layout)) .mobile-shortcuts button[aria-pressed="true"] {
     background: var(--accent);
     color: #ffffff;
     opacity: 1;
   }
 
-  .mobile-shortcuts button[data-kind="feedback"].active,
-  .mobile-shortcuts button[data-kind="feedback"][aria-pressed="true"] {
+  :where(body:not(.responsive-desktop-layout)) .mobile-shortcuts button[data-kind="feedback"].active,
+  :where(body:not(.responsive-desktop-layout)) .mobile-shortcuts button[data-kind="feedback"][aria-pressed="true"] {
     background: transparent;
     color: var(--accent);
   }
 
-  .mobile-close-confirm-sheet {
+  :where(body:not(.responsive-desktop-layout)) .mobile-close-confirm-sheet {
     position: fixed;
     inset: 0;
     z-index: 99;
@@ -5935,11 +5936,11 @@ body.attachment-browser-open .mobile-shortcuts {
     color: var(--text);
   }
 
-  .mobile-close-confirm-sheet[hidden] {
+  :where(body:not(.responsive-desktop-layout)) .mobile-close-confirm-sheet[hidden] {
     display: none;
   }
 
-  .mobile-close-confirm-scrim {
+  :where(body:not(.responsive-desktop-layout)) .mobile-close-confirm-scrim {
     position: absolute;
     inset: 0;
     width: 100%;
@@ -5950,7 +5951,7 @@ body.attachment-browser-open .mobile-shortcuts {
     cursor: default;
   }
 
-  .mobile-close-confirm-panel {
+  :where(body:not(.responsive-desktop-layout)) .mobile-close-confirm-panel {
     position: absolute;
     right: 0;
     bottom: 0;
@@ -5962,7 +5963,7 @@ body.attachment-browser-open .mobile-shortcuts {
     box-sizing: border-box;
   }
 
-  .mobile-close-confirm-handle {
+  :where(body:not(.responsive-desktop-layout)) .mobile-close-confirm-handle {
     display: flex;
     width: 100%;
     height: 32px;
@@ -5976,7 +5977,7 @@ body.attachment-browser-open .mobile-shortcuts {
     -webkit-tap-highlight-color: transparent;
   }
 
-  .mobile-close-confirm-handle span {
+  :where(body:not(.responsive-desktop-layout)) .mobile-close-confirm-handle span {
     display: block;
     width: 38px;
     height: 4px;
@@ -5985,14 +5986,14 @@ body.attachment-browser-open .mobile-shortcuts {
     opacity: 0.72;
   }
 
-  .mobile-close-confirm-title {
+  :where(body:not(.responsive-desktop-layout)) .mobile-close-confirm-title {
     margin: 0;
     color: var(--text);
     font-size: 16px;
     font-weight: 700;
   }
 
-  .mobile-close-confirm-message {
+  :where(body:not(.responsive-desktop-layout)) .mobile-close-confirm-message {
     margin: 9px 0 16px;
     color: var(--chrome-text);
     font-size: 13px;
@@ -6000,21 +6001,21 @@ body.attachment-browser-open .mobile-shortcuts {
     white-space: pre-wrap;
   }
 
-  .mobile-close-confirm-actions {
+  :where(body:not(.responsive-desktop-layout)) .mobile-close-confirm-actions {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 10px;
   }
 
-  .mobile-close-confirm-actions[data-layout="vertical-ok-first"] {
+  :where(body:not(.responsive-desktop-layout)) .mobile-close-confirm-actions[data-layout="vertical-ok-first"] {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .mobile-close-confirm-actions[data-layout="vertical-ok-first"] .mobile-close-confirm-ok {
+  :where(body:not(.responsive-desktop-layout)) .mobile-close-confirm-actions[data-layout="vertical-ok-first"] .mobile-close-confirm-ok {
     order: -1;
   }
 
-  .mobile-close-confirm-actions button {
+  :where(body:not(.responsive-desktop-layout)) .mobile-close-confirm-actions button {
     min-width: 0;
     height: 42px;
     border: 0;
@@ -6024,17 +6025,17 @@ body.attachment-browser-open .mobile-shortcuts {
     font-weight: 700;
   }
 
-  .mobile-close-confirm-cancel {
+  :where(body:not(.responsive-desktop-layout)) .mobile-close-confirm-cancel {
     background: var(--panel-subtle-bg);
     color: var(--text);
   }
 
-  .mobile-close-confirm-ok {
+  :where(body:not(.responsive-desktop-layout)) .mobile-close-confirm-ok {
     background: rgba(248, 113, 113, 0.16);
     color: var(--danger);
   }
 
-  .mobile-action-sheet {
+  :where(body:not(.responsive-desktop-layout)) .mobile-action-sheet {
     position: fixed;
     inset: 0;
     z-index: 95;
@@ -6042,11 +6043,11 @@ body.attachment-browser-open .mobile-shortcuts {
     color: var(--text);
   }
 
-  .mobile-action-sheet[hidden] {
+  :where(body:not(.responsive-desktop-layout)) .mobile-action-sheet[hidden] {
     display: none;
   }
 
-  .mobile-action-sheet-scrim {
+  :where(body:not(.responsive-desktop-layout)) .mobile-action-sheet-scrim {
     position: absolute;
     inset: 0;
     width: 100%;
@@ -6057,7 +6058,7 @@ body.attachment-browser-open .mobile-shortcuts {
     cursor: default;
   }
 
-  .mobile-action-sheet-panel {
+  :where(body:not(.responsive-desktop-layout)) .mobile-action-sheet-panel {
     position: absolute;
     right: 0;
     bottom: 0;
@@ -6071,7 +6072,7 @@ body.attachment-browser-open .mobile-shortcuts {
     box-sizing: border-box;
   }
 
-  .mobile-action-sheet-handle {
+  :where(body:not(.responsive-desktop-layout)) .mobile-action-sheet-handle {
     display: flex;
     width: 100%;
     height: 32px;
@@ -6085,7 +6086,7 @@ body.attachment-browser-open .mobile-shortcuts {
     -webkit-tap-highlight-color: transparent;
   }
 
-  .mobile-action-sheet-handle span {
+  :where(body:not(.responsive-desktop-layout)) .mobile-action-sheet-handle span {
     display: block;
     width: 38px;
     height: 4px;
@@ -6094,7 +6095,7 @@ body.attachment-browser-open .mobile-shortcuts {
     opacity: 0.72;
   }
 
-  .mobile-action-grid {
+  :where(body:not(.responsive-desktop-layout)) .mobile-action-grid {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 6px;
@@ -6106,11 +6107,11 @@ body.attachment-browser-open .mobile-shortcuts {
     -webkit-overflow-scrolling: touch;
   }
 
-  .mobile-action-grid::-webkit-scrollbar {
+  :where(body:not(.responsive-desktop-layout)) .mobile-action-grid::-webkit-scrollbar {
     display: none;
   }
 
-  .mobile-action-item {
+  :where(body:not(.responsive-desktop-layout)) .mobile-action-item {
     display: flex;
     min-width: 0;
     min-height: 66px;
@@ -6131,21 +6132,21 @@ body.attachment-browser-open .mobile-shortcuts {
     -webkit-tap-highlight-color: transparent;
   }
 
-  .mobile-action-item:not(:disabled):active {
+  :where(body:not(.responsive-desktop-layout)) .mobile-action-item:not(:disabled):active {
     background: var(--panel-hover-bg);
     transform: translateY(1px);
   }
 
-  .mobile-action-item:disabled {
+  :where(body:not(.responsive-desktop-layout)) .mobile-action-item:disabled {
     cursor: not-allowed;
     opacity: 0.38;
   }
 
-  .mobile-action-item.danger {
+  :where(body:not(.responsive-desktop-layout)) .mobile-action-item.danger {
     color: var(--danger);
   }
 
-  .mobile-action-icon {
+  :where(body:not(.responsive-desktop-layout)) .mobile-action-icon {
     display: flex;
     width: 22px;
     height: 22px;
@@ -6155,13 +6156,13 @@ body.attachment-browser-open .mobile-shortcuts {
     color: currentColor;
   }
 
-  .mobile-action-icon svg {
+  :where(body:not(.responsive-desktop-layout)) .mobile-action-icon svg {
     display: block;
     width: 100%;
     height: 100%;
   }
 
-  .mobile-action-label {
+  :where(body:not(.responsive-desktop-layout)) .mobile-action-label {
     display: -webkit-box;
     max-width: 100%;
     min-height: 24px;
@@ -6176,12 +6177,12 @@ body.attachment-browser-open .mobile-shortcuts {
     -webkit-line-clamp: 2;
   }
 
-  .terminal-host,
-  .terminal-host canvas {
+  :where(body:not(.responsive-desktop-layout)) .terminal-host,
+  :where(body:not(.responsive-desktop-layout)) .terminal-host canvas {
     -webkit-touch-callout: none;
   }
 
-  .mobile-selection-overlay {
+  :where(body:not(.responsive-desktop-layout)) .mobile-selection-overlay {
     position: absolute;
     inset: 0;
     z-index: 7;
@@ -6189,11 +6190,11 @@ body.attachment-browser-open .mobile-shortcuts {
     pointer-events: none;
   }
 
-  .mobile-selection-overlay[hidden] {
+  :where(body:not(.responsive-desktop-layout)) .mobile-selection-overlay[hidden] {
     display: none;
   }
 
-  .mobile-selection-handle {
+  :where(body:not(.responsive-desktop-layout)) .mobile-selection-handle {
     position: absolute;
     width: 32px;
     min-width: 32px;
@@ -6208,15 +6209,15 @@ body.attachment-browser-open .mobile-shortcuts {
     -webkit-tap-highlight-color: transparent;
   }
 
-  .mobile-selection-handle.start {
+  :where(body:not(.responsive-desktop-layout)) .mobile-selection-handle.start {
     transform: translateX(-16px);
   }
 
-  .mobile-selection-handle.end {
+  :where(body:not(.responsive-desktop-layout)) .mobile-selection-handle.end {
     transform: translateX(-16px);
   }
 
-  .mobile-selection-handle-bar {
+  :where(body:not(.responsive-desktop-layout)) .mobile-selection-handle-bar {
     position: absolute;
     top: 0;
     bottom: 10px;
@@ -6228,7 +6229,7 @@ body.attachment-browser-open .mobile-shortcuts {
     transform: translateX(-50%);
   }
 
-  .mobile-selection-handle-knob {
+  :where(body:not(.responsive-desktop-layout)) .mobile-selection-handle-knob {
     position: absolute;
     bottom: 0;
     left: 50%;
@@ -6241,12 +6242,12 @@ body.attachment-browser-open .mobile-shortcuts {
     transform: translateX(-50%);
   }
 
-  .selection-sheet,
-  .network-banner {
+  :where(body:not(.responsive-desktop-layout)) .selection-sheet,
+  :where(body:not(.responsive-desktop-layout)) .network-banner {
     bottom: var(--mobile-bottom-overlay-offset);
   }
 
-  .toast {
+  :where(body:not(.responsive-desktop-layout)) .toast {
     bottom: var(--mobile-bottom-overlay-offset);
   }
 }

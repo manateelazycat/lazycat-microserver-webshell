@@ -1422,6 +1422,7 @@ export function startGlobalRuntime() {
     getForcePCModeEnabled: () => settings?.getForcePCModeEnabled() === true,
     getDesktopShortcutsBarEnabled: () => settings?.getDesktopShortcutsBarEnabled() === true,
     getMobilePixelScrollEnabled: () => settings?.getMobilePixelScrollEnabled() !== false,
+    getTabs: () => tabs.values(),
     closeMobileActionSheet: () => closeMobileActionSheet(),
     closeMobileCloseConfirm: (value) => closeMobileCloseConfirm(value),
     closeMobileCustomSelect: () => closeMobileCustomSelect(),
@@ -2713,6 +2714,7 @@ export function startGlobalRuntime() {
     fonts: document.fonts,
     heartbeatIntervalMs: 5 * 1000,
     handlers: {
+      onStart: () => layoutController?.start(),
       onRecoverUserGesture: recoverVisibleSessionsFromUserGesture,
       onPointerDown: (event) => {
         const target = event.target;
@@ -2754,7 +2756,7 @@ export function startGlobalRuntime() {
         shortcutController?.handleKeydown(event);
       },
       onResize: () => {
-        desktopWorkspace?.syncMode();
+        layoutController?.scheduleResponsiveLayout();
         syncMobileCustomSelectPosition();
         if (!isMobileLayout()) {
           closeMobileCloseConfirm(false);
@@ -2774,9 +2776,15 @@ export function startGlobalRuntime() {
       },
       onOnline: () => runtimeRecovery?.handleOnline(),
       onOffline: () => runtimeRecovery?.handleOffline(),
-      onVisibilityChange: () => runtimeRecovery?.handleVisibilityChange({ hidden: document.hidden }),
+      onVisibilityChange: () => {
+        if (!document.hidden) layoutController?.syncResponsiveLayout();
+        runtimeRecovery?.handleVisibilityChange({ hidden: document.hidden });
+      },
       onFocus: () => runtimeRecovery?.handleFocus(),
-      onPageShow: () => runtimeRecovery?.handlePageShow(),
+      onPageShow: () => {
+        layoutController?.syncResponsiveLayout();
+        runtimeRecovery?.handlePageShow();
+      },
       onPageHide: () => {
         rememberWorkspaceRestoreState();
         settings?.flushPending();
