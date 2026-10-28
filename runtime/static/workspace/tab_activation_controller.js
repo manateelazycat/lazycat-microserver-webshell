@@ -7,6 +7,9 @@ export function createWorkspaceTabActivationController({
   isAppDisposed = () => false,
   isApplyingWorkspaceState = () => false,
   finishLayoutInteraction = () => {},
+  beforeActivate = () => {},
+  onActivated = () => {},
+  onCleared = () => {},
   measureTask = (_name, task) => task(),
   presentationStateIsCurrent = () => false,
   canBrowseLocally = () => false,
@@ -70,10 +73,11 @@ export function createWorkspaceTabActivationController({
       const previousTabId = tabRegistry.getActiveTabId();
       const previousTab = tabRegistry.get(previousTabId);
       const wasActive = previousTabId === tab.id;
+      beforeActivate(previousTab, tab);
       if (!wasActive) {
         finishLayoutInteraction();
-        // A current live Canvas keeps its pixels while its tab is hidden.
-        // Only capture a hold when a presentation transition is already pending.
+        // Recent tabs can retain their pixels; the surface owner evicts older
+        // ones. Capture a hold only for a pending presentation transition.
         preserveTabFrames(previousTab, { onlyIfStale: true });
         preserveTabFrames(tab, { onlyIfStale: true });
       }
@@ -86,6 +90,7 @@ export function createWorkspaceTabActivationController({
         rememberRecentTab(tab.id, previousTabId);
       }
       tabView.setActiveTabVisuals([previousTab, tab], tab.id);
+      onActivated(tab, previousTab);
       for (const pane of tab.panes.values()) {
         // A disconnected tab still owns its readable local terminal. Let the
         // reconnect path fit it when authoritative output becomes available.
@@ -156,6 +161,7 @@ export function createWorkspaceTabActivationController({
   const clear = () => {
     tabRegistry.setActiveTabId(null);
     scheduler.cancel();
+    onCleared();
   };
 
   const dispose = () => {

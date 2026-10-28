@@ -10,6 +10,7 @@ export function createTerminalSessionResourceFactory({
   getTerminalOptions = () => ({}),
   getMobilePixelScroll = () => false,
   attachBackend = () => {},
+  prepareSurface = () => {},
 } = {}) {
   if (!documentObject || typeof documentObject.createElement !== "function") {
     throw new TypeError("terminal session resource factory requires a document");
@@ -40,6 +41,7 @@ export function createTerminalSessionResourceFactory({
     shellEl.appendChild(terminalHost);
 
     const term = new TerminalCtor(getTerminalOptions(initialTerminalOptions));
+    prepareSurface(term);
     attachBackend(term);
     const fitAddon = new FitAddonCtor();
     term.loadAddon(fitAddon);

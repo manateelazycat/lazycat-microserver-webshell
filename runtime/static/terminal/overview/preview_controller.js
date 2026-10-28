@@ -215,12 +215,13 @@ export function createTerminalOverviewPreviewController({
     const identityKey = terminalOverviewPreviewKey(identity);
     const historyGeneration = String(pane.historyGeneration || "").trim();
     const renderGeneration = Math.max(0, Math.floor(Number(pane.renderGeneration) || 0));
-    const blob = await encodeCanvas(canvas);
+    let blob;
+    try { blob = await encodeCanvas(canvas); }
+    finally { canvas.width = canvas.height = 0; }
     if (
       disposed
       || pane.closed
       || state.captureSeq !== captureSeq
-      || !canCapturePane(pane)
       || terminalOverviewPreviewKey(identityForPane(pane)) !== identityKey
       || String(pane.historyGeneration || "").trim() !== historyGeneration
       || Math.max(0, Math.floor(Number(pane.renderGeneration) || 0)) !== renderGeneration

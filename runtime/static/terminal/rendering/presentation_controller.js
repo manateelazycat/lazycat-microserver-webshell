@@ -28,6 +28,7 @@ export function createTerminalPresentationController({
   isByteIOLogEnabled = () => false,
   onReady = noop,
   onRenderObserved = noop,
+  onSurfacePixelsChanged = noop,
   recoverTransport = () => false,
   isSocketOpen = () => false,
   now = () => globalThis.performance?.now?.() || Date.now(),
@@ -334,6 +335,7 @@ export function createTerminalPresentationController({
       startedAt: previousHold?.active ? previousHold.startedAt : captureStartedAt,
       captures: (previousHold?.captures || 0) + 1, captureDurationMs: now() - captureStartedAt });
     view.syncState(session);
+    onSurfacePixelsChanged();
     recordEvent(session, "presentation_hold_capture", { ...canvasDetails(session),
       captureDurationMs: holdObservations.get(session).captureDurationMs });
     return true;
@@ -350,6 +352,7 @@ export function createTerminalPresentationController({
     if (hold) { hold.durationMs = now() - hold.startedAt; hold.active = false; }
     session.terminalFrameHeld = false;
     view.syncState(session);
+    onSurfacePixelsChanged();
     recordEvent(session, "presentation_hold_release", {
       released,
       holdDurationMs: hold?.durationMs,
@@ -520,6 +523,7 @@ export function createTerminalPresentationController({
     if (
       !isUsable(session)
       || !session.renderSnapshot
+      || session.term?.hasRenderSurfaceFrame?.() === false
       || !session.renderReady
       || (session.resizeAckPending && !isLiveGeometryActive(session))
     ) {

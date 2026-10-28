@@ -8,6 +8,8 @@
 
 总览只观察工作区 tab/pane，并通过显式命令请求新建、激活、关闭和移动标签。它不建立 WebSocket、不修改 history cursor、不读取或保存 PTY 字节、不恢复 Ghostty 状态，也不决定输入是否 ready。
 
+画布缓存回收后，曾经呈现过的 pane 可能仍保留终端数据但 live Canvas 已为 0×0。预览来源必须检查实际画布尺寸与 `hasRenderSurfaceFrame()`，此时使用已保存的小预览，不为生成卡片恢复大画布。切走前的 immediate capture 先同步缩小复制，再异步编码；编码完成后检查会话身份、历史代次和渲染代次，不能因源画布已被正常释放而丢弃已复制的有效预览。临时编码 Canvas 在编码结束后归零。
+
 ## 公开入口与契约
 
 外部只能从 `terminal/overview/index.js` 导入：

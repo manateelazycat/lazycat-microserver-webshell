@@ -100,7 +100,9 @@ export function createTerminalOverviewController({
 
   const paneOverviewSource = (pane) => {
     const liveCanvas = pane?.term?.canvas || pane?.term?.element?.querySelector?.("canvas");
-    const liveFrame = pane?.renderReady && pane?.hasPresentedFrame ? liveCanvas : null;
+    const liveFrame = pane?.renderReady && pane?.hasPresentedFrame
+      && pane?.term?.hasRenderSurfaceFrame?.() !== false
+      && Number(liveCanvas?.width) > 0 && Number(liveCanvas?.height) > 0 ? liveCanvas : null;
     const heldFrame = isFrameHoldCurrent(pane) ? pane.terminalFrameHold : null;
     const persistedFrame = overviewPreview.get(pane);
     if (!liveFrame && !heldFrame && !persistedFrame) {

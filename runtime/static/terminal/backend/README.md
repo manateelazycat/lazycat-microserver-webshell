@@ -34,6 +34,8 @@ RPC 最多同时 64 项、在途输入最多 4 MiB。UI 历史最多 `max(512, v
 
 Vite 将 module worker 入口和 WASM 放入版本化资源集合。不回退到 UI 线程解析。
 
+UI 画布资源可由 rendering owner 保留或释放。`terminal_adapter.js` 的 `renderNow()` 在 surface 非 active 时直接返回，不为后台绘制预取完整帧；正常后台 write、resize、进度确认和连接生命周期继续原有路径。重新激活画布只恢复本地呈现，不调用 reset、Worker restart、transport reconnect 或历史回放。
+
 v20 保留原生 resize 的错误名供服务端诊断读取，resize 原有成功／失败返回值与终端行为不变。错误名通过静态 WASM 内存读取，失败后不额外申请原生堆内存；同一模块每次调用记录最后一次 resize 错误。新 WASM 指纹需要前后端同步更新。
 
 v21 中 write 只解析、返回代际／模式／回复等轻量进度，不更新 RenderState、不打包整屏。UI 在需要绘制时请求一个 snapshot，同一 pane 最多一个 snapshot 在途；后续字节不取消已经生成的完整帧。绘制期间从同一帧读取尺寸、光标和历史坐标，消费进度与画面版本分开。隐藏 pane 继续解析，恢复可见后按需生成视口。

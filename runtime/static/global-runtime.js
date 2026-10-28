@@ -4,7 +4,7 @@
 // page lifecycle wiring, recovery and teardown ordering. Feature behavior is
 // implemented by the controllers imported below; this layer only creates
 // them, passes explicit dependencies and coordinates their public APIs.
-import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
+import { CanvasRenderer, FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
 import {
   createCodexThemeAdapter,
   resolveCodexKeyInput,
@@ -91,6 +91,7 @@ import {
   createTerminalRenderProbe,
   createTerminalRendererAdapter,
   createTerminalRuntimeController,
+  createTerminalSurfaceController,
   installKittyGraphicsSupport,
   isKittyGraphicsResponse,
   terminalPixelSize,
@@ -355,6 +356,7 @@ export function startGlobalRuntime() {
   let terminalScreenRefresh = null;
   let terminalRenderProbe = null;
   let terminalRenderer = null;
+  let terminalSurfaces = null;
   let terminalRuntime = null;
   let terminalResize = null;
   let terminalViewport = null;
@@ -917,6 +919,7 @@ export function startGlobalRuntime() {
   });
 
   terminalPresentation = createTerminalPresentationController({
+    onSurfacePixelsChanged: () => terminalSurfaces?.scheduleTrim(),
     isByteIOLogEnabled: () => diagnostics.isByteIOLogEnabled(),
     windowObject: window,
     workScheduler: terminalWorkScheduler,
@@ -2112,7 +2115,18 @@ export function startGlobalRuntime() {
   };
   terminalSessionProtocol = createTerminalSessionProtocolController(sessionProtocolOptions);
 
+  terminalSurfaces = createTerminalSurfaceController({
+    TerminalCtor: Terminal,
+    RendererCtor: CanvasRenderer,
+    windowObject: window,
+    getActiveTabId,
+    capturePreview: (session, options) => terminalOverview?.capturePreview(session, options),
+    releaseHold: (session) => terminalPresentation.releaseHold(session),
+    resetCursor: (session, options) => terminalRenderer.resetCursor(session, options),
+    registerSessionCleanup: (session, cleanup) => terminalSessionController.addCleanup(session, cleanup),
+  });
   const terminalSessionResources = createTerminalSessionResourceFactory({
+    prepareSurface: (term) => terminalSurfaces.prepare(term),
     attachBackend: (term) => terminalBackend.attach(term),
     documentObject: document,
     TerminalCtor: Terminal,
@@ -2233,6 +2247,7 @@ export function startGlobalRuntime() {
     clearRuntimeBuffer: (session) => clearTerminalRuntimeBuffer(session),
     ime: terminalIME,
     renderer: terminalRenderer,
+    surfaces: terminalSurfaces,
     selection: terminalSelection,
     tuiAdapterInstaller: terminalTUIAdapterInstaller,
     mouse: terminalMouse,
@@ -2314,6 +2329,9 @@ export function startGlobalRuntime() {
   const moveTab = (tabId, position) => workspaceTabController.moveTab(tabId, position);
 
   workspaceTabActivation = createWorkspaceTabActivationController({
+    beforeActivate: (previous, next) => terminalSurfaces.beforeActivate(previous, next),
+    onActivated: (tab, previous) => terminalSurfaces.activate(tab, previous),
+    onCleared: () => terminalSurfaces.clear(),
     finishLayoutInteraction: () => {
       workspaceLayoutView?.finishDrag();
       desktopWorkspace?.finishResize();
@@ -2684,6 +2702,7 @@ export function startGlobalRuntime() {
     terminalPolicy?.dispose();
     terminalMetrics?.dispose();
     terminalTheme?.dispose();
+    terminalSurfaces?.dispose();
     terminalRenderer?.dispose();
     terminalSelection?.dispose();
     terminalClipboard?.dispose();

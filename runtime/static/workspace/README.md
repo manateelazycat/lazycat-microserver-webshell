@@ -6,6 +6,8 @@
 
 目标 controller 负责当前实例 selector、generation 及实例切换事务；它不拥有实例列表或终端资源。
 
+tab activation 通过 `beforeActivate(previousTab, nextTab)`、`onActivated(tab, previousTab)` 和 `onCleared()` 通知注入的渲染资源 owner。切换前通知在隐藏旧 DOM 之前发出，用于复制小预览；激活通知在 active tab 与 DOM 更新后发出，让当前标签全部分屏恢复绘制。最近标签的像素预算和实际释放由 `terminal/rendering` 维护，本模块不操作 Canvas 尺寸、Worker、终端缓冲或连接生命周期。
+
 ## 公开入口与状态
 
 外部只能从 `workspace/index.js` 导入公开工厂。workspace API 绑定 selector/generation；persistence 持有 suppression/Promise chain；refresh 持有 recovery metrics 与 retry lifecycle；state apply controller 唯一持有 `applying` 状态，state apply lifecycle 独占 apply 后的 RAF；tab registry 唯一持有 tab Map、ID 序列和 active tab；tab navigation 唯一持有最近两个 tab；tab controller 唯一编排 tab/pane CRUD；tab view 唯一创建、排序和切换 tab DOM；tab activation controller 唯一编排激活流程，activation scheduler 独占 latest-only frame/timer；tab lifecycle 唯一持有 tab context cleanup 与延迟 RAF。其他 controller 各自持有布局、标签和 activity 状态。所有 `dispose()` 都是幂等的，迟到请求、重试、apply RAF、激活阶段、持久化和 UI 回调必须通过 generation、identity 或 disposed 检查拒绝。

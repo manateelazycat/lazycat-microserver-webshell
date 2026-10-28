@@ -85,6 +85,7 @@ export function installBackendTerminalAdapter(term) {
   };
   const renderNow = term.renderNow.bind(term);
   term.renderNow = (...args) => {
+    if (term.isRenderSurfaceActive?.() === false) return false;
     const backend = term.wasmTerm;
     if (!backend?.isReady || term.backendResizePending || backend.cols !== term.cols || backend.rows !== term.rows) return false;
     if (!backend.getViewport()) return false;
