@@ -31,6 +31,7 @@ func (w *terminalWorkspace) refreshActivity(ctx context.Context) (WorkspaceActiv
 	}
 	var activities map[string]PaneActivity
 	var err error
+	scanStartedAt := time.Now()
 	if w.localPTY {
 		activities, err = w.runtime.platform.ScanActivities(ctx, ttys)
 	} else {
@@ -49,6 +50,10 @@ func (w *terminalWorkspace) refreshActivity(ctx context.Context) (WorkspaceActiv
 				continue
 			}
 			pane.mu.Lock()
+			if !activity.Busy && !pane.programStatus.updatedAt.After(scanStartedAt) &&
+				(pane.programStatus.State == "working" || pane.programStatus.State == "blocked") {
+				pane.programStatus.clear()
+			}
 			pane.busy = activity.Busy
 			pane.command = activity.Command
 			pane.commandLine = activity.CommandLine

@@ -12,6 +12,8 @@
 
 本模块不负责 WebSocket 协议、Unified 物理连接、历史同步、浏览器存储、Ghostty 渲染、resize 算法、输入分类或工作区布局。这些实现由对应责任域维护，并通过显式 lifecycle adapter 接入。
 
+资源 factory 在 `term.open()` 前调用注入的 `prepareSurface(term)`；session 安装期间把新 pane 交给可选的 `surfaces.installSession()`。前者避免创建时分配后台大画布，后者登记资源与 session cleanup；画布保留、最近标签预算和释放策略全部归 rendering owner。释放画布不销毁 session，也不重建 Worker 或连接。
+
 ## 公开入口
 
 外部只能从 `terminal/session/index.js` 导入：

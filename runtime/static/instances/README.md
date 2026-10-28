@@ -6,6 +6,8 @@
 
 本模块不负责实例可见性和账号授权判断。`/api/instances` 的结果由 Provider 和 LightOS Admin 权威提供，浏览器不得推断、补全或缓存额外实例，也不得直接访问 Admin 或客户端服务凭据。
 
+`onInstancesChange` 在权威列表更新后通知新版 PC 导航刷新，只暴露变化信号；侧栏 DOM、后台实例会话元数据及预览由 `app/desktop_workspace/` 独立维护。
+
 本模块不负责工作区重置、tab/pane、终端 session、WebSocket、历史、缓存、resize、输入或 Canvas presentation。当前活动 selector 和 generation 由 `workspace/target_controller.js` 持有；用户选择实例后，controller 只通过 `onSwitchTarget(nextName, options)` 发出命令，由 target controller 完成目标切换编排。
 
 ## 公开入口与契约
@@ -56,6 +58,7 @@ Controller 的主要公开 API：
 - `instances_loader.js`：`/api/instances` 单飞加载、有限重试和取消。
 - `instances_model.js`：selector、显示名、运行状态和 URL 参数纯函数。
 - `instances_view.js`：切换器和首页按钮 DOM 适配。
+- `instances_menu_position.js`：新版 PC 菜单的浮层挂载、按钮锚点及视口边界定位，不持有菜单打开业务状态。
 - `instances_lifecycle.js`：模块 listener 的注册与移除。
 - `instances_navigation.js`：LightOS 首页 URL 校验、缓存、偏好参数和请求取消。
 
@@ -73,3 +76,5 @@ Controller 的主要公开 API：
 最小回归：打开切换器并确认运行/停止实例状态；切换实例后确认 URL、工作区和选中态一致；模拟 `/api/instances` 502 后恢复及 401 不重试；返回首页时确认移动远程桌面偏好参数；销毁页面后确认无残留请求或 listener。任何验证都不得触发或展示终端历史回放过程。
 
 移动布局下右上角菜单的高度由 CSS 按动态视口扣除顶部安全区、按钮锚点及底部快捷键栏/停靠偏移计算；快捷键为空时只保留实际底部停靠偏移。菜单整体负责纵向滚动，实例列表不另设高度限制或嵌套滚动区域，避免小屏横屏时内容落到快捷键栏后面。强制 PC 模式沿用桌面菜单样式。手工验证小屏横屏及菜单打开期间的横竖屏切换、长实例列表、空快捷键栏，确认最后一项可滚动到快捷键栏上方并正常选择。产品口径见 `spec/app/instance-switcher-viewport/`。
+
+新版 PC 侧栏的菜单打开时保留原节点和 listener，将面板临时挂到 body，以 fixed 定位在按钮下方。默认与按钮右沿对齐，越过窗口左缘时向右平移，越过右缘时向左平移；宽度以 224px 和可见视口为限，底部保留 8px 后由整个菜单滚动。浮层不受侧栏、工作区 overflow 或 sidebar 动画包含块裁剪。按钮所在工具栏和菜单尺寸由 ResizeObserver 观察，窗口及 VisualViewport resize/scroll 经 RAF 合并定位。外部点击判断同时覆盖按钮容器和浮层；关闭、布局切换及 dispose 恢复原节点位置、移除定位样式、断开观察并取消 RAF，传统及移动布局继续使用原有定位。

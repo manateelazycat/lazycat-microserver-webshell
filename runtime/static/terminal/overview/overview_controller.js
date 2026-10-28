@@ -13,6 +13,8 @@ export function createTerminalOverviewController({
   getOrderedTabs = () => [],
   getActiveTabId = () => "",
   getActiveName = () => "",
+  getGroupedOverview = () => null,
+  onOverviewVisibilityChange = noop,
   workspaceLocationURL = () => windowObject?.location?.href || "",
   isMobileLayout = () => false,
   isFrameHoldCurrent = () => false,
@@ -64,6 +66,10 @@ export function createTerminalOverviewController({
   });
 
   const orderedTabsSnapshot = () => Array.from(getOrderedTabs?.() || []);
+  const overviewTabsSnapshot = (selector) => selector
+    ? Array.from(getGroupedOverview()?.getOverviewTabs(selector) || []) : orderedTabsSnapshot();
+  const canReorderOverviewTabs = (selector) => selector
+    ? getGroupedOverview()?.canReorderOverviewTabs(selector) === true : canReorderTabs();
   const hasTab = (tabId) => orderedTabsSnapshot().some((tab) => tab?.id === tabId);
   const now = () => windowObject?.performance?.now?.() ?? globalThis.performance?.now?.() ?? Date.now();
 
@@ -94,7 +100,9 @@ export function createTerminalOverviewController({
 
   const paneOverviewSource = (pane) => {
     const liveCanvas = pane?.term?.canvas || pane?.term?.element?.querySelector?.("canvas");
-    const liveFrame = pane?.renderReady && pane?.hasPresentedFrame ? liveCanvas : null;
+    const liveFrame = pane?.renderReady && pane?.hasPresentedFrame
+      && pane?.term?.hasRenderSurfaceFrame?.() !== false
+      && Number(liveCanvas?.width) > 0 && Number(liveCanvas?.height) > 0 ? liveCanvas : null;
     const heldFrame = isFrameHoldCurrent(pane) ? pane.terminalFrameHold : null;
     const persistedFrame = overviewPreview.get(pane);
     if (!liveFrame && !heldFrame && !persistedFrame) {
@@ -114,6 +122,9 @@ export function createTerminalOverviewController({
       return;
     }
     tabOverviewRenderPending = false;
+    const grouped = getGroupedOverview();
+    if (grouped?.renderOverview(view, paneOverviewSource)) return;
+    view.elements.grid.classList.remove("desktop-overview-groups", "mobile-overview-groups");
     const orderedTabs = orderedTabsSnapshot();
     const previewItems = view.renderTabs?.({
       orderedTabs,
@@ -270,15 +281,15 @@ export function createTerminalOverviewController({
     if (placeholder?.parentNode) {
       placeholder.parentNode.insertBefore(card, placeholder);
       placeholder.remove();
-    } else if (grid && !grid.contains(card)) {
-      grid.appendChild(card);
+    } else if (grid?.contains(state.container) && !state.container.contains(card)) {
+      state.container.appendChild(card);
     }
     grid?.classList.remove("is-dragging");
     documentObject?.body?.classList?.remove("is-tab-overview-dragging");
   };
 
-  const moveTabToOverviewIndex = async (tabId, targetIndex) => {
-    const ordered = orderedTabsSnapshot();
+  const moveTabToOverviewIndex = async ({ selector, tabId }, targetIndex) => {
+    const ordered = overviewTabsSnapshot(selector);
     const currentIndex = ordered.findIndex((tab) => tab.id === tabId);
     if (currentIndex < 0) {
       return;
@@ -290,7 +301,8 @@ export function createTerminalOverviewController({
     const desired = ordered.filter((tab) => tab.id !== tabId);
     desired.splice(safeTarget, 0, ordered[currentIndex]);
     const beforeTabId = desired[safeTarget + 1]?.id || "";
-    await reorderTab(tabId, beforeTabId);
+    if (selector) await getGroupedOverview()?.reorderOverviewTab(selector, tabId, beforeTabId);
+    else await reorderTab(tabId, beforeTabId);
   };
 
   function finishTabOverviewDrag({ cancel = false } = {}) {
@@ -299,9 +311,8 @@ export function createTerminalOverviewController({
       return;
     }
     stopTabOverviewDragTracking();
-    const grid = view.elements?.grid;
     const placeholder = state.placeholder;
-    const orderedCards = Array.from(grid?.children || [])
+    const orderedCards = Array.from(state.container?.children || [])
       .filter((child) => child.classList?.contains("tab-overview-card") || child.classList?.contains("tab-overview-card-placeholder"));
     const targetIndex = placeholder ? orderedCards.indexOf(placeholder) : state.originalIndex;
     const shouldMove = state.dragging && !cancel && targetIndex >= 0 && targetIndex !== state.originalIndex;
@@ -313,7 +324,7 @@ export function createTerminalOverviewController({
     }
     tabOverviewSuppressClickUntil = now() + 350;
     if (shouldMove) {
-      moveTabToOverviewIndex(state.tabId, targetIndex).catch((error) => {
+      moveTabToOverviewIndex(state, targetIndex).catch((error) => {
         showToast(error?.message || "标签排序失败。");
         scheduleTabOverviewRender();
       });
@@ -351,7 +362,9 @@ export function createTerminalOverviewController({
     if (!grid || state.dragging) {
       return;
     }
-    if (!hasTab(state.tabId) || tabOverviewScrollIdleTimer) {
+    if (!canReorderOverviewTabs(state.selector)
+      || !overviewTabsSnapshot(state.selector).some((tab) => tab.id === state.tabId)
+      || !grid.contains(state.container) || tabOverviewScrollIdleTimer) {
       finishTabOverviewDrag({ cancel: true });
       return;
     }
@@ -363,7 +376,7 @@ export function createTerminalOverviewController({
     const placeholder = documentObject.createElement("div");
     placeholder.className = "tab-overview-card-placeholder";
     placeholder.style.height = `${Math.round(rect.height)}px`;
-    grid.insertBefore(placeholder, state.card);
+    state.container.insertBefore(placeholder, state.card);
     documentObject.body.appendChild(state.card);
     state.card.classList.add("is-dragging");
     state.card.style.position = "fixed";
@@ -395,11 +408,7 @@ export function createTerminalOverviewController({
   };
 
   const findTabOverviewPlaceholderTarget = (state) => {
-    const grid = view.elements?.grid;
-    if (!grid) {
-      return null;
-    }
-    const cards = Array.from(grid.querySelectorAll(".tab-overview-card:not(.is-dragging)"));
+    const cards = Array.from(state.container.querySelectorAll(".tab-overview-card:not(.is-dragging)"));
     for (const card of cards) {
       const rect = card.getBoundingClientRect();
       if (
@@ -418,14 +427,14 @@ export function createTerminalOverviewController({
       return;
     }
     const before = findTabOverviewPlaceholderTarget(state);
-    if (before === state.placeholder.nextElementSibling || (!before && state.placeholder === grid.lastElementChild)) {
+    if (before === state.placeholder.nextElementSibling || (!before && state.placeholder === state.container.lastElementChild)) {
       return;
     }
     const beforeRects = getTabOverviewReorderRects();
     if (before) {
-      grid.insertBefore(state.placeholder, before);
+      state.container.insertBefore(state.placeholder, before);
     } else {
-      grid.appendChild(state.placeholder);
+      state.container.appendChild(state.placeholder);
     }
     animateTabOverviewReorder(beforeRects);
   };
@@ -498,18 +507,19 @@ export function createTerminalOverviewController({
 
   function handleTabOverviewCardPointerDown(event) {
     const card = view.closestCard?.(event?.target);
+    const selector = card?.dataset?.instanceSelector || "";
+    const ordered = overviewTabsSnapshot(selector);
     if (
       !card
-      || !canReorderTabs()
+      || !canReorderOverviewTabs(selector)
       || event?.isPrimary === false
       || !isTabOverviewOpen()
-      || orderedTabsSnapshot().length <= 1
+      || ordered.length <= 1
       || (event.pointerType === "mouse" && event.button !== 0)
       || view.closestCloseButton?.(event.target)
     ) {
       return;
     }
-    const ordered = orderedTabsSnapshot();
     const tabId = card.dataset?.tabId || "";
     const originalIndex = ordered.findIndex((tab) => tab.id === tabId);
     if (originalIndex < 0) {
@@ -518,8 +528,10 @@ export function createTerminalOverviewController({
     finishTabOverviewDrag({ cancel: true });
     tabOverviewDragState = {
       pointerId: event.pointerId,
+      selector,
       tabId,
       card,
+      container: card.parentElement,
       startX: event.clientX,
       startY: event.clientY,
       lastX: event.clientX,
@@ -564,6 +576,7 @@ export function createTerminalOverviewController({
       tabOverviewFocusFrame = 0;
     }
     view.setOpen?.(false);
+    onOverviewVisibilityChange(false);
   };
 
   const openTabOverview = () => {
@@ -572,6 +585,8 @@ export function createTerminalOverviewController({
     }
     prepareOpen();
     view.setOpen?.(true);
+    onOverviewVisibilityChange(true);
+    getGroupedOverview()?.refresh();
     renderTabOverview();
     scheduleTabOverviewRender();
     tabOverviewFocusFrame = requestFrame(() => {
@@ -603,6 +618,13 @@ export function createTerminalOverviewController({
       return;
     }
     const target = event?.target;
+    const grouped = getGroupedOverview();
+    const createButton = target?.closest?.("[data-desktop-overview-create]");
+    if (grouped && createButton) {
+      Promise.resolve(grouped.create(createButton.dataset.desktopOverviewCreate))
+        .catch((error) => showToast(error.message));
+      return;
+    }
     if (view.isBackdropTarget?.(target)) {
       closeTabOverview();
       return;
@@ -611,20 +633,31 @@ export function createTerminalOverviewController({
     if (closeButton) {
       event?.preventDefault?.();
       event?.stopPropagation?.();
-      closeTabFromOverview(closeButton.dataset?.tabOverviewClose);
+      if (grouped && closeButton.dataset.instanceSelector) {
+        Promise.resolve(grouped.close(closeButton.dataset.instanceSelector, closeButton.dataset.tabOverviewClose))
+          .catch((error) => showToast(error.message));
+      } else closeTabFromOverview(closeButton.dataset?.tabOverviewClose);
       return;
     }
     const cardButton = view.closestCardButton?.(target);
     if (cardButton) {
-      selectTabFromOverview(cardButton.dataset?.tabId);
+      if (grouped && cardButton.dataset.instanceSelector) {
+        closeTabOverview();
+        Promise.resolve(grouped.select(cardButton.dataset.instanceSelector, cardButton.dataset.tabId))
+          .catch((error) => showToast(error.message));
+      } else selectTabFromOverview(cardButton.dataset?.tabId);
       return;
     }
     const card = view.closestCard?.(target);
     if (card) {
-      selectTabFromOverview(card.dataset?.tabId);
+      if (grouped && card.dataset.instanceSelector) {
+        closeTabOverview();
+        Promise.resolve(grouped.select(card.dataset.instanceSelector, card.dataset.tabId))
+          .catch((error) => showToast(error.message));
+      } else selectTabFromOverview(card.dataset?.tabId);
       return;
     }
-    if (!view.isHeaderTarget?.(target)) {
+    if (!view.isHeaderTarget?.(target) && !target?.closest?.("[data-desktop-overview-group]")) {
       closeTabOverview();
     }
   };
@@ -878,6 +911,7 @@ export function createTerminalOverviewController({
     capturePreview: (pane, options) => overviewPreview.capture(pane, options),
     captureAllPreviews: (panes, options) => overviewPreview.captureAll(panes, options),
     deletePreview: (pane) => overviewPreview.delete(pane),
+    releasePreview: (pane) => overviewPreview.release(pane),
     isOpen: isTabOverviewOpen,
     open: openTabOverview,
     scheduleRender: scheduleTabOverviewRender,

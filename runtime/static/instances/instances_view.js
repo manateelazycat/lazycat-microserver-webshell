@@ -3,8 +3,9 @@ import {
   instanceSelector,
   isRunningInstance,
 } from "./instances_model.js";
+import { createInstancesMenuPositioner } from "./instances_menu_position.js";
 
-export function createInstancesView({ documentObject = globalThis.document } = {}) {
+export function createInstancesView({ documentObject = globalThis.document, windowObject = globalThis.window } = {}) {
   const byID = (id) => documentObject?.getElementById?.(id) || null;
   const elements = {
     root: byID("instanceSwitcher"),
@@ -14,6 +15,7 @@ export function createInstancesView({ documentObject = globalThis.document } = {
     feedback: byID("instanceSwitcherFeedback"),
     homeButton: byID("homeMenuButton"),
   };
+  const menuPosition = createInstancesMenuPositioner({ documentObject, windowObject, elements });
 
   return {
     elements,
@@ -22,10 +24,11 @@ export function createInstancesView({ documentObject = globalThis.document } = {
       if (elements.panel) {
         elements.panel.hidden = true;
       }
+      menuPosition.close();
       elements.button?.setAttribute?.("aria-expanded", "false");
     },
     containsTarget(target) {
-      return Boolean(target && elements.root?.contains?.(target));
+      return Boolean(target && (elements.root?.contains?.(target) || elements.panel?.contains?.(target)));
     },
     dispose() {
       this.closeSwitcher();
@@ -46,8 +49,10 @@ export function createInstancesView({ documentObject = globalThis.document } = {
       if (elements.panel) {
         elements.panel.hidden = false;
       }
+      menuPosition.open();
       elements.button?.setAttribute?.("aria-expanded", "true");
     },
+    scheduleSwitcherPosition: menuPosition.schedule,
     renderList({ instances = [], activeName = "" } = {}) {
       if (!elements.list || !documentObject?.createElement) {
         return;

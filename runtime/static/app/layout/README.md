@@ -2,13 +2,21 @@
 
 ## 职责
 
-`layout/` 负责移动/触摸媒体查询、debug 强制 PC 模式、桌面快捷键栏策略和终端移动像素滚动开关。强制 PC 切换时只协调显式的菜单、选择、viewport、resize、设置和标题回调，不直接拥有这些模块的状态。
+`layout/` 负责移动/触摸媒体查询、折叠屏内外屏自适应、debug 强制 PC 模式、桌面快捷键栏策略和终端移动像素滚动开关。布局切换时只协调显式的菜单、选择、viewport、resize、设置和标题回调，不直接拥有这些模块的状态。
+
+大屏折叠设备使用通用显示空间判断，不读取品牌、型号或 UA：触控设备的活动屏幕短边小于 600 CSS px 时使用手机布局，覆盖外屏的竖屏及横屏；活动屏幕短边和页面宽度均达到 600 CSS px 时使用 PC 布局，覆盖内屏常见的 600–640px 宽度。多视口分段和折叠姿态作为补充信号；其余环境沿用 640px 响应断点，debug 强制 PC 保持显式优先级。普通内屏弯折不等于合上外屏，空间足够时仍使用 PC 布局。姿态语义来源：[Device Posture API](https://www.w3.org/TR/device-posture/)。
+
+只使用活动 `screen` 尺寸和布局视口宽度，不按 VisualViewport 高度或键盘高度决定手机/PC，避免内屏弹出软键盘时误切换。触摸输入策略独立于导航布局，内屏 PC 仍支持触摸选择、双击开启软键盘和触摸快捷栏。
+
+`responsive-desktop-layout` 是 CSS 与 JS 共用的布局结果。紧凑界面样式以该状态作为门禁，避免内屏仍被旧窄屏样式覆盖，也让外屏横屏继续显示手机界面。`start()` 订阅媒体查询、屏幕方向及可用的姿态事件，页面级 resize 只安排布局帧；同一帧中的变化合并，切换后再适配当前终端。后台恢复和 pageshow 重新同步状态。
 
 ## 文件清单
 
 - `index.js`：唯一公开入口。
-- `layout_controller.js`：布局判定、force-PC DOM 同步、session/tab 滚动属性同步和 dispose fence。
+- `layout_controller.js`：布局判定、DOM 状态同步、媒体/姿态监听、布局帧、session/tab 滚动属性同步和 dispose fence。
 
 ## 边界与验证
 
-布局策略不建立 WebSocket、不读取或修改 history/replay/cache/Canvas 状态，也不触发 history replay、snapshot、resize 或重连中间帧呈现。dispose 后布局查询和 session 属性同步均失效。
+布局策略不建立 WebSocket、不读取或修改 history/replay/cache/Canvas 状态，也不触发 history replay、snapshot、resize 或重连中间帧呈现。dispose 取消监听和待执行的布局帧，拒绝迟到同步。
+
+手工验证：懒猫内置页面中外屏打开、展开内屏、重新合上、内外屏旋转、软键盘开合、后台折叠后恢复；核对导航布局、设置导航、当前实例/会话/分屏和持续输入输出。构建及浏览器尺寸模拟不能替代真折叠屏验收。

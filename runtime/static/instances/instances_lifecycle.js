@@ -37,6 +37,9 @@ export function createInstancesLifecycle({
       listen(documentObject, "pointerdown", handlers.onDocumentPointerDown);
       listen(documentObject, "keydown", handlers.onDocumentKeyDown, true);
       listen(windowObject, "popstate", handlers.onPopState);
+      listen(windowObject, "resize", handlers.onViewportChange);
+      listen(windowObject?.visualViewport, "resize", handlers.onViewportChange);
+      listen(windowObject?.visualViewport, "scroll", handlers.onViewportChange);
     },
   };
 }

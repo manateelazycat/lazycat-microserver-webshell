@@ -28,6 +28,7 @@ export function createTerminalOutputController({
   workScheduler = null,
   getPriority = () => 0,
   onProcessingError = null,
+  onLiveOutput = noop,
   getActiveName = () => "",
   isReplayCommitted = () => false,
   getResizeTransition = () => ({ active: false, outputSettleActive: false }),
@@ -193,6 +194,7 @@ export function createTerminalOutputController({
       completed = true;
       if (session.closed || session.outputQueueGeneration !== generation) return false;
       session.lastTerminalOutputAt = now();
+      if (!replayOutput) onLiveOutput(session, data);
       if (!replayWriter && isRenderAllowed(session)) {
         session.term.requestRender?.({ throttle: true });
       }

@@ -353,6 +353,8 @@ export function createTerminalOverviewView({
       };
     },
     renderTabs,
+    syncPreviewRatio,
+    syncScrollable,
     setOpen(open) {
       if (!elements.root) {
         return;

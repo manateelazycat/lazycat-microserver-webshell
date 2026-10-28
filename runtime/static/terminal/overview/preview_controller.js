@@ -215,12 +215,13 @@ export function createTerminalOverviewPreviewController({
     const identityKey = terminalOverviewPreviewKey(identity);
     const historyGeneration = String(pane.historyGeneration || "").trim();
     const renderGeneration = Math.max(0, Math.floor(Number(pane.renderGeneration) || 0));
-    const blob = await encodeCanvas(canvas);
+    let blob;
+    try { blob = await encodeCanvas(canvas); }
+    finally { canvas.width = canvas.height = 0; }
     if (
       disposed
       || pane.closed
       || state.captureSeq !== captureSeq
-      || !canCapturePane(pane)
       || terminalOverviewPreviewKey(identityForPane(pane)) !== identityKey
       || String(pane.historyGeneration || "").trim() !== historyGeneration
       || Math.max(0, Math.floor(Number(pane.renderGeneration) || 0)) !== renderGeneration
@@ -277,6 +278,14 @@ export function createTerminalOverviewPreviewController({
       return scheduled;
     },
     cleanup: () => store.cleanup().catch(() => 0),
+    release(pane) {
+      const state = states.get(pane);
+      if (!state) return;
+      if (state.captureTimer) windowObject?.clearTimeout?.(state.captureTimer);
+      state.captureTimer = 0;
+      state.captureSeq += 1;
+      clearPrepared(pane, { removeState: true });
+    },
     delete(pane) {
       if (!pane) {
         return Promise.resolve(false);

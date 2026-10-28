@@ -10,6 +10,7 @@ export function createWorkspaceTabLabelController({
   tabsElement = null,
   getTabs = () => new Map(),
   getActiveTabId = () => "",
+  getRenameAnchor = () => null,
   isMobileLayout = () => false,
   isApplyingWorkspaceState = () => false,
   closeContextMenu = () => {},
@@ -97,16 +98,18 @@ export function createWorkspaceTabLabelController({
       return false;
     }
     const tab = getTab(state.tabId);
-    const button = tab?.button;
-    const label = button?.querySelector?.(".tab-label");
-    if (!button?.isConnected || !label || !tabsElement) {
+    const anchor = getRenameAnchor(tab);
+    const button = anchor?.button || tab?.button;
+    const label = anchor?.label || button?.querySelector?.(".tab-label");
+    const viewport = anchor?.viewport || tabsElement;
+    if (!button?.isConnected || !label || !viewport) {
       state.input.hidden = true;
       return false;
     }
     const buttonRect = button.getBoundingClientRect();
-    const tabsRect = tabsElement.getBoundingClientRect();
-    const left = Math.max(buttonRect.left + 30, tabsRect.left + 6);
-    const right = Math.min(buttonRect.right - 30, tabsRect.right - 6);
+    const tabsRect = viewport.getBoundingClientRect();
+    const left = Math.max(anchor ? label.getBoundingClientRect().left : buttonRect.left + 30, tabsRect.left + 6);
+    const right = Math.min(buttonRect.right - (anchor ? 2 : 30), tabsRect.right - 6);
     if (right <= left || buttonRect.bottom <= tabsRect.top || buttonRect.top >= tabsRect.bottom) {
       state.input.hidden = true;
       return false;
@@ -132,9 +135,10 @@ export function createWorkspaceTabLabelController({
     const tab = getTab(state.tabId);
     const nextLabel = String(state.input.value || "").trim();
     tab?.button?.classList?.remove?.("renaming");
+    state.anchorButton?.classList.remove("renaming");
     state.input.remove?.();
     if (restoreFocus) {
-      tab?.button?.focus?.();
+      (state.anchorButton || tab?.button)?.focus?.({ preventScroll: true });
     }
     if (!commit || !state.dirty || !nextLabel) {
       return Promise.resolve(false);
@@ -169,11 +173,14 @@ export function createWorkspaceTabLabelController({
     input.value = tab.label;
     input.autocomplete = "off";
     input.spellcheck = false;
-    input.setAttribute("aria-label", "重命名标签");
+    const anchor = getRenameAnchor(tab);
+    input.setAttribute("aria-label", anchor ? "重命名会话" : "重命名标签");
 
-    const state = { tabId: tabID, input, controller, dirty: false, finishing: false };
+    const state = { tabId: tabID, input, controller, anchorButton: anchor?.button, dirty: false, finishing: false };
     inlineRenameState = state;
     tab.button.classList.add("renaming");
+    state.anchorButton?.classList.add("renaming");
+    state.anchorButton?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
     documentObject?.body?.appendChild?.(input);
     positionInlineTabRenameInput();
 
@@ -199,6 +206,9 @@ export function createWorkspaceTabLabelController({
       finishInlineTabRename({ commit: true }).catch((error) => showToast(error?.message || String(error)));
     }, { signal: controller.signal });
     tabsElement?.addEventListener?.("scroll", positionInlineTabRenameInput, { passive: true, signal: controller.signal });
+    if (anchor?.viewport && anchor.viewport !== tabsElement) {
+      anchor.viewport.addEventListener("scroll", positionInlineTabRenameInput, { passive: true, signal: controller.signal });
+    }
     windowObject?.addEventListener?.("resize", positionInlineTabRenameInput, { signal: controller.signal });
     lifecycle.scheduleFrame(() => {
       positionInlineTabRenameInput();
@@ -208,7 +218,7 @@ export function createWorkspaceTabLabelController({
     return true;
   };
 
-  const isRenaming = (tabID = "") => inlineRenameState?.tabId === tabID;
+  const isRenaming = (tabID = "") => Boolean(inlineRenameState && (!tabID || inlineRenameState.tabId === tabID));
 
   const dispose = () => {
     if (disposed) {
@@ -221,6 +231,7 @@ export function createWorkspaceTabLabelController({
       lifecycle.abortController(state.controller);
       state.input.remove?.();
       getTab(state.tabId)?.button?.classList?.remove?.("renaming");
+      state.anchorButton?.classList.remove("renaming");
     }
     lifecycle.dispose();
     return true;

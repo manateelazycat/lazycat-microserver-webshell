@@ -12,6 +12,7 @@ const (
 	maxPendingKittyGraphicsQuery      = 4096
 	primaryDeviceAttributesResponse   = "\x1b[?1;2c"
 	secondaryDeviceAttributesResponse = "\x1b[>0;0;0c"
+	programStatusSupportResponse      = "\x1b]7501;?\x1b\\"
 	defaultTerminalForegroundColor    = "#00cd00"
 	defaultTerminalBackgroundColor    = "#000000"
 	defaultTerminalCursorColor        = "#00cd00"
@@ -223,6 +224,10 @@ func (p *terminalPane) terminalOSCQueryResponse(sequence []byte) (string, bool) 
 		return "", false
 	}
 	switch string(sequence[2:terminator]) {
+	case "7501;?":
+		// Reply here, before a following DA sentinel, even without a viewer.
+		// Applications may otherwise disable their lifecycle reports entirely.
+		return programStatusSupportResponse, true
 	case "10;?":
 		return terminalOSCColorResponse("10", p.terminalForegroundColorValue()), true
 	case "11;?":

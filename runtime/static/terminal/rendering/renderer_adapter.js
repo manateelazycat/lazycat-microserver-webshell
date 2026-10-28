@@ -26,6 +26,7 @@ export function createTerminalRendererAdapter({
 } = {}) {
   let disposed = false;
   const cursors = new Set();
+  const sessionCursors = new WeakMap();
   const reducedMotion = windowObject?.matchMedia?.("(prefers-reduced-motion: reduce)");
 
   const refreshCursorMotionEnvironment = () => {
@@ -551,8 +552,10 @@ export function createTerminalRendererAdapter({
       });
       if (cursor) {
         cursors.add(cursor);
+        sessionCursors.set(session, cursor);
         registerSessionCleanup(session, () => {
           if (cursors.delete(cursor)) cursor.dispose();
+          sessionCursors.delete(session);
         });
       }
     }
@@ -637,6 +640,13 @@ export function createTerminalRendererAdapter({
     },
 
     estimatedFontMetrics: terminalEstimatedFontMetrics,
+    resetCursor(session, { release = false } = {}) {
+      sessionCursors.get(session)?.reset();
+      if (release && session?.terminalCursorLayer) {
+        session.terminalCursorLayer.width = 0;
+        session.terminalCursorLayer.height = 0;
+      }
+    },
     installBaseline,
     installBottomScrollbar,
     installCellSeam,

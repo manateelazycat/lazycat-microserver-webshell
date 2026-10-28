@@ -33,7 +33,16 @@ const (
 	// v41 owns the standalone client runtime; v40 wire protocols remain compatible.
 	// v42 persists browser cursor appearance; terminal wire and checkpoint formats are unchanged.
 	// v43 fixes physical PTY activity identity; wire and checkpoint formats are unchanged.
-	AgentProtocolVersion = "lcmd-webshell-agent-v44"
+	// v44 adds read-only workspace inspection; terminal wire and WASM are unchanged.
+	// v45 refreshes existing-pane activity during read-only workspace inspection.
+	// v46 adds Provider-side workspace inspection compatibility for deployed PC cores.
+	// v47 exposes output positions in workspace metadata for background unread tracking.
+	// v48 observes terminal application lifecycle independently of foreground activity.
+	// v49 adds the Provider's public, account-scoped instance order bridge;
+	// terminal wire formats and checkpoint WASM remain unchanged.
+	// v50 answers application lifecycle capability queries before the DA sentinel;
+	// terminal wire formats and checkpoint WASM remain unchanged.
+	AgentProtocolVersion = "lcmd-webshell-agent-v50"
 
 	agentFrameBinary         = byte('B')
 	AgentFrameText           = byte('T')
@@ -150,6 +159,9 @@ func (d *agentDaemon) handleConn(conn net.Conn) {
 		_ = json.NewEncoder(conn).Encode(response)
 	case "state":
 		state, err := d.WorkspaceState(context.Background(), request)
+		d.writeStateResponse(conn, state, err)
+	case "inspect":
+		state, err := d.inspectWorkspace(context.Background(), request)
 		d.writeStateResponse(conn, state, err)
 	case "action":
 		state, err := d.applyWorkspaceAction(context.Background(), request)

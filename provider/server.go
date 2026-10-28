@@ -34,6 +34,8 @@ type pluginServer struct {
 	attachmentBackend      attachmentUploadBackend
 	attachmentFilesBackend attachmentFileBackend
 
+	clientWorkspaceInspectionFallbacks sync.Map
+
 	settingsMu sync.Mutex
 	devicesMu  sync.Mutex
 	devices    map[string]webshellDeviceRecord
@@ -117,6 +119,7 @@ func (s *pluginServer) run(ctx context.Context) error {
 	mux.HandleFunc("/", s.handleIndex)
 	mux.HandleFunc("/service-worker.js", s.handleLegacyServiceWorkerRetirement)
 	mux.HandleFunc("/api/instances", s.handleInstances)
+	mux.HandleFunc("/api/instance-order", s.handleInstanceOrder)
 	mux.HandleFunc("/api/lightos-admin-info", s.handleLightOSAdminInfo)
 	mux.HandleFunc("/api/publish/", s.handlePublishProxy)
 	mux.HandleFunc("/api/server-revision", s.handleServerRevision)

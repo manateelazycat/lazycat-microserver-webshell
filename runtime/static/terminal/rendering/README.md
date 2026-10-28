@@ -12,7 +12,17 @@
 
 ## 公开入口与状态
 
-外部只能从 `terminal/rendering/index.js` 导入 API。`createTerminalRendererAdapter()` 是 renderer patch 的唯一安装入口；`createTerminalPresentationController()` 是 presentation 状态、提交门禁和生命周期的唯一 owner；`createTerminalPresentationState()` 只提供 session 初始化快照；`RenderSnapshot` 持有一次呈现身份；frame scheduler 持有 latest-only RAF；Kitty graphics 模块只维护图片协议 patch 所需状态。
+外部只能从 `terminal/rendering/index.js` 导入 API。`createTerminalRendererAdapter()` 负责字形、字体与光标 patch；`createTerminalSurfaceController()` 是画布像素分配和最近标签缓存的唯一 owner；`createTerminalPresentationController()` 是 presentation 状态、提交门禁和生命周期的唯一 owner；`createTerminalPresentationState()` 只提供 session 初始化快照；`RenderSnapshot` 持有一次呈现身份；frame scheduler 持有 latest-only RAF；Kitty graphics 模块只维护图片协议 patch 所需状态。
+
+## 画布资源与最近标签
+
+`surface_controller.js` 在资源 factory 打开终端前调用 `prepare(term)`，让尚未访问的标签保持 live Canvas 为 0×0。首次显示后，当前标签的全部分屏允许分配和绘制；最近两个访问过的标签保留像素以便快速切回，其余标签归零释放。最近标签的 live/hold/cursor 总像素预算为 16 Mi pixels（RGBA 像素量约 64 MiB），超过预算时按最近访问顺序保留能容纳的标签；当前标签不参与这个后台预算。页面隐藏不清除当前标签的画布。
+
+`surface_adapter.js` 只给显式 prepare 的终端接入 active/retained/released 状态，作用于随包 Ghostty 的 open、resize、绘制、清屏、光标闪烁及 dispose。创建期通过同步 open 作用域识别对应 renderer，禁止先分配 PC 尺寸的大画布再释放；普通未接入终端保持原行为。retained 状态保留像素但停止绘制和画布 resize；released 状态维持 0×0。`hasRenderSurfaceFrame()` 区分“终端曾完整呈现”和“当前画布仍有完整像素”，防止释放后被误判为已就绪或遮住持久预览。
+
+切换前由预览 owner 同步复制受限尺寸的缩略图，再允许释放源画布；编码与存储异步完成。释放只操作 UI 像素和绘制任务，不 reset Worker/WASM、不关闭连接、不丢弃终端数据或滚动位置、不触发历史回放。重新显示走已有完整帧和 replay/resize 门禁，已保留的像素可立即显示；离线本地浏览许可继续归 presentation owner。session cleanup 和页面 dispose 归零画布并取消预算检查 RAF。
+
+随包 `ghostty-web.js` 含有子模块 TypeScript 源码之外的 WebShell 定制，因此本功能通过应用适配层扩展现有类，不重建覆盖该资产，也不修改 WASM 或协议。
 
 renderer adapter 读取注入的字号、字体族、行高与工具背景映射 getter。presentation controller 读取注入的 replay/resize/visibility、当前设备 claim required 和 viewport geometry claim pending 门禁，并通过显式命令请求 viewport owner 确保必要的尺寸任务已安排，或请求 resize/transport 恢复；本机已观察到远端 owner，或 viewport 最终尺寸尚在稳定检查时，presentation 只能保留 last-known-good frame 并延迟 geometry 修复，不得先发送被动 resize。它不能自行推进 history cursor、发送 WebSocket 帧、声明 resize owner 或修改输入队列。`onReady` 只发出“当前画面已提交”的信号，pending input、startup trace 和 retry reset 由 `terminal/session/session_installation_controller.js` 接收并编排。presentation hold、full render complete 和 presentation commit 的诊断事件同时记录 live/hold Canvas CSS/backing 尺寸及 window/renderer DPR；presentation gate 事件记录 visibility、measure、fit、resize 和 retry 状态；retry 在当前 generation 内有明确上限。controller 的 `installSession()` 独占 Canvas context 和 Ghostty `onRender` listener，session 销毁或模块 dispose 时统一取消 validation/retry timer、RAF、frame release 和 listener。
 
@@ -36,6 +46,8 @@ Kitty 图形适配对不完整命令、传输总量、并发解码、图片缓�
 - `presentation_view.js`：live Canvas 清理、hold Canvas 挂载/复制/释放和 shell dataset DOM 适配；抓帧前会恢复被宿主清理路径意外脱离的模块自有 Canvas，并在 hold 事务期间同步 `terminalFrameHeld`/`renderRecovery` 状态。
 - `presentation_lifecycle.js`：validation/retry timer、presentation RAF、frame release、Canvas context 和 `onRender` listener 生命周期。
 - `renderer_adapter.js`：字体/行高度量、主题映射、底部 viewport、cell seam、Powerline 和块光标 patch 的唯一 owner。
+- `surface_controller.js`：当前标签与最近两个标签的画布保留策略、后台像素预算、预览复制和资源释放编排。
+- `surface_adapter.js`：只为已接入终端安装 Ghostty 画布生命周期适配，持有终端/renderer 的弱引用状态；不涉及 Worker 或传输。
 - `cursor_renderer.js`：块状光标背景和覆盖文字的同步绘制。优先使用当前单元格实际显示背景作为文字色，对比不足时选黑/白；识别宽字符续格，沿用普通字形/Powerline 路径并裁剪至完整字符区域。只绘制副本，不修改原单元格；临时绕过选区和颜色映射后恢复状态，每个字符的 Canvas 状态恢复时同步恢复字体缓存，避免光标跨格覆盖时后续字符使用错误字体。随包渲染器的第四个文字绘制参数仍为像素滚动偏移。
 - `runtime_controller.js`：Ghostty runtime reset、清屏、引用同步、首次 fit reset 和按 reason 幂等嵌套 render suppression 的唯一 owner；同一 reason 重复 begin 不增加底层 suppression depth，未知 reason end 不释放其他作用域；不决定 history replay 时机。
 - `kitty_graphics.js`：Ghostty Kitty graphics patch、响应识别和像素尺寸。
@@ -57,6 +69,8 @@ Kitty 图形适配对不完整命令、传输总量、并发解码、图片缓�
 历史调查用例与条件位于 spec-tests/investigations/network-presentation-recovery。离线浏览由 presentation owner 记录最近一次完整提交的 backend、generation 和会话身份：连接退休后允许该本地缓冲区重绘，不能据此恢复输入许可或推进 replay commit。开始 hold、替换缓冲区或身份变化会退休这项许可；失败或部分回放不获得本地浏览许可。切换标签和等待网络期间的 fit 不把可浏览终端转成静态占位；收到回放开始消息后才保护画面并恢复权威内容。
 
 闲置 hold Canvas 的 backing store 保持 0×0，捕获时才按当前 host/DPR 分配；释放时销毁位图缓冲。不得将此操作用于仍在展示的 hold 或 live Canvas。
+
+本轮画布修复的本地检查为修改模块的 `node --check`、`npm run build` 和 `git diff --check`。真实验证待开发者部署当前 LPK 后进行：22 个标签、DPR 1/3、已有 5000 行输出、最近标签来回切换、被回收标签返回、离线滚动/复制、可见分屏及总览预览。核对画布像素、实际内存和切换耗时，并确认没有新增 Worker 初始化、物理连接或完整历史回放；静态构建不能作为 iOS 崩溃修复验收。
 
 占位诊断由 presentation owner 的弱引用表记录复制次数、单次复制耗时和持续时间；原有释放检查失败时记录阻塞条件。render probe 仅被动读取这些字段及 resize snapshot，不增加轮询或触发呈现。占位实现是 Canvas drawImage，不生成 PNG。
 

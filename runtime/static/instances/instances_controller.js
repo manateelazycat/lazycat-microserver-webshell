@@ -33,12 +33,13 @@ export function createInstancesController({
   loaderFactory = createInstancesLoader,
   navigation = null,
   navigationFactory = createInstancesNavigation,
-  view = createInstancesView({ documentObject }),
+  view = createInstancesView({ documentObject, windowObject }),
   lifecycleFactory = createInstancesLifecycle,
   getActiveName = () => "",
   setActiveName = () => 0,
   updateLocation = () => {},
   onSwitchTarget = async () => {},
+  onInstancesChange = () => {},
   onSameTargetNavigation = () => {},
   consumePopState = () => false,
   prepareSwitcherOpen = () => {},
@@ -62,6 +63,7 @@ export function createInstancesController({
     }
     instances = cloneInstances(nextInstances);
     render();
+    onInstancesChange();
   };
 
   const instancesLoader = loader || loaderFactory({
@@ -246,6 +248,7 @@ export function createInstancesController({
     windowObject,
     elements: view.elements,
     handlers: {
+      onViewportChange: () => view.scheduleSwitcherPosition?.(),
       onDocumentKeyDown: (event) => {
         if (event.key === "Escape") {
           closeSwitcher();

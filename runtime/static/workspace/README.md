@@ -6,11 +6,19 @@
 
 目标 controller 负责当前实例 selector、generation 及实例切换事务；它不拥有实例列表或终端资源。
 
+tab activation 通过 `beforeActivate(previousTab, nextTab)`、`onActivated(tab, previousTab)` 和 `onCleared()` 通知注入的渲染资源 owner。切换前通知在隐藏旧 DOM 之前发出，用于复制小预览；激活通知在 active tab 与 DOM 更新后发出，让当前标签全部分屏恢复绘制。最近标签的像素预算和实际释放由 `terminal/rendering` 维护，本模块不操作 Canvas 尺寸、Worker、终端缓冲或连接生命周期。
+
 ## 公开入口与状态
 
 外部只能从 `workspace/index.js` 导入公开工厂。workspace API 绑定 selector/generation；persistence 持有 suppression/Promise chain；refresh 持有 recovery metrics 与 retry lifecycle；state apply controller 唯一持有 `applying` 状态，state apply lifecycle 独占 apply 后的 RAF；tab registry 唯一持有 tab Map、ID 序列和 active tab；tab navigation 唯一持有最近两个 tab；tab controller 唯一编排 tab/pane CRUD；tab view 唯一创建、排序和切换 tab DOM；tab activation controller 唯一编排激活流程，activation scheduler 独占 latest-only frame/timer；tab lifecycle 唯一持有 tab context cleanup 与延迟 RAF。其他 controller 各自持有布局、标签和 activity 状态。所有 `dispose()` 都是幂等的，迟到请求、重试、apply RAF、激活阶段、持久化和 UI 回调必须通过 generation、identity 或 disposed 检查拒绝。
 
 target lifecycle 唯一持有 active selector、generation 和 disposed 状态；target controller 唯一编排目标变更后的缓存/网络/业务模块通知、workspace reset、URL 更新和 refresh。
+
+presentation owner 区分「工作区尚未确认」和「已确认无会话」。开始切换目标时隐藏空工作区入口，只有当前目标的权威 state 成功 apply 后才解除等待；state apply 的临时清空也不显示「新建终端」。初次加载、快速连续切换、请求失败及重试期间均保持此门禁，已确认的空工作区仍显示原有入口。
+
+新版 PC 导航由 `app/desktop_workspace/` 独立维护，只通过本模块的现有命令选择实例、激活/创建/关闭/重命名会话；每个侧栏会话仍对应一个 tab，保留原有分屏。`resetForInstance()` 释放浏览器终端资源时保留已保存的预览，实际关闭 tab/pane 时仍删除图片。
+
+标签原位改名可通过 `getRenameAnchor(tab)` 注入侧栏的按钮、标签和可滚动视口；编辑状态、IME、确认/取消、乐观保存及回滚仍由 tab label owner 维护。没有侧栏锚点时使用原顶部标签位置。会话拖拽和传统菜单/快捷键复用同一个排序和命名协议。
 
 ## 跨设备成员同步契约
 
@@ -37,6 +45,7 @@ target lifecycle 唯一持有 active selector、generation 和 disposed 状态�
 - `tab_registry.js`：tab Map、ID 序列、活动 tab 和最近 tab 快照的唯一状态 owner。
 - `activity_controller.js`：既有 workspace activity 轮询、pane busy 状态同步、成员集合变化检测和关闭确认 guard。
 - activity 更新前台命令或命令行后通过 `onPaneProcessChange(pane)` 通知外部适配层；不识别具体 TUI、不直接绘制，沿用既有轮询周期。
+- activity 通过 `onPaneActivity(pane, state)` 交出已通过当前目标校验的元数据，供新版 PC 目录追踪会话输出游标；presentation 可注入外部未读汇总，传统布局和移动端默认行为保持不变。
 - `tab_label_controller.js`：tab 标题展示、desktop inline rename、optimistic 提交与失败回滚。
 - `tab_label_lifecycle.js`：inline rename 的 AbortController、focus RAF 和销毁资源。
 - `tab_navigation_controller.js`：tab DOM 顺序、前后/索引切换、最近 tab 交换与按实例持久化。

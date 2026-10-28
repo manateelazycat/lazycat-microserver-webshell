@@ -22,6 +22,13 @@ const contextTabActions = new Set([
   "close-tab",
 ]);
 const contextLinkActions = new Set(["open-link", "copy-link"]);
+const shortcutActions = Object.freeze({
+  copy: "copy_terminal", paste: "paste_terminal", "select-all": "select_all_terminal", search: "search_terminal",
+  "rename-tab": "rename_tab", "close-tab": "close_tab", "close-other-tabs": "close_other_tabs",
+  "move-tab-first": "move_tab_to_first", "move-tab-left": "move_tab_left",
+  "move-tab-right": "move_tab_right", "move-tab-last": "move_tab_to_last",
+  "split-vertical": "vertical_split", "split-horizontal": "horizontal_split", "close-pane": "close_pane", theme: "theme",
+});
 const touchContextMenuSuppressWindowMs = 1400;
 const touchContextMenuSuppressDistancePx = 32;
 
@@ -42,6 +49,7 @@ export function createTerminalContextMenuController({
   isTouchShortcutLayout = () => false,
   isTouchSelectionLayout = () => false,
   createIcon = () => null,
+  getShortcutHint = () => "",
   prepareMobileOpen = () => {},
   copySession = () => {},
   pasteSession = () => {},
@@ -136,6 +144,17 @@ export function createTerminalContextMenuController({
     && (!contextTabActions.has(action) || Boolean(target?.tabId))
     && (!contextLinkActions.has(action) || Boolean(target?.link))
   );
+
+  const openTabMenu = (event, target) => {
+    if (disposed || isMobileLayout() || !getTabById(target?.tabId)) return false;
+    contextGeneration += 1;
+    contextTarget = target;
+    return menuView.renderDesktop({
+      x: event.clientX, y: event.clientY, target,
+      isActionVisible: (action) => isDesktopActionVisible(action, target),
+      shortcutForAction: (action) => getShortcutHint(shortcutActions[action] || ""),
+    });
+  };
 
   const buildMobileContextTarget = () => {
     const tab = getCurrentTab();
@@ -425,19 +444,15 @@ export function createTerminalContextMenuController({
           closeContextMenu();
           return;
         }
-        contextTarget = getTarget();
-        if (!contextTarget) {
+        const target = getTarget();
+        if (!target) {
           closeContextMenu();
           return;
         }
-        menuView.renderDesktop({
-          x: event.clientX,
-          y: event.clientY,
-          target: contextTarget,
-          isActionVisible: (action) => isDesktopActionVisible(action, contextTarget),
-        });
+        openTabMenu(event, target);
       });
     },
+    openTabMenu,
     close: closeContextMenu,
     closeMobile: closeMobileActionSheet,
     dispose() {

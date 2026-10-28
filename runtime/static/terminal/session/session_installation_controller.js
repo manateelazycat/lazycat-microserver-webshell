@@ -22,6 +22,7 @@ export function createTerminalSessionInstallationController({
   clearRuntimeBuffer = noop,
   ime = null,
   renderer = null,
+  surfaces = null,
   selection = null,
   tuiAdapterInstaller = null,
   mouse = null,
@@ -60,6 +61,7 @@ export function createTerminalSessionInstallationController({
 
     ime?.installSession?.(session);
     renderer?.installSession?.(session);
+    surfaces?.installSession?.(session);
     selection?.installSession?.(session);
     tuiAdapterInstaller?.installClaudeTouch?.(session);
     tuiAdapterInstaller?.installCodexTouch?.(session);

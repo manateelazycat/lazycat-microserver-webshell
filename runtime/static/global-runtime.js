@@ -4,7 +4,7 @@
 // page lifecycle wiring, recovery and teardown ordering. Feature behavior is
 // implemented by the controllers imported below; this layer only creates
 // them, passes explicit dependencies and coordinates their public APIs.
-import { FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
+import { CanvasRenderer, FitAddon, Terminal, init as initGhostty } from "./ghostty-web.js";
 import {
   createCodexThemeAdapter,
   resolveCodexKeyInput,
@@ -91,6 +91,7 @@ import {
   createTerminalRenderProbe,
   createTerminalRendererAdapter,
   createTerminalRuntimeController,
+  createTerminalSurfaceController,
   installKittyGraphicsSupport,
   isKittyGraphicsResponse,
   terminalPixelSize,
@@ -171,6 +172,7 @@ import {
   createAppLayoutController,
   createAppLifecycle,
   createAppFileDropController,
+  createDesktopWorkspaceController,
   createAppPasteController,
   formatPastedAttachmentPaths,
   createAgentProtocolUpdateController,
@@ -340,6 +342,11 @@ export function startGlobalRuntime() {
   let sessionRecovery = null;
   let terminalStartupError = null;
   let terminalOverview = null;
+  let desktopWorkspace = null;
+  const scheduleWorkspaceNavigationRender = () => {
+    terminalOverview?.scheduleRender();
+    desktopWorkspace?.scheduleRender();
+  };
   let terminalInteraction = null;
   let terminalSearch = null;
   let terminalClipboard = null;
@@ -349,6 +356,7 @@ export function startGlobalRuntime() {
   let terminalScreenRefresh = null;
   let terminalRenderProbe = null;
   let terminalRenderer = null;
+  let terminalSurfaces = null;
   let terminalRuntime = null;
   let terminalResize = null;
   let terminalViewport = null;
@@ -411,7 +419,12 @@ export function startGlobalRuntime() {
   const isApplyingWorkspaceState = () => workspaceStateApply?.isApplying() === true;
   const applyWorkspaceState = (state, options) => {
     workspaceTabReorder?.beforeApplyWorkspaceState(state, options);
-    return workspaceStateApply?.apply(state, options) || false;
+    const applied = workspaceStateApply?.apply(state, options) || false;
+    if (applied) {
+      desktopWorkspace?.acceptState(state, options?.instanceName || state.selector || getActiveName());
+      workspacePresentation?.markWorkspaceReady();
+    }
+    return applied;
   };
   let serverRevision = null;
   let agentProtocolUpdate = null;
@@ -577,6 +590,7 @@ export function startGlobalRuntime() {
     setActiveName: (name) => setActiveInstanceName(name),
     updateLocation: (name, options) => updateLocationName(name, options),
     onSwitchTarget: (name, options) => switchInstance(name, options),
+    onInstancesChange: () => desktopWorkspace?.handleInstancesChange(),
     onSameTargetNavigation: (nextTab) => {
       if (nextTab && tabs.has(nextTab)) {
         workspacePersistence.withLocationUpdateSuppressed(() => setActiveTab(nextTab));
@@ -728,6 +742,7 @@ export function startGlobalRuntime() {
     onMobileDoubleTapReminderChange: () => updateMobileActiveTabTitle(),
     onMobileShortcutsChange: () => mobileShortcutsController?.render(),
     onForcePCModeChange: () => syncForcePCModeState(),
+    onLegacyPCLayoutChange: () => desktopWorkspace?.syncMode(),
     isIndependentClient: () => isIndependentClient(),
     openClientSettings: () => {
       instances.closeSwitcher();
@@ -904,6 +919,7 @@ export function startGlobalRuntime() {
   });
 
   terminalPresentation = createTerminalPresentationController({
+    onSurfacePixelsChanged: () => terminalSurfaces?.scheduleTrim(),
     isByteIOLogEnabled: () => diagnostics.isByteIOLogEnabled(),
     windowObject: window,
     workScheduler: terminalWorkScheduler,
@@ -1058,7 +1074,7 @@ export function startGlobalRuntime() {
     updateSelection: () => terminalSelection?.update(),
     isMobileMenuOpen: () => terminalInteraction?.isMobileOpen() === true,
     renderMobileMenu: () => renderMobileActionSheet(),
-    scheduleOverviewRender: () => terminalOverview?.scheduleRender(),
+    scheduleOverviewRender: scheduleWorkspaceNavigationRender,
     updateActiveTabTitle: () => updateMobileActiveTabTitle(),
   });
 
@@ -1158,6 +1174,7 @@ export function startGlobalRuntime() {
     isTouchShortcutLayout: () => isTouchShortcutLayout(),
     isTouchSelectionLayout: () => isTouchSelectionLayout(),
     createIcon: (name) => createSVGIcon(name),
+    getShortcutHint: (action) => settings?.getDesktopShortcutHint(action) || "",
     prepareMobileOpen: () => {
       terminalIME?.blurMobileKeyboard();
       instances.closeSwitcher();
@@ -1349,14 +1366,28 @@ export function startGlobalRuntime() {
     preInput?.syncContext();
   };
   const refreshTabAutoLabel = (tab) => workspacePresentation?.refreshTabAutoLabel(tab) === true;
-  const updateDocumentTitle = () => workspacePresentation?.updateDocumentTitle();
-  const clearTabNotification = (tab) => workspacePresentation?.clearTabNotification(tab) === true;
-  const markSessionTitleNotification = (session) => workspacePresentation?.markSessionTitleNotification(session) === true;
+  const updateDocumentTitle = () => {
+    desktopWorkspace?.scheduleRender();
+    return workspacePresentation?.updateDocumentTitle();
+  };
+  const syncNotificationPresentation = (changed) => {
+    if (changed) {
+      desktopWorkspace?.syncNotifications();
+      desktopWorkspace?.scheduleRender();
+    }
+    return changed === true;
+  };
+  const clearTabNotification = (tab) => {
+    desktopWorkspace?.clearNotification(tab?.id);
+    return syncNotificationPresentation(workspacePresentation?.clearTabNotification(tab));
+  };
+  const markSessionTitleNotification = (session) => !desktopWorkspace?.isActive()
+    && syncNotificationPresentation(workspacePresentation?.markSessionTitleNotification(session));
   const markSessionActivityNotification = (session, wasBusy, isBusy) => (
-    workspacePresentation?.markSessionActivityNotification(session, wasBusy, isBusy) === true
+    !desktopWorkspace?.isActive() && syncNotificationPresentation(workspacePresentation?.markSessionActivityNotification(session, wasBusy, isBusy))
   );
   const markSessionIdleNotification = (session, wasBusy, isBusy) => (
-    workspacePresentation?.markSessionIdleNotification(session, wasBusy, isBusy) === true
+    !desktopWorkspace?.isActive() && syncNotificationPresentation(workspacePresentation?.markSessionIdleNotification(session, wasBusy, isBusy))
   );
   const markSessionUserInput = (session) => workspacePresentation?.markSessionUserInput(session);
   const resetSessionUserInput = (session) => workspacePresentation?.resetSessionUserInput(session);
@@ -1394,6 +1425,7 @@ export function startGlobalRuntime() {
     getForcePCModeEnabled: () => settings?.getForcePCModeEnabled() === true,
     getDesktopShortcutsBarEnabled: () => settings?.getDesktopShortcutsBarEnabled() === true,
     getMobilePixelScrollEnabled: () => settings?.getMobilePixelScrollEnabled() !== false,
+    getTabs: () => tabs.values(),
     closeMobileActionSheet: () => closeMobileActionSheet(),
     closeMobileCloseConfirm: (value) => closeMobileCloseConfirm(value),
     closeMobileCustomSelect: () => closeMobileCustomSelect(),
@@ -1403,6 +1435,7 @@ export function startGlobalRuntime() {
     handleHostLayoutChange: () => {
       settings?.handleHostLayoutChange();
       preInput?.syncContext();
+      desktopWorkspace?.syncMode();
     },
     updateMobileActiveTabTitle: () => updateMobileActiveTabTitle(),
     updateSelection: () => terminalSelection?.update(),
@@ -1424,7 +1457,65 @@ export function startGlobalRuntime() {
   const applyRecentTabIds = (ids, options) => workspaceTabNavigation.applyRecentTabIds(ids, options);
   const rememberRecentTab = (tabId, previousTabId) => workspaceTabNavigation.rememberRecentTab(tabId, previousTabId);
   const swapRecentTabs = () => workspaceTabNavigation.swapRecentTabs();
-  const scrollTabButtonIntoView = (button) => workspaceTabNavigation.scrollButtonIntoView(button);
+  const scrollTabButtonIntoView = (button) => {
+    workspaceTabNavigation.scrollButtonIntoView(button);
+    desktopWorkspace?.scrollSessionIntoView(button?.dataset?.tabId);
+  };
+
+  desktopWorkspace = createDesktopWorkspaceController({
+    documentObject: document,
+    windowObject: window,
+    storage: window.localStorage,
+    storagePrefix,
+    isMobileLayout,
+    isEmbedMode,
+    isLegacyLayout: () => isDebugModeEnabled() && settings?.getLegacyPCLayoutEnabled() === true,
+    getInstances: () => instances.snapshot().instances,
+    loadInstances: () => instances.load(),
+    getActiveName,
+    getActiveGeneration,
+    getActiveTabId,
+    getOrderedTabs,
+    switchTarget: (name) => instances.switchTo(name),
+    refreshActiveWorkspace: (name) => refreshWorkspaceWithRetry({
+      instanceName: name, generation: getActiveGeneration(), focus: false,
+    }),
+    activateTab: (tabId, options) => setActiveTab(tabId, options),
+    createTab: () => createUserTab(),
+    closeTab: (tabId) => closeTab(tabId),
+    beginInlineRename: (tabId) => workspaceTabLabels?.beginInlineTabRename(tabId),
+    cancelInlineRename: () => workspaceTabLabels?.finishInlineTabRename({ commit: false }),
+    isRenaming: () => workspaceTabLabels?.isRenaming() === true,
+    positionInlineRename: () => workspaceTabLabels?.positionInlineTabRenameInput(),
+    openContextMenu: (event, tabId) => terminalInteraction.openTabMenu(event, {
+      type: "tab", tabId, paneId: tabs.get(tabId)?.activePaneId,
+    }),
+    previewTabOrder: (order) => workspaceTabView.syncTabButtonOrder(order.map((id) => tabs.get(id)).filter(Boolean)),
+    reorderTab: (tabId, beforeTabId) => postWorkspaceAction("reorder_tab", {
+      tab_id: tabId, before_tab_id: beforeTabId,
+    }, { focus: false, preferStateActiveTab: false, preserveLocalState: true }),
+    closeMenus: () => {
+      closeContextMenu();
+      instances.closeSwitcher();
+    },
+    closeOverview: () => terminalOverview?.close(),
+    isOverviewOpen: () => terminalOverview?.isOpen() === true,
+    scheduleOverviewRender: () => terminalOverview?.scheduleRender(),
+    releasePreview: (pane) => terminalOverview?.releasePreview(pane),
+    onNotificationsChange: () => workspacePresentation?.updateDocumentTitle(),
+    onLayoutChange: () => {
+      terminalResize?.resizeActiveTabForCurrentDevice();
+      settings?.handleDesktopLayoutChange();
+    },
+    onResizeStart: () => {
+      const tab = currentTab();
+      terminalResize?.beginTabInteractiveResize(tab);
+      return tab;
+    },
+    onResize: (tab) => terminalResize?.updateTabInteractiveResize(tab),
+    onResizeEnd: (tab) => terminalResize?.endTabInteractiveResize(tab),
+    showToast,
+  });
 
   terminalOverview = createTerminalOverviewController({
     documentObject: document,
@@ -1433,6 +1524,8 @@ export function startGlobalRuntime() {
     getOrderedTabs,
     getActiveTabId,
     getActiveName,
+    getGroupedOverview: () => desktopWorkspace?.isOverviewEnabled() ? desktopWorkspace : null,
+    onOverviewVisibilityChange: (open) => desktopWorkspace?.handleOverviewVisibility(open),
     workspaceLocationURL,
     isMobileLayout,
     isFrameHoldCurrent: (session) => terminalPresentation.frameHoldIsCurrent(session),
@@ -1477,7 +1570,7 @@ export function startGlobalRuntime() {
     createTab: () => createUserTab(),
     activateTab: (tabId) => setActiveTab(tabId),
     closeTab: (tabId) => closeTab(tabId),
-    canReorderTabs: () => workspaceTabReorder?.isSupported() === true,
+    canReorderTabs: () => !desktopWorkspace?.isActive() && workspaceTabReorder?.isSupported() === true,
     reorderTab: (tabId, beforeTabId) => postWorkspaceAction("reorder_tab", {
       tab_id: tabId,
       before_tab_id: beforeTabId,
@@ -1652,10 +1745,12 @@ export function startGlobalRuntime() {
     ensureResponseSelector: (state, name, label) => ensureResponseSelector(state, name, label),
     observeServerGeometry: (pane, state) => terminalResize?.observeServerGeometry(pane, state),
     onPaneProcessChange: (session) => {
+      desktopWorkspace?.scheduleRender();
       if (terminalRenderer?.syncBackgroundColors(session) && terminalPresentation?.isRenderAllowed(session)) {
         session.term?.requestRender?.({ full: true });
       }
     },
+    onPaneActivity: (session, state) => desktopWorkspace?.updatePaneActivity(session, state),
     recoverSessions: (sessions) => terminalPresentation?.recoverSessions(sessions),
     refreshTabAutoLabel: (tab) => refreshTabAutoLabel(tab),
     updateMobileActiveTabTitle: () => updateMobileActiveTabTitle(),
@@ -1916,6 +2011,7 @@ export function startGlobalRuntime() {
   });
 
   terminalOutput = createTerminalOutputController({
+    onLiveOutput: (session, data) => desktopWorkspace?.markSessionOutput(session, data),
     observeWriteBatch: (session, data, options) => diagnostics.beginTerminalWriteComparison(session, data, options),
     observeReplayBytes: (session, data, options) => diagnostics.observeTerminalReplayBytes(session, data, options),
     isByteIOLogEnabled: () => diagnostics.isByteIOLogEnabled(),
@@ -2019,7 +2115,18 @@ export function startGlobalRuntime() {
   };
   terminalSessionProtocol = createTerminalSessionProtocolController(sessionProtocolOptions);
 
+  terminalSurfaces = createTerminalSurfaceController({
+    TerminalCtor: Terminal,
+    RendererCtor: CanvasRenderer,
+    windowObject: window,
+    getActiveTabId,
+    capturePreview: (session, options) => terminalOverview?.capturePreview(session, options),
+    releaseHold: (session) => terminalPresentation.releaseHold(session),
+    resetCursor: (session, options) => terminalRenderer.resetCursor(session, options),
+    registerSessionCleanup: (session, cleanup) => terminalSessionController.addCleanup(session, cleanup),
+  });
   const terminalSessionResources = createTerminalSessionResourceFactory({
+    prepareSurface: (term) => terminalSurfaces.prepare(term),
     attachBackend: (term) => terminalBackend.attach(term),
     documentObject: document,
     TerminalCtor: Terminal,
@@ -2099,13 +2206,15 @@ export function startGlobalRuntime() {
     tabsElement: tabsEl,
     getTabs: () => tabs,
     getActiveTabId,
+    getRenameAnchor: (tab) => desktopWorkspace?.isActive()
+      ? desktopWorkspace.getRenameAnchor(tab?.id) : null,
     isMobileLayout: () => isMobileLayout(),
     isApplyingWorkspaceState,
     closeContextMenu: () => closeContextMenu(),
     activateTab: (tabId, options) => setActiveTab(tabId, options),
     postWorkspaceAction: (action, payload, options) => postWorkspaceAction(action, payload, options),
     updateDocumentTitle: () => updateDocumentTitle(),
-    scheduleOverviewRender: () => terminalOverview?.scheduleRender(),
+    scheduleOverviewRender: scheduleWorkspaceNavigationRender,
     showToast: (message) => showToast(message),
   });
 
@@ -2113,10 +2222,12 @@ export function startGlobalRuntime() {
     documentObject: document,
     mobileActiveTabTitle,
     emptyState,
+    isApplyingWorkspaceState,
     mobileKeyboardFocusPrompt,
     getTabs: () => tabs,
     getActiveTabId,
     getCurrentTab: () => currentTab(),
+    hasExternalNotifications: () => desktopWorkspace?.hasNotifications() === true,
     getMobileDoubleTapReminderEnabled: () => settings?.getMobileDoubleTapReminderEnabled() === true,
     requiresTouchKeyboardDoubleTap: () => requiresTouchKeyboardDoubleTap(),
     renderTabLabel: (tab) => renderTabLabel(tab),
@@ -2136,6 +2247,7 @@ export function startGlobalRuntime() {
     clearRuntimeBuffer: (session) => clearTerminalRuntimeBuffer(session),
     ime: terminalIME,
     renderer: terminalRenderer,
+    surfaces: terminalSurfaces,
     selection: terminalSelection,
     tuiAdapterInstaller: terminalTUIAdapterInstaller,
     mouse: terminalMouse,
@@ -2176,8 +2288,9 @@ export function startGlobalRuntime() {
     isApplyingWorkspaceState,
     runApplying: (task) => workspaceStateApply ? workspaceStateApply.runApplying(task) : task(),
     createPaneSession: (tab, instanceName, options) => createPaneSession(tab, instanceName, options),
-    disposePaneSession: (pane) => {
-      terminalOverview?.deletePreview(pane);
+    disposePaneSession: (pane, { preservePreview = false } = {}) => {
+      if (preservePreview) terminalOverview?.releasePreview(pane);
+      else terminalOverview?.deletePreview(pane);
       terminalSessionController.dispose(pane);
     },
     renderTabLayout: (tab) => workspaceLayoutView.renderTabLayout(tab),
@@ -2189,7 +2302,7 @@ export function startGlobalRuntime() {
     cancelTabActivation: () => workspaceTabActivation?.clear(),
     getOrderedTabs: () => getOrderedTabs(),
     updateEmptyState: () => updateEmptyState(),
-    scheduleOverviewRender: () => terminalOverview?.scheduleRender(),
+    scheduleOverviewRender: scheduleWorkspaceNavigationRender,
     syncConnectionDemands: (options) => terminalTransportRuntime?.syncConnectionDemands(options),
     cancelTabResize: (tab) => terminalResize.cancelTab(tab),
     handleTabRemoved: (tabId) => attachments.handleTabRemoved(tabId),
@@ -2198,7 +2311,7 @@ export function startGlobalRuntime() {
     refreshAndConfirmClose: (panes, message) => workspaceActivity.refreshAndConfirmClose(panes, message),
     targetPanesFromTab: (tab) => workspaceActivity.targetPanesFromTab(tab),
     postWorkspaceAction: (action, payload) => postWorkspaceAction(action, payload),
-    promptRename: (title, value) => promptDialog(title, value),
+    promptRename: (title, value) => promptDialog(desktopWorkspace?.isActive() ? "重命名会话" : title, value),
     commitTabRename: (tabId, label, options) => workspaceTabLabels?.commitTabRename(tabId, label, options),
     showToast: (message) => showToast(message),
     clearRecentTabs: () => workspaceTabNavigation.clear(),
@@ -2210,12 +2323,19 @@ export function startGlobalRuntime() {
   const closePane = (tabId, paneId) => workspaceTabController.closePane(tabId, paneId);
   const closeTab = (tabId, options) => workspaceTabController.closeTab(tabId, options);
   const closeOtherTabs = (tabId) => workspaceTabController.closeOtherTabs(tabId);
-  const renameTab = (tabId) => workspaceTabController.renameTab(tabId);
+  const renameTab = (tabId) => desktopWorkspace?.isActive()
+    ? desktopWorkspace.beginRename(tabId) : workspaceTabController.renameTab(tabId);
   const movePaneToNewTab = (tabId, paneId) => workspaceTabController.movePaneToNewTab(tabId, paneId);
   const moveTab = (tabId, position) => workspaceTabController.moveTab(tabId, position);
 
   workspaceTabActivation = createWorkspaceTabActivationController({
-    finishLayoutInteraction: () => workspaceLayoutView?.finishDrag(),
+    beforeActivate: (previous, next) => terminalSurfaces.beforeActivate(previous, next),
+    onActivated: (tab, previous) => terminalSurfaces.activate(tab, previous),
+    onCleared: () => terminalSurfaces.clear(),
+    finishLayoutInteraction: () => {
+      workspaceLayoutView?.finishDrag();
+      desktopWorkspace?.finishResize();
+    },
     tabRegistry: workspaceTabRegistry,
     tabView: workspaceTabView,
     getInstanceGeneration: getActiveGeneration,
@@ -2236,14 +2356,17 @@ export function startGlobalRuntime() {
     rememberActiveTab: () => rememberActiveTab(),
     refreshUploadPanels: () => attachments.refreshUploadPanels(),
     scrollTabButtonIntoView: (button) => scrollTabButtonIntoView(button),
-    scheduleOverviewRender: () => terminalOverview?.scheduleRender(),
+    scheduleOverviewRender: scheduleWorkspaceNavigationRender,
     scheduleVisibleTabResize: (tab, options) => terminalResize.scheduleVisibleTab(tab, options),
     claimVisibleTabSize: (tab, options) => terminalResize.claimTabForCurrentDevice(tab, options),
     syncConnectionDemands: (options) => terminalTransportRuntime?.syncConnectionDemands(options),
     persistActiveTab: (tabId) => persistActiveWorkspaceTab(tabId),
     showToast: (message) => showToast(message),
   });
-  const setActiveTab = (tabId, options) => workspaceTabActivation.activate(tabId, options);
+  const setActiveTab = (tabId, options) => {
+    desktopWorkspace?.syncNotifications();
+    return workspaceTabActivation.activate(tabId, options);
+  };
 
   workspaceStateApply = createWorkspaceStateApplyController({
     getTabs: () => tabs,
@@ -2275,7 +2398,7 @@ export function startGlobalRuntime() {
     setActiveTab: (tabId, options) => setActiveTab(tabId, options),
     clearActiveTab: () => workspaceTabActivation.clear(),
     updateEmptyState: () => updateEmptyState(),
-    scheduleOverviewRender: () => terminalOverview?.scheduleRender(),
+    scheduleOverviewRender: scheduleWorkspaceNavigationRender,
     resizeActiveTabForCurrentDevice: () => terminalResize.resizeActiveTabForCurrentDevice(),
     connectPendingSessionsForTab: (tab, options) => terminalTransportRuntime?.connectPendingSessionsForTab(tab, options),
     flushPendingMembershipRefresh: (reason) => terminalTransportRuntime?.flushPendingMembershipRefresh(reason),
@@ -2308,13 +2431,16 @@ export function startGlobalRuntime() {
       activeWorkspaceGeneration = "";
     },
     syncNetworkSockets: (options) => syncTerminalNetworkMonitorSockets(options),
-    onTargetChange: ({ name }) => {
+    onTargetChange: ({ previousName, name }) => {
+      workspacePresentation?.beginWorkspaceLoad();
+      desktopWorkspace?.handleTargetChange(previousName);
       if (terminalUnifiedTransport?.getTargetName()
         && !terminalUnifiedTransport.matchesTarget(name)) {
         terminalUnifiedTransport.close("workspace_target_changed");
       }
       agentProtocolUpdate?.beginTarget(name);
       instances.handleActiveTargetChange();
+      desktopWorkspace?.scheduleRender();
       serviceForwarding.handleTargetChange();
       attachments.handleTargetChange();
       preInput?.syncContext();
@@ -2390,7 +2516,7 @@ export function startGlobalRuntime() {
     installCellSeam: (session) => terminalRenderer?.installCellSeam(session),
     refreshTerminalMetrics: (session) => refreshTerminalMetrics(session),
     resizeActiveTab: () => terminalResize?.resizeActiveTab(),
-    scheduleOverviewRender: () => terminalOverview?.scheduleRender(),
+    scheduleOverviewRender: scheduleWorkspaceNavigationRender,
     sendTerminalTheme: (session) => sendTerminalTheme(session),
     syncCursorBlinkState: () => syncCursorBlinkState(),
     cursorBlinkHoldMs: terminalCursorBlinkHoldMs,
@@ -2420,6 +2546,7 @@ export function startGlobalRuntime() {
       terminalOverview,
       workspaceTabReorder,
       settings,
+      desktopWorkspace,
       terminalViewport,
     ],
     ghosttyReady: ghosttyInitPromise,
@@ -2575,11 +2702,13 @@ export function startGlobalRuntime() {
     terminalPolicy?.dispose();
     terminalMetrics?.dispose();
     terminalTheme?.dispose();
+    terminalSurfaces?.dispose();
     terminalRenderer?.dispose();
     terminalSelection?.dispose();
     terminalClipboard?.dispose();
     terminalInteraction?.dispose();
     terminalSearch?.dispose();
+    desktopWorkspace?.dispose();
     terminalOverview?.dispose();
     devices.dispose();
     settings?.dispose();
@@ -2604,6 +2733,7 @@ export function startGlobalRuntime() {
     fonts: document.fonts,
     heartbeatIntervalMs: 5 * 1000,
     handlers: {
+      onStart: () => layoutController?.start(),
       onRecoverUserGesture: recoverVisibleSessionsFromUserGesture,
       onPointerDown: (event) => {
         const target = event.target;
@@ -2645,6 +2775,7 @@ export function startGlobalRuntime() {
         shortcutController?.handleKeydown(event);
       },
       onResize: () => {
+        layoutController?.scheduleResponsiveLayout();
         syncMobileCustomSelectPosition();
         if (!isMobileLayout()) {
           closeMobileCloseConfirm(false);
@@ -2664,9 +2795,15 @@ export function startGlobalRuntime() {
       },
       onOnline: () => runtimeRecovery?.handleOnline(),
       onOffline: () => runtimeRecovery?.handleOffline(),
-      onVisibilityChange: () => runtimeRecovery?.handleVisibilityChange({ hidden: document.hidden }),
+      onVisibilityChange: () => {
+        if (!document.hidden) layoutController?.syncResponsiveLayout();
+        runtimeRecovery?.handleVisibilityChange({ hidden: document.hidden });
+      },
       onFocus: () => runtimeRecovery?.handleFocus(),
-      onPageShow: () => runtimeRecovery?.handlePageShow(),
+      onPageShow: () => {
+        layoutController?.syncResponsiveLayout();
+        runtimeRecovery?.handlePageShow();
+      },
       onPageHide: () => {
         rememberWorkspaceRestoreState();
         settings?.flushPending();

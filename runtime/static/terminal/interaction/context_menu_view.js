@@ -118,7 +118,7 @@ export function createTerminalContextMenuView({
         button.setAttribute?.("aria-expanded", "true");
       }
     },
-    renderDesktop({ x, y, target, isActionVisible }) {
+    renderDesktop({ x, y, target, isActionVisible, shortcutForAction = () => "" }) {
       if (!desktopMenu) {
         return false;
       }
@@ -127,6 +127,7 @@ export function createTerminalContextMenuView({
       for (const item of desktopMenu.querySelectorAll?.(".context-menu-btn") || []) {
         const action = String(item.dataset?.action || "");
         item.hidden = !isActionVisible(action);
+        item.dataset.shortcutHint = shortcutForAction(action);
       }
       updateDesktopGroups();
       const rect = desktopMenu.getBoundingClientRect?.() || { width: 0, height: 0 };

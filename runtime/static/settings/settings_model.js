@@ -787,6 +787,7 @@ export function cloneSettingsSnapshot(snapshot) {
     mobileDoubleTapReminderEnabled: snapshot?.mobileDoubleTapReminderEnabled !== false,
     mobileRemoteDesktopEnabled: snapshot?.mobileRemoteDesktopEnabled === true,
     forcePCModeEnabled: snapshot?.forcePCModeEnabled === true,
+    legacyPCLayoutEnabled: snapshot?.legacyPCLayoutEnabled === true,
     mobileShortcuts: cloneMobileShortcutRows(snapshot?.mobileShortcuts),
     desktopShortcuts: cloneDesktopShortcuts(snapshot?.desktopShortcuts),
   };

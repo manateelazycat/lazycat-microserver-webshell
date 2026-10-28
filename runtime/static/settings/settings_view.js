@@ -33,6 +33,9 @@ export function createSettingsView({
   documentObject = globalThis.document,
   navigatorObject = globalThis.navigator,
 } = {}) {
+  const desktopLabel = (label) => documentObject?.body?.classList.contains("desktop-workspace-mode")
+    ? String(label).replaceAll("标签", "会话").replace("左移", "上移").replace("右移", "下移")
+      .replace("移到最前", "移到最上方").replace("移到最后", "移到最下方") : label;
   const byID = (id) => documentObject?.getElementById?.(id) || null;
   const elements = {
     menuButton: byID("settingsMenuButton"),
@@ -58,6 +61,7 @@ export function createSettingsView({
     scrollbackResetButton: byID("settingsScrollbackResetButton"),
     mobileRemoteDesktopToggle: byID("settingsMobileRemoteDesktopToggle"),
     forcePCModeToggle: byID("settingsForcePCModeToggle"),
+    legacyPCLayoutToggle: byID("settingsLegacyPCLayoutToggle"),
     desktopMouseClipboardToggle: byID("settingsDesktopMouseClipboardToggle"),
     desktopShortcutsBarToggle: byID("settingsDesktopShortcutsBarToggle"),
     restartWorkspaceRestoreToggle: byID("settingsRestartWorkspaceRestoreToggle"),
@@ -295,7 +299,9 @@ export function createSettingsView({
       if (elements.backdrop) elements.backdrop.hidden = false;
     },
     openDesktopShortcutEditor(existing) {
-      populateSelect(elements.desktopShortcutActionSelect, desktopShortcutActionOptions);
+      populateSelect(elements.desktopShortcutActionSelect, desktopShortcutActionOptions.map((option) => ({
+        ...option, label: desktopLabel(option.label),
+      })));
       if (elements.desktopShortcutKeySelect && elements.desktopShortcutKeySelect.options.length === 0) {
         const keys = [
           ...Array.from({ length: 12 }, (_, index) => [`f${index + 1}`, `F${index + 1}`]),
@@ -385,10 +391,11 @@ export function createSettingsView({
         main.className = "settings-desktop-shortcut-main";
         const name = documentObject.createElement("div");
         name.className = "settings-desktop-shortcut-name";
-        name.textContent = shortcut.label;
+        name.textContent = shortcut.label === desktopShortcutActionLabels.get(shortcut.action)
+          ? desktopLabel(shortcut.label) : shortcut.label;
         const summary = documentObject.createElement("div");
         summary.className = "settings-desktop-shortcut-summary";
-        summary.textContent = `${desktopShortcutActionLabels.get(shortcut.action) || shortcut.action} · ${displayShortcut(shortcut.shortcut, navigatorObject)}`;
+        summary.textContent = `${desktopLabel(desktopShortcutActionLabels.get(shortcut.action) || shortcut.action)} · ${displayShortcut(shortcut.shortcut, navigatorObject)}`;
         main.append(name, summary);
         const edit = documentObject.createElement("button");
         edit.type = "button";
@@ -642,6 +649,10 @@ export function createSettingsView({
     },
     syncToggles(snapshot, { debugMode = false } = {}) {
       if (elements.smoothCursorToggle) elements.smoothCursorToggle.checked = snapshot.terminalSmoothCursorEnabled;
+      if (elements.legacyPCLayoutToggle) {
+        elements.legacyPCLayoutToggle.checked = snapshot.legacyPCLayoutEnabled;
+        elements.legacyPCLayoutToggle.disabled = !debugMode;
+      }
       if (elements.mobileRemoteDesktopToggle) elements.mobileRemoteDesktopToggle.checked = snapshot.mobileRemoteDesktopEnabled;
       if (elements.forcePCModeToggle) {
         elements.forcePCModeToggle.checked = snapshot.forcePCModeEnabled;
@@ -660,6 +671,7 @@ export function createSettingsView({
         smoothCursor: elements.smoothCursorToggle,
         mobileRemoteDesktop: elements.mobileRemoteDesktopToggle,
         forcePCMode: elements.forcePCModeToggle,
+        legacyPCLayout: elements.legacyPCLayoutToggle,
         desktopMouseClipboard: elements.desktopMouseClipboardToggle,
         desktopShortcutsBar: elements.desktopShortcutsBarToggle,
         restartWorkspaceRestore: elements.restartWorkspaceRestoreToggle,
