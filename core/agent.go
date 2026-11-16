@@ -66,7 +66,8 @@ const (
 	// the merged WASM differs from v53/v54, which retain attach and raw history replay.
 	// v56 merges Ghostty 1.4 snapshots and agent identity with the distributed runtime.
 	// v57 follows the PTY helper relocation into hportal misc/cli; wire and snapshot formats stay unchanged.
-	AgentProtocolVersion = "lcmd-webshell-agent-v57"
+	// v58 enables official Ghostty Kitty rendering and ordered core-owned query replies.
+	AgentProtocolVersion = "lcmd-webshell-agent-v58"
 
 	agentFrameBinary         = byte('B')
 	AgentFrameText           = byte('T')

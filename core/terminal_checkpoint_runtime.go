@@ -61,7 +61,8 @@ type terminalCheckpointEngine struct {
 	capacity               uint32
 	pending                []byte
 	err                    error
-	legacyGraphics         bool
+	legacyGraphics         bool // Image sessions retain the existing raw-history replay contract.
+	graphicsResponses      [][]byte
 	resizeObservations     []checkpointResizeObservation
 	skippedResizes         uint64
 	failedCall             *checkpointCallFailure
@@ -140,7 +141,7 @@ func (e *terminalCheckpointEngine) scrollbackCapacity(cols, rows int) uint32 {
 }
 
 func (e *terminalCheckpointEngine) write(data []byte) {
-	if e == nil || e.module == nil || e.err != nil || e.legacyGraphics {
+	if e == nil || e.module == nil || e.err != nil {
 		return
 	}
 	input := data
@@ -161,9 +162,6 @@ func (e *terminalCheckpointEngine) write(data []byte) {
 	}()
 	if bytes.Contains(input, []byte("\x1b_G")) {
 		e.legacyGraphics = true
-		e.pending = nil
-		e.close()
-		return
 	}
 	boundary := terminalCheckpointBoundary(input)
 	e.pending = append([]byte(nil), input[boundary:]...)
@@ -198,7 +196,8 @@ func (e *terminalCheckpointEngine) write(data []byte) {
 		}
 		return
 	}
-	// A shadow parser must never inject responses or retain an unbounded query queue.
+	// The pane forwards official parser replies once, outside its mutex. This
+	// preserves Kitty/DA query ordering, also when no viewer is attached.
 	for count := 0; count < 4096; count++ {
 		ready, err := e.call("ghostty_terminal_has_response", uint64(e.handle))
 		if err != nil {
@@ -214,7 +213,13 @@ func (e *terminalCheckpointEngine) write(data []byte) {
 			e.err = errors.New("checkpoint response allocation failed")
 			return
 		}
-		_, err = e.call("ghostty_terminal_read_response", uint64(e.handle), buf, 65536)
+		n, readErr := e.call("ghostty_terminal_read_response", uint64(e.handle), buf, 65536)
+		err = readErr
+		if err == nil && n > 0 && n <= 65536 {
+			if response, ok := e.module.Memory().Read(uint32(buf), uint32(n)); ok {
+				e.graphicsResponses = append(e.graphicsResponses, append([]byte(nil), response...))
+			}
+		}
 		_, _ = e.call("ghostty_wasm_free_u8_array", buf, 65536)
 		if err != nil {
 			e.err = err
@@ -228,7 +233,7 @@ func (e *terminalCheckpointEngine) resize(cols, rows, lines int) {
 	if e != nil && e.err != nil {
 		e.skippedResizes++
 	}
-	if e == nil || e.module == nil || e.err != nil || e.legacyGraphics {
+	if e == nil || e.module == nil || e.err != nil {
 		return
 	}
 	startedAt := time.Now()

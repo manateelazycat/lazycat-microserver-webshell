@@ -64,7 +64,8 @@ export function createTerminalEngine() {
       responses,
     };
   };
-  const snapshot = (viewportY = 0, trace = null) => {
+  const snapshot = (viewportY = 0, trace = null, cellSize = null) => {
+    if (cellSize?.width > 0 && cellSize?.height > 0) native.setCellSize(cellSize.width, cellSize.height);
     const state = progress();
     if (state.syncOutputRemainingMs > 0) {
       trace?.("snapshot_held", { syncOutputRemainingMs: state.syncOutputRemainingMs });
@@ -85,6 +86,7 @@ export function createTerminalEngine() {
       frame.history = historyRange(top - 32, Math.min(serial, top + native.rows + 32));
       trace?.("viewport_complete", { viewportBytes: frame.viewport.bytes.byteLength });
     }
+    frame.imageFrame = native.captureImages(viewportY, 0);
     native.markClean();
     cachedRevision = revision;
     synchronizedOutput.presented();

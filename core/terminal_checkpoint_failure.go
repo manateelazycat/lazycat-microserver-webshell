@@ -2,6 +2,7 @@ package core
 
 import (
 	"encoding/json"
+	"fmt"
 	"github.com/gorilla/websocket"
 	"log"
 	"strconv"
@@ -51,6 +52,16 @@ func (p *terminalPane) resizeCheckpointLocked(cols, rows, lines int) {
 	}
 	pendingBefore := len(e.pending)
 	e.resize(cols, rows, lines)
+	// Reuse the resize owner's existing PTY pixel geometry for official image
+	// layout, cursor advancement and size-query replies. No parallel size owner.
+	if e.err == nil && e.module != nil && p.pixelWidth > 0 && p.pixelHeight > 0 {
+		width := min(4096, max(1, (p.pixelWidth+cols/2)/max(1, cols)))
+		height := min(4096, max(1, (p.pixelHeight+rows/2)/max(1, rows)))
+		ok, err := e.call("ghostty_terminal_set_cell_size", uint64(e.handle), uint64(width), uint64(height))
+		if err != nil || ok != 1 {
+			e.err = fmt.Errorf("checkpoint cell size failed: result=%d error=%v", ok, err)
+		}
+	}
 	p.recordCheckpointFailureLocked("resize", p.history.end, p.history.end, pendingBefore)
 }
 

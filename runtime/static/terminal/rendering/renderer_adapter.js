@@ -248,6 +248,7 @@ export function createTerminalRendererAdapter({
       return renderer.theme.selectionBackground;
     }
     const { red, green, blue } = terminalCellBackgroundRGB(cell);
+    if (renderer.imagePass && cell?.bg_default && !(cell.flags & 16)) return "";
     if (red === 0 && green === 0 && blue === 0) {
       return "";
     }
@@ -269,8 +270,10 @@ export function createTerminalRendererAdapter({
       columns * width,
       (Number(renderer.canvas?.width) || 0) / (Number(renderer.devicePixelRatio) || Number(windowObject?.devicePixelRatio) || 1),
     );
-    renderer.ctx.fillStyle = renderer.theme.background;
-    renderer.ctx.fillRect(0, y, canvasWidth, fillHeight);
+    if (!renderer.imagePass) {
+      renderer.ctx.fillStyle = renderer.theme.background;
+      renderer.ctx.fillRect(0, y, canvasWidth, fillHeight);
+    }
     let segmentColor = "";
     let segmentStart = 0;
     let segmentEnd = 0;
@@ -591,13 +594,14 @@ export function createTerminalRendererAdapter({
           }
           return;
         }
-        if (!renderTerminalMergedLineBackgrounds(renderer, line, row, columns, offsetY)) {
+        if (renderer.imagePass !== "text" && !renderTerminalMergedLineBackgrounds(renderer, line, row, columns, offsetY)) {
           renderer.webshellOriginalRenderLine(line, row, columns, offsetY);
           return;
         }
+        if (renderer.imagePass === "background") return;
         for (let column = 0; column < line.length; column += 1) {
           const cell = line[column];
-          if (cell?.width !== 0) {
+          if (cell?.width !== 0 && cell?.codepoint !== 0x10eeee) {
             renderer.renderCellText(cell, column, row, offsetY);
           }
         }

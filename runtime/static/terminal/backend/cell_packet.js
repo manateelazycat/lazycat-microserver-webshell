@@ -20,6 +20,7 @@ export function packRows(lines, columns, getText = null) {
       bytes[offset + 11] = cell?.width ?? 1;
       view.setUint16(offset + 12, cell?.hyperlink_id || 0, true);
       bytes[offset + 14] = cell?.grapheme_len || 0;
+      bytes[offset + 15] = cell?.bg_default ? 1 : 0;
       if (cell?.grapheme_len) texts.push([index, cell.text || getText?.(row, col) || " "]);
     }
   }
@@ -82,7 +83,7 @@ const unpackPacketRow = (packet, row, view, texts) => {
       codepoint,
       fg_r: bytes[offset + 4], fg_g: bytes[offset + 5], fg_b: bytes[offset + 6],
       bg_r: bytes[offset + 7], bg_g: bytes[offset + 8], bg_b: bytes[offset + 9],
-      flags: bytes[offset + 10], width: bytes[offset + 11],
+      flags: bytes[offset + 10], width: bytes[offset + 11], bg_default: bytes[offset + 15] !== 0,
       hyperlink_id: view.getUint16(offset + 12, true), grapheme_len: bytes[offset + 14],
       text: texts.get(index) ?? String.fromCodePoint(codepoint || 32),
     };

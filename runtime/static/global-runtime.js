@@ -1857,6 +1857,7 @@ export function startGlobalRuntime() {
     detachSessionSocket: (session, socket, options) => detachSessionSocket(session, socket, options),
     connectSession: (session, options) => connectSession(session, options),
     sessionConnectingState: (session) => sessionConnectingState(session),
+    appendDebugWarning: (...args) => appendDebugWarning(...args),
     appendDebugError: (...args) => appendDebugError(...args),
     recordRuntimeEvent: (event, details) => diagnostics.recordRuntimeEvent(event, details),
     describeSession: (session) => terminalLocationDescription(session),

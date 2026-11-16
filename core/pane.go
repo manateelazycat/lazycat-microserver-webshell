@@ -171,6 +171,7 @@ func (p *terminalPane) appendOutput(data []byte) {
 	p.outputMu.Lock()
 	defer p.outputMu.Unlock()
 	var clients []*paneClient
+	var graphicsResponses [][]byte
 	p.mu.Lock()
 	// Read may already have returned bytes when close starts. Check lifecycle
 	// under the same mutex that protects checkpoint disposal before parsing.
@@ -182,6 +183,10 @@ func (p *terminalPane) appendOutput(data []byte) {
 			pendingBefore = len(p.checkpoint.pending)
 		}
 		p.checkpoint.write(filtered)
+		if p.checkpoint != nil {
+			graphicsResponses = p.checkpoint.graphicsResponses
+			p.checkpoint.graphicsResponses = nil
+		}
 		for _, chunk := range chunks {
 			p.history.append(chunk)
 		}
@@ -194,6 +199,10 @@ func (p *terminalPane) appendOutput(data []byte) {
 	}
 	p.mu.Unlock()
 
+	// Do not depend on a viewer, or accept duplicate renderer acknowledgements.
+	for _, response := range graphicsResponses {
+		_ = p.writeGeneratedPTYInput(response)
+	}
 	for _, client := range clients {
 		for _, chunk := range chunks {
 			client.enqueue(paneOutbound{messageType: websocket.BinaryMessage, payload: chunk})

@@ -277,6 +277,17 @@ export class RemoteTerminal {
       this.viewportRevision = frame.revision;
     }
     this.frame = frame;
+    clearTimeout(this.imageTimer);
+    this.imageTimer = null;
+    if (frame.imageFrame?.nextTickMs > 0 && this.visible?.()) {
+      const generation = this.generation;
+      this.imageTimer = setTimeout(() => {
+        this.imageTimer = null;
+        if (this.disposed || this.failed || generation !== this.generation || !this.visible?.()) return;
+        this.viewportRevision = -1;
+        this.getViewport();
+      }, frame.imageFrame.nextTickMs);
+    }
     frame.presentation = this.presentationAt(frame.revision);
     this.acceptHistory(frame.history);
     if (timing) timing.frameUnpackMs = performance.now() - unpackAt;
@@ -460,11 +471,19 @@ export class RemoteTerminal {
   getDimensions() { return { cols: this.currentState?.cols || this.cols, rows: this.currentState?.rows || this.rows }; }
   getCursor() { return this.frame?.cursor || { x: 0, y: 0, visible: false }; }
   getColors() { return this.frame?.colors || null; }
+  setCellSize(width, height) {
+    const size = { width: Math.max(1, Math.round(width)), height: Math.max(1, Math.round(height)) };
+    if (size.width === this.cellSize?.width && size.height === this.cellSize?.height) return;
+    this.cellSize = size;
+    this.viewportRevision = -1;
+    queueMicrotask(() => { if (!this.disposed && !this.failed) this.getViewport(); });
+  }
+  getImageFrame() { return (this.renderingFrame || this.frame)?.imageFrame; }
   getViewport() {
-    if (!this.renderingFrame && this.isReady && !this.isSynchronizedOutputHeld && this.viewportRevision !== this.progress.revision) {
+    if (!this.renderingFrame && this.isReady && !this.isSynchronizedOutputHeld && (this.viewportRevision !== this.progress.revision || (this.frame?.imageFrame?.nextTickMs > 0 && !this.imageTimer) || (this.frame?.imageFrame && this.frame.imageFrame.offset !== Math.ceil(this.viewport?.() || 0)))) {
       if (!this.snapshotPending) {
         const generation = this.generation;
-        const promise = this.request("snapshot", { viewportY: this.viewport?.() || 0 }).finally(() => {
+        const promise = this.request("snapshot", { viewportY: this.viewport?.() || 0, cellSize: this.cellSize }).finally(() => {
           if (generation === this.generation && this.snapshotPending === promise) this.snapshotPending = null;
         });
         promise.catch(() => {});
@@ -552,6 +571,7 @@ export class RemoteTerminal {
     this.pending.clear();
     this.reads.clear();
     this.history.clear();
+    clearTimeout(this.imageTimer);
     this.progress = this.frame = this.lines = this.viewportCells = null;
     this.dirtyRows.clear();
     this.outputPresentations.clear();

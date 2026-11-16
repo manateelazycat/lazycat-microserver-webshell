@@ -5,15 +5,15 @@ import "strings"
 // LocalEnvironment preserves the user's shell configuration, but never passes
 // the desktop application's private proxy settings to interactive programs.
 func LocalEnvironment(source []string) []string {
-	env := make([]string, 0, len(source)+2)
+	env := make([]string, 0, len(source)+3)
 	for _, entry := range source {
 		key, _, _ := strings.Cut(entry, "=")
 		switch strings.ToLower(key) {
 		case "http_proxy", "https_proxy", "all_proxy", "no_proxy", "socks_proxy", "ws_proxy", "wss_proxy",
-			"electron_run_as_node", "term", "colorterm":
+			"electron_run_as_node", "term", "colorterm", "term_program":
 			continue
 		}
 		env = append(env, entry)
 	}
-	return append(env, "TERM=xterm-256color", "COLORTERM=truecolor")
+	return append(env, "TERM=xterm-256color", "COLORTERM=truecolor", "TERM_PROGRAM=LightOS-Ghostty")
 }
