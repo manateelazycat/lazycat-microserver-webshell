@@ -53,6 +53,7 @@ export function createAttachmentsController({
   showToast = () => {},
   copyText = async () => false,
   isMobileLayout = () => false,
+  shouldPasteSelectedFiles = isMobileLayout,
   ingestSelectedFiles = () => ({ handled: false }),
   measureTask = (_name, task) => task(),
   recordPerformanceTask = () => {},
@@ -766,7 +767,7 @@ export function createAttachmentsController({
       return false;
     }
     closeDialog({ focus: false });
-    if (isMobileLayout()) {
+    if (shouldPasteSelectedFiles()) {
       cancelFileClipboard();
     } else {
       reserveFileClipboard();
@@ -777,7 +778,7 @@ export function createAttachmentsController({
 
   const handleFileInputChange = () => {
     const files = view.consumeInputFiles?.() || [];
-    if (isMobileLayout()) {
+    if (shouldPasteSelectedFiles()) {
       cancelFileClipboard();
       const ingested = ingestSelectedFiles(files);
       view.blurFileInput?.();

@@ -12,7 +12,7 @@
 
 移动端双击由本 controller 按事件时间戳统一识别，保留 320ms、8px 和 16px 的既有阈值，不增加单次按住时长的键盘门槛。选择逻辑认领的长按、滚动、多指和取消手势会清理本组点击历史。有效请求同步聚焦当前已挂载 textarea，不再经过 600ms 聚焦许可；system 恢复仍不得替后台终端取得焦点。
 
-资源创建阶段禁止 Ghostty 初始化抢焦，host 不再作为可编辑或可聚焦节点。IME 保留 Ghostty 的滚动收尾，去掉触摸单击自行聚焦。单击收起由 IME 处理，真正失焦才通知 viewport 恢复；新请求取消旧恢复、惯性及选择/TUI 的待处理触摸任务。
+资源创建阶段禁止 Ghostty 初始化抢焦，并通过 `focusOnClick: false` 禁止包装层内置的单击/触摸聚焦；仅覆盖 `term.focus` 无法阻止包装层直接聚焦 textarea。该选项不能禁用触摸滚动：host 的具名 touchstart/move/end/cancel、惯性和滚动条仍由维护在 `ghostty-web/lib/` 的包装层提供，IME 只接管焦点与手势认领。host 不再作为可编辑或可聚焦节点。桌面 pointer 聚焦、触摸双击展开和单击收起统一由 IME 处理，不能在 shell 捕获阶段失焦后又被 Canvas 重新聚焦。IME 保留可用的 Ghostty 滚动收尾；真正失焦才通知 viewport 恢复，新请求取消旧恢复、惯性及选择/TUI 的待处理触摸任务。
 
 移动触摸布局使用 terminal-input-mobile CSS 固定 textarea 在宿主顶部，宽度随宿主、输入行高和字体固定 16px，不依赖 WASM 光标或安装时尚未挂载的 DOM 测量。聚焦前后使用同一位置，不安排后续帧移动；输出及 resize 的 positionInput 调用在非 composition 时不读取布局、不改写 textarea 样式、值或选区，composition 时只更新独立预览。桌面仍使用光标定位。移动端 source=output 的宿主复位直接跳过，实际 input/scroll 等事件仍由宿主保护处理。`isKeyboardClaimed(event)` 只表示本次 touchend 已被双击键盘认领。`shouldPreserveTouchDefault(event)` 覆盖双击认领和第一下页面焦点交接；selection、TUI、mouse 取消默认行为前必须读取它。`shouldPreserveInputFocus(session)` 仅用于快捷栏维持输入，不代表系统键盘已显示。
 

@@ -22,6 +22,7 @@
 - 当前浏览目标、路径、父路径、entries、排序、选择集合和请求 generation。
 - 当前项目记忆分区、恢复中的初始列表和 localStorage 持久化状态。
 - 上传记录、XHR、进度、结果路径、完成回调、自动关闭 timer 和创建时绑定的实例/tab。
+- 文件选择后的自动回填由注入的 `shouldPasteSelectedFiles()` 决定，与窄屏文件浏览器布局分离。应用对手机及触摸布局（含展开态折叠屏、平板）启用回填，不因屏幕变宽退回桌面的路径复制分支；桌面手动上传保留原有复制路径行为。
 - 剪贴板读取 generation 与文件选择前建立的 ClipboardItem reservation。
 - 移动端边缘返回手势和延迟聚焦 generation。
 
