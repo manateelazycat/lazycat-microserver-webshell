@@ -2702,7 +2702,7 @@ P.AUTO_SCROLL_EDGE_SIZE = 30;
 P.AUTO_SCROLL_SPEED = 3;
 P.AUTO_SCROLL_INTERVAL = 50;
 let hA = P;
-class kA {
+class FA {
   constructor(A = {}) {
     this.unicode = {
       get activeVersion() {
@@ -2838,7 +2838,7 @@ class kA {
       }
     }, this.handleMouseDown = (B) => {
       this.startScrollbarDragFromPoint(B.clientX, B.clientY) && (B.preventDefault(), B.stopPropagation(), B.stopImmediatePropagation());
-    }, this.handleMouseUp = () => this.finishScrollbarDrag(), this.ghostty = A.ghostty ?? FA();
+    }, this.handleMouseUp = () => this.finishScrollbarDrag(), this.ghostty = A.ghostty ?? MA();
     const I = {
       cols: A.cols ?? 80,
       rows: A.rows ?? 24,
@@ -3119,7 +3119,11 @@ class kA {
    * Resize terminal
    */
   resize(A, I) {
-    this.assertOpen(), !(A === this.cols && I === this.rows) && (this.cancelRenderLoop(), this.wasmTerm.resize(A, I), this.cols = A, this.rows = I, this.renderer.resize(A, I), this.resizeEmitter.fire({ cols: A, rows: I }), this.requestRender({ full: !0 }), this.flushWriteQueue());
+    if (this.assertOpen(), A === this.cols && I === this.rows) {
+      this.renderer.resize(A, I) && this.requestRender({ full: !0 });
+      return;
+    }
+    this.cancelRenderLoop(), this.wasmTerm.resize(A, I), this.cols = A, this.rows = I, this.renderer.resize(A, I), this.resizeEmitter.fire({ cols: A, rows: I }), this.requestRender({ full: !0 }), this.flushWriteQueue();
   }
   /**
    * Clear terminal screen
@@ -3661,8 +3665,8 @@ class kA {
     return this.assertOpen(), this.wasmTerm.hasMouseTracking();
   }
 }
-const sA = 2, NA = 1, GA = 15, MA = 100;
-class tA {
+const sA = 2, NA = 1, GA = 100;
+class kA {
   constructor() {
     this._isResizing = !1;
   }
@@ -3685,21 +3689,24 @@ class tA {
    * Does nothing if dimensions cannot be calculated or haven't changed.
    */
   fit() {
+    var C;
     if (this._isResizing)
       return;
     const A = this.proposeDimensions();
     if (!A || !this._terminal)
       return;
     const I = this._terminal, B = I.cols, Q = I.rows;
-    if (!(A.cols === this._lastCols && A.rows === this._lastRows || A.cols === B && A.rows === Q)) {
-      this._lastCols = A.cols, this._lastRows = A.rows, this._isResizing = !0;
-      try {
-        I.resize && typeof I.resize == "function" && I.resize(A.cols, A.rows);
-      } finally {
-        setTimeout(() => {
-          this._isResizing = !1;
-        }, 50);
-      }
+    if (A.cols === this._lastCols && A.rows === this._lastRows || A.cols === B && A.rows === Q) {
+      this._lastCols = A.cols, this._lastRows = A.rows, (C = I.resize) == null || C.call(I, A.cols, A.rows);
+      return;
+    }
+    this._lastCols = A.cols, this._lastRows = A.rows, this._isResizing = !0;
+    try {
+      I.resize && typeof I.resize == "function" && I.resize(A.cols, A.rows);
+    } finally {
+      setTimeout(() => {
+        this._isResizing = !1;
+      }, 50);
     }
   }
   /**
@@ -3709,7 +3716,7 @@ class tA {
    * - Terminal container element dimensions (clientWidth/Height)
    * - Terminal element padding
    * - Font metrics (character cell size)
-   * - Scrollbar width reservation
+   * The scrollbar overlays the canvas and does not reserve terminal columns.
    *
    * @returns Proposed dimensions or undefined if cannot calculate
    */
@@ -3729,7 +3736,7 @@ class tA {
     const C = window.getComputedStyle(Q), E = Number.parseInt(C.getPropertyValue("padding-top")) || 0, D = Number.parseInt(C.getPropertyValue("padding-bottom")) || 0, w = Number.parseInt(C.getPropertyValue("padding-left")) || 0, o = Number.parseInt(C.getPropertyValue("padding-right")) || 0, h = Q.clientWidth, s = Q.clientHeight;
     if (h === 0 || s === 0)
       return;
-    const G = h - w - o - GA, M = s - E - D, N = Math.max(sA, Math.floor(G / B.width)), F = Math.max(NA, Math.floor(M / B.height));
+    const G = h - w - o, M = s - E - D, N = Math.max(sA, Math.floor(G / B.width)), F = Math.max(NA, Math.floor(M / B.height));
     return { cols: N, rows: F };
   }
   /**
@@ -3746,15 +3753,15 @@ class tA {
     (A = this._terminal) != null && A.element && (this._resizeObserver || (this._resizeObserver = new ResizeObserver((I) => {
       this._isResizing || !I[0] || (this._resizeDebounceTimer && clearTimeout(this._resizeDebounceTimer), this._resizeDebounceTimer = setTimeout(() => {
         this.fit();
-      }, MA));
+      }, GA));
     }), this._resizeObserver.observe(this._terminal.element)));
   }
 }
 let d = null;
-async function cA(g) {
+async function tA(g) {
   d || (d = await n.load(g));
 }
-function FA() {
+function MA() {
   if (!d)
     throw new Error(
       `ghostty-web not initialized. Call init() before creating Terminal instances.
@@ -3775,7 +3782,7 @@ export {
   c as CellFlags,
   r as DirtyState,
   J as EventEmitter,
-  tA as FitAddon,
+  kA as FitAddon,
   n as Ghostty,
   BA as GhosttyTerminal,
   EA as InputHandler,
@@ -3787,8 +3794,8 @@ export {
   U as Mods,
   wA as OSC8LinkProvider,
   hA as SelectionManager,
-  kA as Terminal,
+  FA as Terminal,
   iA as UrlRegexProvider,
-  FA as getGhostty,
-  cA as init
+  MA as getGhostty,
+  tA as init
 };

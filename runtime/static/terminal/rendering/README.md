@@ -22,7 +22,7 @@
 
 切换前由预览 owner 同步复制受限尺寸的缩略图，再允许释放源画布；编码与存储异步完成。释放只操作 UI 像素和绘制任务，不 reset Worker/WASM、不关闭连接、不丢弃终端数据或滚动位置、不触发历史回放。重新显示走已有完整帧和 replay/resize 门禁，已保留的像素可立即显示；离线本地浏览许可继续归 presentation owner。session cleanup 和页面 dispose 归零画布并取消预算检查 RAF。
 
-随包 `ghostty-web.js` 含有子模块 TypeScript 源码之外的 WebShell 定制，因此本功能通过应用适配层扩展现有类，不重建覆盖该资产，也不修改 WASM 或协议。
+随包 `ghostty-web.js` 的滚动、滚动条及像素偏移等包装层定制已回写到 `ghostty-web/lib/`，通过 `tools/sync-ghostty-web-assets.sh --sync` 重建并同步，不只修改生成资产。应用层仍通过 adapter 扩展字体、光标与呈现职责，不修改 WASM 或协议。FitAddon 与 metrics owner 一样按宿主完整内容宽度计算列数：Canvas 滚动条叠加绘制，不额外预留侧栏；宿主宽度变化不足一列时，同列数 resize 仍同步画布 CSS/backing 尺寸，不拉伸文字。
 
 renderer adapter 读取注入的字号、字体族、行高与工具背景映射 getter。presentation controller 读取注入的 replay/resize/visibility、当前设备 claim required 和 viewport geometry claim pending 门禁，并通过显式命令请求 viewport owner 确保必要的尺寸任务已安排，或请求 resize/transport 恢复；本机已观察到远端 owner，或 viewport 最终尺寸尚在稳定检查时，presentation 只能保留 last-known-good frame 并延迟 geometry 修复，不得先发送被动 resize。它不能自行推进 history cursor、发送 WebSocket 帧、声明 resize owner 或修改输入队列。`onReady` 只发出“当前画面已提交”的信号，pending input、startup trace 和 retry reset 由 `terminal/session/session_installation_controller.js` 接收并编排。presentation hold、full render complete 和 presentation commit 的诊断事件同时记录 live/hold Canvas CSS/backing 尺寸及 window/renderer DPR；presentation gate 事件记录 visibility、measure、fit、resize 和 retry 状态；retry 在当前 generation 内有明确上限。controller 的 `installSession()` 独占 Canvas context 和 Ghostty `onRender` listener，session 销毁或模块 dispose 时统一取消 validation/retry timer、RAF、frame release 和 listener。
 
