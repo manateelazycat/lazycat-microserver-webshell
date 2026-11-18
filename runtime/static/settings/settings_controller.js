@@ -96,6 +96,7 @@ export function createSettingsController({
   const forcePCModeStorageKey = `${storagePrefix}.forcePCMode`;
   const smoothCursorStorageKey = `${storagePrefix}.smoothCursorEnabled`;
   const legacyPCLayoutStorageKey = `${storagePrefix}.legacyPCLayout`;
+  const mobileRemoteDesktopStorageKey = "lightos-mobile-remote-desktop-enabled";
   let snapshot = cloneSettingsSnapshot({
     terminalCursorStyle: DEFAULT_TERMINAL_CURSOR_STYLE,
     terminalSmoothCursorEnabled: readStoredBoolean(storage, smoothCursorStorageKey, true),
@@ -112,6 +113,7 @@ export function createSettingsController({
     mobilePreInputEnabled: false,
     mobilePixelScrollEnabled: true,
     mobileDoubleTapReminderEnabled: true,
+    mobileRemoteDesktopEnabled: readStoredBoolean(storage, mobileRemoteDesktopStorageKey, false),
     forcePCModeEnabled: readStoredBoolean(storage, forcePCModeStorageKey, false),
     legacyPCLayoutEnabled: readStoredBoolean(storage, legacyPCLayoutStorageKey, false),
     mobileShortcuts: defaultMobileShortcutRows,
@@ -285,6 +287,7 @@ export function createSettingsController({
       ...snapshot,
       ...normalized,
       terminalFontSize: snapshot.terminalFontSize,
+      mobileRemoteDesktopEnabled: snapshot.mobileRemoteDesktopEnabled,
       forcePCModeEnabled: snapshot.forcePCModeEnabled,
       legacyPCLayoutEnabled: snapshot.legacyPCLayoutEnabled,
     });
@@ -969,6 +972,11 @@ export function createSettingsController({
     onMobileDoubleTapReminderChange: () => saveToggle(
       "mobileDoubleTapReminderEnabled", "mobile_double_tap_reminder_enabled", "mobileDoubleTapReminder", "双击屏幕提醒设置保存失败。",
     ),
+    onMobileRemoteDesktopChange: () => {
+      const value = view.toggleValue?.("mobileRemoteDesktop") === true;
+      replaceSnapshot({ mobileRemoteDesktopEnabled: value });
+      persistLocal(mobileRemoteDesktopStorageKey, value ? "true" : "false");
+    },
     onForcePCModeChange: () => {
       const value = view.toggleValue?.("forcePCMode") === true;
       replaceSnapshot({ forcePCModeEnabled: value });
@@ -1204,6 +1212,7 @@ export function createSettingsController({
     getMobileDoubleTapReminderEnabled: () => snapshot.mobileDoubleTapReminderEnabled,
     getMobilePreInputEnabled: () => snapshot.mobilePreInputEnabled,
     getMobilePixelScrollEnabled: () => snapshot.mobilePixelScrollEnabled,
+    getMobileRemoteDesktopEnabled: () => snapshot.mobileRemoteDesktopEnabled,
     getMobileShortcutRows: () => cloneMobileShortcutRows(snapshot.mobileShortcuts),
     getSnapshot: () => cloneSettingsSnapshot(snapshot),
     getTerminalFontFamily: () => snapshot.terminalFontFamily,

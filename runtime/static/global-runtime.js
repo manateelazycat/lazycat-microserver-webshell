@@ -612,6 +612,7 @@ export function startGlobalRuntime() {
     rollbackHomeNavigation: () => {
       workspacePersistence.rollbackHomeNavigation();
     },
+    getMobileRemoteDesktopEnabled: () => settings?.getMobileRemoteDesktopEnabled() === true,
     showToast: (message) => showToast(message),
   });
   const appearance = createAppearanceController({

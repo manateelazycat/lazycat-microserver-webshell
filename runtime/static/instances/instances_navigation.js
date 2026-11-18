@@ -16,6 +16,12 @@ export const normalizeLightOSHomeURL = (value, baseURL) => {
   return targetURL.toString();
 };
 
+export const withMobileRemoteDesktopPreference = (value, enabled, baseURL) => {
+  const targetURL = new URL(value, baseURL);
+  targetURL.searchParams.set("mobile_remote_desktop", enabled ? "1" : "0");
+  return targetURL.toString();
+};
+
 export function createInstancesNavigation({
   fetchImpl = globalThis.fetch?.bind(globalThis),
   baseURL = globalThis.location?.href,

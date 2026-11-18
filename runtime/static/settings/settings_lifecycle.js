@@ -64,6 +64,7 @@ export function createSettingsLifecycle({
       listen(elements.desktopMouseClipboardToggle, "change", handlers.onDesktopMouseClipboardChange);
       listen(elements.desktopShortcutsBarToggle, "change", handlers.onDesktopShortcutsBarChange);
       listen(elements.restartWorkspaceRestoreToggle, "change", handlers.onRestartWorkspaceRestoreChange);
+      listen(elements.mobileRemoteDesktopToggle, "change", handlers.onMobileRemoteDesktopChange);
       listen(elements.forcePCModeToggle, "change", handlers.onForcePCModeChange);
       listen(elements.mobilePreInputToggle, "change", handlers.onMobilePreInputChange);
       listen(elements.legacyPCLayoutToggle, "change", handlers.onLegacyPCLayoutChange);

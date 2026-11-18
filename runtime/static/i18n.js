@@ -226,6 +226,8 @@ const MESSAGES = {
     "在顶部栏显示终端会话流量，默认关闭": "Show terminal session traffic in the top bar, disabled by default",
     "按任务拆分网络监视器统计的流量，需先开启网络监视器": "Break down network monitor traffic by task; requires Network Monitor",
     "在每个会话右上角对比当前回放消费与服务端真实历史大小，需先开启网络监视器": "Compare current replay consumption with actual server history in each session; requires Network Monitor",
+    "允许移动端启用远程桌面": "Enable Remote Desktop on Mobile",
+    "允许在 LightOS 移动端首页显示远程桌面入口，默认关闭": "Show remote desktop entry on LightOS mobile home page, disabled by default",
     "强制 PC 模式": "Force PC Mode",
     "在移动设备上使用 PC 端布局和交互，默认关闭": "Use PC layout and interactions on mobile devices, disabled by default",
     "手机快捷键": "Mobile Shortcuts",

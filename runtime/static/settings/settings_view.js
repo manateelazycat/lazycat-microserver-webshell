@@ -59,6 +59,7 @@ export function createSettingsView({
     lineHeightResetButton: byID("settingsLineHeightResetButton"),
     scrollbackInput: byID("settingsScrollbackInput"),
     scrollbackResetButton: byID("settingsScrollbackResetButton"),
+    mobileRemoteDesktopToggle: byID("settingsMobileRemoteDesktopToggle"),
     forcePCModeToggle: byID("settingsForcePCModeToggle"),
     legacyPCLayoutToggle: byID("settingsLegacyPCLayoutToggle"),
     desktopMouseClipboardToggle: byID("settingsDesktopMouseClipboardToggle"),
@@ -652,6 +653,7 @@ export function createSettingsView({
         elements.legacyPCLayoutToggle.checked = snapshot.legacyPCLayoutEnabled;
         elements.legacyPCLayoutToggle.disabled = !debugMode;
       }
+      if (elements.mobileRemoteDesktopToggle) elements.mobileRemoteDesktopToggle.checked = snapshot.mobileRemoteDesktopEnabled;
       if (elements.forcePCModeToggle) {
         elements.forcePCModeToggle.checked = snapshot.forcePCModeEnabled;
         elements.forcePCModeToggle.disabled = !debugMode;
@@ -667,6 +669,7 @@ export function createSettingsView({
     toggleValue(name) {
       const map = {
         smoothCursor: elements.smoothCursorToggle,
+        mobileRemoteDesktop: elements.mobileRemoteDesktopToggle,
         forcePCMode: elements.forcePCModeToggle,
         legacyPCLayout: elements.legacyPCLayoutToggle,
         desktopMouseClipboard: elements.desktopMouseClipboardToggle,
