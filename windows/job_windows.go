@@ -9,12 +9,12 @@ import (
 	"sync"
 	"unsafe"
 
-	"github.com/charmbracelet/x/conpty"
+	terminalpty "gitee.com/linakesi/hportal/misc/cli/pty"
 	win "golang.org/x/sys/windows"
 )
 
 type terminal struct {
-	*conpty.ConPty
+	*terminalpty.PTY
 	job    win.Handle
 	id     string
 	cwd    string
@@ -34,17 +34,9 @@ func (t *terminal) Close() error {
 		// for a running child while the reader is already stopping.
 		_ = win.TerminateJobObject(t.job, 1)
 		_ = win.CloseHandle(t.job)
-		closeConsole(t.ConPty)
+		_ = t.PTY.Close()
 	})
 	return nil
-}
-
-func closeConsole(console *conpty.ConPty) {
-	// ClosePseudoConsole may wait for output consumption on older Windows.
-	// Close the pipes first, including startup failures with no reader yet.
-	_ = console.OutPipe().Close()
-	_ = console.InPipe().Close()
-	_ = console.Close()
 }
 
 func newTerminalJob() (win.Handle, error) {

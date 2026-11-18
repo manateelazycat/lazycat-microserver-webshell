@@ -29,6 +29,8 @@ var IsPaneNotFoundAttachError = core.IsPaneNotFoundAttachError
 var ParsePositiveInt = core.ParsePositiveInt
 
 const TerminalMemoryCheckpointProtocol = core.TerminalMemoryCheckpointProtocol
+const TerminalSnapshotCheckpointProtocol = core.TerminalSnapshotCheckpointProtocol
+const TerminalSnapshotCapability = core.TerminalSnapshotCapability
 const TerminalQueueProtocolVersion = core.TerminalQueueProtocolVersion
 
 type TerminalQueueClientMessage = core.TerminalQueueClientMessage

@@ -61,6 +61,7 @@ export function createTerminalTransportRuntimeController({
   detachSessionSocket = noop,
   connectSession = async () => false,
   sessionConnectingState = () => "connecting",
+  appendDebugWarning = noop,
   appendDebugError = noop,
   recordRuntimeEvent = noop,
   describeSession = (session) => `${session?.name || "unknown"}/${session?.id || "unknown"}`,

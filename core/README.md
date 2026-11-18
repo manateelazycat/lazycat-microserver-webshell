@@ -47,9 +47,21 @@ v47 在 pane 元数据中提供 `history_generation` 和十进制字符串 `outp
 
 v48 的 `program_status.go` 在已有输出锁内旁路观察应用生命周期：OSC 7501、iTerm 状态、OSC 9;4 进度、OSC 133 命令边界，以及标题的明确工作/就绪/出错状态和进度字符。结构化生命周期优先于标题，不用输出停顿推测完成，不改变原有字节流。扫描器跳过其他控制字符串，OSC 暂存上限 4096 字节；不记录标题正文、通知正文或应用参数。每个 pane 返回可选 `program_status`（状态、修订、累计完成次数和最后完成的输出位置），代次由历史身份隔离，短任务在两次查询之间完成仍保留计数。完成位置供浏览器排除已经查看但元数据晚到的结果；退出清理保留尚未被后续状态替代的错误。采集确认前台进程已结束时撤销过时的工作/阻塞状态，忽略晚于采集开始的新状态。Provider 显式保留 v47 的已有能力，终端帧及 WASM 不变。
 
+v53 增加 `agy` / `antigravity-cli` 可执行名到 `antigravity-cli` 身份的映射，直接前台与 DI 后台使用相同的进程证据链；不通过名字推断工作状态。Provider 显式保留 v52 的已有兼容能力，终端帧及 WASM 不变。
+
+v52 增加可选 `pane.agent = {id,name,source}`，身份与 `program_status` 回合状态完全独立。Linux 通过前台进程的可执行名/已知运行时入口识别；DI 的 `d`/`di` 通过内核双向 Unix socket peer 与相同可执行映像或规范化路径关联后台 daemon，再读取当前子 PTY 的前台进程。无证据、断开或退出时省略身份，客户端继续显示普通 `command`。不读取环境、任务参数、DI 启动 JSON 或历史文字；保留命令字段但 Linux 不再提供完整参数。扫描总计 1.5 秒，socket诊断限制 250ms/2MiB，FD最多256项，子代最多16轮。网络帧及 WASM 不变，Provider 显式兼容 v51/v50；旧 Provider 需同步更新以透传新字段，兼容旧 daemon 不会被自动替换。
+
+v51 停止用 OSC 133 A/B/C/D 语义区段推断 agent 工作或完成：Pi 等 TUI 空闲重绘以及 di 历史重放也会发送这些标记。明确的 OSC 7501、iTerm 状态、OSC 9;4 和标题状态继续按原优先级生效。CAN/SUB 取消不完整控制字符串，保证后续清理信号可被解析。帧、元数据和 WASM 不变，Provider 显式保留 v50 的已有能力；不自动停止已有终端服务或后台任务。
+
 v49 增加 Provider 对管理端公开账号实例顺序接口的桥接，不增加 Core 消息或工作区字段。Provider 显式保留 v48 的 attach、标签排序、恢复及 v39 起的 WASM 快照兼容；排序不更新运行中的终端核心，不修改实例内标签顺序。
 
 v50 在 `queries.go` 的 PTY 查询入口回答 OSC 7501 `7501;?` 能力探测，接受 BEL/ST 结束并用 ST 应答。应答通过现有受控生成输入路径完成，先于同一输出流中后续的 DA sentinel，不依赖浏览器连接，也不在历史回放时重新执行。这样遵循该协议的任意 CLI 能自动启用既有 `program_status` 上报；不设置工具专用环境变量，不解析任务正文。浏览器不再把前台进程驻留当作工作中，也不把 busy 结束推测成成功未读；无可靠任务状态时图标及提示留空，进程名和关闭保护不变。帧、元数据和 WASM 不变，Provider 显式保留 v49 的已有兼容能力；旧核心需要显式更新后才具备能力应答。
+
+v51 把终端核心升级为 Ghostty 1.4 lib-vt，checkpoint 由整块线性内存镜像（`ghostty-memory-v1`）改为可移植的官方快照 `ghostty-snapshot-v1`（`GHOSTSNP`），WASM 随之变化。v51 Agent 只对 `ghostty-snapshot-v1` 请求输出 checkpoint；旧原生客户端仍请求 `ghostty-memory-v1` 时 Provider 只把该参数传给 v39–v50 Agent，v51 则回放原始历史。Local 及 v51 Agent 工作区通过 `agent_capabilities` 公布 `ghostty_snapshot_v1`，原生客户端据此决定是否请求快照；浏览器随服务端发布，始终请求快照。Provider 显式保留 v50 的 attach 与工作区恢复兼容。
+
+客户端运行时分支的历史版本另有以下变更：
+
+v44 将完整 WebShell 补丁构建与普通 Ghostty 构建的 Zig 缓存隔离，采用干净构建的 WASM 指纹。终端帧和 checkpoint 格式保持不变，但 v39–v43 的旧指纹不参与新浏览器的内存快照协商；这些 Agent 保留 attach、工作区恢复和原始字节回放。v43 的认证持续通道能力保持不变。Go 解析器与浏览器继续共用 `runtime/static/ghostty-vt.wasm`，不得跨不同指纹导入堆状态。
 
 `host_metrics.go` 仅定义客户端整机指标的可空数据类型及注入接口，不读系统资源、不创建采样任务。实际采样位于独立 `hostmetrics` module，Linux 磁盘选择由 Unix adapter 注入，容器入口不装配它。
 
@@ -57,10 +69,20 @@ v50 在 `queries.go` 的 PTY 查询入口回答 OSC 7501 `7501;?` 能力探测�
 
 运行验证使用真实 agent/PTY 和已有 REQ/AC，重点覆盖输入输出、主题查询、布局、尺寸、快照及 fallback。发布环境及浏览器手测方法见根 README 和 `spec-tests/ENVIRONMENT.md`。
 
-原生分配诊断最多 8 条（首条和最新 7 条），只含申请大小、页面容量、偏移合法性及重试次数，不包含 URI 或终端正文。诊断 ABI 为 4 个头部 u32 加 8×32 个记录 u32；字段顺序见 `terminal_checkpoint_allocation.go`。operation：1=write、2=resize；stage：1=URI、2=ID、3=复制扩容；caller：1=重排、2=行复制；reason：1=缺少连续空间、2=元数据无效、3=扩容尝试。记录可能包含最终失败前已处理的分配不足；不可把记录数量当作解析器崩溃次数。只在实际进入原生调用且该调用链失败时读取。首次错误仍由 pane 保存并在重新接入时报告。
+原生分配诊断 ABI（4 个头部 u32 加 8×32 个记录 u32，字段顺序见 `terminal_checkpoint_allocation.go`）在 Ghostty 1.4 上保留导出但恒为空：旧版为定位页面分配故障而打的引擎补丁已随上游重写移除，读取方必须把零记录视为“无原生证据”而非“无故障”。首次错误仍由 pane 保存并在重新接入时报告。
 
 Unified 队列接收关键 checkpoint 诊断时转记当前应用日志；原生 daemon 仍写自己的独立日志。去重标识包含作用域、pane、创建时间、首次故障时间及 WASM 指纹。输入日志载荷上限 128 KiB，输出上限 64 KiB，超限明确标注省略。
 
-WASM 页面初始化由 `tools/ghostty-page-initialization.patch` 在 `Page.initBuf` 统一处理，只清零新页面的单元格区；链接、字形和样式表沿用各自初始化。不得依赖 WASM 的 page allocator 返回全零内存。该约束覆盖初始化、重排、扩容和页面复制；不清空运行中的终端、既有历史或待恢复的完整内存快照。
+Checkpoint 引擎与浏览器、原生客户端共用 `ghostty-web` 以 `-Dcpu=generic` 构建的 Ghostty 1.4 lib-vt WASM（补丁 `ghostty-web/patches/ghostty-1.4-webshell.patch` 加 `ghostty-web/wasm/webshell_abi.zig`）。页面清零由上游 `WasmPagePool` 及 `PageList` 对复用槽的 `@memset` 保证，不再维护本地页面初始化补丁。快照为官方 `GHOSTSNP`，经 `ghostty_terminal_snapshot_encode` 导出并 gzip 分片；协议名 `ghostty-snapshot-v1`。
 
-v44 增加 Provider 侧移动端预输入开关持久化；终端帧、SSH、发布协议及 WASM 快照格式不变。Provider 显式保留 v43 及既有版本的 attach、工作区恢复和快照协商能力。
+主线 v44 增加 Provider 侧移动端预输入开关持久化；此前在本分支合并为 v54。终端帧、SSH、发布协议及快照格式不变，旧 Agent 的连接与工作区恢复继续兼容，快照仍按下方实际构建范围协商。
+
+v51 开始，原生运行时状态使用 LightOS LPK 版本并保留产物摘要；launcher v5、host_protocol 1、终端帧、SSH/发布及 checkpoint 格式不变，显式保留 v50/v49/v48 和既有 attach 兼容列表。
+
+Agent v52 开始，本机平台经 hportal 纯 PTY 模块复用底层库，Core 的平台边界、终端帧和 checkpoint 不变。退出结果继续使用真实进程状态；Provider 显式保留 v51 attach/工作区能力，不把新 SDK 网络服务作为依赖。
+
+Agent v58 启用随包 Ghostty 官方 Kitty Graphics 和 Wuffs PNG 解码。原生与 Web 共用官方图片存储、布局、占位解析和动画；平台仅复制像素并按 RenderState 分层绘制。维护补丁与 ABI 位于 `ghostty-web/patches/ghostty-wasm-graphics.patch`、`ghostty-web/wasm/webshell_images.zig` 和 `webshell_abi.zig`。仅接受 direct 传输，拒绝读取客户端本地文件和共享内存。新建本地/容器 PTY 使用 `TERM_PROGRAM=LightOS-Ghostty`，不修改已有进程环境。
+
+CSI/Kitty 查询由服务端相同核心按输出顺序应答，不依赖已连接的客户端，也不重复接受客户端应答；OSC 7501 和颜色查询保留原入口。图片会话仍按既有合同使用原始历史回放，不新增图形资源 checkpoint 恢复承诺。非图形会话继续使用 `ghostty-snapshot-v1`（GHOSTSNP）。实际 WASM 指纹由分发清单记录，不跨不兼容构建恢复。
+
+Provider 显式保留 v57–v9 的 attach 和 v57–v27 的工作区恢复；v56/v57 的 GHOSTSNP 协商能力不变。旧核心不自动替换，用户进程不自动重启。终端图片的跨客户端验收合同见 `spec/terminal/inline-images/`；构建检查不代替真实 Codex 会话验收。

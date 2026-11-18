@@ -10,7 +10,7 @@ import (
 	"sync"
 	"syscall"
 
-	"github.com/charmbracelet/x/conpty"
+	terminalpty "gitee.com/linakesi/hportal/misc/cli/pty"
 	win "golang.org/x/sys/windows"
 	"lcmd-webshell/core"
 	"lcmd-webshell/localtools"
@@ -53,61 +53,48 @@ func (*Platform) Command(launch core.Launch) *exec.Cmd {
 }
 
 func (p *Platform) StartPTY(cmd *exec.Cmd) (core.PTY, error) {
-	console, err := conpty.New(120, 32, 0)
+	console, err := terminalpty.New(120, 32)
 	if err != nil {
 		return nil, err
 	}
 	job, err := newTerminalJob()
 	if err != nil {
-		closeConsole(console)
+		_ = console.Close()
 		return nil, err
 	}
-	pid, handle, err := console.Spawn(cmd.Path, cmd.Args, &syscall.ProcAttr{
-		Dir: cmd.Dir, Env: cmd.Env,
-		Sys: &syscall.SysProcAttr{CreationFlags: win.CREATE_SUSPENDED},
-	})
-	if err != nil {
-		win.CloseHandle(job)
-		closeConsole(console)
-		return nil, err
-	}
-	process := win.Handle(handle)
-	defer win.CloseHandle(process)
-	fail := func(err error) (core.PTY, error) {
-		_ = win.TerminateProcess(process, 1)
+	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: win.CREATE_SUSPENDED}
+	if err := console.Start(cmd); err != nil {
 		_ = win.CloseHandle(job)
-		closeConsole(console)
+		_ = console.Close()
 		return nil, err
 	}
+	pid := uint32(cmd.Process.Pid)
+	fail := func(err error) (core.PTY, error) {
+		_ = cmd.Process.Kill()
+		_ = cmd.Process.Release()
+		_ = win.CloseHandle(job)
+		_ = console.Close()
+		return nil, err
+	}
+	process, err := win.OpenProcess(win.PROCESS_SET_QUOTA|win.PROCESS_TERMINATE, false, pid)
+	if err != nil {
+		return fail(err)
+	}
+	defer win.CloseHandle(process)
 	// Assign before resuming: even immediately spawned grandchildren inherit
 	// the kill-on-close job. Failure is fatal, never silently run uncontained.
 	if err := win.AssignProcessToJobObject(job, process); err != nil {
 		return fail(err)
 	}
-	cmd.Process, err = os.FindProcess(pid)
-	if err != nil {
+	if err := resumeOwnedProcess(pid); err != nil {
 		return fail(err)
 	}
-	if err := resumeOwnedProcess(uint32(pid)); err != nil {
-		_ = cmd.Process.Release()
-		return fail(err)
-	}
-	t := &terminal{ConPty: console, job: job, id: fmtPID(pid), reader: localtools.NewTextReader(console), cwd: cmd.Dir}
+	t := &terminal{PTY: console, job: job, id: fmtPID(int(pid)), reader: localtools.NewTextReader(console), cwd: cmd.Dir}
 	p.panes.Store(cmd, t)
 	return t, nil
 }
 
-func (p *Platform) WaitCommand(cmd *exec.Cmd) error {
-	state, err := cmd.Process.Wait()
-	cmd.ProcessState = state
-	if err != nil {
-		return err
-	}
-	if !state.Success() {
-		return &exec.ExitError{ProcessState: state}
-	}
-	return nil
-}
+func (p *Platform) WaitCommand(cmd *exec.Cmd) error { return terminalpty.Wait(cmd) }
 func (p *Platform) KillCommand(cmd *exec.Cmd) error {
 	if t, ok := p.panes.LoadAndDelete(cmd); ok {
 		return t.(*terminal).Close()

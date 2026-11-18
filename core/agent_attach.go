@@ -61,7 +61,7 @@ func (d *agentDaemon) handleAttach(ctx context.Context, conn net.Conn, reader *b
 			})
 			return
 		}
-		if request.CheckpointProtocol == TerminalMemoryCheckpointProtocol {
+		if request.CheckpointProtocol == TerminalSnapshotCheckpointProtocol {
 			_ = writeAgentControlFrame(conn, map[string]any{"type": "terminal-checkpoint-error", "selector": workspace.selector,
 				"pane_id": request.PaneID, "message": err.Error(), "checkpoint_diagnostics": pane.checkpointDiagnostics()})
 			return
@@ -229,7 +229,7 @@ func writeAgentHistoryReplay(w io.Writer, identity terminalReplayIdentity, histo
 			}
 		}
 		start["memory_checkpoint"] = checkpoint
-		start["recovery_baseline"] = TerminalMemoryCheckpointProtocol
+		start["recovery_baseline"] = checkpoint.Protocol
 	} else {
 		start["recovery_baseline"] = "raw-history"
 		if history.checkpointFallback {

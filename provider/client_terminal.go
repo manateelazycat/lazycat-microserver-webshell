@@ -10,7 +10,9 @@ import (
 	lzcsdk "gitee.com/linakesi/lzc-sdk/lang/go"
 	"github.com/gorilla/websocket"
 	"io"
+	"lcmd-webshell/clienttransport"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -25,12 +27,19 @@ type clientTerminalTicket struct {
 	ClientInstanceID    string `json:"client_instance_id"`
 	DeviceAPIURL        string `json:"device_api_url"`
 	TerminalServiceName string `json:"terminal_service_name"`
+	TerminalCertificate string `json:"terminal_certificate,omitempty"`
 	Ticket              string `json:"ticket"`
 	ExpiresAt           string `json:"expires_at"`
 }
 
 var newClientTerminalHTTPClient = func() *http.Client {
-	return &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}, Timeout: 30 * time.Second}
+	// Bound connection setup and response headers, not a streaming file body.
+	return &http.Client{Transport: &http.Transport{
+		TLSClientConfig:       &tls.Config{InsecureSkipVerify: true},
+		DialContext:           (&net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ResponseHeaderTimeout: 30 * time.Second,
+	}}
 }
 
 var resolveClientDeviceAPIAuthToken = clientDeviceAPIAuthToken
@@ -146,6 +155,9 @@ func (s *pluginServer) attachClientPane(w http.ResponseWriter, r *http.Request, 
 	headers := http.Header{}
 	headers.Set("lzc_dapi_auth_token", authToken)
 	dialer := websocket.Dialer{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}
+	if ticket.TerminalCertificate != "" {
+		dialer.NetDialTLSContext = (clienttransport.Target{URL: ticket.DeviceAPIURL, Service: ticket.TerminalServiceName, Certificate: ticket.TerminalCertificate, Token: authToken}).DialTLSContext
+	}
 	target, dialResponse, err := dialer.DialContext(r.Context(), websocketHTTPToWS(targetURL.String()), headers)
 	if err != nil {
 		failure := readWebSocketDialFailure(err, dialResponse)
@@ -273,8 +285,16 @@ func (s *pluginServer) clientTerminalRequest(ctx context.Context, header http.He
 	if contentType != "" {
 		req.Header.Set("Content-Type", contentType)
 	}
-	resp, err := newClientTerminalHTTPClient().Do(req)
+	client := newClientTerminalHTTPClient()
+	if ticket.TerminalCertificate != "" {
+		client = (clienttransport.Target{URL: ticket.DeviceAPIURL, Service: ticket.TerminalServiceName, Certificate: ticket.TerminalCertificate, Token: authToken}).HTTPClient(0)
+	}
+	resp, err := client.Do(req)
 	if err != nil {
+		var requestError *url.Error
+		if errors.As(err, &requestError) {
+			err = requestError.Err
+		}
 		log.Printf("client terminal request failed: selector=%s method=%s path=%s target=%s err=%v", selector, method, path, sanitizeClientTerminalURL(targetURL.String()), err)
 		return nil, err
 	}

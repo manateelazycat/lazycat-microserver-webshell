@@ -16,8 +16,6 @@ const describe = (bytes) => {
 const byteClass = (byte) => byte === undefined ? "END" : byte === 13 ? "CR" : byte === 10 ? "LF"
   : byte === 27 ? "ESC" : byte === 9 ? "TAB" : byte < 32 ? `C0:${byte}` : byte < 127 ? "ASCII" : "HIGH";
 const context = (bytes, at) => Array.from(bytes.subarray(Math.max(0, at - 8), at + 16), byteClass);
-const buffers = (term) => ({ text: term.__kittyGraphics?.inputBuffer?.length || 0,
-  control: term.__kittyGraphics?.terminalControlBuffer?.length || 0 });
 
 export function observeParsedTerminalWrite(term, data) {
   const entry = active.get(term);
@@ -45,14 +43,14 @@ export function beginTerminalWriteComparison(term, data, isActive, complete) {
     if (bytes instanceof Uint8Array && bytes.length <= limit) source = bytes.slice();
     else entry.truncated = true;
   }
-  const before = buffers(term), startedAt = performance.now();
+  const startedAt = performance.now();
   const convertEol = term.options?.convertEol === true;
   active.set(term, entry);
   return (completed) => {
     if (active.get(term) === entry) active.delete(term);
     if (!isActive()) return;
-    const metadata = { convertEol, completed, parserWrites: entry.parts, bufferBefore: before,
-      bufferAfter: buffers(term), durationMs: performance.now() - startedAt, limit };
+    const metadata = { convertEol, completed, parserWrites: entry.parts, parserOwner: "official_ghostty",
+      durationMs: performance.now() - startedAt, limit };
     if (entry.truncated || entry.overlap || !source) {
       complete({ ...metadata, comparable: false, reason: entry.overlap ? "overlapping_writes" : "capture_limit" });
       return;

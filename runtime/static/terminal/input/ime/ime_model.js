@@ -2,6 +2,13 @@ export const terminalInputSentinel = "\u200b";
 export const terminalInputDeleteBufferLength = 256;
 export const terminalInputDeleteBuffer = terminalInputSentinel.repeat(terminalInputDeleteBufferLength);
 
+export const isTerminalCompositionKeyEvent = (event) => Boolean(
+  event?.isComposing
+  || event?.key === "Process"
+  || Number(event?.keyCode) === 229
+  || Number(event?.which) === 229
+);
+
 export const stripTerminalInputSentinel = (value) => (
   String(value || "").split(terminalInputSentinel).join("")
 );

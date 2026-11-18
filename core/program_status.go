@@ -2,7 +2,6 @@ package core
 
 import (
 	"regexp"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -28,8 +27,8 @@ type programStatusTracker struct {
 }
 
 var programWorkingTitle = regexp.MustCompile(`(?i)^(working|thinking|running|processing|starting)(\s*[|·—-]|$)`)
-var programReadyTitle = regexp.MustCompile(`(?i)^(ready|idle|done|complete|completed)(\s*[|·—-]|$)`)
-var programBlockedTitle = regexp.MustCompile(`(?i)^(\[\s*[!.]\s*\]\s*)?(action required|waiting for (input|permission|approval))\b`)
+var programReadyTitle = regexp.MustCompile(`(?i)^(?:π\s+>(?:\s|$)|(ready|idle|done|complete|completed)(\s*[|·—-]|$))`)
+var programBlockedTitle = regexp.MustCompile(`(?i)^(?:π\s+!(?:\s|$)|(\[\s*[!.]\s*\]\s*)?(action required|waiting for (input|permission|approval))\b)`)
 var programErrorTitle = regexp.MustCompile(`(?i)^(error|failed)(\s*[|·—-]|$)`)
 
 func (s *programStatusTracker) set(state string, source int) {
@@ -64,6 +63,10 @@ func (s *programStatusTracker) clear() {
 func (s *programStatusTracker) write(data []byte, startOffset uint64) {
 	for index, ch := range data {
 		s.outputOffset = startOffset + uint64(index) + 1
+		if ch == '\x18' || ch == '\x1a' {
+			s.scanner, s.pending, s.overflow = 0, s.pending[:0], false
+			continue
+		}
 		switch s.scanner {
 		case 0:
 			if ch == '\x1b' {
@@ -173,23 +176,8 @@ func (s *programStatusTracker) observeOSC(payload string) {
 				s.set("idle", 2)
 			}
 		}
-	case "133":
-		parts := strings.Split(body, ";")
-		if parts[0] == "C" {
-			s.set("working", 1)
-		} else if parts[0] == "D" {
-			if len(parts) > 1 {
-				code, err := strconv.Atoi(parts[1])
-				if err != nil {
-					return
-				}
-				if code != 0 {
-					s.set("error", 1)
-					return
-				}
-			}
-			s.set("done", 1)
-		}
+	// OSC 133 describes semantic prompt/output zones. TUIs redraw these
+	// while idle, so they cannot establish an agent turn or completion.
 	case "0", "2":
 		if s.source > 1 {
 			return
@@ -215,6 +203,11 @@ func (s *programStatusTracker) observeOSC(payload string) {
 }
 
 func firstProgramTitleRune(title string) rune {
+	if rest := strings.TrimPrefix(title, "π"); rest != title {
+		if trimmed := strings.TrimLeft(rest, " \t"); trimmed != rest {
+			title = trimmed
+		}
+	}
 	for _, ch := range title {
 		return ch
 	}

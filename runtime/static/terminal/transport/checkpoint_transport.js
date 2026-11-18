@@ -1,4 +1,5 @@
-export const memoryCheckpointProtocol = "ghostty-memory-v1";
+// The browser ships with the server, so it always requests the server's format.
+export const snapshotCheckpointProtocol = "ghostty-snapshot-v1";
 
 export function createCheckpointReceiver(session) {
   let state = null;
@@ -17,7 +18,7 @@ export function createCheckpointReceiver(session) {
     take(message) {
       const checkpoint = message.memory_checkpoint;
       if (!checkpoint) { state = null; return null; }
-      if (checkpoint.protocol !== memoryCheckpointProtocol || !state || state.history !== message.history_generation
+      if (checkpoint.protocol !== snapshotCheckpointProtocol || !state || state.history !== message.history_generation
         || state.cursor !== checkpoint.cursor || checkpoint.cursor !== message.delta_from_cursor
         || checkpoint.parts !== state.chunks.length || checkpoint.cols !== message.cols || checkpoint.rows !== message.rows)
         throw new Error("Terminal checkpoint does not match its replay boundary");

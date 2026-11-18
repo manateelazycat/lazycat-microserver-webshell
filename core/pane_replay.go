@@ -28,7 +28,7 @@ func (p *terminalPane) attachClient(syncRequest HistorySyncRequest) (paneHistory
 	history.checkpointFallback = p.checkpoint != nil && p.checkpoint.err != nil
 	// A stopped parser must never block this pane's history/live subscription.
 	// Keep the same raw-history limit and snapshot boundary; no parser rebuild.
-	if !history.checkpointFallback && syncRequest.CheckpointProtocol == TerminalMemoryCheckpointProtocol && p.checkpoint != nil {
+	if !history.checkpointFallback && syncRequest.CheckpointProtocol == TerminalSnapshotCheckpointProtocol && p.checkpoint != nil {
 		checkpoint, err := p.checkpoint.snapshot(p.history.end)
 		if err != nil {
 			return paneHistorySnapshot{}, nil, false, paneExitSnapshot{}, fmt.Errorf("terminal recovery checkpoint unavailable: %w", err)

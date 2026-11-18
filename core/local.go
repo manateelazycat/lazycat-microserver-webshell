@@ -45,7 +45,7 @@ func (l *Local) Inspect(ctx context.Context, request AgentRequest) (WorkspaceSta
 		return WorkspaceState{}, errors.New("terminal access disabled")
 	}
 	state, err := l.daemon.inspectWorkspace(ctx, l.request(request))
-	state.AgentCapabilities = []string{"tab_reorder_anchor", "workspace_restart_restore", "unified_terminal"}
+	state.AgentCapabilities = []string{"tab_reorder_anchor", "workspace_restart_restore", "unified_terminal", TerminalSnapshotCapability}
 	return state, err
 }
 
@@ -56,7 +56,7 @@ func (l *Local) State(ctx context.Context, request AgentRequest) (WorkspaceState
 		return WorkspaceState{}, errors.New("terminal access disabled")
 	}
 	state, err := l.daemon.WorkspaceState(ctx, l.request(request))
-	state.AgentCapabilities = []string{"tab_reorder_anchor", "workspace_restart_restore", "unified_terminal"}
+	state.AgentCapabilities = []string{"tab_reorder_anchor", "workspace_restart_restore", "unified_terminal", TerminalSnapshotCapability}
 	return state, err
 }
 
@@ -67,7 +67,7 @@ func (l *Local) Action(ctx context.Context, request AgentRequest) (WorkspaceStat
 		return WorkspaceState{}, errors.New("terminal access disabled")
 	}
 	state, err := l.daemon.applyWorkspaceAction(ctx, l.request(request))
-	state.AgentCapabilities = []string{"tab_reorder_anchor", "workspace_restart_restore", "unified_terminal"}
+	state.AgentCapabilities = []string{"tab_reorder_anchor", "workspace_restart_restore", "unified_terminal", TerminalSnapshotCapability}
 	return state, err
 }
 

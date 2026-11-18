@@ -2,9 +2,9 @@
 
 ## v17 状态基线
 
-普通容器的新页面协商 `checkpoint_protocol=ghostty-memory-v1`。Agent 用同一份固定构建的 Ghostty WASM 在每个 PTY 内持续维护独立终端状态；原始历史仍有界保留给旧客户端。attach 在 pane 锁内取得状态及游标并注册实时订阅，随后以有界控制帧传输 gzip 状态，最后发送历史开始/完成以及该游标之后的字节。尚未结束的 UTF-8/控制序列保留为基线后的原始增量，不从半截 UI 解码状态恢复。
+普通容器的新页面协商 `checkpoint_protocol=ghostty-snapshot-v1`。Agent 用同一份固定构建的 Ghostty WASM 在每个 PTY 内持续维护独立终端状态；原始历史仍有界保留给旧客户端。attach 在 pane 锁内取得状态及游标并注册实时订阅，随后以有界控制帧传输 gzip 状态，最后发送历史开始/完成以及该游标之后的字节。尚未结束的 UTF-8/控制序列保留为基线后的原始增量，不从半截 UI 解码状态恢复。
 
-`core/terminal_checkpoint_runtime.go` 持有 Agent 模块，`worker/memory_checkpoint.js` 在新建的独立 WASM 实例中导入。快照包含固定构建的线性内存、唯一可变全局栈指针、terminal handle、网格和游标，因此覆盖两套屏幕、保存光标和解析器状态；这是内部 ABI，不是跨版本语义序列化。WASM SHA-256、内存 SHA-256、长度、分片顺序和恢复游标必须全部匹配，失败走现有恢复错误路径，不能标作就绪。构建脚本显式导出并校验全局布局；引擎变化必须重新审查 ABI 并更新服务端协议。
+`core/terminal_checkpoint_runtime.go` 持有 Agent 模块，`worker/snapshot_checkpoint.js` 在新建的独立 WASM 实例中导入。载荷是 Ghostty 1.4 官方 `GHOSTSNP` 快照的 gzip：覆盖两套屏幕、回滚、模式、保存光标、颜色/调色板、显式回滚上限以及未完成的解析器续接字节，是语义序列化而非线性内存镜像，可在浏览器、原生 wasm2c 与服务端 wazero 之间移植。快照 SHA-256、长度、网格、分片顺序和恢复游标必须全部匹配，失败走现有恢复错误路径，不能标作就绪；WASM 指纹不同只作诊断。`memory_checkpoint` 字段名作为容器保留。旧原生客户端请求的 `ghostty-memory-v1` 仍被接受，但 v51 Agent 对其只回放原始历史。
 
 模块内存上限 256 MiB，压缩快照上限 16 MiB，分片 64 KiB；后台保留的未完成控制序列上限 1 MiB。Worker 校验后限长解压、在当前连接代次内导入，初始 clear 在导入前完成，尺寸操作和增量在导入后顺序执行，呈现须等待这些操作结束。恢复在 Worker 中执行，主线程不解压大内存。主题默认值通过独立桥接覆盖，程序设置的动态颜色保留。
 

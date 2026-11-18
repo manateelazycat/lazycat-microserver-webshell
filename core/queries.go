@@ -9,7 +9,6 @@ import (
 
 const (
 	maxPendingTerminalQuery           = 64
-	maxPendingKittyGraphicsQuery      = 4096
 	primaryDeviceAttributesResponse   = "\x1b[?1;2c"
 	secondaryDeviceAttributesResponse = "\x1b[>0;0;0c"
 	programStatusSupportResponse      = "\x1b]7501;?\x1b\\"
@@ -45,48 +44,6 @@ func (p *terminalPane) filterTerminalQueryOutput(data []byte) []byte {
 			return output
 		}
 		switch buffer[1] {
-		case '_':
-			if len(buffer) < len("\x1b_G;") {
-				p.setTerminalQueryPending(buffer)
-				return output
-			}
-			if buffer[2] != 'G' {
-				output = append(output, buffer[0])
-				buffer = buffer[1:]
-				continue
-			}
-			separator := bytes.IndexByte(buffer, ';')
-			if separator < 0 {
-				if len(buffer) <= maxPendingTerminalQuery {
-					p.setTerminalQueryPending(buffer)
-					return output
-				}
-				output = append(output, buffer...)
-				return output
-			}
-			if !kittyGraphicsQueryControl(buffer[3:separator]) {
-				output = append(output, buffer...)
-				return output
-			}
-			end, ok := findAPCTerminator(buffer)
-			if !ok {
-				if len(buffer) <= maxPendingKittyGraphicsQuery {
-					p.setTerminalQueryPending(buffer)
-					return output
-				}
-				output = append(output, buffer...)
-				return output
-			}
-			sequence := buffer[:end]
-			if response, ok := kittyGraphicsQueryResponse(sequence); ok {
-				responseData := []byte(response)
-				p.expectGeneratedInput(responseData, 1)
-				_ = p.writeGeneratedInput(responseData)
-				buffer = buffer[end:]
-				continue
-			}
-			output = append(output, sequence...)
-			buffer = buffer[end:]
 		case '[':
 			if len(buffer) == 2 {
 				p.setTerminalQueryPending(buffer)
@@ -112,18 +69,8 @@ func (p *terminalPane) filterTerminalQueryOutput(data []byte) []byte {
 				continue
 			}
 			sequence := buffer[:final+1]
-			if response, ok := terminalQueryResponse(sequence); ok {
-				responseData := []byte(response)
-				p.expectGeneratedInput(responseData, 1)
-				_ = p.writeGeneratedInput(responseData)
-				buffer = buffer[final+1:]
-				continue
-			}
-			if response, ok := terminalClientGeneratedResponse(sequence); ok {
-				p.expectGeneratedInput([]byte(response), 1)
-			} else if isCursorPositionQuery(sequence) {
-				p.expectGeneratedCursorReport(1)
-			}
+			// CSI queries, including the DA detection sentinel, pass through the
+			// official parser so image replies retain their stream ordering.
 			output = append(output, sequence...)
 			buffer = buffer[final+1:]
 		case ']':
@@ -178,18 +125,6 @@ func findOSCTerminator(sequence []byte) (int, bool) {
 			if index+1 < len(sequence) && sequence[index+1] == '\\' {
 				return index + 2, true
 			}
-		}
-	}
-	return -1, false
-}
-
-func findAPCTerminator(sequence []byte) (int, bool) {
-	if len(sequence) < 3 || sequence[0] != '\x1b' || sequence[1] != '_' {
-		return -1, false
-	}
-	for index := 2; index < len(sequence); index++ {
-		if sequence[index] == '\x1b' && index+1 < len(sequence) && sequence[index+1] == '\\' {
-			return index + 2, true
 		}
 	}
 	return -1, false
@@ -270,54 +205,6 @@ func terminalClientGeneratedResponse(sequence []byte) (string, bool) {
 		return "\x1b[0n", true
 	}
 	return "", false
-}
-
-func kittyGraphicsQueryResponse(sequence []byte) (string, bool) {
-	if len(sequence) < len("\x1b_Ga=q;i=1\x1b\\") || sequence[0] != '\x1b' || sequence[1] != '_' {
-		return "", false
-	}
-	if sequence[len(sequence)-2] != '\x1b' || sequence[len(sequence)-1] != '\\' {
-		return "", false
-	}
-	body := sequence[3 : len(sequence)-2]
-	control, _, _ := bytes.Cut(body, []byte(";"))
-	attributes := make(map[string]string)
-	for _, part := range bytes.Split(control, []byte(",")) {
-		key, value, ok := bytes.Cut(part, []byte("="))
-		if ok {
-			attributes[string(key)] = string(value)
-		}
-	}
-	if attributes["a"] != "q" {
-		return "", false
-	}
-	imageID := attributes["i"]
-	if imageID == "" {
-		return "", false
-	}
-	for _, char := range imageID {
-		if char < '0' || char > '9' {
-			return "", false
-		}
-	}
-	message := "OK"
-	if transmission := attributes["t"]; transmission != "" && transmission != "d" {
-		message = "EINVAL: only direct transmission is supported"
-	} else if format := attributes["f"]; format != "" && format != "24" && format != "32" && format != "100" {
-		message = "EINVAL: image format is unsupported"
-	} else if compression := attributes["o"]; compression != "" && compression != "z" {
-		message = "EINVAL: compression is unsupported"
-	}
-	return fmt.Sprintf("\x1b_Gi=%s;%s\x1b\\", imageID, message), true
-}
-
-func kittyGraphicsQueryControl(control []byte) bool {
-	for _, part := range bytes.Split(control, []byte(",")) {
-		if bytes.Equal(part, []byte("a=q")) {
-			return true
-		}
-	}
-	return false
 }
 
 func isCursorPositionQuery(sequence []byte) bool {

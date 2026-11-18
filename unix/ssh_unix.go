@@ -7,11 +7,8 @@ import (
 	"os/exec"
 	"syscall"
 
-	"github.com/creack/pty"
 	sys "golang.org/x/sys/unix"
 	"lcmd-webshell/core"
-	"lcmd-webshell/localtools"
-	"strings"
 )
 
 func (p LocalPlatform) SSHCommand(command string, _ bool) *exec.Cmd {
@@ -62,22 +59,5 @@ func (LocalPlatform) SignalSSHCommand(cmd *exec.Cmd, stream core.PTY, name strin
 	return syscall.Kill(-group, signal)
 }
 func (LocalPlatform) StartSSHPTY(cmd *exec.Cmd, size core.ShellSize, modes map[uint8]uint32) (core.PTY, error) {
-	master, slave, err := pty.Open()
-	if err != nil {
-		return nil, err
-	}
-	defer slave.Close()
-	fail := func(err error) (core.PTY, error) { master.Close(); return nil, err }
-	if err = applySSHModes(int(slave.Fd()), modes); err != nil {
-		return fail(err)
-	}
-	if err = pty.Setsize(master, &pty.Winsize{Cols: uint16(size.Cols), Rows: uint16(size.Rows), X: uint16(size.PixelWidth), Y: uint16(size.PixelHeight)}); err != nil {
-		return fail(err)
-	}
-	cmd.Stdin, cmd.Stdout, cmd.Stderr = slave, slave, slave
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Setctty: true}
-	if err = cmd.Start(); err != nil {
-		return fail(err)
-	}
-	return &localPTY{File: master, tty: strings.TrimPrefix(slave.Name(), "/dev/"), cmd: cmd, reader: localtools.NewTextReader(master)}, nil
+	return startLocalPTY(cmd, size, func(fd int) error { return applySSHModes(fd, modes) })
 }

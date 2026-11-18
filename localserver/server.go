@@ -34,30 +34,34 @@ type Services struct {
 }
 
 type Config struct {
-	InstanceID string `json:"instance_id"`
-	AccountID  string `json:"account_id"`
-	BoxID      string `json:"box_id"`
-	DeviceID   string `json:"device_id"`
-	Epoch      string `json:"epoch"`
-	Secret     string `json:"secret"`
-	Credential string `json:"credential"`
+	ServiceName   string
+	GRPCTransport bool
+	InstanceID    string       `json:"instance_id"`
+	AccountID     string       `json:"account_id"`
+	BoxID         string       `json:"box_id"`
+	DeviceID      string       `json:"device_id"`
+	Epoch         string       `json:"epoch"`
+	Secret        string       `json:"secret"`
+	Credential    string       `json:"credential"`
+	Listener      net.Listener `json:"-"`
 	// AdmissionAllowed gates new requests; it does not own existing PTYs.
 	AdmissionAllowed func() bool `json:"-"`
 }
 
 type Server struct {
-	config     Config
-	local      *core.Local
-	http       *http.Server
-	listener   net.Listener
-	ctx        context.Context
-	cancel     context.CancelFunc
-	mu         sync.Mutex
-	closed     bool
-	sockets    map[*websocket.Conn]struct{}
-	scrollback atomic.Int64
-	ssh        SSHService
-	metrics    core.HostMetricsSource
+	config         Config
+	local          *core.Local
+	http           *http.Server
+	listener       net.Listener
+	ctx            context.Context
+	cancel         context.CancelFunc
+	mu             sync.Mutex
+	closed         bool
+	sockets        map[*websocket.Conn]struct{}
+	scrollback     atomic.Int64
+	activeRequests atomic.Int64
+	ssh            SSHService
+	metrics        core.HostMetricsSource
 }
 
 func Start(parent context.Context, config Config, platform core.Platform) (*Server, error) {
@@ -70,6 +74,9 @@ func StartWithSSH(parent context.Context, config Config, platform core.Platform,
 }
 
 func StartWithServices(parent context.Context, config Config, platform core.Platform, services Services) (*Server, error) {
+	if config.GRPCTransport && (config.Listener == nil || config.ServiceName == "") {
+		return nil, errors.New("private gRPC listener and service name required")
+	}
 	for _, value := range []string{config.InstanceID, config.AccountID, config.BoxID, config.DeviceID, config.Epoch} {
 		if strings.TrimSpace(value) == "" || strings.ContainsAny(value, "\r\n") {
 			return nil, errors.New("terminal binding is incomplete")
@@ -82,7 +89,10 @@ func StartWithServices(parent context.Context, config Config, platform core.Plat
 	if err != nil {
 		return nil, err
 	}
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	listener := config.Listener
+	if listener == nil {
+		listener, err = net.Listen("tcp", "127.0.0.1:0")
+	}
 	if err != nil {
 		local.Close()
 		return nil, err
@@ -118,8 +128,16 @@ func (s *Server) Close() {
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	s.activeRequests.Add(1)
+	defer s.activeRequests.Add(-1)
 	w.Header().Set("Cache-Control", "no-store")
-	if r.Method == http.MethodGet && r.URL.Path == "/__terminal_identity" {
+	if s.config.GRPCTransport {
+		r.Header.Set(CredentialHeader, s.config.Credential)
+		r.Header.Set(BoxHeader, s.config.BoxID)
+		r.URL.Path = strings.TrimPrefix(r.URL.Path, "/s/"+s.config.ServiceName)
+		r.URL.RawPath = ""
+	}
+	if !s.config.GRPCTransport && r.Method == http.MethodGet && r.URL.Path == "/__terminal_identity" {
 		s.identity(w, r)
 		return
 	}
@@ -130,7 +148,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// The gateway strips its service prefix, with or without the leading slash.
 	r.URL.Path = "/" + strings.TrimLeft(r.URL.Path, "/")
 	if s.config.AdmissionAllowed != nil && !s.config.AdmissionAllowed() &&
-		r.URL.Path != "/ssh/status" && r.URL.Path != "/ssh/config" {
+		(s.config.GRPCTransport || r.URL.Path != "/ssh/status" && r.URL.Path != "/ssh/config") {
 		http.Error(w, "terminal admission is paused", http.StatusServiceUnavailable)
 		return
 	}

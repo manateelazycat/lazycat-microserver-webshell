@@ -81,7 +81,7 @@ func supportsWorkspaceRecovery(version string) bool {
 	if strings.TrimSpace(version) == "lcmd-webshell-agent-v39" {
 		return true
 	}
-	return isCurrentAgentProtocolVersion(version) || strings.TrimSpace(version) == "lcmd-webshell-agent-v49" || strings.TrimSpace(version) == "lcmd-webshell-agent-v48" || strings.TrimSpace(version) == "lcmd-webshell-agent-v47" || strings.TrimSpace(version) == "lcmd-webshell-agent-v46" || strings.TrimSpace(version) == "lcmd-webshell-agent-v45" || strings.TrimSpace(version) == "lcmd-webshell-agent-v44" || strings.TrimSpace(version) == "lcmd-webshell-agent-v43" || strings.TrimSpace(version) == "lcmd-webshell-agent-v42" || strings.TrimSpace(version) == "lcmd-webshell-agent-v41" || strings.TrimSpace(version) == "lcmd-webshell-agent-v40" || strings.TrimSpace(version) == "lcmd-webshell-agent-v38" || strings.TrimSpace(version) == "lcmd-webshell-agent-v37" || strings.TrimSpace(version) == "lcmd-webshell-agent-v36" || strings.TrimSpace(version) == "lcmd-webshell-agent-v35" || strings.TrimSpace(version) == "lcmd-webshell-agent-v34" || strings.TrimSpace(version) == "lcmd-webshell-agent-v33" || strings.TrimSpace(version) == "lcmd-webshell-agent-v32" || strings.TrimSpace(version) == "lcmd-webshell-agent-v31" || strings.TrimSpace(version) == "lcmd-webshell-agent-v30" || strings.TrimSpace(version) == "lcmd-webshell-agent-v29" || strings.TrimSpace(version) == "lcmd-webshell-agent-v28" || strings.TrimSpace(version) == "lcmd-webshell-agent-v27"
+	return isCurrentAgentProtocolVersion(version) || strings.TrimSpace(version) == "lcmd-webshell-agent-v57" || strings.TrimSpace(version) == "lcmd-webshell-agent-v56" || strings.TrimSpace(version) == "lcmd-webshell-agent-v55" || strings.TrimSpace(version) == "lcmd-webshell-agent-v54" || strings.TrimSpace(version) == "lcmd-webshell-agent-v53" || strings.TrimSpace(version) == "lcmd-webshell-agent-v52" || strings.TrimSpace(version) == "lcmd-webshell-agent-v51" || strings.TrimSpace(version) == "lcmd-webshell-agent-v50" || strings.TrimSpace(version) == "lcmd-webshell-agent-v49" || strings.TrimSpace(version) == "lcmd-webshell-agent-v48" || strings.TrimSpace(version) == "lcmd-webshell-agent-v47" || strings.TrimSpace(version) == "lcmd-webshell-agent-v46" || strings.TrimSpace(version) == "lcmd-webshell-agent-v45" || strings.TrimSpace(version) == "lcmd-webshell-agent-v44" || strings.TrimSpace(version) == "lcmd-webshell-agent-v43" || strings.TrimSpace(version) == "lcmd-webshell-agent-v42" || strings.TrimSpace(version) == "lcmd-webshell-agent-v41" || strings.TrimSpace(version) == "lcmd-webshell-agent-v40" || strings.TrimSpace(version) == "lcmd-webshell-agent-v38" || strings.TrimSpace(version) == "lcmd-webshell-agent-v37" || strings.TrimSpace(version) == "lcmd-webshell-agent-v36" || strings.TrimSpace(version) == "lcmd-webshell-agent-v35" || strings.TrimSpace(version) == "lcmd-webshell-agent-v34" || strings.TrimSpace(version) == "lcmd-webshell-agent-v33" || strings.TrimSpace(version) == "lcmd-webshell-agent-v32" || strings.TrimSpace(version) == "lcmd-webshell-agent-v31" || strings.TrimSpace(version) == "lcmd-webshell-agent-v30" || strings.TrimSpace(version) == "lcmd-webshell-agent-v29" || strings.TrimSpace(version) == "lcmd-webshell-agent-v28" || strings.TrimSpace(version) == "lcmd-webshell-agent-v27"
 }
 
 func isAttachCompatibleAgentProtocolVersion(version string) bool {
@@ -89,7 +89,7 @@ func isAttachCompatibleAgentProtocolVersion(version string) bool {
 		return true
 	}
 	switch strings.TrimSpace(version) {
-	case AgentProtocolVersion, "lcmd-webshell-agent-v49", "lcmd-webshell-agent-v48", "lcmd-webshell-agent-v47", "lcmd-webshell-agent-v46", "lcmd-webshell-agent-v45", "lcmd-webshell-agent-v44", "lcmd-webshell-agent-v43", "lcmd-webshell-agent-v42", "lcmd-webshell-agent-v41", "lcmd-webshell-agent-v40", "lcmd-webshell-agent-v38", "lcmd-webshell-agent-v37", "lcmd-webshell-agent-v36", "lcmd-webshell-agent-v35", "lcmd-webshell-agent-v34", "lcmd-webshell-agent-v33", "lcmd-webshell-agent-v32", "lcmd-webshell-agent-v31", "lcmd-webshell-agent-v30", "lcmd-webshell-agent-v29", "lcmd-webshell-agent-v28", "lcmd-webshell-agent-v27", "lcmd-webshell-agent-v26", "lcmd-webshell-agent-v25", "lcmd-webshell-agent-v24", "lcmd-webshell-agent-v23", "lcmd-webshell-agent-v22", "lcmd-webshell-agent-v21", "lcmd-webshell-agent-v20", "lcmd-webshell-agent-v19", "lcmd-webshell-agent-v18", "lcmd-webshell-agent-v17", "lcmd-webshell-agent-v16", "lcmd-webshell-agent-v15", "lcmd-webshell-agent-v14", "lcmd-webshell-agent-v13", "lcmd-webshell-agent-v12", "lcmd-webshell-agent-v11", "lcmd-webshell-agent-v10", "lcmd-webshell-agent-v9":
+	case AgentProtocolVersion, "lcmd-webshell-agent-v57", "lcmd-webshell-agent-v56", "lcmd-webshell-agent-v55", "lcmd-webshell-agent-v54", "lcmd-webshell-agent-v53", "lcmd-webshell-agent-v52", "lcmd-webshell-agent-v51", "lcmd-webshell-agent-v50", "lcmd-webshell-agent-v49", "lcmd-webshell-agent-v48", "lcmd-webshell-agent-v47", "lcmd-webshell-agent-v46", "lcmd-webshell-agent-v45", "lcmd-webshell-agent-v44", "lcmd-webshell-agent-v43", "lcmd-webshell-agent-v42", "lcmd-webshell-agent-v41", "lcmd-webshell-agent-v40", "lcmd-webshell-agent-v38", "lcmd-webshell-agent-v37", "lcmd-webshell-agent-v36", "lcmd-webshell-agent-v35", "lcmd-webshell-agent-v34", "lcmd-webshell-agent-v33", "lcmd-webshell-agent-v32", "lcmd-webshell-agent-v31", "lcmd-webshell-agent-v30", "lcmd-webshell-agent-v29", "lcmd-webshell-agent-v28", "lcmd-webshell-agent-v27", "lcmd-webshell-agent-v26", "lcmd-webshell-agent-v25", "lcmd-webshell-agent-v24", "lcmd-webshell-agent-v23", "lcmd-webshell-agent-v22", "lcmd-webshell-agent-v21", "lcmd-webshell-agent-v20", "lcmd-webshell-agent-v19", "lcmd-webshell-agent-v18", "lcmd-webshell-agent-v17", "lcmd-webshell-agent-v16", "lcmd-webshell-agent-v15", "lcmd-webshell-agent-v14", "lcmd-webshell-agent-v13", "lcmd-webshell-agent-v12", "lcmd-webshell-agent-v11", "lcmd-webshell-agent-v10", "lcmd-webshell-agent-v9":
 		return true
 	default:
 		return false
@@ -295,6 +295,11 @@ func applyAgentWorkspaceCapabilities(state *WorkspaceState, version string) {
 	state.AgentCapabilities = nil
 	if supportsWorkspaceRecovery(version) {
 		state.AgentCapabilities = []string{"tab_reorder_anchor", "workspace_restart_restore"}
+	}
+	// v51/v52 were also used by the heap-based runtime branch; only the merged
+	// v56/v57 versions unambiguously produce GHOSTSNP snapshots.
+	if isCurrentAgentProtocolVersion(version) || strings.TrimSpace(version) == "lcmd-webshell-agent-v57" || strings.TrimSpace(version) == "lcmd-webshell-agent-v56" {
+		state.AgentCapabilities = append(state.AgentCapabilities, TerminalSnapshotCapability)
 	}
 }
 
@@ -1252,17 +1257,25 @@ func persistentAgentAttachCommandArgs(scope AgentScope, paneID string, cols, row
 	if syncRequest.IntegrityProtocol != "" {
 		commandArgs = append(commandArgs, "--integrity-protocol", syncRequest.IntegrityProtocol)
 	}
-	if syncRequest.CheckpointProtocol == TerminalMemoryCheckpointProtocol {
-		// v39/v40/v41/v42/v43/v44/v45/v46/v47/v48/v49/v50 share the initialized-page WASM fingerprint. Earlier agents remain
-		// wire-compatible but must replay bytes instead of exporting an incompatible heap.
+	// Only agents that produce the requested format receive the flag; every other
+	// agent stays wire-compatible and replays raw history. The v56/v57 versions
+	// identify the merged snapshot core; legacy versions retain memory-v1 fallback.
+	compatible := ""
+	switch syncRequest.CheckpointProtocol {
+	case TerminalSnapshotCheckpointProtocol:
+		compatible = ShellScriptQuote(AgentProtocolVersion) + "|lcmd-webshell-agent-v56"
+	case TerminalMemoryCheckpointProtocol:
+		compatible = "lcmd-webshell-agent-v55|lcmd-webshell-agent-v54|lcmd-webshell-agent-v53|lcmd-webshell-agent-v52|lcmd-webshell-agent-v51|lcmd-webshell-agent-v50|lcmd-webshell-agent-v49|lcmd-webshell-agent-v48|lcmd-webshell-agent-v47|lcmd-webshell-agent-v46|lcmd-webshell-agent-v45|lcmd-webshell-agent-v44|lcmd-webshell-agent-v43|lcmd-webshell-agent-v42|lcmd-webshell-agent-v41|lcmd-webshell-agent-v40|lcmd-webshell-agent-v39"
+	}
+	if compatible != "" {
 		quoted := make([]string, 0, len(commandArgs)-3)
 		for _, arg := range commandArgs[3:] {
 			quoted = append(quoted, ShellScriptQuote(arg))
 		}
 		script := "set -- " + strings.Join(quoted, " ") + "\n" +
 			"case \"$(" + ShellScriptQuote(agentInstallPath) + " agent version)\" in\n" +
-			ShellScriptQuote(AgentProtocolVersion) + "|lcmd-webshell-agent-v49|lcmd-webshell-agent-v48|lcmd-webshell-agent-v47|lcmd-webshell-agent-v46|lcmd-webshell-agent-v45|lcmd-webshell-agent-v44|lcmd-webshell-agent-v43|lcmd-webshell-agent-v42|lcmd-webshell-agent-v41|lcmd-webshell-agent-v40|lcmd-webshell-agent-v39)\n" +
-			"set -- \"$@\" --checkpoint-protocol " + ShellScriptQuote(TerminalMemoryCheckpointProtocol) + "\n;;\nesac\nexec \"$@\""
+			compatible + ")\n" +
+			"set -- \"$@\" --checkpoint-protocol " + ShellScriptQuote(syncRequest.CheckpointProtocol) + "\n;;\nesac\nexec \"$@\""
 		return []string{"exec", "-i", scope.Selector, "/bin/sh", "-c", script}
 	}
 	return commandArgs

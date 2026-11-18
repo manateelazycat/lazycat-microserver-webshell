@@ -1,4 +1,4 @@
-import { isCodexTerminalIdentity } from "../../terminal/tui_adapters/codex/index.js";
+import { desktopAgentIdentity } from "./agent_icons.js";
 
 const unquote = (value) => String(value || "").replace(/^(["'])(.*)\1$/, "$2");
 const executableName = (value) => unquote(value).replace(/\\/g, "/").split("/").pop() || "";
@@ -52,9 +52,10 @@ export function desktopSessionActivity(tab) {
     || ((pane.terminalExited || pane.terminalExitRetained) && Number(pane.terminalExitCode || 0) !== 0));
   const unread = tab.hasNotification === true;
   const blocked = panes.some((pane) => pane.programState === "blocked");
+  const agent = running ? desktopAgentIdentity(foreground) : null;
   return {
-    application: !running ? "" : isCodexTerminalIdentity(foreground) ? "Codex"
-      : foreground.busy ? foregroundName(foreground) : "",
+    application: !running ? "" : agent?.name || (foreground.busy ? foregroundName(foreground) : ""),
+    applicationIcon: agent?.icon || "",
     busy: working,
     notification: unread,
     status: error ? "error" : working ? "working" : blocked ? "idle" : unread ? "unread" : "idle",

@@ -28,7 +28,7 @@ func (ContainerTargets) Command(launch core.Launch) *exec.Cmd {
 	if launch.RootDir != "" {
 		command.Dir = launch.RootDir
 	}
-	command.Env = append(os.Environ(), "TERM=xterm-256color", "COLORTERM=truecolor", "LANG=C.UTF-8", "LC_ALL=C.UTF-8")
+	command.Env = append(os.Environ(), "TERM=xterm-256color", "COLORTERM=truecolor", "TERM_PROGRAM=LightOS-Ghostty", "LANG=C.UTF-8", "LC_ALL=C.UTF-8")
 	return command
 }
 func (ContainerTargets) ScanActivities(ctx context.Context, selector string, ttys []string) (map[string]core.PaneActivity, error) {

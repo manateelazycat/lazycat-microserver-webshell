@@ -45,7 +45,7 @@ func scanDarwinActivities(ctx context.Context, ttys []string) (map[string]core.P
 		if current, ok := result[tty]; ok && (current.Busy || !busy) {
 			continue
 		}
-		result[tty] = core.PaneActivity{TTY: tty, Busy: busy, Command: name, CommandLine: command}
+		result[tty] = core.PaneActivity{TTY: tty, Busy: busy, Command: name, CommandLine: command, Agent: identifyAgent(name, "")}
 		pids[tty] = fields[0]
 	}
 	var selected []string

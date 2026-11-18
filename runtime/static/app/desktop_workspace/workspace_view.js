@@ -1,9 +1,11 @@
 import { desktopSessionActivity } from "./session_presentation.js";
 import { createDesktopSessionLabels } from "./session_label.js";
+import { createDesktopSidebarRevealController } from "./sidebar_reveal_controller.js";
 
 export const desktopIcon = (documentObject, name) => {
   const paths = {
-    collapse: "m15 5-7 7 7 7",
+    collapse: "M4 3h16a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1ZM9.75 4.5H19.5v15H9.75Z",
+    expand: "M4 3h16a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1ZM9.75 4.5H19.5v15H9.75ZM4.5 4.5h3.75v15H4.5Z",
     chevron: "m9 5 7 7-7 7",
     add: "M12 5v14M5 12h14",
     close: "m7 7 10 10M17 7 7 17",
@@ -15,6 +17,11 @@ export const desktopIcon = (documentObject, name) => {
   svg.setAttribute("aria-hidden", "true");
   const path = documentObject.createElementNS(svg.namespaceURI, "path");
   path.setAttribute("d", paths[name]);
+  if (name === "collapse" || name === "expand") {
+    path.setAttribute("fill", "currentColor");
+    path.setAttribute("fill-rule", "evenodd");
+    path.setAttribute("stroke", "none");
+  }
   svg.append(path);
   return svg;
 };
@@ -79,12 +86,19 @@ export function createDesktopWorkspaceView({ documentObject = document, windowOb
   resizeHandle.setAttribute("aria-orientation", "vertical");
   resizeHandle.setAttribute("aria-controls", area.id);
   sidebar.append(toolbar, list, footer, resizeHandle);
-  const expand = iconButton("chevron", "展开侧栏", "expand");
+  const expand = iconButton("expand", "展开侧栏", "expand");
   expand.classList.add("desktop-workspace-expand");
   expand.setAttribute("aria-controls", sidebar.id);
   expand.setAttribute("aria-expanded", "false");
   expand.hidden = true;
-  shell.prepend(sidebar, expand);
+  const revealRegion = documentObject.createElement("div");
+  revealRegion.className = "desktop-workspace-reveal-region";
+  revealRegion.hidden = true;
+  revealRegion.append(expand);
+  shell.prepend(sidebar, revealRegion);
+  const sidebarReveal = createDesktopSidebarRevealController({
+    documentObject, windowObject, region: revealRegion, button: expand,
+  });
   const relocations = ["attachmentToggle", "instanceSwitcher", "terminalNetworkMonitor"]
     .map((id) => {
       const element = documentObject.getElementById(id);
@@ -125,6 +139,8 @@ export function createDesktopWorkspaceView({ documentObject = document, windowOb
     documentObject.body.classList.toggle("desktop-workspace-collapsed", active && collapsed);
     sidebar.inert = collapsed;
     expand.hidden = !active || !collapsed;
+    revealRegion.hidden = expand.hidden;
+    sidebarReveal.setEnabled(active && collapsed);
     collapse.setAttribute("aria-expanded", collapsed ? "false" : "true");
     if (!animate) {
       sidebar.getBoundingClientRect();
@@ -191,10 +207,12 @@ export function createDesktopWorkspaceView({ documentObject = document, windowOb
     const close = iconButton("close", "关闭会话", "close");
     const application = documentObject.createElement("span");
     application.className = "desktop-workspace-session-application";
-    application.hidden = true;
+    const applicationIcon = documentObject.createElement("span");
+    applicationIcon.className = "desktop-workspace-session-application-icon";
+    applicationIcon.setAttribute("aria-hidden", "true");
     button.append(status, label, application);
     row.append(button, close);
-    const entry = { row, button, label, close, application, status };
+    const entry = { row, button, label, close, application, applicationIcon, status };
     section.rows.set(tab.id, entry);
     return entry;
   };
@@ -290,13 +308,22 @@ export function createDesktopWorkspaceView({ documentObject = document, windowOb
           }
           entry.status.setAttribute("aria-hidden", String(activity.status === "idle"));
           entry.status.setAttribute("aria-label", activity.statusLabel);
-          entry.application.hidden = !activity.application;
-          entry.application.textContent = activity.application;
+          if (activity.applicationIcon) {
+            if (entry.applicationIcon.dataset.source !== activity.applicationIcon) {
+              entry.applicationIcon.dataset.source = activity.applicationIcon;
+              entry.applicationIcon.style.maskImage = `url("${activity.applicationIcon}")`;
+              entry.applicationIcon.style.webkitMaskImage = `url("${activity.applicationIcon}")`;
+            }
+            if (entry.application.firstChild !== entry.applicationIcon) entry.application.replaceChildren(entry.applicationIcon);
+          } else if (entry.application.textContent !== activity.application || entry.application.firstChild === entry.applicationIcon) {
+            entry.application.textContent = activity.application;
+          }
           entry.application.title = activity.application;
+          entry.application.setAttribute("aria-label", activity.application);
           entry.row.classList.toggle("has-notification", activity.notification);
           entry.row.classList.toggle("is-busy", activity.busy);
           labels.set(entry.label, label);
-          entry.button.title = activity.statusLabel ? `${label} · ${activity.statusLabel}` : label;
+          entry.button.title = [label, activity.application, activity.statusLabel].filter(Boolean).join(" · ");
           entry.button.setAttribute("aria-label", entry.button.title);
           entry.button.disabled = !group.running;
           entry.close.disabled = !group.running;
@@ -318,8 +345,9 @@ export function createDesktopWorkspaceView({ documentObject = document, windowOb
       labels.dispose();
       areaAnimation?.cancel();
       this.setActive(false);
+      sidebarReveal.dispose();
       sidebar.remove();
-      expand.remove();
+      revealRegion.remove();
       for (const { anchor } of relocations) anchor.remove();
       sections.clear();
     },

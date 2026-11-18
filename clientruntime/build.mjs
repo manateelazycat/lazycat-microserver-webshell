@@ -30,7 +30,7 @@ export function buildClientRuntime({
   metadata = {},
 } = {}) {
   const goos = { linux: "linux", darwin: "darwin", win32: "windows", windows: "windows" }[platform]
-  const goarch = { x64: "amd64", amd64: "amd64", arm64: "arm64", ia32: "386" }[arch]
+  const goarch = { x64: "amd64", amd64: "amd64", arm64: "arm64", riscv64: "riscv64", ia32: "386" }[arch]
   if (!goos || !goarch) throw new Error("Unsupported terminal target: " + platform + "/" + arch)
   const nodePlatform = goos === "windows" ? "win32" : goos
   const nodeArch = goarch === "amd64" ? "x64" : goarch === "386" ? "ia32" : goarch

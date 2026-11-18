@@ -23,6 +23,8 @@ controller 公开 `runAction()`、`handleKeydown()`、`toggleFullscreen()`、`is
 
 Ctrl+V / Command+V 只聚焦终端并保留浏览器默认粘贴，由原生 paste 事件消费图片或文本，避免重复读取和上传。Ctrl+Shift+V、Shift+Insert、自定义粘贴快捷键和显式 `runAction("paste_terminal")` 调用注入的 `pasteTerminal`，与右键菜单共用图片优先的主动剪贴板读取，避免浏览器的纯文本粘贴命令丢弃图片。
 
+通过 `terminal/input/index.js` 的纯函数识别输入法组合按键（`isComposing`、`Process`、`keyCode/which = 229`），并读取当前终端的组合状态。组合输入按键在解析已配置快捷键之前返回，保留浏览器默认行为，不因快捷键匹配而抢走候选编辑、确认或输入法切换。
+
 ## 文件清单与验证
 
 - `index.js`：唯一公开入口。

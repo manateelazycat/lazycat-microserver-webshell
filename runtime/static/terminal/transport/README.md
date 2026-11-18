@@ -52,3 +52,5 @@ Unified 订阅可携带 `replay_burst_limit_bytes`。Provider 只为 snapshot �
 容器会话已有有效网格时，Worker-ready 接入不再要求旧 resize 流程先成功；新的几何测量和 claim 在新连接中处理。Worker 尚未就绪则保留 pendingConnect，并通过现有延后同步任务和 Worker-ready 事件继续推进。失败 Worker 的重建由 health/recovery 负责，连接层不单独重复重建。
 
 v21 默认订阅 `window-ack-v1`，每 pane 最多 1 MiB 已发送未消费字节和 256 个未确认轮次。Provider 在窗口内连续发送，客户端按已解析游标累计确认；超过窗口后等待消费确认，不需要每轮往返。所有文本控制与 binary 保持流内顺序，resize-applied 不越过前序输出。准入的整段 replay 临时使用已确认的 burst 预算，发送 replay-complete 后必须等待消费将占用降回普通窗口。旧 `turn-ack-v1` 客户端仍按原逐轮规则处理。Agent 的快照格式及完整性协议保持原样；v20 Agent 仍可配合新 Provider 工作。
+
+当前合并版本为 Agent v57：使用 Ghostty 1.4 的 `ghostty-snapshot-v1`（GHOSTSNP）快照，同时保留客户端运行时分发、通用 PTY、任务回收及主线 agent 身份识别。当前 WASM 为 617239 字节，SHA-256 `5eb1c3c84ae118b4b8b9737ba45b1226c5b6dbb3ee84e3eb359fa7a495959614`。v51/v52 曾在两个分支表示不同实现，容器 Provider 为 v56/v57 声明新快照能力并协商该格式；原生客户端按实际工作区能力协商。显式保留 v56–v9 的 attach 和 v56–v27 的工作区恢复，旧核心继续原始历史回放，不自动替换 Agent 或重启任务。旧内存快照不导入新内核。

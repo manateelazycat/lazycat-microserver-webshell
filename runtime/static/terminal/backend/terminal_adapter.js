@@ -74,7 +74,6 @@ export function installBackendTerminalAdapter(term) {
     term.assertOpen();
     term.cancelRenderLoop();
     term.backendResizePending = false;
-    term.__kittyGraphics?.clear();
     term.currentTitle = "";
     term.wasmTerm.resetBackend(term.buildWasmConfig());
   };

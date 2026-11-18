@@ -26,7 +26,7 @@ export function createBackendWorkerRuntime({ scope, engine, queryText }) {
       if (type === "init") result = await engine.init(payload, timing);
       else if (type === "write") result = engine.write(payload, timing);
       else if (type === "resize") result = engine.resize(payload, trace);
-      else if (type === "snapshot") result = engine.snapshot(payload.viewportY, trace);
+      else if (type === "snapshot") result = engine.snapshot(payload.viewportY, trace, payload.cellSize);
       else if (type === "restore") result = await engine.restore(payload, trace);
       else if (type === "diagnose") result = engine.diagnose();
       else if (type === "read") result = engine.read(payload);
@@ -50,6 +50,7 @@ export function createBackendWorkerRuntime({ scope, engine, queryText }) {
       const transfers = [];
       if (result?.viewport) transfers.push(result.viewport.bytes.buffer, result.history.packet.bytes.buffer);
       else if (result?.packet) transfers.push(result.packet.bytes.buffer);
+      for (const buffer of new Set((result?.imageFrame?.images || []).map((image) => image.pixels.buffer))) transfers.push(buffer);
       if (timing) {
         timing.workerQueueMs = startedAt - receivedAt;
         timing.workerExecutionMs = performance.now() - startedAt;

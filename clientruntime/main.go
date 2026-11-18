@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 
+	"lcmd-webshell/clientruntime/launcher"
 	lightosterminal "lcmd-webshell/clientruntime/managedruntime"
 	"lcmd-webshell/core"
 	"lcmd-webshell/hostmetrics"
@@ -25,6 +26,29 @@ func run() int {
 		fmt.Println(core.AgentProtocolVersion)
 		return 0
 	}
+	clearRuntimeEnvironment()
+	if len(os.Args) == 2 && os.Args[1] == "host" {
+		ctx, stop := signal.NotifyContext(context.Background(), shutdownSignals()...)
+		defer stop()
+		if err := launcher.RunHost(ctx, os.Stdin, os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		return 0
+	}
+	if len(os.Args) == 1 || len(os.Args) == 2 && os.Args[1] == "launcher" {
+		ctx, stop := signal.NotifyContext(context.Background(), shutdownSignals()...)
+		defer stop()
+		if err := launcher.Run(ctx, os.Stdin, os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		return 0
+	}
+	if len(os.Args) != 2 || os.Args[1] != "worker" {
+		fmt.Fprintln(os.Stderr, "unknown runtime mode")
+		return 1
+	}
 	platform, cleanup, err := newPlatform()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -37,7 +61,7 @@ func run() int {
 		func(ctx context.Context, b lightosterminal.Binding) (lightosterminal.Service, error) {
 			backend, err := sshserver.StartManagedWithMetrics(ctx, localserver.Config{InstanceID: b.InstanceID, AccountID: b.AccountID,
 				BoxID: b.BoxID, DeviceID: b.DeviceID, Epoch: b.Epoch, Secret: b.Secret, Credential: b.Credential,
-				AdmissionAllowed: b.AdmissionAllowed}, b.StateDir, platform, hostmetrics.New(platform))
+				AdmissionAllowed: b.AdmissionAllowed, Listener: b.Listener, GRPCTransport: true, ServiceName: b.ServiceName}, b.StateDir, platform, hostmetrics.New(platform))
 			if err != nil {
 				return nil, err
 			}

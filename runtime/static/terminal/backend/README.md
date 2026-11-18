@@ -14,7 +14,7 @@
 
 ## 顺序与呈现
 
-v17 的 `restore` RPC 属于同一串行通道，在独立模块实例内导入 Agent 状态。WASM 指纹不同仍继续恢复，Worker 通过 `checkpoint-wasm-mismatch` 通知 UI；同一页面只输出一次含双方摘要的警告，多 pane 和 Worker 重建不重复输出。协议、内存大小、解压后校验和及 wrapper ABI 校验仍保留。`checkpointRestorePending` 期间 `isReady=false`，禁止提前提交回放；重连/重置仍按 generation 退休旧操作。导入只重建 Worker 自己的 VT，不覆盖 UI 所用的键盘编码实例。`memory_checkpoint.js` 是固定 wrapper/引擎 ABI 的唯一适配点，恢复所有原生指针后清除旧 JS 缓冲指针，并应用当前浏览器主题默认值；不修改程序显式设置的动态颜色。日志新增 `state_checkpoint_restore_start/complete`。
+v17 的 `restore` RPC 属于同一串行通道，在独立模块实例内导入 Agent 状态。WASM 指纹不同仍继续恢复，Worker 通过 `checkpoint-wasm-mismatch` 通知 UI；同一页面只输出一次含双方摘要的警告，多 pane 和 Worker 重建不重复输出。协议、快照大小、解压后校验和、网格尺寸及 wrapper ABI 校验仍保留。`checkpointRestorePending` 期间 `isReady=false`，禁止提前提交回放；重连/重置仍按 generation 退休旧操作。导入只重建 Worker 自己的 VT，不覆盖 UI 所用的键盘编码实例。`snapshot_checkpoint.js` 是快照 ABI 的唯一适配点：在新实例中按快照网格创建终端，用 `ghostty_terminal_snapshot_restore` 在同一 wrapper handle 内替换 Ghostty 核心（失败时保留原核心），同步 JS 侧回滚容量并标记整屏重绘，再应用当前浏览器主题默认值；不修改程序显式设置的动态颜色。日志新增 `state_checkpoint_restore_start/complete`。
 
 v19 的 `diagnose` RPC 仅由手动渲染捕获调用。`worker/render_diagnostics.js` 读取独立的原生活动屏幕及 RenderState，不刷新缓存、不标记 clean、不推进 revision，也不向 UI 提交新帧；响应只含逐行指纹与占格分布。`cell_diagnostics.js` 统一 UI 和原生对照口径。诊断失败或超时不进入终端故障恢复，缺少新 ABI 时返回明确的不可用状态。
 
@@ -42,12 +42,14 @@ v21 中 write 只解析、返回代际／模式／回复等轻量进度，不更
 
 恢复预备的 Worker 可供紧接着的回放 reset 复用一次；仅在 generation、配置和命令序列均未改变时生效。任何后续命令、失败或配置变化都回到原来的完整重建。
 
-`worker/synchronized_output.js` 观察原生 DEC 2026 模式，最多等待 1000ms 的同步展示区间；期间字节消费与终端回复继续，snapshot 不更新或清理 RenderState。超时只允许展示，不注入原始字节、不修改原生模式。UI 有代际隔离的定时唤醒，退出同步模式立即恢复普通按帧绘制。`frameRevision`／`viewportRevision` 表示缓存帧版本，`revision` 表示解析进度，`frameCurrent` 区分两者；旧完整帧保留自己的消费游标，不得标成最新字节已展示。
+`worker/synchronized_output.js` 在实际写入后观察原生 DEC 2026 模式并记录最后输出时间。同步区间内继续消费字节、生成终端回复和确认 Queue ACK，保留旧完整帧，snapshot 不更新或清理 RenderState；持续输出不会因超过固定 1 秒而按刷新率播放历史。空闲 1000ms 后允许展示未结束的同步内容，连续同步输出最多每 2000ms 生成一次安全中间帧；只有实际捕获完整 snapshot 才重新开始该等待，进度查询不消耗放行机会。超时不注入原始字节、不修改原生模式。UI 根据最新进度续约代际隔离的定时唤醒，到期重新请求 Worker 检查和抓帧；已放行但尚未绘制的完整帧仍可展示一次，不能被随后的解析进度重新阻塞。退出同步模式立即取消等待并恢复普通按帧绘制。`frameRevision`／`viewportRevision` 表示缓存帧版本，`revision` 表示解析进度，`frameCurrent` 区分两者；旧完整帧保留自己的消费游标，不得标成最新字节已展示。
 
 只读捕获区分 Worker 的解析 `revision` 与 RenderState 的 `cachedRevision`，UI 指纹只和同版本 RenderState 对照。解析已经前进但尚未到下一次画面生成时，`cacheCurrent=false` 属于预期的阶段差异，不能直接判定为漏渲染。
 
-v22 通过 `tools/ghostty-reflow-capacity.patch` 修复原生 PageList 的受管资源重排：按目标页面当前容量扩容；超链接先复用已存在条目，分别按实际 URI／ID 分配结果处理不足；组合字符扩容不再误改超链接容量。页面 clone 仅在未发布的新页面上重试，对缺少的字符串、样式或映射资源扩容，成功前不替换源页面和 tracked pins。重试最多 8 次，整数溢出与真实堆分配失败继续报错，不清除错误标志后复用半重排状态。新 WASM 必须同时进入前端资产和 Go Agent；保留 v21 调度优化，不用重连替代原生修复。
+v22 曾以本地补丁修复 PageList 受管资源重排；Ghostty 1.4 的 PageList/Page 已由上游重写（含超链接、组合字符容量的重排与 WASM 页面清零），这些补丁随升级移除。新 WASM 必须同时进入前端资产、Go Agent 和原生客户端；保留 v21 调度优化，不用重连替代原生修复。
 
 resize 阶段诊断独立于普通 RPC 采样：开启渲染异常捕获即可获取 resize/restore 的阶段时序，不要求同时打开字节 IO。UI 保存每个在途请求的编号、阶段和经过时间，回包解码及首次对应帧绘制也有阶段标记。原有超时、失败恢复、呈现和输入规则保持不变。Worker/ UI 的局部时钟分别报告，消息投递延迟按 timeOrigin 换算；后台暂停等情况不能直接归因于原生执行。
 
-原生分配安全补丁位于 `tools/ghostty-allocation-safety.patch`，在操作入口重置固定诊断区。跨位图申请检查索引边界；超链接复制前检查源字符串区域、偏移、长度和对齐，无效元数据直接结束复制链，不继续扩容。诊断只保留数字并在失败时读取。该补丁不承诺所有 OOM 都能恢复，服务端已有原始历史 fallback 仍保留。
+Ghostty 1.4 会应答 OSC 4/10/11 颜色查询等更多终端查询。`readResponse()` 一次读完当前全部回复再作为一条输入发送；固定 256 字节分段会把单条回复拆进两次 PTY 输入，程序会把残片当按键（如 pi 启动时显示 `4;10`）。
+
+Ghostty 1.4 不再携带本地分配安全补丁；原生分配/重排诊断导出保留为空桩以兼容既有读取方。服务端已有原始历史 fallback 仍保留。

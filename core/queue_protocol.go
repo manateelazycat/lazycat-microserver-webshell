@@ -128,7 +128,9 @@ func validateTerminalQueueSubscription(subscription terminalQueueSubscription) (
 	subscription.HistoryGeneration = strings.TrimSpace(subscription.HistoryGeneration)
 	subscription.HistoryReplayMode = strings.TrimSpace(subscription.HistoryReplayMode)
 	subscription.FlowControl = strings.TrimSpace(subscription.FlowControl)
-	if subscription.CheckpointProtocol != "" && subscription.CheckpointProtocol != TerminalMemoryCheckpointProtocol {
+	// memory-v1 is still accepted from cached clients; v51 agents answer it with raw history.
+	if subscription.CheckpointProtocol != "" && subscription.CheckpointProtocol != TerminalSnapshotCheckpointProtocol &&
+		subscription.CheckpointProtocol != TerminalMemoryCheckpointProtocol {
 		return subscription, HistorySyncRequest{}, errors.New("unsupported terminal checkpoint protocol")
 	}
 	if subscription.FlowControl != "" && subscription.FlowControl != "turn-ack-v1" && subscription.FlowControl != terminalQueueWindowProtocol {

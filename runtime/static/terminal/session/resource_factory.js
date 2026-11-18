@@ -40,7 +40,12 @@ export function createTerminalSessionResourceFactory({
     terminalHost.className = "terminal-host";
     shellEl.appendChild(terminalHost);
 
-    const term = new TerminalCtor(getTerminalOptions(initialTerminalOptions));
+    // IME owns pointer/touch focus as well as programmatic focus. Otherwise
+    // Ghostty's canvas touchend can undo single-tap blur and open the keyboard.
+    const term = new TerminalCtor({
+      ...getTerminalOptions(initialTerminalOptions),
+      focusOnClick: false,
+    });
     prepareSurface(term);
     attachBackend(term);
     const fitAddon = new FitAddonCtor();

@@ -42,19 +42,14 @@ export function createProgramStatusObserver(initial = {}) {
         if (state === "working") set("done", 2);
         else if (!["done", "error"].includes(state)) set("idle", 2);
       }
-    } else if (code === "133") {
-      const [type, exitCode] = body.split(";");
-      if (type === "C") set("working", 1);
-      else if (type === "D" && (exitCode === undefined || /^-?\d+$/.test(exitCode))) {
-        set(exitCode !== undefined && Number(exitCode) !== 0 ? "error" : "done", 1);
-      }
+    // OSC 133 zones are also redrawn by idle TUIs; they are not agent turns.
     } else if (["0", "2"].includes(code) && source <= 1) {
       const title = body.trim();
-      const spinning = /^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/u.test(title);
-      if (/^(?:\[\s*[!.]\s*\]\s*)?(?:action required|waiting for (?:input|permission|approval))\b/i.test(title)) set("blocked", 1);
+      const spinning = /^(?:π\s+)?[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/u.test(title);
+      if (/^(?:π\s+!(?:\s|$)|(?:\[\s*[!.]\s*\]\s*)?(?:action required|waiting for (?:input|permission|approval))\b)/i.test(title)) set("blocked", 1);
       else if (spinning || /^(?:working|thinking|running|processing|starting)(?:\s*[|·—-]|$)/i.test(title)) set("working", 1);
       else if (/^(?:error|failed)(?:\s*[|·—-]|$)/i.test(title)) set("error", 1);
-      else if (/^(?:ready|idle|done|complete|completed)(?:\s*[|·—-]|$)/i.test(title) || (spinner && state === "working" && title)) {
+      else if (/^(?:π\s+>(?:\s|$)|(?:ready|idle|done|complete|completed)(?:\s*[|·—-]|$))/i.test(title) || (spinner && state === "working" && title)) {
         if (state === "working") set("done", 1);
         else if (!["done", "error"].includes(state)) set("idle", 1);
       }
@@ -66,6 +61,10 @@ export function createProgramStatusObserver(initial = {}) {
       const before = revision;
       const text = typeof data === "string" ? data : decoder.decode(data, { stream: true });
       for (const character of text) {
+        if (character === "\x18" || character === "\x1a") {
+          scanner = 0; pending = ""; overflow = false;
+          continue;
+        }
         if (scanner === 0) { if (character === "\x1b") scanner = 1; }
         else if (scanner === 1) {
           if (character === "]") { scanner = 2; pending = ""; overflow = false; }

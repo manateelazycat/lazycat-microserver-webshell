@@ -3,6 +3,7 @@ import {
   isNativePasteShortcutEvent,
   isShiftInsertPasteShortcutEvent,
 } from "../../settings/index.js";
+import { isTerminalCompositionKeyEvent } from "../../terminal/input/index.js";
 import { createAppShortcutLifecycle } from "./shortcut_lifecycle.js";
 
 const noop = () => {};
@@ -226,16 +227,15 @@ export function createAppShortcutController({
     if (isDisposed() || !isKeyboardEvent(event)) {
       return false;
     }
+    const session = getActiveSession();
+    if (isTerminalCompositionKeyEvent(event)
+      || (session?.composingIME && event.target === session.term?.textarea)) {
+      return false;
+    }
     const shortcut = getShortcutKey(event);
     const configuredAction = String(invoke(resolveDesktopShortcutAction, shortcut) || "").trim();
     const shiftInsertPaste = isShiftInsertPaste(event);
     const nativePaste = isNativePaste(event);
-    if (
-      (event.isComposing || event.key === "Process" || Number(event.keyCode || 0) === 229)
-      && !configuredAction
-    ) {
-      return false;
-    }
     if (
       invoke(isAppearancePickerOpen)
       || invoke(isSettingsOpen)

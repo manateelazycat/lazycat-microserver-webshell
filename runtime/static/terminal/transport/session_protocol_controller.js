@@ -1,5 +1,5 @@
 import { decodeFastBinaryFrame } from "./terminal_fast_integrity.js";
-import { createCheckpointReceiver, memoryCheckpointProtocol } from "./checkpoint_transport.js";
+import { createCheckpointReceiver, snapshotCheckpointProtocol } from "./checkpoint_transport.js";
 
 const noop = () => {};
 
@@ -309,7 +309,7 @@ export function createTerminalSessionProtocolController({
         history_replay_mode: session.resetOnNextReplay ? "snapshot" : "",
         flow_control: "window-ack-v1",
         replay_burst_limit_bytes: terminalOutput.getReplayBatchLimit(session),
-        checkpoint_protocol: !sessionProtocol && typeof DecompressionStream === "function" ? memoryCheckpointProtocol : "",
+        checkpoint_protocol: !sessionProtocol && typeof DecompressionStream === "function" ? snapshotCheckpointProtocol : "",
         foreground: themePayload.foreground,
         background: themePayload.background,
         cursor: themePayload.cursor,
@@ -699,7 +699,7 @@ export function createTerminalSessionProtocolController({
                   rows: Number(message.rows || 0),
                   recoveryBaseline: String(message.recovery_baseline || "raw-history"),
                   checkpointFallback: String(message.checkpoint_fallback || ""),
-                  checkpointMemoryBytes: Number(message.memory_checkpoint?.memory_bytes || 0),
+                  checkpointSnapshotBytes: Number(message.memory_checkpoint?.snapshot_bytes || 0),
                 });
                 // Keep one suppression scope across all replay drain tasks.
                 // writeReplay() alone only protects one synchronous chunk.
@@ -827,7 +827,7 @@ export function createTerminalSessionProtocolController({
                   if (checkpoint) {
                     const backend = session.term.wasmTerm;
                     recordTerminalSessionEvent(session, "state_checkpoint_restore_start", {
-                      cursor: checkpoint.cursor, memoryBytes: checkpoint.memory_bytes, cols: checkpoint.cols, rows: checkpoint.rows,
+                      cursor: checkpoint.cursor, snapshotBytes: checkpoint.snapshot_bytes, cols: checkpoint.cols, rows: checkpoint.rows,
                     });
                     const generation = backend.generation;
                     backend.restoreCheckpoint(checkpoint).then(() => {

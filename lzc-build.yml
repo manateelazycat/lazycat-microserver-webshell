@@ -28,6 +28,21 @@ buildscript: |
     exit 1
   fi
   CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -buildvcs=false -o "$CONTENT_DIR/lcmd-webshell" .
+  if [ -n "${TERMINAL_RUNTIME_RELEASE:-}" ]; then
+    node clientruntime/merge-release.mjs --output="$CONTENT_DIR/client-runtime" "$TERMINAL_RUNTIME_RELEASE"
+  else
+    node clientruntime/release.mjs --output="$CONTENT_DIR/client-runtime"
+  fi
+  node --input-type=module -e '
+    import { readFileSync } from "node:fs";
+    import { createHash } from "node:crypto";
+    const expected = createHash("sha256").update(readFileSync("./runtime/static/ghostty-vt.wasm")).digest("hex");
+    const release = JSON.parse(readFileSync(process.argv[1], "utf8"));
+    for (const artifact of Object.values(release.artifacts)) {
+      if (artifact.wasm_sha256 !== expected) throw new Error("Client runtime WASM differs from the current LPK; rebuild all platform runtimes");
+    }
+  ' "$CONTENT_DIR/client-runtime/manifest.json"
+  rm -rf "$CONTENT_DIR/client-runtime/.build"
   cp -R ./build/runtime/. "$CONTENT_DIR/runtime/"
   cp -R ./runtime/fonts "$CONTENT_DIR/runtime/fonts"
   hash_content_file() {

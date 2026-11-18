@@ -46,7 +46,13 @@ export const buildAppearanceThemeColorMap = (fromTheme, toTheme) => {
     const fromRGB = hexToRGB(from[index]);
     const toRGB = hexToRGB(to[index]);
     if (fromRGB && toRGB) {
-      map.set(colorKey(fromRGB), `rgb(${toRGB[0]}, ${toRGB[1]}, ${toRGB[2]})`);
+      const css = `rgb(${toRGB[0]}, ${toRGB[1]}, ${toRGB[2]})`;
+      map.set(colorKey(fromRGB), css);
+      // The worker hands a black default foreground/background to the core as
+      // #000001 (terminal_engine.js), so its cells report that value.
+      if (index < 2 && colorKey(fromRGB) === "0,0,0") {
+        map.set("0,0,1", css);
+      }
     }
   }
   return map;

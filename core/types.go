@@ -86,6 +86,7 @@ type paneSummary struct {
 	HistoryGeneration string         `json:"history_generation,omitempty"`
 	OutputOffset      uint64         `json:"output_offset,string"`
 	ProgramStatus     *ProgramStatus `json:"program_status,omitempty"`
+	Agent             *AgentIdentity `json:"agent,omitempty"`
 	Exited            bool           `json:"exited"`
 	ExitCode          int            `json:"exit_code"`
 	ExitMessage       string         `json:"exit_message,omitempty"`
@@ -130,7 +131,16 @@ type TerminalControlMessage struct {
 	Cursor      string `json:"cursor,omitempty"`
 }
 
+// AgentIdentity is process identity, never evidence of an active model turn.
+// Missing identity means the ordinary command should be displayed.
+type AgentIdentity struct {
+	ID     string `json:"id"`
+	Name   string `json:"name"`
+	Source string `json:"source"`
+}
+
 type PaneActivity struct {
+	Agent       *AgentIdentity
 	TTY         string
 	Busy        bool
 	Command     string

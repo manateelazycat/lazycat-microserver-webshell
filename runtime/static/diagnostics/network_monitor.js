@@ -150,7 +150,7 @@ const noteCheckpointReplayPart = (record, message) => {
 const beginHistoryReplayCalibration = (record, message) => {
   const metadata = message.memory_checkpoint;
   const checkpoint = record.historyCheckpoint;
-  const matches = metadata?.protocol === "ghostty-memory-v1" && checkpoint
+  const matches = metadata?.protocol === "ghostty-snapshot-v1" && checkpoint
     && checkpoint.history === message.history_generation && checkpoint.cursor === metadata.cursor;
   record.historyCheckpointBytes = matches ? checkpoint.bytes : 0;
   record.historyExpectedCheckpointBytes = 0;
@@ -159,7 +159,7 @@ const beginHistoryReplayCalibration = (record, message) => {
     const count = Number(metadata.parts);
     const lastBytes = matches && Number.isSafeInteger(count) && count > 0 && count <= 256
       ? checkpoint.parts.get(count - 1) : undefined;
-    // ghostty-memory-v1 sends full 64 KiB compressed chunks except the last.
+    // ghostty-snapshot-v1 sends full 64 KiB compressed chunks except the last.
     if (lastBytes !== undefined) record.historyExpectedCheckpointBytes = (count - 1) * 65536 + lastBytes;
     record.historyCheckpointIncomplete = lastBytes === undefined || checkpoint.parts.size !== count;
     if (!record.historyCheckpointIncomplete) {

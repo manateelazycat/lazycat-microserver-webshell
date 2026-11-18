@@ -156,7 +156,7 @@ export function createTerminalRenderCapture({ windowObject = globalThis.window,
         "syncMode", "historyGeneration", "serverBaseCursor", "serverEndCursor", "deltaFromCursor", "deltaToCursor",
         "serverHistoryBytes", "serverHistoryChunks", "replayBurstBytes", "bytes", "targetCursor", "aggregate",
         "resizeEpoch", "cols", "rows", "replayDurationMs", "serverReplayDurationMs",
-        "recoveryBaseline", "checkpointMemoryBytes", "memoryBytes", "cursor", "error", "captureDurationMs", "holdDurationMs",
+        "recoveryBaseline", "checkpointSnapshotBytes", "snapshotBytes", "cursor", "error", "captureDurationMs", "holdDurationMs",
         "settleDurationMs", "quietMs", "maxHoldMs", "queuedBytes", "queueEntries", "nativePending",
         "reusedPendingRequest", "queuedBehindRequest", "requestedResizeEpoch", "appliedResizeEpoch"]) {
         const value = details[key];

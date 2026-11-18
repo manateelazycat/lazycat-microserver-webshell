@@ -3080,12 +3080,8 @@ body.split-resize-active * {
   box-sizing: border-box;
 }
 
-.settings-service-forward-empty {
-  min-height: 30px;
-  color: var(--muted);
-  font-size: 12px;
-  line-height: 30px;
-  text-align: center;
+.settings-service-forward-list:empty {
+  display: none;
 }
 
 .settings-service-forward-item {

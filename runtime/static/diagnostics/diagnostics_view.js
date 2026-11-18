@@ -376,7 +376,7 @@ export function createDiagnosticsView({ documentObject = globalThis.document } =
         const stateLabel = stateLabels[calibrationState] || stateLabels.idle;
         const expected = formatMegabytes(calibration.expectedReplayBytes);
         const syncMode = String(calibration.syncMode || "unknown");
-        const payloadScope = calibration.recoveryBaseline === "ghostty-memory-v1"
+        const payloadScope = calibration.recoveryBaseline === "ghostty-snapshot-v1"
           ? "压缩快照载荷＋原始增量，不含 Base64/JSON 封装"
           : "原始历史回放载荷";
         const metricsLabel = `${translate("当前历史回放流量消费")} ${formatMegabytes(replayBytes)} MB ${translate("当前会话历史总字节大小")} ${formatMegabytes(historyBytes)} MB`;

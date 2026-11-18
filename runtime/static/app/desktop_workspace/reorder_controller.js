@@ -167,14 +167,13 @@ export function createDesktopWorkspaceReorderController({
         const state = { ...source, pointerId: event.pointerId, pointerType: event.pointerType,
           startY: event.clientY, startX: event.clientX, lastY: event.clientY, originalOrder: order, dragging: false };
         gesture = state;
-        if (event.pointerType === "touch") state.holdTimer = windowObject.setTimeout(() => begin(state), 320);
+        state.holdTimer = windowObject.setTimeout(() => begin(state), 320);
         listen(documentObject, "pointermove", (move) => {
           if (gesture !== state || move.pointerId !== state.pointerId) return;
           state.lastY = move.clientY;
           if (!state.dragging) {
             if (Math.hypot(move.clientX - state.startX, move.clientY - state.startY) < 8) return;
-            if (state.pointerType === "touch") return finish({ cancel: true });
-            begin(state);
+            return finish({ cancel: true });
           }
           move.preventDefault();
           state.element.style.transform = `translateY(${Math.round(state.lastY - state.startY)}px)`;

@@ -137,7 +137,7 @@ export function createServiceForwardingController({
       view.setStatus("");
       return [];
     }
-    view.setStatus("正在加载服务转发...", "info");
+    view.setStatus("");
     if (showFeedback) {
       setFeedback("");
     }

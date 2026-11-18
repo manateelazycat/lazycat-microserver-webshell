@@ -5,6 +5,7 @@ package unix
 import (
 	"context"
 	"errors"
+	"lcmd-webshell/core"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -17,14 +18,18 @@ import (
 var privateTTYPattern = regexp.MustCompile(`^/dev/pts/[0-9]+$`)
 
 type procInfo struct {
-	PID   int
-	Comm  string
-	Cmd   string
-	CWD   string
-	FD0   string
-	Pgrp  int
-	TTYNr int
-	TPgid int
+	PID      int
+	PPID     int
+	Exe      string
+	Launcher string
+	Agent    *core.AgentIdentity
+	Comm     string
+	Cmd      string
+	CWD      string
+	FD0      string
+	Pgrp     int
+	TTYNr    int
+	TPgid    int
 }
 
 const ProcScanScript = `for d in /proc/[0-9]*; do
@@ -32,7 +37,7 @@ const ProcScanScript = `for d in /proc/[0-9]*; do
   stat="$(cat "$d/stat" 2>/dev/null)" || continue
   fd0="$(readlink "$d/fd/0" 2>/dev/null || true)"
   cwd="$(readlink "$d/cwd" 2>/dev/null || true)"
-  cmd="$(tr '\000\011\012\015' '    ' < "$d/cmdline" 2>/dev/null || true)"
+  cmd="$(readlink "$d/exe" 2>/dev/null || true)"
   printf 'P\t%s\t%s\t%s\t%s\t%s\n' "$pid" "$fd0" "$cwd" "$cmd" "$stat"
 done`
 
@@ -91,7 +96,7 @@ func scanProcActivities(ctx context.Context, procRoot string, ttys []string) (ma
 			continue
 		}
 		info, err := parseProcStat(string(statData))
-		if err != nil || info.TTYNr == 0 || info.TPgid <= 0 {
+		if err != nil {
 			continue
 		}
 		if fd0, err := os.Readlink(filepath.Join(dir, "fd", "0")); err == nil {
@@ -117,7 +122,7 @@ func scanProcActivities(ctx context.Context, procRoot string, ttys []string) (ma
 			continue
 		}
 		info := candidate.info
-		info.Cmd = readProcCmdline(filepath.Join(candidate.dir, "cmdline"))
+		populateProcessIdentity(&info, candidate.dir)
 		info.CWD = readProcLink(filepath.Join(candidate.dir, "cwd"))
 		processes = append(processes, info)
 	}
@@ -127,7 +132,14 @@ func scanProcActivities(ctx context.Context, procRoot string, ttys []string) (ma
 	for _, tty := range uniqueTTYs {
 		result[tty] = ResolveTTYActivity(tty, processes)
 	}
-	return result, nil
+	// DI's daemon deliberately leaves the pane's process tree. Resolve only
+	// sockets owned by foreground DI clients, then inspect the peer's child PTY.
+	all := make([]procInfo, 0, len(candidates))
+	for _, candidate := range candidates {
+		all = append(all, candidate.info)
+	}
+	resolveDIAgents(ctx, procRoot, uniqueTTYs, processes, all, result)
+	return result, ctx.Err()
 }
 
 func NormalizeActivityTTYs(ttys []string) (map[string]PaneActivity, []string) {
@@ -161,20 +173,6 @@ func isProcPIDDirName(name string) bool {
 	return true
 }
 
-func readProcCmdline(path string) string {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return ""
-	}
-	for i, b := range data {
-		switch b {
-		case 0, '\t', '\n', '\r':
-			data[i] = ' '
-		}
-	}
-	return strings.TrimSpace(string(data))
-}
-
 func readProcLink(path string) string {
 	value, err := os.Readlink(path)
 	if err != nil {
@@ -206,6 +204,8 @@ func ParseProcScanOutput(output []byte) []procInfo {
 		info.FD0 = strings.TrimSpace(parts[2])
 		info.CWD = strings.TrimSpace(parts[3])
 		info.Cmd = strings.TrimSpace(parts[4])
+		info.Exe = info.Cmd
+		info.Agent = identifyAgent(info.Exe, "")
 		processes = append(processes, info)
 	}
 	sort.Slice(processes, func(i, j int) bool {
@@ -240,6 +240,7 @@ func parseProcStat(stat string) (procInfo, error) {
 	pid, _ := strconv.Atoi(strings.TrimSpace(stat[:open]))
 	return procInfo{
 		PID:   pid,
+		PPID:  func() int { value, _ := strconv.Atoi(rest[1]); return value }(),
 		Comm:  stat[open+1 : close],
 		Pgrp:  pgrp,
 		TTYNr: ttyNr,
@@ -285,6 +286,14 @@ func ResolveTTYActivity(tty string, processes []procInfo) PaneActivity {
 			activity.Busy = true
 			activity.Command = display
 			activity.CommandLine = process.Cmd
+			activity.Agent = process.Agent
+			// Prefer a recognized agent in this foreground group over its launcher.
+			for _, peer := range processes {
+				if peer.TTYNr == anchor.TTYNr && peer.Pgrp == anchor.TPgid && peer.Agent != nil {
+					activity.Agent = peer.Agent
+					break
+				}
+			}
 			activity.CWD = process.CWD
 			if activity.CWD == "" {
 				activity.CWD = fallbackCWD

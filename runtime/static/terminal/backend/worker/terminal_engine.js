@@ -1,11 +1,19 @@
 import { packRows } from "../cell_packet.js";
 import { captureNativeRenderDiagnostics } from "./render_diagnostics.js";
-import { loadCheckpointGhostty, restoreMemoryCheckpoint, validateMemoryCheckpoint } from "./memory_checkpoint.js";
+import { loadCheckpointGhostty, restoreSnapshotCheckpoint, validateSnapshotCheckpoint } from "./snapshot_checkpoint.js";
 import { createSynchronizedOutput } from "./synchronized_output.js";
 
 const privateModes = [1, 6, 7, 9, 25, 47, 1000, 1002, 1003, 1004, 1005, 1006, 1007, 1015, 1016, 1047, 1049, 2004, 2026, 2027];
 const ansiModes = [2, 4, 12, 20];
 const encoder = new TextEncoder();
+
+// The core reads a 0 default color as "unset", and Ghostty 1.4 ignores the
+// fg/bg pair unless both are set, so a theme with a black background (or
+// foreground) rendered default text white. The pair is always configured
+// together: its black member is sent as #000001 (see appearance/runtime_controller.js).
+const withExplicitDefaultColors = (config) => (config?.fgColor || config?.bgColor
+  ? { ...config, fgColor: config.fgColor || 1, bgColor: config.bgColor || 1 }
+  : config);
 
 export function createTerminalEngine() {
   let native = null;
@@ -56,7 +64,8 @@ export function createTerminalEngine() {
       responses,
     };
   };
-  const snapshot = (viewportY = 0, trace = null) => {
+  const snapshot = (viewportY = 0, trace = null, cellSize = null) => {
+    if (cellSize?.width > 0 && cellSize?.height > 0) native.setCellSize(cellSize.width, cellSize.height);
     const state = progress();
     if (state.syncOutputRemainingMs > 0) {
       trace?.("snapshot_held", { syncOutputRemainingMs: state.syncOutputRemainingMs });
@@ -77,14 +86,17 @@ export function createTerminalEngine() {
       frame.history = historyRange(top - 32, Math.min(serial, top + native.rows + 32));
       trace?.("viewport_complete", { viewportBytes: frame.viewport.bytes.byteLength });
     }
+    frame.imageFrame = native.captureImages(viewportY, 0);
     native.markClean();
     cachedRevision = revision;
+    synchronizedOutput.presented();
     return frame;
   };
 
   return Object.freeze({
     async init({ wasmURL, cols, rows, config }, timing = null) {
       synchronizedOutput.reset();
+      config = withExplicitDefaultColors(config);
       terminalConfig = config || {};
       const startedAt = timing ? performance.now() : 0;
       ghostty = await loadCheckpointGhostty(wasmURL);
@@ -108,6 +120,7 @@ export function createTerminalEngine() {
       const writeStartSerial = serial;
       const parseStartedAt = timing ? performance.now() : 0;
       native.write(bytes);
+      if (bytes.length > 0) synchronizedOutput.wrote(native.getMode(2026, false));
       const parsedAt = timing ? performance.now() : 0;
       trackHistory();
       revision += 1;
@@ -120,11 +133,12 @@ export function createTerminalEngine() {
       return result;
     },
     async restore({ checkpoint }, trace = null) {
-      validateMemoryCheckpoint(ghostty, checkpoint);
+      validateSnapshotCheckpoint(ghostty, checkpoint);
       const restoredGhostty = ghostty.newCheckpointInstance();
       const restored = restoredGhostty.createTerminal(checkpoint.cols, checkpoint.rows, { scrollbackLimit: checkpoint.scrollback_lines });
       trace?.("checkpoint_restore_start");
-      await restoreMemoryCheckpoint(restoredGhostty, restored, checkpoint, terminalConfig);
+      try { await restoreSnapshotCheckpoint(restoredGhostty, restored, checkpoint, terminalConfig); }
+      catch (error) { restored.free(); throw error; }
       trace?.("checkpoint_restore_complete");
       native.free();
       ghostty = restoredGhostty;

@@ -115,13 +115,15 @@ npm ci --ignore-scripts --no-audit --no-fund
 npm run build
 ```
 
-`ghostty-web/` 是固定到 `ponzS/ghostty-web` fork 的 submodule，也是唯一的 Ghostty WASM 源码来源。WebShell 仓库内的 `runtime/static/ghostty-web.js`、`ghostty-vt.wasm` 和许可证是发布资产。常规构建会校验这些文件，然后从 submodule 当前源码重建 WASM 并比较核心 section；子模块、Bun、Zig 或源码校验任一缺失都会阻止发布：
+`ghostty-web/` 是固定到 `ponzS/ghostty-web` fork 的 submodule，也是唯一的 Ghostty WASM 源码来源。WebShell 仓库内的 `runtime/static/ghostty-web.js`、`ghostty-vt.wasm` 和许可证是发布资产。常规构建会校验这些文件，然后从 submodule 当前源码重建 WASM 并比较核心 section；子模块、Bun、Zig（Ghostty 1.4 要求 0.17+）或源码校验任一缺失都会阻止发布：
 
 ```sh
 ./tools/sync-ghostty-web-assets.sh --check
 ```
 
-`--check-source` 是源码校验的显式入口。校验会执行 `bun run build:wasm`，再解析并比较两份 WASM 的核心 section 内容；自定义构建元数据不参与版本判断。submodule 根目录的 `ghostty-vt.wasm` 是被 Git 忽略的构建产物。
+`--check-source` 是源码校验的显式入口。校验通过 `tools/build-ghostty-wasm.sh` 应用完整 WebShell 补丁并构建，再解析并比较两份 WASM 的核心 section 内容；自定义构建元数据不参与版本判断。submodule 根目录的 `ghostty-vt.wasm` 是被 Git 忽略的构建产物。
+
+WASM 构建固定使用 Zig 0.15.2，版本不符时直接失败。完整补丁构建使用 `ghostty-web/ghostty/.zig-cache/webshell/<key>/` 独立缓存，key 包含 Zig 版本、原生源码提交、目标、优化模式和全部补丁内容。普通 `bun run build:wasm` 的 API-only 缓存不参与 WebShell 发布；工具链或补丁改变后会从新的缓存开始，避免构建先后顺序改变机器码。v44 采用干净完整补丁构建的 WASM 基线，并保留严格核心内容校验。
 
 每次执行 `lzc-cli project release` 时，`lzc-build.yml` 都会调用 `--rebuild-wasm-only`，从当前 `ghostty-web` 源码重新构建 WASM 并复制到 `runtime/static/ghostty-vt.wasm`，然后才复制 runtime 并打包。该模式不会覆盖包含 WebShell 历史定制的 `runtime/static/ghostty-web.js`。只有有意更新 JavaScript bundle 时才执行 `--sync`；只有需要同时更新 JavaScript 和 WASM 时才执行 `--rebuild-wasm`。
 

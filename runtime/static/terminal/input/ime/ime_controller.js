@@ -4,6 +4,7 @@ import {
   isAndroidPlatform,
   isBackwardDeleteInputType,
   isForwardDeleteInputType,
+  isTerminalCompositionKeyEvent,
   normalizeTerminalCompositionTextCandidates,
   stripTerminalInputSentinel,
   terminalInputDeleteBuffer,
@@ -138,19 +139,6 @@ export function createTerminalIMEController({
     moveTextareaCaretToEnd(textarea);
   };
 
-  const clearTextareaSentinel = (session) => {
-    const textarea = session?.term?.textarea;
-    if (!textarea) {
-      return "";
-    }
-    const value = stripTerminalInputSentinel(textarea.value);
-    if (textarea.value !== value) {
-      textarea.value = value;
-      moveTextareaCaretToEnd(textarea);
-    }
-    return value;
-  };
-
   const textareaCompositionText = (session) => {
     if (!session) {
       return "";
@@ -270,7 +258,9 @@ export function createTerminalIMEController({
     const previewLeft = cursorX * width;
     const previewTop = cursorY * height;
     const hostWidth = Math.max(width, Number(session.terminalHost?.clientWidth) || (Number(term.cols) || 1) * width);
-    if (mobile) {
+    // Native IMEs own the editable value, selection and input geometry until
+    // composition ends. Output may move the separate preview, not the input.
+    if (mobile || session.composingIME) {
       syncCompositionPreview(session, {
         x: previewLeft, y: previewTop, width, height,
         maxWidth: Math.max(width, hostWidth - previewLeft),
@@ -675,15 +665,27 @@ export function createTerminalIMEController({
   };
 
   const handleBeforeInput = (session, event) => {
+    const type = String(event.inputType || "");
+    const nativeBackwardDelete = isBackwardDeleteInputType(type)
+      && (!session?.composingIME || session?.pendingCompositionInput?.sent);
+    if (!nativeBackwardDelete
+      && (type === "insertCompositionText" || type === "deleteCompositionText" || event.isComposing)) {
+      endNativeDeleteInput(session, { reset: false });
+      setComposing(session, true);
+      if (typeof event.data === "string") {
+        setTextareaCompositionText(session, event.data);
+      }
+      scrollToBottom(session);
+      positionInput(session);
+      scheduleHostViewportReset(session, { clean: true });
+      event.stopImmediatePropagation();
+      return;
+    }
     if (shouldReassertInputSize(session)) {
       reassertSize(session);
     }
-    const type = String(event.inputType || "");
     const textarea = session?.term?.textarea;
-    if (
-      isBackwardDeleteInputType(type)
-      && (!session?.composingIME || session?.pendingCompositionInput?.sent)
-    ) {
+    if (nativeBackwardDelete) {
       clearPostCompositionInput(session);
       if (session?.composingIME) {
         setComposing(session, false);
@@ -695,18 +697,6 @@ export function createTerminalIMEController({
     }
     if (session?.nativeDeleteInputPending) {
       endNativeDeleteInput(session);
-    }
-    if (type === "insertCompositionText" || type === "deleteCompositionText" || event.isComposing) {
-      setComposing(session, true);
-      if (typeof event.data === "string") {
-        setTextareaCompositionText(session, event.data);
-      }
-      scrollToBottom(session);
-      clearTextareaSentinel(session);
-      positionInput(session);
-      scheduleHostViewportReset(session, { clean: true });
-      event.stopImmediatePropagation();
-      return;
     }
     positionInput(session);
     let data = "";
@@ -1003,7 +993,17 @@ export function createTerminalIMEController({
     });
     let lastMobileTap = null;
     let mobileTapTouchState = null;
-    lifecycle.listen(session, host, "keydown", () => {
+    lifecycle.listen(session, host, "keydown", (event) => {
+      if (isTerminalCompositionKeyEvent(event) || session.composingIME) {
+        // Some Windows hosts report Process without keyCode 229. Keep the
+        // native default action, but never pass this key to Ghostty's encoder.
+        if (documentObject.activeElement !== textarea && session === getActiveSession()
+          && !requiresTouchKeyboardDoubleTap()) {
+          focusInput(session, { focusSource: "user" });
+        }
+        event.stopImmediatePropagation();
+        return;
+      }
       if (shouldReassertInputSize(session)) {
         reassertSize(session);
       }
@@ -1013,13 +1013,13 @@ export function createTerminalIMEController({
     }, { capture: true });
     lifecycle.listen(session, textarea, "compositionstart", (event) => {
       event.stopPropagation();
-      scrollToBottom(session);
-      clearTextareaSentinel(session);
-      clearPostCompositionInput(session);
       setComposing(session, true);
+      endNativeDeleteInput(session, { reset: false });
+      clearPostCompositionInput(session);
       session.compositionTextHistory = [];
       session.compositionPreviousText = "";
-      setTextareaCompositionText(session, "");
+      setTextareaCompositionText(session, event.data || "");
+      scrollToBottom(session);
       positionInput(session);
       scheduleHostViewportReset(session, { clean: true });
     }, { capture: true });
@@ -1040,7 +1040,7 @@ export function createTerminalIMEController({
       const committedText = typeof event.data === "string" ? stripTerminalInputSentinel(event.data) : "";
       const committedAlreadySent = isPostCompositionInputAlreadySent(session, committedText);
       setComposing(session, false);
-      armPostCompositionInput(session, {
+      const pendingCommit = armPostCompositionInput(session, {
         preedits: preeditCandidates,
         committed: committedText,
         sent: Boolean(committedText),
@@ -1054,6 +1054,7 @@ export function createTerminalIMEController({
         });
       }
       lifecycle.timeout(session, () => {
+        if (session.composingIME || session.pendingCompositionInput !== pendingCommit) return;
         const fallbackValue = stripTerminalInputSentinel(textarea.value);
         if (fallbackValue) {
           const pendingComposition = session?.pendingCompositionInput;

@@ -12,7 +12,7 @@
 
 移动端双击由本 controller 按事件时间戳统一识别，保留 320ms、8px 和 16px 的既有阈值，不增加单次按住时长的键盘门槛。选择逻辑认领的长按、滚动、多指和取消手势会清理本组点击历史。有效请求同步聚焦当前已挂载 textarea，不再经过 600ms 聚焦许可；system 恢复仍不得替后台终端取得焦点。
 
-资源创建阶段禁止 Ghostty 初始化抢焦，host 不再作为可编辑或可聚焦节点。IME 保留 Ghostty 的滚动收尾，去掉触摸单击自行聚焦。单击收起由 IME 处理，真正失焦才通知 viewport 恢复；新请求取消旧恢复、惯性及选择/TUI 的待处理触摸任务。
+资源创建阶段禁止 Ghostty 初始化抢焦，并通过 `focusOnClick: false` 禁止包装层内置的单击/触摸聚焦；仅覆盖 `term.focus` 无法阻止包装层直接聚焦 textarea。该选项不能禁用触摸滚动：host 的具名 touchstart/move/end/cancel、惯性和滚动条仍由维护在 `ghostty-web/lib/` 的包装层提供，IME 只接管焦点与手势认领。host 不再作为可编辑或可聚焦节点。桌面 pointer 聚焦、触摸双击展开和单击收起统一由 IME 处理，不能在 shell 捕获阶段失焦后又被 Canvas 重新聚焦。IME 保留可用的 Ghostty 滚动收尾；真正失焦才通知 viewport 恢复，新请求取消旧恢复、惯性及选择/TUI 的待处理触摸任务。
 
 移动触摸布局使用 terminal-input-mobile CSS 固定 textarea 在宿主顶部，宽度随宿主、输入行高和字体固定 16px，不依赖 WASM 光标或安装时尚未挂载的 DOM 测量。聚焦前后使用同一位置，不安排后续帧移动；输出及 resize 的 positionInput 调用在非 composition 时不读取布局、不改写 textarea 样式、值或选区，composition 时只更新独立预览。桌面仍使用光标定位。移动端 source=output 的宿主复位直接跳过，实际 input/scroll 等事件仍由宿主保护处理。`isKeyboardClaimed(event)` 只表示本次 touchend 已被双击键盘认领。`shouldPreserveTouchDefault(event)` 覆盖双击认领和第一下页面焦点交接；selection、TUI、mouse 取消默认行为前必须读取它。`shouldPreserveInputFocus(session)` 仅用于快捷栏维持输入，不代表系统键盘已显示。
 
@@ -24,6 +24,10 @@ Android 默认依赖同步 focus；VirtualKeyboard.show 仅在已有 manual poli
 
 候选确认后的短暂去重只过滤重复的候选文本，不过滤独立空格事件。Android 豆包输入法用回车确认英文候选后，后续空格继续发送给终端；用空格确认时保留候选提交中已有的空格。
 
+`isTerminalCompositionKeyEvent()` 统一识别 `isComposing`、`Process`、`keyCode/which = 229`。host 捕获阶段隔离这些按键及当前组合输入的按键，不取消浏览器默认行为，也不交给 Ghostty 编码或自定义终端按键处理；桌面终端持有按键目标但 textarea 失焦时同步恢复其焦点。应用快捷键在解析配置前使用同一判定放行输入法事件，避免候选键被已配置快捷键拦截。
+
+组合输入开始时先取得 composing 状态并停止原生删除计时，不清除 textarea 中的占位字符、不改写原生选区；占位字符仅在读取预览或提交文本时过滤。组合期间输出与 resize 只更新独立预览，不改写 textarea 的几何和样式。上一轮提交的延迟回调以 pending commit 身份隔离，不能读取或重置下一轮正在编辑的候选。Windows 输入框继续保留 `opacity: 0.01`，避免完全透明输入框的既有兼容问题。
+
 移动 textarea 与输出、光标布局及 viewport pan 隔离；原生候选窗使用固定输入框锚点，独立 composition 预览按终端字体和光标绘制。
 
 `ios_terminal_host.js` 仍是 HTML 在 ES module 前加载的经典脚本，不通过 `index.js` 导入。
@@ -33,8 +37,10 @@ Android 默认依赖同步 focus；VirtualKeyboard.show 仅在已有 manual poli
 - `index.js`：ES module 单一公开入口。
 - `ime_controller.js`：composition、textarea、focus、手势与 host 输入编排。
 - `ime_lifecycle.js`：session listener、timer、RAF 和幂等清理。
-- `ime_model.js`：平台识别、sentinel、delete input type 与 composition 候选纯函数。
+- `ime_model.js`：平台识别、sentinel、delete input type、组合按键识别与 composition 候选纯函数。
 - `keyboard_diagnostics.js`：触摸、焦点和视口诊断，管理有界日志及监听器清理。
 - `ios_terminal_host.js`：iOS 宿主兼容经典脚本。
 
 从项目根目录运行 `./run-ac.sh --help` 查看场景执行入口。剪贴板场景位于 `spec-tests/app/paste/`，设备与环境配置由 `spec-tests/` 管理。
+
+Windows 微软拼音需在懒猫客户端、Edge 和 Chrome 手工验证首次中文输入、候选退格/选词/取消、连续确认、中英文切换，以及终端持续输出期间的输入。合成 DOM composition 事件不能替代 Windows 系统输入法验收。对应合同见 `spec/terminal/ime/SC-WINDOWS-MICROSOFT-PINYIN`。

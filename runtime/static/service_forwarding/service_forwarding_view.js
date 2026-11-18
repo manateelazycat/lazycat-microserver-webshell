@@ -105,18 +105,7 @@ export function createServiceForwardingView({
         return;
       }
       elements.list.textContent = "";
-      if (!targetAvailable) {
-        const empty = documentObject.createElement("div");
-        empty.className = "settings-service-forward-empty";
-        empty.textContent = "当前没有可用实例。";
-        elements.list.appendChild(empty);
-        return;
-      }
-      if (!entries?.length) {
-        const empty = documentObject.createElement("div");
-        empty.className = "settings-service-forward-empty";
-        empty.textContent = "暂无服务转发。";
-        elements.list.appendChild(empty);
+      if (!targetAvailable || !entries?.length) {
         return;
       }
       for (const entry of entries) {

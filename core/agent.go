@@ -42,7 +42,32 @@ const (
 	// terminal wire formats and checkpoint WASM remain unchanged.
 	// v50 answers application lifecycle capability queries before the DA sentinel;
 	// terminal wire formats and checkpoint WASM remain unchanged.
-	AgentProtocolVersion = "lcmd-webshell-agent-v50"
+	// v51 moves the checkpoint core to Ghostty 1.4 and replaces whole-heap
+	// ghostty-memory-v1 exports with ghostty-snapshot-v1 (GHOSTSNP); memory-v1
+	// requests replay raw history.
+	// v52 adds optional process/DI agent identity (pane.agent), independent of
+	// turn status and recognizing the installed Antigravity CLI (agy); excludes
+	// semantic OSC 133 zones from agent lifecycle detection and honors CAN/SUB
+	// cancellation. Wire, checkpoint and GHOSTSNP snapshot formats match v51.
+	// The client-runtime branch also introduced the following compatible capabilities.
+	// Upstream v43 also restores physical PTY activity identity.
+	// 主线 v44 增加移动端预输入设置，终端帧与快照格式不变。
+	// v43 connects the native runtime through authenticated persistent channels.
+	// v44 isolates the complete WASM patch build cache and changes its fingerprint.
+	// v43 and earlier remain wire-compatible and use raw replay for this frontend.
+	// v45 moves native registration and live worker updates into launcher v2.
+	// v46 moves native runtime access to private IPC; v45 container agents remain compatible.
+	// v47 prepares cached-launcher updates before worker creation; terminal frames stay compatible.
+	// v51 reports the LightOS LPK version separately from runtime content digests.
+	// v52 reuses the in-process PTY library; terminal wire and task ownership are unchanged.
+	// v53 incorporates upstream activity fixes and the merged WASM build.
+	// v54 合入主线移动预输入与 Codex 输入修复，沿用 v53 的 WASM 和终端帧。
+	// v55 combines V3 workspace inspection and lifecycle reporting with the native runtime;
+	// the merged WASM differs from v53/v54, which retain attach and raw history replay.
+	// v56 merges Ghostty 1.4 snapshots and agent identity with the distributed runtime.
+	// v57 follows the PTY helper relocation into hportal misc/cli; wire and snapshot formats stay unchanged.
+	// v58 enables official Ghostty Kitty rendering and ordered core-owned query replies.
+	AgentProtocolVersion = "lcmd-webshell-agent-v58"
 
 	agentFrameBinary         = byte('B')
 	AgentFrameText           = byte('T')

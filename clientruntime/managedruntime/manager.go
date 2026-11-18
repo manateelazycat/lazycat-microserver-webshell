@@ -1,5 +1,5 @@
 // Package lightosterminal owns the client terminal's private parent protocol
-// and lifecycle. The PC terminal gateway owns service registration and leases.
+// and lifecycle. The host owns hportal service authorization and leases.
 package lightosterminal
 
 import (
@@ -11,7 +11,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
+	"lcmd-webshell/clienttransport"
+	"net"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -29,12 +31,15 @@ type Config struct {
 	BoxID             string `json:"box_id"`
 	DeviceID          string `json:"device_id"`
 	StateDir          string `json:"state_dir"`
-	GatewayAddress    string `json:"gateway_address"`
-	GatewayCredential string `json:"gateway_credential"`
+	ServiceCredential string `json:"service_credential"`
+	ServiceEpoch      string `json:"service_epoch"`
+	ServiceName       string `json:"service_name"`
 }
 type Binding struct {
 	InstanceID, AccountID, BoxID, DeviceID, Epoch, Secret, Credential, StateDir string
+	ServiceName                                                                 string
 	AdmissionAllowed                                                            func() bool
+	Listener                                                                    net.Listener
 }
 type Service interface {
 	Address() string
@@ -43,10 +48,9 @@ type Service interface {
 type Factory func(context.Context, Binding) (Service, error)
 
 type leaseControl struct {
-	Type              string `json:"type"`
-	GatewayAddress    string `json:"gateway_address"`
-	GatewayCredential string `json:"gateway_credential"`
-	generation        uint64
+	Type       string `json:"type"`
+	RequestID  string `json:"request_id,omitempty"`
+	generation uint64
 }
 
 type Registration struct {
@@ -56,6 +60,7 @@ type Registration struct {
 	Credential       string `json:"terminal_cred_value"`
 	Epoch            string `json:"terminal_epoch"`
 	Protocol         string `json:"terminal_protocol"`
+	Certificate      string `json:"terminal_certificate,omitempty"`
 }
 
 // Run reads one configuration followed by renew messages from a private parent
@@ -74,6 +79,9 @@ func Run(ctx context.Context, input io.Reader, output io.Writer, protocol string
 	if err := config.validate(); err != nil {
 		return err
 	}
+	if err := os.MkdirAll(config.StateDir, 0700); err != nil {
+		return err
+	}
 	unlock, err := acquireLock(filepath.Join(config.StateDir, "terminal-core.lock"))
 	if err != nil {
 		return err
@@ -84,30 +92,35 @@ func Run(ctx context.Context, input io.Reader, output io.Writer, protocol string
 	var admission atomic.Bool
 	var gateMu sync.Mutex
 	var admissionGeneration uint64
-	binding := Binding{InstanceID: config.InstanceID, AccountID: config.AccountID, BoxID: config.BoxID, DeviceID: config.DeviceID, StateDir: config.StateDir, AdmissionAllowed: admission.Load}
-	for _, target := range []*string{&binding.Epoch, &binding.Secret, &binding.Credential} {
+	binding := Binding{InstanceID: config.InstanceID, AccountID: config.AccountID, BoxID: config.BoxID, DeviceID: config.DeviceID, StateDir: config.StateDir, AdmissionAllowed: admission.Load, ServiceName: config.ServiceName}
+	binding.Epoch, binding.Credential = config.ServiceEpoch, config.ServiceCredential
+	for _, target := range []*string{&binding.Secret} {
 		data := make([]byte, 32)
 		if _, err := rand.Read(data); err != nil {
 			return err
 		}
 		*target = base64.RawURLEncoding.EncodeToString(data)
 	}
+	listener, address, cleanup, err := openPrivateIPC()
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+	business, certificate, err := clienttransport.Listen(ctx, listener, config.ServiceName, config.ServiceCredential)
+	if err != nil {
+		return err
+	}
+	defer business.Close()
+	binding.Listener = business
 	service, err := factory(ctx, binding)
 	if err != nil {
 		return err
 	}
 	defer service.Close()
-	registration := Registration{ServiceName: ServicePrefix + config.InstanceID + "." + binding.Epoch, Secret: binding.Secret,
-		CredentialHeader: CredentialHeader, Credential: binding.Credential, Epoch: binding.Epoch, Protocol: protocol}
-	if err := register(ctx, config, service.Address(), registration); err != nil {
-		return err
-	}
+	registration := Registration{ServiceName: config.ServiceName, Secret: binding.Secret,
+		CredentialHeader: CredentialHeader, Credential: binding.Credential, Epoch: binding.Epoch, Protocol: protocol, Certificate: certificate}
 	admission.Store(true)
-	defer func() {
-		service.Close()
-		_ = register(context.Background(), config, "", registration)
-	}()
-	if err := json.NewEncoder(output).Encode(map[string]any{"type": "ready", "protocol": protocol, "registration": registration}); err != nil {
+	if err := json.NewEncoder(output).Encode(map[string]any{"type": "ready", "protocol": protocol, "registration": registration, "address": address}); err != nil {
 		return err
 	}
 	controls := make(chan leaseControl, 4)
@@ -115,7 +128,7 @@ func Run(ctx context.Context, input io.Reader, output io.Writer, protocol string
 		defer cancel()
 		for scanner.Scan() {
 			var message leaseControl
-			if json.Unmarshal(scanner.Bytes(), &message) != nil || message.Type != "renew" && message.Type != "pause" {
+			if json.Unmarshal(scanner.Bytes(), &message) != nil || message.Type != "renew" && message.Type != "pause" && message.Type != "status" && message.Type != "prepare_update" && message.Type != "cancel_update" {
 				return
 			}
 			gateMu.Lock()
@@ -133,6 +146,9 @@ func Run(ctx context.Context, input io.Reader, output io.Writer, protocol string
 		}
 	}()
 	timer := time.NewTimer(leaseDuration)
+	leaseUntil := time.Now().Add(leaseDuration)
+	var authorizedGeneration uint64
+	updateReserved := false
 	defer timer.Stop()
 	for {
 		select {
@@ -144,6 +160,44 @@ func Run(ctx context.Context, input io.Reader, output io.Writer, protocol string
 			admissionGeneration++
 			gateMu.Unlock()
 		case control := <-controls:
+			if control.Type == "prepare_update" {
+				gateMu.Lock()
+				admission.Store(false)
+				gateMu.Unlock()
+				busy := true
+				if b, ok := service.(interface{ Busy() bool }); ok {
+					busy = b.Busy()
+				}
+				gateMu.Lock()
+				updateReserved = !busy
+				if busy && authorizedGeneration == admissionGeneration && time.Now().Before(leaseUntil) {
+					admission.Store(true)
+				}
+				gateMu.Unlock()
+				if err := json.NewEncoder(output).Encode(map[string]any{"type": "update_ready", "request_id": control.RequestID, "ready": !busy}); err != nil {
+					return err
+				}
+				continue
+			}
+			if control.Type == "cancel_update" {
+				gateMu.Lock()
+				updateReserved = false
+				if authorizedGeneration == admissionGeneration && time.Now().Before(leaseUntil) {
+					admission.Store(true)
+				}
+				gateMu.Unlock()
+				continue
+			}
+			if control.Type == "status" {
+				busy := true
+				if serviceBusy, ok := service.(interface{ Busy() bool }); ok {
+					busy = serviceBusy.Busy()
+				}
+				if err := json.NewEncoder(output).Encode(map[string]any{"type": "status", "busy": busy, "channel_connected": admission.Load()}); err != nil {
+					return err
+				}
+				continue
+			}
 			if control.Type == "pause" {
 				if !timer.Stop() {
 					select {
@@ -160,32 +214,23 @@ func Run(ctx context.Context, input io.Reader, output io.Writer, protocol string
 				}
 			}
 			timer.Reset(leaseDuration)
-			if control.GatewayAddress != "" && control.GatewayCredential != "" &&
-				(control.GatewayAddress != config.GatewayAddress || control.GatewayCredential != config.GatewayCredential) {
-				config.GatewayAddress = control.GatewayAddress
-				config.GatewayCredential = control.GatewayCredential
-			}
-			// Every authenticated renewal also extends the independent route lease.
-			err := register(ctx, config, service.Address(), registration)
-			if err != nil {
-				admission.Store(false)
-				// Gateway failure affects new admission, not existing tasks.
-				log.Print("terminal gateway registration will retry on the next authenticated renewal")
-			} else {
-				gateMu.Lock()
-				if admissionGeneration == control.generation {
+			leaseUntil = time.Now().Add(leaseDuration)
+			gateMu.Lock()
+			if admissionGeneration == control.generation {
+				authorizedGeneration = control.generation
+				if !updateReserved {
 					admission.Store(true)
 				}
-				gateMu.Unlock()
 			}
+			gateMu.Unlock()
 		}
 	}
 }
 
 func (c Config) validate() error {
-	for _, v := range []string{c.InstanceID, c.AccountID, c.BoxID, c.DeviceID, c.StateDir, c.GatewayAddress, c.GatewayCredential} {
+	for _, v := range []string{c.InstanceID, c.AccountID, c.BoxID, c.DeviceID, c.StateDir, c.ServiceCredential, c.ServiceEpoch, c.ServiceName} {
 		if strings.TrimSpace(v) == "" || strings.ContainsAny(v, "\r\n") {
-			return errors.New("terminal scope or gateway is incomplete")
+			return errors.New("terminal scope or channel is incomplete")
 		}
 	}
 	if !filepath.IsAbs(c.StateDir) {

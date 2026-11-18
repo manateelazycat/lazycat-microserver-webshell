@@ -57,6 +57,7 @@ func (w *terminalWorkspace) refreshActivity(ctx context.Context) (WorkspaceActiv
 			pane.busy = activity.Busy
 			pane.command = activity.Command
 			pane.commandLine = activity.CommandLine
+			pane.agent = activity.Agent
 			if activity.CWD != "" {
 				pane.cwd = activity.CWD
 			}
